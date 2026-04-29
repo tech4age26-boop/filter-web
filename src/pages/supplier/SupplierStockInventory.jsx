@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Warehouse, AlertTriangle, Package, TrendingUp, Pencil } from 'lucide-react';
+import { Warehouse, AlertTriangle, Package, TrendingUp, Pencil, Loader2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import {
@@ -134,8 +134,6 @@ export default function SupplierStockInventory() {
                 <div className="ws-section" style={{ marginBottom: 16, padding: 14, background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, color: '#B91C1C', fontSize: '0.875rem' }}>
                     <strong>Could not load stock:</strong> {apiError}
                 </div>
-            ) : loading ? (
-                <p style={{ margin: '0 0 16px 0', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Loading inventory…</p>
             ) : null}
 
             {/* Summary cards */}
@@ -183,7 +181,35 @@ export default function SupplierStockInventory() {
                         </div>
                     )}
 
-                    {/* Table */}
+                    {/* Table / loading */}
+                    {loading ? (
+                        <div
+                            className="ws-section"
+                            role="status"
+                            aria-live="polite"
+                            aria-busy="true"
+                            style={{
+                                textAlign: 'center',
+                                padding: '56px 24px',
+                                minHeight: 220,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 12,
+                            }}
+                        >
+                            <Loader2
+                                size={36}
+                                className="spin"
+                                style={{ color: 'var(--color-primary-dark, #E0A800)' }}
+                                aria-hidden
+                            />
+                            <p style={{ margin: 0, fontWeight: 700, color: 'var(--color-text-dark)' }}>
+                                Loading inventory…
+                            </p>
+                        </div>
+                    ) : (
                     <div className="ws-section">
                         <table className="ws-table">
                             <thead><tr><th>Product</th><th>SKU</th><th>Unit</th><th>Stock Qty</th><th>Critical Level</th><th>Reorder Level</th><th>Purchase Price</th><th>Value</th><th>Status</th><th>Actions</th></tr></thead>
@@ -235,10 +261,39 @@ export default function SupplierStockInventory() {
                             </div>
                         )}
                     </div>
+                    )}
                 </>
             )}
 
             {activeTab === 'movements' && (
+                loading ? (
+                    <div
+                        className="ws-section"
+                        role="status"
+                        aria-live="polite"
+                        aria-busy="true"
+                        style={{
+                            textAlign: 'center',
+                            padding: '56px 24px',
+                            minHeight: 220,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 12,
+                        }}
+                    >
+                        <Loader2
+                            size={36}
+                            className="spin"
+                            style={{ color: 'var(--color-primary-dark, #E0A800)' }}
+                            aria-hidden
+                        />
+                        <p style={{ margin: 0, fontWeight: 700, color: 'var(--color-text-dark)' }}>
+                            Loading movements…
+                        </p>
+                    </div>
+                ) : (
                 <div className="ws-section">
                     <table className="ws-table">
                         <thead><tr><th>Date</th><th>Product</th><th>Type</th><th>Qty</th><th>Unit</th><th>Before</th><th>After</th><th>Reference</th><th>Notes</th></tr></thead>
@@ -267,6 +322,7 @@ export default function SupplierStockInventory() {
                         </div>
                     )}
                 </div>
+                )
             )}
 
             {/* Stock Adjustment modal (Adjust button) */}

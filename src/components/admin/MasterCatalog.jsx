@@ -285,6 +285,17 @@ export default function MasterCatalog() {
     const [prApproveTarget, setPrApproveTarget] = useState(null);
     const [prRejectTarget, setPrRejectTarget] = useState(null);
     const [prRemarks, setPrRemarks] = useState('');
+    const [prApproveForm, setPrApproveForm] = useState({
+        name: '',
+        sku: '',
+        brandName: '',
+        description: '',
+        arabicName: '',
+        unit: 'pcs',
+        expectedPrice: '',
+        departmentId: '',
+        categoryId: '',
+    });
     const [prRejectReason, setPrRejectReason] = useState('');
     const [prActionBusy, setPrActionBusy] = useState(false);
     const [toast, setToast] = useState(null);
@@ -330,6 +341,9 @@ export default function MasterCatalog() {
     const serviceCategories = categories.filter((c) => c.type === 'service' || !c.type);
     const selectedProductCategories = productCategories.filter((c) => String(c.departmentId) === String(newProduct.departmentId));
     const selectedServiceCategories = serviceCategories.filter((c) => String(c.departmentId) === String(newService.departmentId));
+    const approveProductCategories = productCategories.filter(
+        (c) => String(c.departmentId) === String(prApproveForm.departmentId),
+    );
     const filteredProducts = products.filter((p) => {
         const matchesSearch =
             !searchQuery ||
@@ -469,13 +483,46 @@ export default function MasterCatalog() {
 
     const handlePrApproveConfirm = async () => {
         if (!prApproveTarget) return;
+        if (!prApproveForm.name?.trim()) {
+            showToast('Product name is required', 'error');
+            return;
+        }
+        if (!prApproveForm.departmentId) {
+            showToast('Department is required', 'error');
+            return;
+        }
         setPrActionBusy(true);
         try {
-            await approveProductRequest(prApproveTarget.id, prRemarks?.trim() || undefined);
+            const payload = {
+                remarks: prRemarks?.trim() || undefined,
+                name: prApproveForm.name.trim(),
+                sku: prApproveForm.sku?.trim() || undefined,
+                brandName: prApproveForm.brandName?.trim() || undefined,
+                description: prApproveForm.description?.trim() || undefined,
+                arabicName: prApproveForm.arabicName?.trim() || undefined,
+                unit: prApproveForm.unit?.trim() || 'pcs',
+                expectedPrice:
+                    prApproveForm.expectedPrice === '' ? undefined : Number(prApproveForm.expectedPrice),
+                departmentId: prApproveForm.departmentId,
+                categoryId: prApproveForm.categoryId || null,
+            };
+            await approveProductRequest(prApproveTarget.id, payload);
             showToast('Request approved', 'success');
             setPrApproveTarget(null);
             setPrRemarks('');
+            setPrApproveForm({
+                name: '',
+                sku: '',
+                brandName: '',
+                description: '',
+                arabicName: '',
+                unit: 'pcs',
+                expectedPrice: '',
+                departmentId: '',
+                categoryId: '',
+            });
             await loadProductRequests();
+            await Promise.all([loadCatalog(), loadKpis({ silent: true })]);
         } catch (e) {
             showToast(e?.message || 'Approve failed', 'error');
         } finally {
@@ -975,33 +1022,45 @@ export default function MasterCatalog() {
                 </div>
             </div>
 
-            <div className="mc-products-grid">
-                {(loading ? [] : filteredProducts).map(p => (
-                    <div key={p.id} className="mc-product-card" onClick={() => handleEditClick(p)}>
-                        <div className="mc-pc-header">
-                            <div className="mc-pc-icon"><Edit3 size={18} /></div>
-                            <span className={`mc-pc-status ${p.isActive === false ? 'rejected' : 'approved'}`}>
-                                {p.isActive === false ? 'Rejected' : 'Approved'}
-                            </span>
-                        </div>
-                        <div className="mc-pc-body">
-                            <h3 className="mc-pc-name">{p.name}</h3>
-                            <p className="mc-pc-sku">{p.sku || 'No SKU'}</p>
-                            <div className="mc-pc-tags">
-                                <span className="mc-pc-tag">Product</span>
-                                <span className="mc-pc-tag">{p.unit || 'pcs'}</span>
-                                <span className="mc-pc-tag">{p.categoryName || '—'}</span>
+            {loading ? (
+                <div className="mc-empty-state">
+                    <div className="mc-empty-icon"><RefreshCw size={28} className="spin" /></div>
+                    <p>Loading products…</p>
+                </div>
+            ) : filteredProducts.length === 0 ? (
+                <div className="mc-empty-state">
+                    <div className="mc-empty-icon"><Package size={44} opacity={0.18} /></div>
+                    <p>{searchQuery ? `No products matching "${searchQuery}"` : 'No products yet'}</p>
+                </div>
+            ) : (
+                <div className="mc-products-grid">
+                    {filteredProducts.map(p => (
+                        <div key={p.id} className="mc-product-card" onClick={() => handleEditClick(p)}>
+                            <div className="mc-pc-header">
+                                <div className="mc-pc-icon"><Edit3 size={18} /></div>
+                                <span className={`mc-pc-status ${p.isActive === false ? 'rejected' : 'approved'}`}>
+                                    {p.isActive === false ? 'Rejected' : 'Approved'}
+                                </span>
                             </div>
-                            <div className="mc-pc-footer">
-                                <span className="mc-pc-price">SAR {p.salePrice ?? 0}</span>
-                                <button className="mc-pc-edit-btn" onClick={(e) => { e.stopPropagation(); handleEditClick(p); }}>
-                                    <Edit3 size={14} />
-                                </button>
+                            <div className="mc-pc-body">
+                                <h3 className="mc-pc-name">{p.name}</h3>
+                                <p className="mc-pc-sku">{p.sku || 'No SKU'}</p>
+                                <div className="mc-pc-tags">
+                                    <span className="mc-pc-tag">Product</span>
+                                    <span className="mc-pc-tag">{p.unit || 'pcs'}</span>
+                                    <span className="mc-pc-tag">{p.categoryName || '—'}</span>
+                                </div>
+                                <div className="mc-pc-footer">
+                                    <span className="mc-pc-price">SAR {p.salePrice ?? 0}</span>
+                                    <button className="mc-pc-edit-btn" onClick={(e) => { e.stopPropagation(); handleEditClick(p); }}>
+                                        <Edit3 size={14} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 
@@ -1185,17 +1244,7 @@ export default function MasterCatalog() {
                                             <span className="mc-pr-value">{r.brandName || '—'}</span>
                                         </div>
                                         <div className="mc-pr-row">
-                                            <span className="mc-pr-label">Workshop</span>
-                                            <span className="mc-pr-value">{workshop.name || '—'}</span>
-                                        </div>
-                                        {branch.name && (
-                                            <div className="mc-pr-row">
-                                                <span className="mc-pr-label">Branch</span>
-                                                <span className="mc-pr-value">{branch.name}</span>
-                                            </div>
-                                        )}
-                                        <div className="mc-pr-row">
-                                            <span className="mc-pr-label">Submitted by</span>
+                                            <span className="mc-pr-label">Requested from Supplier</span>
                                             <span className="mc-pr-value">
                                                 {submitter.name || submitter.email || '—'}
                                             </span>
@@ -1232,7 +1281,24 @@ export default function MasterCatalog() {
                                             <button
                                                 type="button"
                                                 className="mc-btn-primary"
-                                                onClick={() => { setPrApproveTarget(r); setPrRemarks(''); }}
+                                                onClick={() => {
+                                                    setPrApproveTarget(r);
+                                                    setPrRemarks('');
+                                                    setPrApproveForm({
+                                                        name: r?.name || '',
+                                                        sku: r?.sku || '',
+                                                        brandName: r?.brandName || '',
+                                                        description: r?.description || '',
+                                                        arabicName: r?.arabicName || '',
+                                                        unit: r?.unit || 'pcs',
+                                                        expectedPrice:
+                                                            r?.expectedPrice === null || r?.expectedPrice === undefined
+                                                                ? ''
+                                                                : String(r.expectedPrice),
+                                                        departmentId: r?.departmentId ? String(r.departmentId) : '',
+                                                        categoryId: r?.categoryId ? String(r.categoryId) : '',
+                                                    });
+                                                }}
                                             >
                                                 <CheckCircle2 size={14} /> Approve
                                             </button>
@@ -2676,8 +2742,114 @@ export default function MasterCatalog() {
                     >
                         <div className="mc-modal-form">
                             <p className="mc-pr-modal-lead">
-                                Approve <strong>{prApproveTarget.name}</strong>{prApproveTarget.workshop?.name ? ` from ${prApproveTarget.workshop.name}` : ''}?
+                                Review and approve <strong>{prApproveTarget.name}</strong>.
                             </p>
+                            <div className="mc-form-grid two">
+                                <div className="mc-form-group">
+                                    <label>Name *</label>
+                                    <input
+                                        type="text"
+                                        value={prApproveForm.name}
+                                        onChange={(e) => setPrApproveForm((prev) => ({ ...prev, name: e.target.value }))}
+                                        disabled={prActionBusy}
+                                        placeholder="Product name"
+                                    />
+                                </div>
+                                <div className="mc-form-group">
+                                    <label>SKU</label>
+                                    <input
+                                        type="text"
+                                        value={prApproveForm.sku}
+                                        onChange={(e) => setPrApproveForm((prev) => ({ ...prev, sku: e.target.value }))}
+                                        disabled={prActionBusy}
+                                        placeholder="SKU"
+                                    />
+                                </div>
+                                <div className="mc-form-group">
+                                    <label>Brand</label>
+                                    <input
+                                        type="text"
+                                        value={prApproveForm.brandName}
+                                        onChange={(e) => setPrApproveForm((prev) => ({ ...prev, brandName: e.target.value }))}
+                                        disabled={prActionBusy}
+                                        placeholder="Brand"
+                                    />
+                                </div>
+                                <div className="mc-form-group">
+                                    <label>Unit</label>
+                                    <input
+                                        type="text"
+                                        value={prApproveForm.unit}
+                                        onChange={(e) => setPrApproveForm((prev) => ({ ...prev, unit: e.target.value }))}
+                                        disabled={prActionBusy}
+                                        placeholder="pcs"
+                                    />
+                                </div>
+                                <div className="mc-form-group">
+                                    <label>Expected price</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={prApproveForm.expectedPrice}
+                                        onChange={(e) => setPrApproveForm((prev) => ({ ...prev, expectedPrice: e.target.value }))}
+                                        disabled={prActionBusy}
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                <div className="mc-form-group">
+                                    <label>Department *</label>
+                                    <select
+                                        value={prApproveForm.departmentId}
+                                        onChange={(e) =>
+                                            setPrApproveForm((prev) => ({
+                                                ...prev,
+                                                departmentId: e.target.value,
+                                                categoryId: '',
+                                            }))
+                                        }
+                                        disabled={prActionBusy}
+                                    >
+                                        <option value="">Select department</option>
+                                        {departments.map((d) => (
+                                            <option key={d.id} value={String(d.id)}>{d.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="mc-form-group">
+                                    <label>Category</label>
+                                    <select
+                                        value={prApproveForm.categoryId}
+                                        onChange={(e) => setPrApproveForm((prev) => ({ ...prev, categoryId: e.target.value }))}
+                                        disabled={prActionBusy || !prApproveForm.departmentId}
+                                    >
+                                        <option value="">No category</option>
+                                        {approveProductCategories.map((c) => (
+                                            <option key={c.id} value={String(c.id)}>{c.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="mc-form-group">
+                                <label>Description</label>
+                                <textarea
+                                    rows={3}
+                                    placeholder="Description"
+                                    value={prApproveForm.description}
+                                    onChange={(e) => setPrApproveForm((prev) => ({ ...prev, description: e.target.value }))}
+                                    disabled={prActionBusy}
+                                />
+                            </div>
+                            <div className="mc-form-group">
+                                <label>Arabic name</label>
+                                <input
+                                    type="text"
+                                    value={prApproveForm.arabicName}
+                                    onChange={(e) => setPrApproveForm((prev) => ({ ...prev, arabicName: e.target.value }))}
+                                    disabled={prActionBusy}
+                                    placeholder="Arabic name"
+                                />
+                            </div>
                             <div className="mc-form-group">
                                 <label>Remarks (optional)</label>
                                 <textarea

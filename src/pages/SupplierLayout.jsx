@@ -1,8 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Warehouse, ArrowLeft, LogOut, FileText, ShoppingCart, ChevronDown, ChevronRight } from 'lucide-react';
-import { NAV_GROUPS, SUPPLIER_AR_SUMMARY } from './supplier/constants';
+import {
+    Warehouse,
+    ArrowLeft,
+    LogOut,
+    FileText,
+    ShoppingCart,
+    ChevronDown,
+    ChevronRight,
+    Loader2,
+} from 'lucide-react';
+import { NAV_GROUPS } from './supplier/constants';
 import SupplierDashboard from './supplier/SupplierDashboard';
 import SupplierOrderQueue from './supplier/SupplierOrderQueue';
 import SupplierStockInventory from './supplier/SupplierStockInventory';
@@ -14,6 +23,7 @@ import SupplierPurchaseInvoices from './supplier/SupplierPurchaseInvoices';
 import SupplierCashBank from './supplier/SupplierCashBank';
 import SupplierExpenses from './supplier/SupplierExpenses';
 import SupplierAccountingPage from './supplier/SupplierAccountingPage';
+import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { getSupplierProfile, getSupplierReceivables } from '../services/supplierApi';
 import './workshop/Workshop.css';
@@ -40,6 +50,7 @@ export default function SupplierLayout() {
     const [arSummaryError, setArSummaryError] = useState('');
     const [profileName, setProfileName] = useState(user?.name || 'Supplier Admin');
     const [profileRole, setProfileRole] = useState('Supplier Portal Manager');
+    const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
     const setActiveTab = (tab) => {
         if (tab.startsWith('accounting_')) {
@@ -56,7 +67,8 @@ export default function SupplierLayout() {
         );
     };
 
-    const handleLogout = () => {
+    const performLogout = () => {
+        setLogoutConfirmOpen(false);
         logout();
         navigate('/supplier/login', { replace: true });
     };
@@ -139,12 +151,35 @@ export default function SupplierLayout() {
                     <div className="ws-logo-icon"><Warehouse size={20}/></div>
                     <div><p className="ws-logo-title">Filter Supplier</p><p className="ws-logo-sub">Portal</p></div>
                 </div>
-                <div style={{ padding: '10px 14px', margin: '10px 12px', background: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 10, fontSize: '0.75rem', fontWeight: 700, color: '#000000', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <FileText size={14}/> AR: {
-                        arSummaryError ? 'Error' : 
-                        arSummary === null ? 'Loading...' : 
-                        `SAR ${Number(arSummary).toLocaleString()}`
-                    }
+                <div
+                    style={{
+                        padding: '10px 14px',
+                        margin: '10px 12px',
+                        background: 'rgba(0,0,0,0.06)',
+                        border: '1px solid rgba(0,0,0,0.1)',
+                        borderRadius: 10,
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        color: '#000000',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        minWidth: 0,
+                    }}
+                >
+                    <FileText size={14} style={{ flexShrink: 0 }} aria-hidden />
+                    <span style={{ flex: 1, minWidth: 0, lineHeight: 1.35 }}>
+                        {arSummaryError ? (
+                            <>AR: Error</>
+                        ) : arSummary === null ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <Loader2 size={14} className="spin" aria-hidden />
+                                AR: Loading…
+                            </span>
+                        ) : (
+                            <>AR: SAR {Number(arSummary).toLocaleString()}</>
+                        )}
+                    </span>
                 </div>
                 {canGoBackToAdmin ? (
                     <a className="ws-back-link" onClick={() => navigate('/admin/dashboard')} style={{cursor:'pointer'}}><ArrowLeft size={14}/> Back to Super Admin</a>
@@ -208,7 +243,14 @@ export default function SupplierLayout() {
                 </nav>
                 <div className="ws-user-footer">
                     <div className="ws-user-info"><div className="ws-user-avatar">SP</div><div><p className="ws-user-name">{profileName}</p><p className="ws-user-role">{profileRole}</p></div></div>
-                    <button className="ws-logout-btn" onClick={handleLogout}><LogOut size={16}/></button>
+                    <button
+                        type="button"
+                        className="ws-logout-btn"
+                        onClick={() => setLogoutConfirmOpen(true)}
+                        aria-label="Log out"
+                    >
+                        <LogOut size={16}/>
+                    </button>
                 </div>
             </aside>
             <div className="ws-main">
@@ -221,6 +263,32 @@ export default function SupplierLayout() {
                 </header>
                 <main className="ws-content">{renderContent()}</main>
             </div>
+
+            {logoutConfirmOpen && (
+                <Modal
+                    title="Sign out?"
+                    width="420px"
+                    onClose={() => setLogoutConfirmOpen(false)}
+                    footer={
+                        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                className="btn-portal-outline"
+                                onClick={() => setLogoutConfirmOpen(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button type="button" className="btn-portal" onClick={performLogout}>
+                                Log out
+                            </button>
+                        </div>
+                    }
+                >
+                    <p style={{ margin: 0, fontSize: '0.9375rem', color: '#374151', lineHeight: 1.5 }}>
+                        You will need to sign in again to access the supplier portal.
+                    </p>
+                </Modal>
+            )}
         </div>
     );
 }

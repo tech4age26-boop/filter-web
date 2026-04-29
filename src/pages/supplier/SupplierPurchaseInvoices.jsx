@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Plus, Calendar, ShoppingCart, Search, Zap, Eye, Download } from 'lucide-react';
+import { Plus, Calendar, ShoppingCart, Search, Zap, Eye, Download, Building2, History, Loader2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import '../../styles/admin/AccountingPage.css';
@@ -9,6 +9,10 @@ import {
     getSupplierPayable,
     listSupplierPayables,
     listSupplierProducts,
+    listSupplierSuperSuppliers,
+    createSupplierSuperSupplier,
+    createSupplierSuperSupplierPurchase,
+    listSupplierSuperSupplierAudit,
 } from '../../services/supplierApi';
 
 const ACCOUNT_OPTIONS = [
@@ -92,6 +96,34 @@ export default function SupplierPurchaseInvoices() {
     const [createError, setCreateError] = useState('');
     const [downloadingId, setDownloadingId] = useState(null);
 
+    const [superSuppliers, setSuperSuppliers] = useState([]);
+    const [ssLoading, setSsLoading] = useState(true);
+    const [addSsOpen, setAddSsOpen] = useState(false);
+    const [ssForm, setSsForm] = useState({
+        name: '',
+        mobile: '',
+        email: '',
+        vatNumber: '',
+        address: '',
+        notes: '',
+    });
+    const [ssSaving, setSsSaving] = useState(false);
+    const [ssErr, setSsErr] = useState('');
+    const [purchaseModal, setPurchaseModal] = useState(null);
+    const [purForm, setPurForm] = useState({
+        purchaseDate: new Date().toISOString().slice(0, 10),
+        referenceNo: '',
+        amount: '',
+        vatAmount: '0',
+        description: '',
+    });
+    const [purSaving, setPurSaving] = useState(false);
+    const [purErr, setPurErr] = useState('');
+    const [auditOpen, setAuditOpen] = useState(false);
+    const [auditSsFilter, setAuditSsFilter] = useState('');
+    const [auditItems, setAuditItems] = useState([]);
+    const [auditLoading, setAuditLoading] = useState(false);
+
     const loadPayables = useCallback(async () => {
         setListLoading(true);
         setListError('');
@@ -112,6 +144,100 @@ export default function SupplierPurchaseInvoices() {
     useEffect(() => {
         loadPayables();
     }, [loadPayables]);
+
+    const loadSuperSuppliers = useCallback(async () => {
+        setSsLoading(true);
+        try {
+            const res = await listSupplierSuperSuppliers();
+            const list = res?.superSuppliers ?? [];
+            setSuperSuppliers(Array.isArray(list) ? list : []);
+        } catch {
+            setSuperSuppliers([]);
+        } finally {
+            setSsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadSuperSuppliers();
+    }, [loadSuperSuppliers]);
+
+    const openAuditModal = async (superSupplierId = '') => {
+        setAuditOpen(true);
+        setAuditSsFilter(superSupplierId);
+        setAuditLoading(true);
+        try {
+            const res = await listSupplierSuperSupplierAudit({
+                ...(superSupplierId ? { superSupplierId } : {}),
+                limit: 200,
+            });
+            setAuditItems(res?.items ?? []);
+        } catch {
+            setAuditItems([]);
+        } finally {
+            setAuditLoading(false);
+        }
+    };
+
+    const handleSaveSuperSupplier = async () => {
+        if (!ssForm.name?.trim()) {
+            setSsErr('Name is required');
+            return;
+        }
+        setSsSaving(true);
+        setSsErr('');
+        try {
+            await createSupplierSuperSupplier({
+                name: ssForm.name.trim(),
+                mobile: ssForm.mobile?.trim() || undefined,
+                email: ssForm.email?.trim() || undefined,
+                vatNumber: ssForm.vatNumber?.trim() || undefined,
+                address: ssForm.address?.trim() || undefined,
+                notes: ssForm.notes?.trim() || undefined,
+            });
+            setAddSsOpen(false);
+            setSsForm({
+                name: '',
+                mobile: '',
+                email: '',
+                vatNumber: '',
+                address: '',
+                notes: '',
+            });
+            await loadSuperSuppliers();
+        } catch (e) {
+            setSsErr(e?.message || 'Could not save super supplier');
+        } finally {
+            setSsSaving(false);
+        }
+    };
+
+    const handleSaveSuperPurchase = async () => {
+        if (!purchaseModal?.id) return;
+        const amt = parseFloat(String(purForm.amount).replace(/,/g, ''));
+        if (!Number.isFinite(amt) || amt < 0) {
+            setPurErr('Enter a valid amount (SAR)');
+            return;
+        }
+        setPurSaving(true);
+        setPurErr('');
+        try {
+            await createSupplierSuperSupplierPurchase({
+                superSupplierId: String(purchaseModal.id),
+                purchaseDate: purForm.purchaseDate,
+                referenceNo: purForm.referenceNo?.trim() || undefined,
+                description: purForm.description?.trim() || undefined,
+                amount: amt,
+                vatAmount: parseFloat(String(purForm.vatAmount).replace(/,/g, '')) || 0,
+            });
+            setPurchaseModal(null);
+            await loadSuperSuppliers();
+        } catch (e) {
+            setPurErr(e?.message || 'Could not record purchase');
+        } finally {
+            setPurSaving(false);
+        }
+    };
 
     useEffect(() => {
         if (!modalOpen) return undefined;
@@ -403,16 +529,28 @@ export default function SupplierPurchaseInvoices() {
                     <h2 className="cash-bank-title">Purchases</h2>
                     <p className="cash-bank-desc">Track purchase orders and bills.</p>
                 </div>
-                <button
-                    type="button"
-                    className="btn-save-all"
-                    onClick={() => {
-                        setCreateError('');
-                        setModalOpen(true);
-                    }}
-                >
-                    <Plus size={18} /> New Purchase Invoice
-                </button>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <button
+                        type="button"
+                        className="btn-save-all"
+                        onClick={() => {
+                            setSsErr('');
+                            setAddSsOpen(true);
+                        }}
+                    >
+                        <Building2 size={18} /> Add Super Supplier
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-save-all"
+                        onClick={() => {
+                            setCreateError('');
+                            setModalOpen(true);
+                        }}
+                    >
+                        <Plus size={18} /> New Purchase Invoice
+                    </button>
+                </div>
             </header>
 
             <section className="premium-table cash-bank-table">
@@ -480,7 +618,324 @@ export default function SupplierPurchaseInvoices() {
                 </table>
             </section>
 
+            <section className="ws-section" style={{ marginTop: 24, padding: 0, overflow: 'hidden' }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border-light)' }}>
+                    <h3
+                        style={{
+                            margin: 0,
+                            fontSize: '1rem',
+                            fontWeight: 800,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                        }}
+                    >
+                        <Building2 size={18} /> Super suppliers
+                    </h3>
+                    <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                        Vendors you buy inventory from. Record purchases here; all actions are stored in the audit log.
+                    </p>
+                    <div style={{ marginTop: 10 }}>
+                        <button type="button" className="btn-pi-cancel" onClick={() => openAuditModal('')}>
+                            <History size={14} /> View full audit log
+                        </button>
+                    </div>
+                </div>
+                <div className="premium-table cash-bank-table" style={{ border: 'none' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr className="table-header-row">
+                                <th className="table-th">Name</th>
+                                <th className="table-th">VAT / Contact</th>
+                                <th className="table-th">Purchases</th>
+                                <th className="table-th">Status</th>
+                                <th className="table-th">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {ssLoading ? (
+                                <tr>
+                                    <td colSpan={5} className="table-cell table-empty">
+                                        <Loader2 size={16} className="spin" style={{ verticalAlign: 'middle', marginRight: 8 }} />
+                                        Loading super suppliers…
+                                    </td>
+                                </tr>
+                            ) : superSuppliers.length === 0 ? (
+                                <tr>
+                                    <td colSpan={5} className="table-cell table-empty">
+                                        No super suppliers yet. Use &quot;Add Super Supplier&quot; above.
+                                    </td>
+                                </tr>
+                            ) : (
+                                superSuppliers.map((ss) => (
+                                    <tr key={String(ss.id)} className="table-row">
+                                        <td className="table-cell">
+                                            <strong>{ss.name}</strong>
+                                            {ss.notes ? (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
+                                                    {ss.notes}
+                                                </div>
+                                            ) : null}
+                                        </td>
+                                        <td className="table-cell">
+                                            <div>{ss.vatNumber || '—'}</div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                                {[ss.mobile, ss.email].filter(Boolean).join(' · ') || '—'}
+                                            </div>
+                                        </td>
+                                        <td className="table-cell">{ss.purchaseCount ?? 0}</td>
+                                        <td className="table-cell">
+                                            <span className={`status-badge ${ss.isActive ? 'status-completed' : 'status-badge'}`}>
+                                                {ss.isActive ? 'Active' : 'Inactive'}
+                                            </span>
+                                        </td>
+                                        <td className="table-cell">
+                                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                <button
+                                                    type="button"
+                                                    className="btn-pi-cancel"
+                                                    style={{ padding: '6px 12px', fontSize: '0.8125rem' }}
+                                                    disabled={!ss.isActive}
+                                                    onClick={() => {
+                                                        setPurErr('');
+                                                        setPurchaseModal(ss);
+                                                        setPurForm({
+                                                            purchaseDate: new Date().toISOString().slice(0, 10),
+                                                            referenceNo: '',
+                                                            amount: '',
+                                                            vatAmount: '0',
+                                                            description: '',
+                                                        });
+                                                    }}
+                                                >
+                                                    <Plus size={14} /> Record purchase
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn-pi-cancel"
+                                                    style={{ padding: '6px 12px', fontSize: '0.8125rem' }}
+                                                    onClick={() => openAuditModal(String(ss.id))}
+                                                >
+                                                    <History size={14} /> Audit
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
             <AnimatePresence>
+                {addSsOpen && (
+                    <Modal
+                        title={
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <Building2 size={20} /> Add Super Supplier
+                            </span>
+                        }
+                        onClose={() => !ssSaving && setAddSsOpen(false)}
+                        width="520px"
+                        footer={
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                                <button type="button" className="btn-portal-outline" disabled={ssSaving} onClick={() => setAddSsOpen(false)}>
+                                    Cancel
+                                </button>
+                                <button type="button" className="btn-pi-create" disabled={ssSaving} onClick={handleSaveSuperSupplier}>
+                                    {ssSaving ? 'Saving…' : 'Save'}
+                                </button>
+                            </div>
+                        }
+                    >
+                        {ssErr ? (
+                            <p style={{ margin: '0 0 12px', padding: 10, background: '#FEF2F2', borderRadius: 8, color: '#B91C1C', fontSize: '0.8125rem' }}>
+                                {ssErr}
+                            </p>
+                        ) : null}
+                        <div className="pi-field pi-full-width">
+                            <label>Name *</label>
+                            <input
+                                type="text"
+                                value={ssForm.name}
+                                onChange={(e) => setSsForm((s) => ({ ...s, name: e.target.value }))}
+                                placeholder="Company name"
+                            />
+                        </div>
+                        <div className="pi-field pi-full-width">
+                            <label>VAT number</label>
+                            <input
+                                type="text"
+                                value={ssForm.vatNumber}
+                                onChange={(e) => setSsForm((s) => ({ ...s, vatNumber: e.target.value }))}
+                            />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div className="pi-field">
+                                <label>Mobile</label>
+                                <input
+                                    type="text"
+                                    value={ssForm.mobile}
+                                    onChange={(e) => setSsForm((s) => ({ ...s, mobile: e.target.value }))}
+                                />
+                            </div>
+                            <div className="pi-field">
+                                <label>Email</label>
+                                <input
+                                    type="email"
+                                    value={ssForm.email}
+                                    onChange={(e) => setSsForm((s) => ({ ...s, email: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+                        <div className="pi-field pi-full-width">
+                            <label>Address</label>
+                            <input
+                                type="text"
+                                value={ssForm.address}
+                                onChange={(e) => setSsForm((s) => ({ ...s, address: e.target.value }))}
+                            />
+                        </div>
+                        <div className="pi-field pi-full-width">
+                            <label>Notes</label>
+                            <textarea
+                                rows={3}
+                                value={ssForm.notes}
+                                onChange={(e) => setSsForm((s) => ({ ...s, notes: e.target.value }))}
+                            />
+                        </div>
+                    </Modal>
+                )}
+
+                {purchaseModal && (
+                    <Modal
+                        title={`Record purchase — ${purchaseModal.name}`}
+                        onClose={() => !purSaving && setPurchaseModal(null)}
+                        width="480px"
+                        footer={
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                                <button type="button" className="btn-portal-outline" disabled={purSaving} onClick={() => setPurchaseModal(null)}>
+                                    Cancel
+                                </button>
+                                <button type="button" className="btn-pi-create" disabled={purSaving} onClick={handleSaveSuperPurchase}>
+                                    {purSaving ? 'Saving…' : 'Save purchase'}
+                                </button>
+                            </div>
+                        }
+                    >
+                        {purErr ? (
+                            <p style={{ margin: '0 0 12px', padding: 10, background: '#FEF2F2', borderRadius: 8, color: '#B91C1C', fontSize: '0.8125rem' }}>
+                                {purErr}
+                            </p>
+                        ) : null}
+                        <div className="pi-field">
+                            <label>Date</label>
+                            <input
+                                type="date"
+                                value={purForm.purchaseDate}
+                                onChange={(e) => setPurForm((p) => ({ ...p, purchaseDate: e.target.value }))}
+                            />
+                        </div>
+                        <div className="pi-field">
+                            <label>Reference</label>
+                            <input
+                                type="text"
+                                value={purForm.referenceNo}
+                                onChange={(e) => setPurForm((p) => ({ ...p, referenceNo: e.target.value }))}
+                                placeholder="Vendor invoice #"
+                            />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div className="pi-field">
+                                <label>Amount (SAR) *</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={purForm.amount}
+                                    onChange={(e) => setPurForm((p) => ({ ...p, amount: e.target.value }))}
+                                />
+                            </div>
+                            <div className="pi-field">
+                                <label>VAT (SAR)</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={purForm.vatAmount}
+                                    onChange={(e) => setPurForm((p) => ({ ...p, vatAmount: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+                        <div className="pi-field pi-full-width">
+                            <label>Description</label>
+                            <textarea
+                                rows={2}
+                                value={purForm.description}
+                                onChange={(e) => setPurForm((p) => ({ ...p, description: e.target.value }))}
+                            />
+                        </div>
+                    </Modal>
+                )}
+
+                {auditOpen && (
+                    <Modal
+                        title={
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <History size={20} /> Super supplier audit {auditSsFilter ? '(filtered)' : ''}
+                            </span>
+                        }
+                        onClose={() => setAuditOpen(false)}
+                        width="720px"
+                        footer={
+                            <button type="button" className="btn-portal-outline" onClick={() => setAuditOpen(false)}>
+                                Close
+                            </button>
+                        }
+                    >
+                        {auditLoading ? (
+                            <p style={{ margin: 0 }}>
+                                <Loader2 size={18} className="spin" style={{ verticalAlign: 'middle', marginRight: 8 }} />
+                                Loading…
+                            </p>
+                        ) : (
+                            <div style={{ maxHeight: 420, overflow: 'auto' }}>
+                                <table className="ws-table" style={{ width: '100%', fontSize: '0.8125rem' }}>
+                                    <thead>
+                                        <tr>
+                                            <th style={{ textAlign: 'left', padding: 8 }}>When</th>
+                                            <th style={{ textAlign: 'left', padding: 8 }}>Action</th>
+                                            <th style={{ textAlign: 'left', padding: 8 }}>Summary</th>
+                                            <th style={{ textAlign: 'left', padding: 8 }}>By</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {auditItems.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={4} style={{ padding: 16, color: 'var(--color-text-muted)' }}>
+                                                    No audit entries yet.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            auditItems.map((a) => (
+                                                <tr key={a.id}>
+                                                    <td style={{ padding: 8, verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                                                        {a.createdAt?.slice(0, 19)?.replace('T', ' ') ?? '—'}
+                                                    </td>
+                                                    <td style={{ padding: 8, verticalAlign: 'top' }}>{a.action}</td>
+                                                    <td style={{ padding: 8, verticalAlign: 'top' }}>{a.summary || '—'}</td>
+                                                    <td style={{ padding: 8, verticalAlign: 'top' }}>{a.actorName || '—'}</td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </Modal>
+                )}
+
                 {viewOpen && (
                     <Modal
                         title="Purchase invoice (payable)"

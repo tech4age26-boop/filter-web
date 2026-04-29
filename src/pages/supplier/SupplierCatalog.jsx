@@ -1,215 +1,1290 @@
-import React, { useEffect, useState } from 'react';
-import { Package, Plus, Pencil, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    CheckCircle2,
+    Circle,
+    Globe2,
+    Loader2,
+    Package,
+    Plus,
+    Search,
+    Send,
+    ShoppingCart,
+    Truck,
+} from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import { UNIT_OPTIONS } from '../workshop/constants';
 import {
     createSupplierProduct,
-    deleteSupplierProduct,
+    createSupplierProductRequest,
+    getSupplierLocations,
+    listSupplierMasterCatalogProducts,
+    listSupplierProductRequests,
     listSupplierProducts,
-    updateSupplierProduct,
+    setSupplierStock,
 } from '../../services/supplierApi';
 
-export default function SupplierCatalog() {
-    const [products, setProducts] = useState([]);
-    const [modalOpen, setModalOpen] = useState(false);
-    const [editProduct, setEditProduct] = useState(null);
-    const [form, setForm] = useState({ sku: '', name: '', category: '', unit: 'pcs', price: '', reorder: '' });
-    const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-    const [saving, setSaving] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [apiError, setApiError] = useState('');
-    const [saveError, setSaveError] = useState('');
+// ─── Previously: supplier-owned CRUD listing — replaced by Super Admin master list ─────
 
-    const mapProduct = (p) => ({
-        id: p?.id,
-        sku: p?.sku || '-',
-        name: p?.productName || p?.name || p?.product || '',
-        category: p?.categoryName || p?.category?.name || 'General',
-        unit: p?.workshopUnit || p?.warehouseUnit || 'pcs',
-        price: Number(p?.pricePerWarehouseUnit || 0),
-        reorder: Number(p?.reorderLevel || 0),
-        qty: Number(p?.currentStock || 0),
+const PAGE_SIZE = 24;
+
+/** Same product list payload as Admin `InventoryPage` / `MasterCatalog` exposed via supplier API. */
+function unwrapProducts(res) {
+    if (Array.isArray(res)) return res;
+    if (res?.products && Array.isArray(res.products)) return res.products;
+    return [];
+}
+
+/** Map master product → supplier card row (aligned with Master Catalog grid fields). */
+function mapMasterCatalogRow(p) {
+    const brandName = (p.brandName || p.supplierName || '').trim() || '—';
+    const sku = (p.sku || '').trim();
+    const descParts = [sku ? `SKU: ${sku}` : null, (p.description || '').trim()].filter(Boolean);
+    return {
+        id: p.id,
+        product_name: p.name || '',
+        category: p.categoryName || '',
+        supplier_id: brandName,
+        supplier_name: brandName,
+        sale_price: Number(p.salePrice ?? p.sellingPrice ?? 0),
+        unit: (p.unit || 'pcs').trim() || 'pcs',
+        min_order_qty: 1,
+        stock_qty: Number(p.currentStock ?? p.stockQty ?? p.quantityOnHand ?? p.stock ?? 0),
+        description: descParts.join(' · '),
+        _approval: p.isActive === false ? 'Rejected' : 'Approved',
+    };
+}
+
+/**
+ * Lists the same approved master products shown in Super Admin → Inventory → Master Catalog,
+ * but through supplier endpoint (`/supplier/products/master-catalog`).
+ */
+export default function SupplierCatalog() {
+    const branchLabel = 'All branches';
+    const zoneName = 'Central Zone';
+
+    const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+    const searchRef = useRef();
+    useEffect(() => {
+        clearTimeout(searchRef.current);
+        searchRef.current = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+        return () => clearTimeout(searchRef.current);
+    }, [search]);
+
+    const [categoryRows, setCategoryRows] = useState([]);
+
+    const [selectedCategoryId, setSelectedCategoryId] = useState('all');
+    const [selectedBrand, setSelectedBrand] = useState('all');
+    const [page, setPage] = useState(1);
+
+    /** Raw rows from supplier endpoint backed by master catalog products. */
+    const [masterProducts, setMasterProducts] = useState([]);
+    /** True until master catalog fetch settles — avoids empty-state flash. */
+    const [loading, setLoading] = useState(true);
+    const [apiError, setApiError] = useState('');
+
+    const [showRequestForm, setShowRequestForm] = useState(false);
+    const [orderItem, setOrderItem] = useState(null);
+    const [orderSupplier, setOrderSupplier] = useState(null);
+    const [selectedProductIds, setSelectedProductIds] = useState(new Set());
+    const [addInventoryOpen, setAddInventoryOpen] = useState(false);
+    const [locationOptions, setLocationOptions] = useState([]);
+    const [autoLocationId, setAutoLocationId] = useState('');
+    const [inventoryQtyForm, setInventoryQtyForm] = useState({});
+    const [inventorySaving, setInventorySaving] = useState(false);
+    const [inventoryError, setInventoryError] = useState('');
+    const [inventorySuccess, setInventorySuccess] = useState('');
+    const [existingSupplierProducts, setExistingSupplierProducts] = useState([]);
+    const [requests, setRequests] = useState([]);
+    const [requestSubmitting, setRequestSubmitting] = useState(false);
+    const [requestError, setRequestError] = useState('');
+    const [reqForm, setReqForm] = useState({
+        product_name: '',
+        sku: '',
+        brand_name: '',
+        description: '',
+        arabic_name: '',
+        category: '',
+        category_id: '',
+        department_id: '',
+        branch_id: '',
+        unit: 'piece',
+        quantity_needed: 1,
+        target_price: '',
+        notes: '',
     });
 
-    const loadProducts = async () => {
+    const loadMasterCatalog = useCallback((signal) => {
         setLoading(true);
         setApiError('');
-        try {
-            const res = await listSupplierProducts({ status: 'active', limit: 200 });
-            const list = Array.isArray(res?.products)
-                ? res.products.map(mapProduct)
-                : [];
-            setProducts(list);
-        } catch (err) {
-            console.error('Supplier catalog API failed:', err);
-            setApiError(err?.message || 'Failed to load products.');
-            setProducts([]);
-        } finally {
-            setLoading(false);
-        }
-    };
+        listSupplierMasterCatalogProducts({ signal })
+            .then((productsRes) => {
+                const raw = unwrapProducts(productsRes);
+                const approved = raw.filter((p) => p.isActive !== false);
+                setMasterProducts(approved);
 
-    useEffect(() => {
-        loadProducts().catch(() => undefined);
-        return undefined;
+                const catMap = new Map();
+                approved.forEach((p) => {
+                    if (!p?.categoryId || !p?.categoryName) return;
+                    catMap.set(String(p.categoryId), p.categoryName);
+                });
+                setCategoryRows(
+                    [...catMap.entries()].map(([id, name]) => ({ id, name })),
+                );
+            })
+            .catch((err) => {
+                if (err.name === 'AbortError') return;
+                setApiError(err.message || 'Failed to load master catalog.');
+                setMasterProducts([]);
+                setCategoryRows([]);
+            })
+            .finally(() => {
+                if (signal.aborted) return;
+                setLoading(false);
+            });
     }, []);
 
-    const openAdd = () => {
-        setEditProduct(null);
-        setSaveError('');
-        setForm({ sku: '', name: '', category: '', unit: 'pcs', price: '', reorder: '' });
-        setModalOpen(true);
-    };
-    const openEdit = (p) => {
-        setEditProduct(p);
-        setSaveError('');
-        setForm({ sku: p.sku || '', name: p.name || '', category: p.category || '', unit: p.unit || 'pcs', price: String(p.price ?? ''), reorder: String(p.reorder ?? '') });
-        setModalOpen(true);
-    };
-    const handleSave = async () => {
-        if (!form.name) return;
-        setSaveError('');
-        const data = {
-            sku: form.sku || `PRD-${Date.now()}`,
-            name: form.name,
-            category: form.category || 'General',
-            unit: form.unit || 'pcs',
-            price: Number(form.price) || 0,
-            reorder: Number(form.reorder) || 0,
-            qty: editProduct?.qty ?? 0,
-        };
-        setSaving(true);
-        try {
-            if (editProduct) {
-                const updated = await updateSupplierProduct(editProduct.id, {
-                    productName: data.name,
-                    sku: data.sku,
-                    workshopUnit: data.unit,
-                    warehouseUnit: data.unit,
-                    pricePerWarehouseUnit: Number(data.price) || 0,
-                    reorderLevel: Number(data.reorder) || 0,
-                });
-                const normalized = mapProduct(updated?.product || {});
-                setProducts((prev) =>
-                    prev.map((p) => (p.id === editProduct.id ? { ...p, ...normalized } : p)),
+    useEffect(() => {
+        const ctrl = new AbortController();
+        loadMasterCatalog(ctrl.signal);
+        return () => ctrl.abort();
+    }, [loadMasterCatalog]);
+
+    useEffect(() => {
+        let cancelled = false;
+        listSupplierProductRequests({ limit: 100 })
+            .then((res) => {
+                if (cancelled) return;
+                const rows = Array.isArray(res?.items) ? res.items : [];
+                setRequests(
+                    rows.map((r) => ({
+                        id: r.id,
+                        product_name: r.name,
+                        quantity_needed: '-',
+                        unit: '-',
+                        status: r.status || 'pending',
+                    })),
                 );
-            } else {
-                const created = await createSupplierProduct({
-                    productName: data.name,
-                    sku: data.sku,
-                    workshopUnit: data.unit,
-                    warehouseUnit: data.unit,
-                    pricePerWarehouseUnit: Number(data.price) || 0,
-                    reorderLevel: Number(data.reorder) || 0,
-                });
-                setProducts((prev) => [...prev, mapProduct(created?.product || {})]);
+            })
+            .catch(() => {
+                if (!cancelled) setRequests([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
+        setPage(1);
+    }, [debouncedSearch, selectedCategoryId, selectedBrand]);
+
+    const brandDropdownSource = useMemo(() => {
+        const names = [
+            ...new Set(masterProducts.map((p) => (p.brandName || '').trim()).filter(Boolean)),
+        ].sort((a, b) => a.localeCompare(b));
+        return names.map((name) => ({ id: name, name }));
+    }, [masterProducts]);
+
+    const departmentOptions = useMemo(() => {
+        const map = new Map();
+        masterProducts.forEach((p) => {
+            if (!p?.departmentId || !p?.departmentName) return;
+            map.set(String(p.departmentId), p.departmentName);
+        });
+        return [...map.entries()].map(([id, name]) => ({ id, name }));
+    }, [masterProducts]);
+
+    const filteredRaw = useMemo(() => {
+        const q = debouncedSearch.toLowerCase().trim();
+        return masterProducts.filter((p) => {
+            const matchesCategory =
+                selectedCategoryId === 'all' || String(p.categoryId) === String(selectedCategoryId);
+            const matchesBrand =
+                selectedBrand === 'all' || String((p.brandName || '').trim()) === selectedBrand;
+
+            let matchesSearch = true;
+            if (q) {
+                matchesSearch = [
+                    p.name,
+                    p.arabicName,
+                    p.sku,
+                    p.brandName,
+                    p.categoryName,
+                ].some((v) => (v || '').toLowerCase().includes(q));
             }
-        } catch (err) {
-            console.error('Supplier catalog save failed:', err);
-            setSaveError(err?.message || 'Failed to save product.');
+            return matchesSearch && matchesCategory && matchesBrand;
+        });
+    }, [masterProducts, debouncedSearch, selectedCategoryId, selectedBrand]);
+
+    const cardRows = useMemo(() => filteredRaw.map(mapMasterCatalogRow), [filteredRaw]);
+
+    const brandCountForHeader = brandDropdownSource.length || 0;
+
+    const pagedRows = useMemo(
+        () => cardRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+        [cardRows, page],
+    );
+
+    const totalPages = Math.max(1, Math.ceil(cardRows.length / PAGE_SIZE));
+
+    const getBrandRow = (id) =>
+        brandDropdownSource.find((b) => String(b.id) === String(id));
+
+    const selectedMasterProducts = useMemo(
+        () => masterProducts.filter((p) => selectedProductIds.has(String(p.id))),
+        [masterProducts, selectedProductIds],
+    );
+
+    useEffect(() => {
+        const maxP = Math.max(1, Math.ceil(cardRows.length / PAGE_SIZE));
+        setPage((p) => (p > maxP ? maxP : p));
+    }, [cardRows.length]);
+
+    const handlePlaceOrder = () => {
+        if (orderItem) {
+            alert(
+                `Purchase order placed for ${orderItem.product_name} with ${orderSupplier?.name}`,
+            );
+            setOrderItem(null);
+            setOrderSupplier(null);
+        }
+    };
+    const handleRequestProduct = async () => {
+        if (!reqForm.product_name?.trim()) {
+            setRequestError('Product name is required.');
             return;
-        } finally {
-            setSaving(false);
         }
-        setModalOpen(false);
-        setEditProduct(null);
-        setForm({ sku: '', name: '', category: '', unit: 'pcs', price: '', reorder: '' });
-    };
-
-    const handleDelete = async (product) => {
-        const ok = window.confirm(`Delete "${product.name}"?\n\nThis will permanently delete from database.`);
-        if (!ok) return;
+        setRequestSubmitting(true);
+        setRequestError('');
+        const form = {
+            ...reqForm,
+            product_name: reqForm.product_name || 'New Product',
+            quantity_needed: reqForm.quantity_needed || 1,
+            unit: reqForm.unit || 'piece',
+            status: 'pending',
+        };
         try {
-            await deleteSupplierProduct(product.id);
-            setProducts((prev) => prev.filter((p) => p.id !== product.id));
+            const res = await createSupplierProductRequest({
+                name: form.product_name,
+                sku: form.sku || undefined,
+                brandName: form.brand_name || undefined,
+                description: form.description || undefined,
+                arabicName: form.arabic_name || undefined,
+                unit: form.unit || 'pcs',
+                expectedPrice: form.target_price ? Number(form.target_price) : undefined,
+                quantityNeeded: Number(form.quantity_needed) || 0,
+                categoryLabel: form.category || undefined,
+                branchId: form.branch_id || undefined,
+                departmentId: form.department_id || undefined,
+                categoryId: form.category_id || undefined,
+                notes: form.notes || undefined,
+            });
+            const requestId = res?.request?.id || Date.now();
+            setRequests((prev) => [
+                { id: requestId, ...form },
+                ...prev,
+            ]);
+            setShowRequestForm(false);
+            setReqForm({
+                product_name: '',
+                sku: '',
+                brand_name: '',
+                description: '',
+                arabic_name: '',
+                category: '',
+                category_id: '',
+                department_id: '',
+                branch_id: '',
+                unit: 'piece',
+                quantity_needed: 1,
+                target_price: '',
+                notes: '',
+            });
         } catch (err) {
-            console.error('Delete product failed:', err);
-            setApiError(err?.message || 'Failed to delete product.');
+            setRequestError(err?.message || 'Failed to submit product request.');
+        } finally {
+            setRequestSubmitting(false);
         }
     };
 
-    const list = products || [];
+    const toggleSelectProduct = (productId) => {
+        const id = String(productId);
+        setSelectedProductIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const openAddToInventoryModal = async () => {
+        if (selectedProductIds.size === 0) return;
+        setInventoryError('');
+        setInventorySuccess('');
+        let locations = [];
+        let existing = [];
+        try {
+            const locRes = await getSupplierLocations();
+            locations = Array.isArray(locRes?.locations)
+                ? locRes.locations
+                : Array.isArray(locRes)
+                  ? locRes
+                  : [];
+        } catch {
+            locations = [];
+        }
+        try {
+            const existingRes = await listSupplierProducts({ status: 'all', limit: 500 });
+            existing = Array.isArray(existingRes?.products)
+                ? existingRes.products
+                : Array.isArray(existingRes)
+                  ? existingRes
+                  : [];
+        } catch {
+            existing = [];
+        }
+        setLocationOptions(locations);
+        setExistingSupplierProducts(existing);
+        setAutoLocationId(String(locations?.[0]?.id || ''));
+
+        const defaults = {};
+        selectedMasterProducts.forEach((p) => {
+            const id = String(p.id);
+            defaults[id] = {
+                openingQty: '0',
+                stockQty: '0',
+            };
+        });
+        setInventoryQtyForm(defaults);
+        setAddInventoryOpen(true);
+    };
+
+    const updateInventoryQty = (productId, key, value) => {
+        const id = String(productId);
+        setInventoryQtyForm((prev) => ({
+            ...prev,
+            [id]: {
+                openingQty: prev[id]?.openingQty ?? '0',
+                stockQty: prev[id]?.stockQty ?? '0',
+                [key]: value,
+            },
+        }));
+    };
+
+    const handleAddSelectedToInventory = async () => {
+        setInventorySaving(true);
+        setInventoryError('');
+        setInventorySuccess('');
+
+        try {
+            const bySku = new Map();
+            const byName = new Map();
+            existingSupplierProducts.forEach((p) => {
+                if (p?.sku) bySku.set(String(p.sku).trim().toLowerCase(), p);
+                if (p?.name || p?.productName) {
+                    byName.set(String(p.name || p.productName).trim().toLowerCase(), p);
+                }
+            });
+
+            for (const master of selectedMasterProducts) {
+                const id = String(master.id);
+                const row = inventoryQtyForm[id] || { openingQty: '0', stockQty: '0' };
+                const openingQty = Math.max(0, Number(row.openingQty || 0));
+                const stockQty = Math.max(0, Number(row.stockQty || 0));
+
+                const skuKey = String(master.sku || '').trim().toLowerCase();
+                const nameKey = String(master.name || '').trim().toLowerCase();
+
+                let supplierProductId =
+                    bySku.get(skuKey)?.id || byName.get(nameKey)?.id || null;
+
+                if (!supplierProductId) {
+                    const created = await createSupplierProduct({
+                        productName: master.name,
+                        sku: master.sku || `MC-${master.id}`,
+                        categoryId: master.categoryId ? String(master.categoryId) : undefined,
+                        workshopUnit: master.unit || 'pcs',
+                        warehouseUnit: master.unit || 'pcs',
+                        pricePerWarehouseUnit: Number(
+                            master.purchasePrice ?? master.salePrice ?? 0,
+                        ),
+                        reorderLevel: openingQty,
+                    });
+                    supplierProductId = created?.product?.id;
+                    if (!supplierProductId) {
+                        throw new Error(`Failed to create supplier product for ${master.name}`);
+                    }
+                }
+
+                await setSupplierStock({
+                    supplierProductId: String(supplierProductId),
+                    ...(autoLocationId ? { supplierLocationId: String(autoLocationId) } : {}),
+                    currentQuantity: stockQty,
+                });
+            }
+
+            setInventorySuccess(
+                `${selectedMasterProducts.length} product(s) added to inventory successfully.`,
+            );
+            setAddInventoryOpen(false);
+            setSelectedProductIds(new Set());
+        } catch (err) {
+            setInventoryError(err?.message || 'Failed to add selected products to inventory.');
+        } finally {
+            setInventorySaving(false);
+        }
+    };
+
     return (
         <div>
             <div className="ws-page-header">
-                <div><h2 className="ws-page-title">Product Catalog ({list.length})</h2><p className="ws-page-sub">Supplier product listings</p></div>
-                <button className="btn-portal" style={{ background: '#2563EB', color: '#fff', border: 'none' }} onClick={openAdd}><Plus size={15} /> Add Product</button>
+                <div>
+                    <h2
+                        className="ws-page-title"
+                        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                    >
+                        <Package size={20} style={{ color: '#2563EB' }} /> Product Catalog
+                    </h2>
+                    <p
+                        className="ws-page-sub"
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}
+                    >
+                        <Globe2 size={14} style={{ color: '#7C3AED' }} /> Branch:{' '}
+                        <strong>{branchLabel}</strong> · {zoneName} · {brandCountForHeader}{' '}
+                        brands · {cardRows.length} products
+                    </p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                        className="btn-portal-outline"
+                        type="button"
+                        onClick={openAddToInventoryModal}
+                        disabled={selectedProductIds.size === 0}
+                    >
+                        <Plus size={15} /> Add to Inventory
+                        {selectedProductIds.size > 0 ? ` (${selectedProductIds.size})` : ''}
+                    </button>
+                    <button className="btn-portal" onClick={() => setShowRequestForm(true)}>
+                        <Plus size={15} /> Request New Product
+                    </button>
+                </div>
             </div>
-            {loading && (
-                <div className="ws-section" style={{ marginBottom: 12, padding: 12, fontSize: '0.8125rem' }}>
-                    Loading products from `/supplier/products`...
+            {inventorySuccess ? (
+                <div
+                    className="ws-section"
+                    style={{
+                        marginBottom: 12,
+                        padding: 10,
+                        fontSize: '0.8125rem',
+                        color: '#047857',
+                        border: '1px solid #A7F3D0',
+                        background: '#ECFDF5',
+                    }}
+                >
+                    {inventorySuccess}
                 </div>
-            )}
-            {apiError && (
-                <div className="ws-section" style={{ marginBottom: 12, padding: 12, fontSize: '0.8125rem', color: '#B91C1C', border: '1px solid #FECACA', background: '#FEF2F2' }}>
-                    API error: {apiError}. Ensure supplier login token is available as Bearer token.
+            ) : null}
+
+            {apiError ? (
+                <div
+                    className="ws-section"
+                    style={{
+                        marginBottom: 12,
+                        padding: 12,
+                        fontSize: '0.8125rem',
+                        color: '#B91C1C',
+                        border: '1px solid #FECACA',
+                        background: '#FEF2F2',
+                    }}
+                >
+                    {apiError}{' '}
+                    <span style={{ color: '#64748B' }}>
+                        Same listing as Super Admin → Master Catalog through
+                        `GET /supplier/products/master-catalog`.
+                    </span>
                 </div>
-            )}
-            {list.length === 0 ? (
-                <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
-                    <Package size={48} style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }} />
-                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>No products in catalog yet</p>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Add products to sell to workshop branches</p>
-                    <button className="btn-portal" style={{ marginTop: 16, background: '#2563EB', color: '#fff', border: 'none' }} onClick={openAdd}><Plus size={15} /> Add First Product</button>
+            ) : null}
+
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+                <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+                    <Search
+                        size={16}
+                        aria-hidden
+                        style={{
+                            position: 'absolute',
+                            left: 12,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            color: 'var(--color-text-muted)',
+                            pointerEvents: 'none',
+                            zIndex: 1,
+                        }}
+                    />
+                    <input
+                        type="text"
+                        placeholder="Search name, SKU, brand…"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            padding: '10px 12px 10px 44px',
+                            borderRadius: 10,
+                            border: '1px solid var(--color-border)',
+                            fontSize: '0.875rem',
+                            outline: 'none',
+                        }}
+                    />
+                </div>
+                <select
+                    value={selectedCategoryId}
+                    onChange={(e) => setSelectedCategoryId(e.target.value)}
+                    disabled={loading}
+                    style={{
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        border: '1px solid var(--color-border)',
+                        fontSize: '0.875rem',
+                        minWidth: 160,
+                    }}
+                >
+                    <option value="all">All Categories</option>
+                    {categoryRows.map((c) => (
+                        <option key={c.id} value={c.id}>
+                            {c.name}
+                        </option>
+                    ))}
+                </select>
+                <select
+                    value={selectedBrand}
+                    onChange={(e) => setSelectedBrand(e.target.value)}
+                    style={{
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        border: '1px solid var(--color-border)',
+                        fontSize: '0.875rem',
+                        minWidth: 180,
+                    }}
+                >
+                    <option value="all">All brands</option>
+                    {brandDropdownSource.map((s) => (
+                        <option key={s.id} value={s.id}>
+                            {s.name}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            {loading ? (
+                <div
+                    className="ws-section"
+                    role="status"
+                    aria-live="polite"
+                    aria-busy="true"
+                    style={{
+                        textAlign: 'center',
+                        padding: '56px 24px',
+                        minHeight: 280,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 16,
+                    }}
+                >
+                    <Loader2
+                        size={44}
+                        className="spin"
+                        strokeWidth={2.25}
+                        style={{ color: 'var(--color-primary-dark, #E0A800)' }}
+                        aria-hidden
+                    />
+                    <p style={{ margin: 0, fontWeight: 700, color: 'var(--color-text-dark)' }}>
+                        Loading products…
+                    </p>
+                    <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                        Fetching master catalog from server
+                    </p>
+                </div>
+            ) : apiError ? (
+                <div
+                    className="ws-section"
+                    style={{
+                        textAlign: 'center',
+                        padding: 48,
+                        color: 'var(--color-text-muted)',
+                        borderStyle: 'dashed',
+                        borderColor: 'var(--color-border)',
+                    }}
+                >
+                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-dark)' }}>
+                        Unable to load this catalog section
+                    </p>
+                    <p style={{ margin: '8px 0 0', fontSize: '0.8125rem' }}>
+                        Fix the issue above or try again later.
+                    </p>
+                </div>
+            ) : cardRows.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 48, color: 'var(--color-text-muted)' }}>
+                    <Package size={48} style={{ opacity: 0.3, margin: '0 auto 12px' }} />
+                    <p style={{ margin: 0, fontWeight: 600 }}>No products available yet.</p>
+                    <p style={{ margin: '4px 0 0', fontSize: '0.875rem' }}>
+                        Click &quot;Request New Product&quot; or adjust filters.
+                    </p>
                 </div>
             ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-                    {list.map(p => (
-                        <div key={p.id} className="ws-section" style={{ marginBottom: 0, padding: 20 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                                <div style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--color-bg-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Package size={20} style={{ color: 'var(--color-text-muted)' }} /></div>
-                                <div style={{ flex: 1 }}>
-                                    <p style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--color-text-dark)', margin: 0 }}>{p.name}</p>
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0', fontFamily: 'monospace' }}>{p.sku} · {p.category}</p>
+                <div
+                    style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                        gap: 16,
+                    }}
+                >
+                    {pagedRows.map((item) => {
+                        const sup = getBrandRow(item.supplier_id);
+                        const inStock = (item.stock_qty || 0) > 0;
+                        const isSelected = selectedProductIds.has(String(item.id));
+                        return (
+                            <div
+                                key={item.id}
+                                style={{
+                                    background: isSelected
+                                        ? 'linear-gradient(180deg, #FFFBEB 0%, #FFFFFF 40%)'
+                                        : '#fff',
+                                    border: isSelected
+                                        ? '1px solid rgba(245, 158, 11, 0.55)'
+                                        : '1px solid var(--color-border)',
+                                    borderRadius: 16,
+                                    overflow: 'hidden',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    transition: 'all 0.2s ease',
+                                    boxShadow: isSelected
+                                        ? '0 10px 24px rgba(245, 158, 11, 0.16)'
+                                        : '0 2px 8px rgba(15, 23, 42, 0.04)',
+                                    cursor: 'pointer',
+                                }}
+                                className="ws-section"
+                                onClick={() => toggleSelectProduct(item.id)}
+                            >
+                                <div style={{ padding: 16, flex: 1 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                        <label
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 6,
+                                                fontSize: '0.6875rem',
+                                                fontWeight: 700,
+                                                color: isSelected ? '#B45309' : 'var(--color-text-muted)',
+                                                background: isSelected ? 'rgba(245, 158, 11, 0.12)' : 'transparent',
+                                                border: isSelected
+                                                    ? '1px solid rgba(245, 158, 11, 0.35)'
+                                                    : '1px solid var(--color-border-light)',
+                                                borderRadius: 999,
+                                                padding: '3px 8px',
+                                                cursor: 'pointer',
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            {isSelected ? <CheckCircle2 size={13} /> : <Circle size={13} />}
+                                            {isSelected ? 'Selected' : 'Select'}
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => toggleSelectProduct(item.id)}
+                                                aria-label={`Select ${item.product_name}`}
+                                                style={{ display: 'none' }}
+                                            />
+                                        </label>
+                                    </div>
+                                    <p
+                                        style={{
+                                            fontWeight: 700,
+                                            fontSize: '0.9375rem',
+                                            color: 'var(--color-text-dark)',
+                                            margin: '0 0 8px',
+                                            lineHeight: 1.4,
+                                        }}
+                                    >
+                                        {item.product_name}
+                                    </p>
+                                    {isSelected ? (
+                                        <div
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 6,
+                                                marginBottom: 8,
+                                                fontSize: '0.6875rem',
+                                                fontWeight: 700,
+                                                color: '#92400E',
+                                            }}
+                                        >
+                                            <CheckCircle2 size={12} />
+                                            Ready to add in inventory
+                                        </div>
+                                    ) : null}
+                                    {item.category ? (
+                                        <span
+                                            className="ws-badge ws-badge--gray"
+                                            style={{ marginBottom: 8, display: 'inline-block' }}
+                                        >
+                                            {item.category}
+                                        </span>
+                                    ) : null}
+                                    <p
+                                        style={{
+                                            fontSize: '0.75rem',
+                                            color: 'var(--color-text-muted)',
+                                            margin: '8px 0 0',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                        }}
+                                    >
+                                        <Truck size={12} />
+                                        {sup?.name || item.supplier_name}
+                                    </p>
+                                    {item.description ? (
+                                        <p
+                                            style={{
+                                                fontSize: '0.75rem',
+                                                color: 'var(--color-text-muted)',
+                                                margin: '6px 0 0',
+                                                lineHeight: 1.4,
+                                            }}
+                                        >
+                                            {item.description}
+                                        </p>
+                                    ) : null}
+                                </div>
+                                <div style={{ padding: 14, borderTop: '1px solid var(--color-border-light)' }}>
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            marginBottom: 10,
+                                        }}
+                                    >
+                                        <div>
+                                            <p style={{ fontSize: '1rem', fontWeight: 900, margin: 0 }}>
+                                                SAR {(item.sale_price || 0).toLocaleString()}
+                                            </p>
+                                            <p
+                                                style={{
+                                                    fontSize: '0.6875rem',
+                                                    color: 'var(--color-text-muted)',
+                                                    margin: '2px 0 0',
+                                                }}
+                                            >
+                                                per {item.unit} · Min: {item.min_order_qty || 1}
+                                            </p>
+                                        </div>
+                                        <span
+                                            className={`ws-badge ${inStock ? 'ws-badge--green' : 'ws-badge--red'}`}
+                                        >
+                                            {inStock ? `${item.stock_qty} in stock` : 'Out'}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{p.unit}</span>
-                                <p style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--color-text-dark)', margin: 0 }}>SAR {Number(p.price).toLocaleString()}</p>
-                            </div>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                                <button type="button" style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }} onClick={() => openEdit(p)}><Pencil size={14} /> Edit</button>
-                                <button
-                                    type="button"
-                                    style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #FECACA', background: '#FEF2F2', color: '#B91C1C', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                                    onClick={() => handleDelete(p)}
-                                >
-                                    <Trash2 size={14} /> Delete
-                                </button>
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
+
+            {!loading && totalPages > 1 ? (
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 12,
+                        marginTop: 16,
+                    }}
+                >
+                    <button
+                        type="button"
+                        className="btn-portal-outline"
+                        disabled={page <= 1 || loading}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    >
+                        Previous
+                    </button>
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                        Page {page} of {totalPages} ({cardRows.length} products)
+                    </span>
+                    <button
+                        type="button"
+                        className="btn-portal-outline"
+                        disabled={page >= totalPages || loading}
+                        onClick={() => setPage((p) => p + 1)}
+                    >
+                        Next
+                    </button>
+                </div>
+            ) : null}
+
+            {requests.length > 0 && (
+                <div className="ws-section" style={{ marginTop: 24 }}>
+                    <div style={{ padding: 16 }}>
+                        <h3
+                            style={{
+                                fontSize: '0.9375rem',
+                                fontWeight: 700,
+                                color: 'var(--color-text-dark)',
+                                margin: '0 0 12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                            }}
+                        >
+                            <Send size={16} style={{ color: '#2563EB' }} /> My Product Requests
+                        </h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {requests.map((req) => (
+                                <div
+                                    key={req.id}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: 12,
+                                        background: 'var(--color-bg-muted)',
+                                        borderRadius: 10,
+                                    }}
+                                >
+                                    <div>
+                                        <p style={{ fontWeight: 600, margin: 0 }}>{req.product_name}</p>
+                                        <p
+                                            style={{
+                                                fontSize: '0.75rem',
+                                                color: 'var(--color-text-muted)',
+                                                margin: '2px 0 0',
+                                            }}
+                                        >
+                                            Qty: {req.quantity_needed} {req.unit}
+                                        </p>
+                                    </div>
+                                    <span
+                                        className={`ws-badge ${
+                                            req.status === 'pending'
+                                                ? 'ws-badge--yellow'
+                                                : req.status === 'fulfilled'
+                                                  ? 'ws-badge--green'
+                                                  : 'ws-badge--blue'
+                                        }`}
+                                    >
+                                        {req.status}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <AnimatePresence>
-                {modalOpen && (
+                {showRequestForm && (
                     <Modal
-                        title={editProduct ? 'Edit Product' : 'Add Product'}
-                        onClose={() => { setModalOpen(false); setEditProduct(null); }}
+                        title="Request New Product"
+                        onClose={() => setShowRequestForm(false)}
                         footer={
                             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                                <button className="btn-portal-outline" onClick={() => setModalOpen(false)}>Cancel</button>
-                                <button className="btn-portal" disabled={!form.name || saving} onClick={handleSave}>{saving ? 'Saving...' : (editProduct ? 'Update Product' : 'Add Product')}</button>
+                                <button
+                                    className="btn-secondary"
+                                    onClick={() => setShowRequestForm(false)}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    className="btn-submit"
+                                    onClick={handleRequestProduct}
+                                    disabled={requestSubmitting}
+                                >
+                                    {requestSubmitting ? 'Submitting...' : 'Submit Request'}
+                                </button>
                             </div>
                         }
-                        width="420px"
                     >
-                        {saveError ? (
-                            <div style={{ marginBottom: 10, fontSize: '0.75rem', color: '#B91C1C' }}>
-                                {saveError}
+                        {requestError ? (
+                            <div style={{ marginBottom: 8, fontSize: '0.8125rem', color: '#B91C1C' }}>
+                                {requestError}
                             </div>
                         ) : null}
                         <div className="ws-form-grid">
-                            <div className="ws-field"><label>SKU</label><input value={form.sku} onChange={e => set('sku', e.target.value)} placeholder="LUB-001" /></div>
-                            <div className="ws-field"><label>Product Name *</label><input value={form.name} onChange={e => set('name', e.target.value)} placeholder="Engine Oil 5W40" /></div>
-                            <div className="ws-field"><label>Category</label><input value={form.category} onChange={e => set('category', e.target.value)} placeholder="Lubricants" /></div>
-                            <div className="ws-field"><label>Unit</label><select value={form.unit} onChange={e => set('unit', e.target.value)}><option value="pcs">pcs</option><option value="liter">liter</option><option value="set">set</option><option value="box">box</option></select></div>
-                            <div className="ws-field"><label>Price (SAR)</label><input type="number" value={form.price} onChange={e => set('price', e.target.value)} placeholder="45" /></div>
-                            <div className="ws-field"><label>Reorder level</label><input type="number" value={form.reorder} onChange={e => set('reorder', e.target.value)} placeholder="20" /></div>
+                            <div className="ws-field" style={{ gridColumn: '1/-1' }}>
+                                <label>Product Name *</label>
+                                <input
+                                    placeholder="e.g. 5W-30 Engine Oil 4L"
+                                    value={reqForm.product_name}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({ ...f, product_name: e.target.value }))
+                                    }
+                                />
+                            </div>
+                            <div className="ws-field">
+                                <label>SKU</label>
+                                <input
+                                    placeholder="e.g. OIL-5W30-4L"
+                                    value={reqForm.sku}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({ ...f, sku: e.target.value }))
+                                    }
+                                />
+                            </div>
+                            <div className="ws-field">
+                                <label>Brand Name</label>
+                                <input
+                                    placeholder="e.g. AC Delco"
+                                    value={reqForm.brand_name}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({ ...f, brand_name: e.target.value }))
+                                    }
+                                />
+                            </div>
+                            <div className="ws-field" style={{ gridColumn: '1/-1' }}>
+                                <label>Description</label>
+                                <input
+                                    placeholder="Short product description"
+                                    value={reqForm.description}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({ ...f, description: e.target.value }))
+                                    }
+                                />
+                            </div>
+                            <div className="ws-field">
+                                <label>Arabic Name</label>
+                                <input
+                                    placeholder="Optional Arabic name"
+                                    value={reqForm.arabic_name}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({ ...f, arabic_name: e.target.value }))
+                                    }
+                                />
+                            </div>
+                            <div className="ws-field">
+                                <label>Branch ID</label>
+                                <input
+                                    placeholder="Optional branch id"
+                                    value={reqForm.branch_id}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({ ...f, branch_id: e.target.value }))
+                                    }
+                                />
+                            </div>
+                            <div className="ws-field">
+                                <label>Department</label>
+                                <select
+                                    value={reqForm.department_id}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({ ...f, department_id: e.target.value }))
+                                    }
+                                >
+                                    <option value="">Select department</option>
+                                    {departmentOptions.map((d) => (
+                                        <option key={d.id} value={d.id}>{d.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="ws-field">
+                                <label>Category</label>
+                                <select
+                                    value={reqForm.category_id}
+                                    onChange={(e) =>
+                                        setReqForm((f) => {
+                                            const picked = categoryRows.find((c) => String(c.id) === String(e.target.value));
+                                            return {
+                                                ...f,
+                                                category_id: e.target.value,
+                                                category: picked?.name || '',
+                                            };
+                                        })
+                                    }
+                                >
+                                    <option value="">Select category</option>
+                                    {categoryRows.map((c) => (
+                                        <option key={c.id} value={c.id}>{c.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="ws-field">
+                                <label>Unit</label>
+                                <select
+                                    value={reqForm.unit}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({ ...f, unit: e.target.value }))
+                                    }
+                                >
+                                    <option value="piece">piece</option>
+                                    {UNIT_OPTIONS.filter((u) => u !== 'piece').map((u) => (
+                                        <option key={u} value={u}>
+                                            {u}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="ws-field">
+                                <label>Quantity Needed</label>
+                                <input
+                                    type="number"
+                                    value={reqForm.quantity_needed}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({
+                                            ...f,
+                                            quantity_needed: Math.max(1, +e.target.value || 1),
+                                        }))
+                                    }
+                                />
+                            </div>
+                            <div className="ws-field">
+                                <label>Target Price (SAR)</label>
+                                <input
+                                    type="number"
+                                    placeholder="Optional"
+                                    value={reqForm.target_price}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({ ...f, target_price: e.target.value }))
+                                    }
+                                />
+                            </div>
+                            <div className="ws-field" style={{ gridColumn: '1/-1' }}>
+                                <label>Notes</label>
+                                <input
+                                    placeholder="Any specific requirements..."
+                                    value={reqForm.notes}
+                                    onChange={(e) =>
+                                        setReqForm((f) => ({ ...f, notes: e.target.value }))
+                                    }
+                                />
+                            </div>
+                        </div>
+                    </Modal>
+                )}
+                {orderItem && (
+                    <Modal
+                        title="Place Purchase Order"
+                        onClose={() => {
+                            setOrderItem(null);
+                            setOrderSupplier(null);
+                        }}
+                        footer={
+                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                                <button
+                                    className="btn-secondary"
+                                    onClick={() => {
+                                        setOrderItem(null);
+                                        setOrderSupplier(null);
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button className="btn-submit" onClick={handlePlaceOrder}>
+                                    Place Order
+                                </button>
+                            </div>
+                        }
+                    >
+                        <div
+                            style={{
+                                padding: 12,
+                                background: 'var(--color-bg-muted)',
+                                borderRadius: 10,
+                                marginBottom: 16,
+                            }}
+                        >
+                            <p style={{ fontWeight: 700, margin: 0 }}>{orderItem.product_name}</p>
+                            <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '4px 0 0' }}>
+                                Supplier: <strong>{orderSupplier?.name}</strong> · SAR{' '}
+                                {orderItem.sale_price?.toLocaleString()} / {orderItem.unit}
+                            </p>
+                        </div>
+                        <div className="ws-form-grid">
+                            <div className="ws-field">
+                                <label>Quantity (min: {orderItem.min_order_qty || 1})</label>
+                                <input
+                                    type="number"
+                                    defaultValue={orderItem.min_order_qty || 1}
+                                />
+                            </div>
+                            <div className="ws-field">
+                                <label>Payment Account</label>
+                                <select>
+                                    <option>Select account (optional)</option>
+                                    <option>Main Cash</option>
+                                    <option>Al-Rajhi Bank</option>
+                                </select>
+                            </div>
+                            <div className="ws-field" style={{ gridColumn: '1/-1' }}>
+                                <label>Notes</label>
+                                <input placeholder="Delivery instructions, urgency..." />
+                            </div>
+                        </div>
+                        <div
+                            style={{
+                                background: 'rgba(59,130,246,0.08)',
+                                borderRadius: 10,
+                                padding: 14,
+                                marginTop: 16,
+                                fontSize: '0.8125rem',
+                            }}
+                        >
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    marginBottom: 4,
+                                }}
+                            >
+                                <span style={{ color: 'var(--color-text-muted)' }}>
+                                    Subtotal (excl. VAT)
+                                </span>
+                                <span>
+                                    SAR{' '}
+                                    {(
+                                        ((orderItem.sale_price || 0) * (orderItem.min_order_qty || 1)) /
+                                        1.15
+                                    ).toFixed(2)}
+                                </span>
+                            </div>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    marginBottom: 4,
+                                }}
+                            >
+                                <span style={{ color: 'var(--color-text-muted)' }}>VAT (15%)</span>
+                                <span>
+                                    SAR{' '}
+                                    {(
+                                        (((orderItem.sale_price || 0) * (orderItem.min_order_qty || 1)) *
+                                            0.15) /
+                                        1.15
+                                    ).toFixed(2)}
+                                </span>
+                            </div>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    fontWeight: 800,
+                                    fontSize: '1rem',
+                                    paddingTop: 8,
+                                    borderTop: '1px solid rgba(59,130,246,0.2)',
+                                    marginTop: 8,
+                                }}
+                            >
+                                <span>Total</span>
+                                <span>
+                                    SAR{' '}
+                                    {(
+                                        (orderItem.sale_price || 0) * (orderItem.min_order_qty || 1)
+                                    ).toLocaleString()}
+                                </span>
+                            </div>
+                        </div>
+                    </Modal>
+                )}
+                {addInventoryOpen && (
+                    <Modal
+                        title="Add Selected Products to Inventory"
+                        width="760px"
+                        onClose={() => setAddInventoryOpen(false)}
+                        footer={
+                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                                <button
+                                    type="button"
+                                    className="btn-portal-outline"
+                                    onClick={() => setAddInventoryOpen(false)}
+                                    disabled={inventorySaving}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn-portal"
+                                    onClick={handleAddSelectedToInventory}
+                                    disabled={inventorySaving || selectedMasterProducts.length === 0}
+                                >
+                                    {inventorySaving ? 'Adding...' : 'Add to Inventory'}
+                                </button>
+                            </div>
+                        }
+                    >
+                        {inventoryError ? (
+                            <div style={{ marginBottom: 10, fontSize: '0.8125rem', color: '#B91C1C' }}>
+                                {inventoryError}
+                            </div>
+                        ) : null}
+
+                        {autoLocationId ? (
+                            <div
+                                style={{
+                                    marginBottom: 12,
+                                    padding: 10,
+                                    borderRadius: 8,
+                                    border: '1px solid var(--color-border)',
+                                    background: 'var(--color-bg-muted)',
+                                    fontSize: '0.8125rem',
+                                    color: 'var(--color-text-muted)',
+                                }}
+                            >
+                                Inventory location (auto):{' '}
+                                <strong style={{ color: 'var(--color-text-dark)' }}>
+                                    {locationOptions.find((loc) => String(loc.id) === String(autoLocationId))?.name || '-'}
+                                </strong>
+                            </div>
+                        ) : null}
+
+                        <div style={{ maxHeight: 360, overflow: 'auto', border: '1px solid var(--color-border)', borderRadius: 10 }}>
+                            <table className="ws-table">
+                                <thead>
+                                    <tr>
+                                        <th>Product</th>
+                                        <th>Unit</th>
+                                        <th>Opening Qty</th>
+                                        <th>Stock Qty</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {selectedMasterProducts.map((p) => {
+                                        const row = inventoryQtyForm[String(p.id)] || { openingQty: '0', stockQty: '0' };
+                                        return (
+                                            <tr key={p.id}>
+                                                <td>{p.name}</td>
+                                                <td>{p.unit || 'pcs'}</td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={row.openingQty}
+                                                        onChange={(e) => updateInventoryQty(p.id, 'openingQty', e.target.value)}
+                                                        style={{ width: 110, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)' }}
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={row.stockQty}
+                                                        onChange={(e) => updateInventoryQty(p.id, 'stockQty', e.target.value)}
+                                                        style={{ width: 110, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)' }}
+                                                    />
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
                         </div>
                     </Modal>
                 )}
             </AnimatePresence>
+
         </div>
     );
 }

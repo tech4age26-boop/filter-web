@@ -1,7 +1,7 @@
-export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+// export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 
 
-// export const BASE_URL = 'http://localhost:3000';
+export const BASE_URL = 'http://192.168.100.199:3000';
 
 /** Super-admin multipart CSV import routes (single `file` field). */
 const traceCsvImportLabel = (path) => {
@@ -64,6 +64,24 @@ export async function apiFetch(path, options = {}) {
     }
 
     if (!res.ok) {
+        // Expired/invalid token while using supplier portal → send to supplier login (not on login POST itself).
+        if (res.status === 401) {
+            const pathname =
+                typeof window !== 'undefined' && window.location ? window.location.pathname : '';
+            const hadSession =
+                typeof localStorage !== 'undefined' && localStorage.getItem('filter_auth_token');
+            if (
+                hadSession &&
+                pathname.startsWith('/supplier') &&
+                !pathname.startsWith('/supplier/login')
+            ) {
+                localStorage.removeItem('filter_auth_token');
+                localStorage.removeItem('filter_auth_user');
+                localStorage.removeItem('filter_auth_workshop');
+                window.location.replace('/supplier/login');
+            }
+        }
+
         const err = await res.json().catch(() => ({}));
         const detail = {
             path,

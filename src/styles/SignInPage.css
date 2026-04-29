@@ -138,21 +138,31 @@
     margin-bottom: 8px;
 }
 
+/* Icon sits in dedicated left gutter; padding-left must clear icon width + inset. */
 .input-wrapper {
     position: relative;
-    display: flex;
-    align-items: center;
+    display: block;
+    width: 100%;
 }
 
 .input-wrapper svg {
     position: absolute;
-    left: 16px;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
     color: #999;
+    pointer-events: none;
+    z-index: 1;
 }
 
+/* Left padding: icon inset (14) + icon (18) + gap to text (~16) ≈ 52px */
+.input-wrapper .signin-input,
 .signin-input {
+    display: block;
     width: 100%;
-    padding: 14px 14px 14px 48px;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 14px 16px 14px 52px;
     border: 1px solid #E5E5E5;
     border-radius: 12px;
     font-size: 1rem;

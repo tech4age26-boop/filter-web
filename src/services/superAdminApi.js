@@ -48,10 +48,10 @@ export const getProductRequests = ({ status, workshopId, limit, offset } = {}) =
 export const getProductRequest = (id) =>
     apiFetch(`/super-admin/master-catalog/product-requests/${encodeURIComponent(String(id))}`);
 
-export const approveProductRequest = (id, remarks) =>
+export const approveProductRequest = (id, payload) =>
     apiFetch(`/super-admin/master-catalog/product-requests/${encodeURIComponent(String(id))}/approve`, {
         method: 'PATCH',
-        body: JSON.stringify(remarks ? { remarks } : {}),
+        body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
     });
 
 export const rejectProductRequest = (id, reason) =>
@@ -166,8 +166,8 @@ export const updateSupplier = (id, body) =>
 
 // ─── Products ─────────────────────────────────────────────────────────────────
 
-export const getProducts = ({ branchId } = {}) =>
-    apiFetch(`/super-admin/products${qs({ branchId })}`);
+export const getProducts = ({ branchId, signal } = {}) =>
+    apiFetch(`/super-admin/products${qs({ branchId })}`, { signal });
 
 export const getProduct = (id) =>
     apiFetch(`/super-admin/products/${id}`);
@@ -205,8 +205,8 @@ export const importServicesFromCsv = (file) => {
 
 // ─── Categories ───────────────────────────────────────────────────────────────
 
-export const getCategories = ({ type } = {}) =>
-    apiFetch(`/super-admin/categories${qs({ type })}`);
+export const getCategories = ({ type, signal } = {}) =>
+    apiFetch(`/super-admin/categories${qs({ type })}`, { signal });
 
 export const createCategory = (body) =>
     apiFetch('/super-admin/categories', { method: 'POST', body: JSON.stringify(body) });
