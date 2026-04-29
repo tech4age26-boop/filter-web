@@ -6,10 +6,21 @@
 .branches-page-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     margin-bottom: 24px;
     flex-wrap: wrap;
     gap: 16px;
+}
+
+.branches-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.branches-workshop-filter {
+    width: 240px;
+    min-width: 240px;
 }
 
 .branches-title {
@@ -346,4 +357,16 @@
     border-radius: 10px;
     font-weight: 800;
     cursor: pointer;
+}
+
+@media (max-width: 768px) {
+    .branches-header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .branches-workshop-filter {
+        width: 100%;
+        min-width: 0;
+    }
 }

@@ -3,13 +3,13 @@ import { useParams, NavLink } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Package, FileText, TrendingUp, TrendingDown, Minus, Download, Search, LayoutGrid, Folder, Layers, ChevronDown, Loader } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import MasterCatalog from '../../components/admin/MasterCatalog';
 import '../../styles/admin/InventoryPage.css';
-import { getProducts, getServices, createProduct, createService, updateProduct, updateService, getWorkshops } from '../../services/superAdminApi';
+import { getProducts, getServices, createProduct, createService, updateProduct, updateService } from '../../services/superAdminApi';
 
 const SUB_TABS = [
-    { path: 'products-services', label: 'Products & Services' },
+    { path: 'master-catalog', label: 'Master Catalog' },
     { path: 'stock-movements', label: 'Stock Movements' },
-    { path: 'categories', label: 'Departments & Categories' },
     { path: 'units-of-measure', label: 'Units of Measure' },
 ];
 
@@ -42,14 +42,13 @@ const MOCK_MOVEMENTS = [
 
 export default function InventoryPage() {
     const { subTab } = useParams();
-    const activeSub = subTab || 'products-services';
+    const activeSub = subTab || 'master-catalog';
     const [viewTab, setViewTab] = useState('Products');
     const [products, setProducts] = useState([]);
     const [typeFilter, setTypeFilter] = useState('All');
     const [loadingProducts, setLoadingProducts] = useState(true);
     const [saving, setSaving] = useState(false);
     const [createOpen, setCreateOpen] = useState(false);
-    const [activeWorkshopId, setActiveWorkshopId] = useState(null);
 
     const normalizeItem = (item, type) => ({
         id: item.id ?? item._id,
@@ -62,11 +61,10 @@ export default function InventoryPage() {
         status: item.isActive === false ? 'inactive' : 'active',
     });
 
-    const reloadProducts = async (workshopId) => {
-        const wid = workshopId ?? activeWorkshopId;
+    const reloadProducts = async () => {
         const [prods, svcs] = await Promise.all([
-            getProducts({ workshopId: wid }).catch(() => []),
-            getServices({ workshopId: wid }).catch(() => []),
+            getProducts().catch(() => []),
+            getServices().catch(() => []),
         ]);
         const p = (Array.isArray(prods) ? prods : (prods?.products ?? [])).map((i) => normalizeItem(i, 'product'));
         const s = (Array.isArray(svcs) ? svcs : (svcs?.services ?? [])).map((i) => normalizeItem(i, 'service'));
@@ -74,14 +72,7 @@ export default function InventoryPage() {
     };
 
     useEffect(() => {
-        // Products/services require workshopId — fetch first available workshop
-        getWorkshops({ limit: '1', offset: '0' })
-            .then((ws) => {
-                const list = Array.isArray(ws) ? ws : (ws?.workshops ?? []);
-                const id = list[0]?.id ?? list[0]?._id;
-                setActiveWorkshopId(id);
-                return reloadProducts(id);
-            })
+        reloadProducts()
             .catch(() => {})
             .finally(() => setLoadingProducts(false));
     }, []);
@@ -148,6 +139,8 @@ export default function InventoryPage() {
     });
 
     const itemCount = products.length;
+    const selectedCategory = categories.find((c) => c.name === newProduct.category);
+    const selectedDepartment = departments.find((d) => d.name === newProduct.departments[0]);
 
     const openEdit = (p) => {
         setEditingProduct({ ...p });
@@ -158,21 +151,31 @@ export default function InventoryPage() {
         try {
             if (newProduct.type === 'service') {
                 await createService({
+                    departmentId: selectedDepartment?.id ? String(selectedDepartment.id) : undefined,
+                    categoryId: selectedCategory?.id ? String(selectedCategory.id) : undefined,
                     name: newProduct.name,
+                    sku: newProduct.sku || undefined,
+                    description: newProduct.description || undefined,
+                    unitOfMeasurement: newProduct.primaryUnit,
                     sellingPrice: parseFloat(newProduct.salePrice) || 0,
-                    purchasePrice: parseFloat(newProduct.purchasePrice) || 0,
                     isPriceEditable: newProduct.priceEditable,
-                    vatMode: 'use_default',
+                    minPriceCorporate: parseFloat(newProduct.corporatePricing.lower) || 0,
+                    maxPriceCorporate: parseFloat(newProduct.corporatePricing.upper) || 0,
                 });
             } else {
                 await createProduct({
+                    departmentId: selectedDepartment?.id ? String(selectedDepartment.id) : undefined,
+                    categoryId: selectedCategory?.id ? String(selectedCategory.id) : undefined,
                     name: newProduct.name,
+                    sku: newProduct.sku || undefined,
+                    brandName: undefined,
+                    description: newProduct.description || undefined,
                     unit: newProduct.primaryUnit,
                     purchasePrice: parseFloat(newProduct.purchasePrice) || 0,
                     salePrice: parseFloat(newProduct.salePrice) || 0,
-                    openingQty: parseFloat(newProduct.initialStock) || 0,
-                    criticalStockPoint: parseFloat(newProduct.criticalStock) || 0,
                     allowDecimalQty: false,
+                    minPriceCorporate: parseFloat(newProduct.corporatePricing.lower) || 0,
+                    maxPriceCorporate: parseFloat(newProduct.corporatePricing.upper) || 0,
                 });
             }
             await reloadProducts();
@@ -241,6 +244,8 @@ export default function InventoryPage() {
                     </NavLink>
                 ))}
             </div>
+
+            {activeSub === 'master-catalog' && <MasterCatalog />}
 
             {activeSub === 'products-services' && (
                 <>

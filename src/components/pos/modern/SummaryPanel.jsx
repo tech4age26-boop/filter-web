@@ -44,7 +44,7 @@ export default function SummaryPanel({
         // Global pricing for this job
         const totalDiscountType = local ? local.totalDiscountType : (job.totalDiscountType || 'amount');
         const totalDiscountValue = parseFloat(local ? local.totalDiscountValue : (job.totalDiscountValue || 0)) || 0;
-        const vatRate = parseFloat(local ? local.VAT : (job.VAT || 15)) || 15;
+        const vatRate = parseFloat(local?.VAT !== undefined && local?.VAT !== null ? local.VAT : (job.VAT !== undefined && job.VAT !== null ? job.VAT : 15));
 
         return {
             ...job,

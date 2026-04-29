@@ -1,14 +1,17 @@
-import { useState, useEffect } from 'react';
-import { Check, X, Tag, User, Calendar, DollarSign, Package, ShoppingCart, RefreshCcw, ArrowRightLeft, FileText, Eye, Users, Settings, CreditCard, Loader, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+    Check, X, Tag, User, Calendar, DollarSign, Package, ShoppingCart,
+    RefreshCcw, ArrowRightLeft, FileText, Eye, Users, Settings, CreditCard,
+    Loader, AlertCircle,
+} from 'lucide-react';
 import '../../styles/admin/ApprovalsPage.css';
 import {
-    getPendingApprovals,
-    getApprovedApprovals,
-    getRejectedApprovals,
-    getApprovals,
-    approveRequest,
-    rejectRequest,
+    list as listApprovals,
+    approve as approveApi,
+    reject as rejectApi,
 } from '../../services/approvalsApi';
+import Modal from '../../components/Modal';
+import ApprovalDetailsModal from './ApprovalDetailsModal';
 
 const ENTITY_TYPES = [
     { value: '', label: 'All Types' },
@@ -18,29 +21,248 @@ const ENTITY_TYPES = [
     { value: 'technician_registration', label: 'Technician' },
 ];
 
-function normalizeItem(raw) {
-    const entityType = raw.entityType ?? raw.entity_type ?? '';
-    return {
-        id: raw.requestId ?? raw.id ?? raw._id,
-        entityType,
-        type: entityType.replace('_registration', '') || 'registration',
-        status: raw.status ?? 'pending',
-        title: raw.title ?? raw.name ?? raw.businessName ?? raw.business_name
-            ?? `${entityType || 'Request'} #${raw.requestId ?? raw.id ?? raw._id}`,
-        sub: raw.subtitle ?? raw.email ?? raw.submittedBy ?? raw.submitted_by ?? '—',
-        department: entityType ? entityType.replace('_registration', '').replace('_', ' ') : '—',
-        date: raw.submittedAt ?? raw.createdAt ?? raw.created_at ?? raw.date ?? '',
-        amount: raw.amount ?? '—',
-        reference: raw.reference ?? raw.referenceNo ?? '',
-    };
+const TAB_TO_STATUS = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Rejected: 'rejected',
+    All: undefined,
+};
+
+function fmtPerson(p) {
+    if (!p) return '—';
+    if (typeof p === 'string') return p;
+    return p.name || p.fullName || p.email || p.mobile || '—';
 }
 
 function formatDate(dateStr) {
     if (!dateStr) return '—';
     const d = new Date(dateStr);
     if (isNaN(d)) return dateStr;
-    return d.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString('en-US', {
+        month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
 }
+
+// Keep IDs as strings — backend uses BigInt.
+function toStringId(v) {
+    return v == null ? '' : String(v);
+}
+
+function normalizeItem(raw) {
+    const entityType = raw.entityType ?? raw.entity_type ?? '';
+    const meta = raw.meta ?? {};
+    const id = toStringId(raw.requestId ?? raw.id ?? raw._id);
+
+    const title = raw.title
+        ?? meta.companyName
+        ?? meta.name
+        ?? meta.workshopCode
+        ?? raw.businessName
+        ?? raw.business_name
+        ?? `${entityType || 'Request'} #${id}`;
+
+    return {
+        id,
+        entityType,
+        type: entityType.replace('_registration', '') || 'registration',
+        status: raw.status ?? 'pending',
+        title,
+        meta,
+        submittedBy: raw.submittedBy ?? raw.submitted_by ?? null,
+        reviewer: raw.reviewer ?? raw.reviewed_by ?? null,
+        date: raw.submittedAt ?? raw.createdAt ?? raw.created_at ?? raw.date ?? '',
+        reference: raw.reference ?? raw.referenceNo ?? '',
+        raw,
+    };
+}
+
+/** Entity-specific compact "meta chips" shown on the card. */
+function buildMetaChips(item) {
+    const m = item.meta || {};
+    const chips = [];
+    const push = (label, value) => {
+        if (value === undefined || value === null || value === '') return;
+        chips.push({ label, value: String(value) });
+    };
+
+    switch (item.entityType) {
+        case 'workshop_registration':
+            push('Code', m.workshopCode);
+            push('Owner', m.ownerName);
+            push('Mobile', m.mobile);
+            push('Email', m.email);
+            push('CR', m.crNumber);
+            break;
+        case 'supplier_registration':
+            push('Contact', m.contactPerson);
+            push('Mobile', m.mobile);
+            push('Email', m.email);
+            push('License', m.tradeLicenseNo);
+            push('VAT', m.vatId);
+            push('City', m.cityDistrict);
+            if (typeof m.isInternalWarehouse === 'boolean') {
+                push('Internal WH', m.isInternalWarehouse ? 'Yes' : 'No');
+            }
+            break;
+        case 'corporate_registration':
+            push('Contact', m.contactPerson);
+            push('Mobile', m.mobile);
+            push('Email', m.email);
+            push('VAT', m.vatNumber);
+            if (Array.isArray(m.selectedBranchIds) && m.selectedBranchIds.length > 0) {
+                push('Branches', `${m.selectedBranchIds.length}`);
+            }
+            if (m.referral?.fullName) push('Referral', m.referral.fullName);
+            break;
+        case 'technician_registration':
+            push('Mobile', m.mobile);
+            push('Email', m.email);
+            push('Workshop', m.workshop?.name);
+            push('Branch', m.branch?.name);
+            push('Type', m.employeeType);
+            push('Tech Type', m.technicianType);
+            if (Array.isArray(m.departments) && m.departments.length > 0) {
+                push('Depts', m.departments.map((d) => d?.name).filter(Boolean).join(', '));
+            }
+            break;
+        default:
+            break;
+    }
+    return chips;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Approve / Reject confirmation modals                              */
+/* ------------------------------------------------------------------ */
+
+function ApproveModal({ item, busy, onCancel, onConfirm }) {
+    const [remarks, setRemarks] = useState('');
+    return (
+        <Modal
+            title="Approve Request"
+            onClose={busy ? undefined : onCancel}
+            width={460}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-approve"
+                        disabled={busy}
+                        onClick={() => onConfirm(remarks)}
+                    >
+                        {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
+                        Approve
+                    </button>
+                </>
+            )}
+        >
+            <p className="approval-modal-lead">
+                Approve <strong>{item.title}</strong>? You can add optional remarks for the audit log.
+            </p>
+            <label className="approval-modal-label" htmlFor="approve-remarks">
+                Remarks <span className="approval-modal-optional">(optional)</span>
+            </label>
+            <textarea
+                id="approve-remarks"
+                className="approval-modal-textarea"
+                rows={3}
+                placeholder="e.g. Documents verified."
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                disabled={busy}
+            />
+        </Modal>
+    );
+}
+
+function RejectModal({ item, busy, onCancel, onConfirm }) {
+    const [reason, setReason] = useState('');
+    const [touched, setTouched] = useState(false);
+    const trimmed = reason.trim();
+    const valid = trimmed.length > 0;
+
+    const handleConfirm = () => {
+        if (!valid) {
+            setTouched(true);
+            return;
+        }
+        onConfirm(trimmed);
+    };
+
+    return (
+        <Modal
+            title="Reject Request"
+            onClose={busy ? undefined : onCancel}
+            width={460}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-reject"
+                        disabled={busy || !valid}
+                        onClick={handleConfirm}
+                    >
+                        {busy ? <Loader size={14} className="spin" /> : <X size={16} />}
+                        Reject
+                    </button>
+                </>
+            )}
+        >
+            <p className="approval-modal-lead">
+                Reject <strong>{item.title}</strong>? Provide a reason — it will be shown to the
+                submitter.
+            </p>
+            <label className="approval-modal-label" htmlFor="reject-reason">
+                Reason <span className="approval-modal-required">(required)</span>
+            </label>
+            <textarea
+                id="reject-reason"
+                className={`approval-modal-textarea ${touched && !valid ? 'invalid' : ''}`}
+                rows={3}
+                placeholder="e.g. Trade license expired."
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                onBlur={() => setTouched(true)}
+                disabled={busy}
+            />
+            {touched && !valid && (
+                <p className="approval-modal-error">A reason is required to reject.</p>
+            )}
+        </Modal>
+    );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Toast (matches the lightweight pattern used in TechnicianLayout)  */
+/* ------------------------------------------------------------------ */
+
+function Toast({ toast }) {
+    if (!toast) return null;
+    const isError = toast.type === 'error';
+    return (
+        <div
+            className="approvals-toast"
+            style={{
+                background: isError ? '#FEE2E2' : '#DCFCE7',
+                color: isError ? '#DC2626' : '#15803D',
+                borderColor: isError ? '#FCA5A5' : '#BBF7D0',
+            }}
+            role="status"
+        >
+            {toast.msg}
+        </div>
+    );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main page                                                         */
+/* ------------------------------------------------------------------ */
 
 export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const [currentTab, setCurrentTab] = useState(onlySettings ? 'Settings' : 'Pending');
@@ -49,6 +271,19 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [actionLoading, setActionLoading] = useState(null);
+    const [reloadTick, setReloadTick] = useState(0);
+
+    // dialogs
+    const [detailsTarget, setDetailsTarget] = useState(null); // { entityType, id }
+    const [approveTarget, setApproveTarget] = useState(null); // item
+    const [rejectTarget, setRejectTarget] = useState(null);   // item
+
+    // toast
+    const [toast, setToast] = useState(null);
+    const showToast = useCallback((msg, type = 'success') => {
+        setToast({ msg, type });
+        setTimeout(() => setToast(null), 3000);
+    }, []);
 
     const [moduleSettings, setModuleSettings] = useState({
         inventory: { enabled: true, sub: { adjustments: true, transfers: true, uomChanges: false, priceOverrides: true, safetyStock: false } },
@@ -59,28 +294,23 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     });
 
     useEffect(() => {
-        if (currentTab === 'Settings') return;
+        if (currentTab === 'Settings') return undefined;
         let cancelled = false;
         setLoading(true);
         setError(null);
 
-        const fetchFn = currentTab === 'Pending'
-            ? () => getPendingApprovals({ entityType: entityTypeFilter })
-            : currentTab === 'Approved'
-                ? () => getApprovedApprovals({ entityType: entityTypeFilter })
-                : currentTab === 'Rejected'
-                    ? () => getRejectedApprovals({ entityType: entityTypeFilter })
-                    : () => getApprovals({ entityType: entityTypeFilter });
-
-        fetchFn()
+        const status = TAB_TO_STATUS[currentTab];
+        listApprovals({ status, entityType: entityTypeFilter })
             .then((data) => {
                 if (cancelled) return;
-                const list = Array.isArray(data)
+                const arr = Array.isArray(data)
                     ? data
-                    : Object.entries(data)
-                        .filter(([k]) => !isNaN(Number(k)))
-                        .map(([, v]) => v);
-                setItems(list.map(normalizeItem));
+                    : Array.isArray(data?.items)
+                        ? data.items
+                        : Object.entries(data || {})
+                            .filter(([k]) => !isNaN(Number(k)))
+                            .map(([, v]) => v);
+                setItems(arr.map(normalizeItem));
             })
             .catch((err) => {
                 if (!cancelled) setError(err.message);
@@ -90,38 +320,48 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             });
 
         return () => { cancelled = true; };
-    }, [currentTab, entityTypeFilter]);
+    }, [currentTab, entityTypeFilter, reloadTick]);
 
-    const handleApprove = async (item) => {
+    const removeFromList = useCallback((id) => {
+        setItems((prev) => prev.filter((i) => i.id !== id));
+    }, []);
+
+    const handleApproveConfirm = async (item, remarks) => {
         setActionLoading(item.id);
         try {
-            await approveRequest(item.entityType, item.id);
-            setItems((prev) => prev.filter((i) => i.id !== item.id));
+            await approveApi(item.entityType, item.id, remarks);
+            removeFromList(item.id);
+            setApproveTarget(null);
+            setDetailsTarget(null);
+            showToast('Request approved.');
         } catch (err) {
-            alert(`Approve failed: ${err.message}`);
+            showToast(`Approve failed: ${err.message}`, 'error');
         } finally {
             setActionLoading(null);
         }
     };
 
-    const handleReject = async (item) => {
+    const handleRejectConfirm = async (item, reason) => {
         setActionLoading(item.id);
         try {
-            await rejectRequest(item.entityType, item.id);
-            setItems((prev) => prev.filter((i) => i.id !== item.id));
+            await rejectApi(item.entityType, item.id, reason);
+            removeFromList(item.id);
+            setRejectTarget(null);
+            setDetailsTarget(null);
+            showToast('Request rejected.');
         } catch (err) {
-            alert(`Reject failed: ${err.message}`);
+            showToast(`Reject failed: ${err.message}`, 'error');
         } finally {
             setActionLoading(null);
         }
     };
 
     const toggleModule = (module) => {
-        setModuleSettings(prev => ({ ...prev, [module]: { ...prev[module], enabled: !prev[module].enabled } }));
+        setModuleSettings((prev) => ({ ...prev, [module]: { ...prev[module], enabled: !prev[module].enabled } }));
     };
 
     const toggleSubModule = (module, sub) => {
-        setModuleSettings(prev => ({
+        setModuleSettings((prev) => ({
             ...prev,
             [module]: { ...prev[module], sub: { ...prev[module].sub, [sub]: !prev[module].sub[sub] } },
         }));
@@ -139,11 +379,12 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             case 'accounting': return <DollarSign size={14} />;
             case 'hr': return <Users size={14} />;
             case 'system': return <Settings size={14} />;
-            case 'workshop': return <FileText size={14} />;
-            case 'supplier': return <FileText size={14} />;
-            case 'corporate': return <FileText size={14} />;
-            case 'technician': return <FileText size={14} />;
-            default: return <FileText size={14} />;
+            case 'workshop':
+            case 'supplier':
+            case 'corporate':
+            case 'technician':
+            default:
+                return <FileText size={14} />;
         }
     };
 
@@ -151,6 +392,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
 
     const content = (
         <>
+            <Toast toast={toast} />
+
             {!onlySettings && (
                 <div className="tabs-container">
                     {tabs.map((tab) => (
@@ -177,6 +420,14 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                             <option key={et.value} value={et.value}>{et.label}</option>
                         ))}
                     </select>
+                    <button
+                        type="button"
+                        className="btn-view-details approvals-refresh-btn"
+                        onClick={() => setReloadTick((t) => t + 1)}
+                        disabled={loading}
+                    >
+                        <RefreshCcw size={14} className={loading ? 'spin' : ''} /> Refresh
+                    </button>
                 </div>
             )}
 
@@ -248,53 +499,73 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
 
             {currentTab !== 'Settings' && !loading && !error && items.length > 0 && (
                 <div className="approval-cards">
-                    {items.map((item) => (
-                        <div key={item.id} className="approval-card">
-                            <div className="approval-card-header">
-                                <span className={`approval-type-badge type-${item.type}`}>
-                                    {getTypeIcon(item.type)} {item.type}
-                                </span>
-                                <div className="header-right">
-                                    {item.amount && item.amount !== '—' && (
-                                        <span className="approval-amount">{item.amount}</span>
-                                    )}
-                                    <span className={`approval-status-badge status-${item.status}`}>{item.status}</span>
+                    {items.map((item) => {
+                        const chips = buildMetaChips(item);
+                        return (
+                            <div key={item.id} className="approval-card">
+                                <div className="approval-card-header">
+                                    <span className={`approval-type-badge type-${item.type}`}>
+                                        {getTypeIcon(item.type)} {item.type}
+                                    </span>
+                                    <div className="header-right">
+                                        <span className={`approval-status-badge status-${item.status}`}>{item.status}</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <h3 className="approval-card-title">{item.title}</h3>
-                            <div className="approval-card-meta">
-                                <span><User size={14} /> {item.sub}</span>
-                                <span>{item.department}</span>
-                                <span><Calendar size={14} /> {formatDate(item.date)}</span>
-                                {item.reference && (
-                                    <span className="reference-badge">Ref: {item.reference}</span>
+                                <h3 className="approval-card-title">{item.title}</h3>
+                                <div className="approval-card-meta">
+                                    <span><User size={14} /> {fmtPerson(item.submittedBy)}</span>
+                                    <span><Calendar size={14} /> {formatDate(item.date)}</span>
+                                    {item.reviewer && (
+                                        <span className="approval-reviewer">
+                                            Reviewer: {fmtPerson(item.reviewer)}
+                                        </span>
+                                    )}
+                                    {item.reference && (
+                                        <span className="reference-badge">Ref: {item.reference}</span>
+                                    )}
+                                </div>
+                                {chips.length > 0 && (
+                                    <div className="approval-card-chips">
+                                        {chips.map((chip, idx) => (
+                                            <span key={`${chip.label}-${idx}`} className="approval-chip">
+                                                <span className="approval-chip-label">{chip.label}</span>
+                                                <span className="approval-chip-value">{chip.value}</span>
+                                            </span>
+                                        ))}
+                                    </div>
                                 )}
-                            </div>
-                            {item.status === 'pending' && (
                                 <div className="approval-card-actions">
+                                    {item.status === 'pending' && (
+                                        <>
+                                            <button
+                                                type="button"
+                                                className="btn-approve"
+                                                disabled={actionLoading === item.id}
+                                                onClick={() => setApproveTarget(item)}
+                                            >
+                                                {actionLoading === item.id ? <Loader size={14} className="spin" /> : <Check size={16} />} Approve
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn-reject"
+                                                disabled={actionLoading === item.id}
+                                                onClick={() => setRejectTarget(item)}
+                                            >
+                                                {actionLoading === item.id ? <Loader size={14} className="spin" /> : <X size={16} />} Reject
+                                            </button>
+                                        </>
+                                    )}
                                     <button
                                         type="button"
-                                        className="btn-approve"
-                                        disabled={actionLoading === item.id}
-                                        onClick={() => handleApprove(item)}
+                                        className="btn-view-details"
+                                        onClick={() => setDetailsTarget({ entityType: item.entityType, id: item.id, item })}
                                     >
-                                        {actionLoading === item.id ? <Loader size={14} className="spin" /> : <Check size={16} />} Approve
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn-reject"
-                                        disabled={actionLoading === item.id}
-                                        onClick={() => handleReject(item)}
-                                    >
-                                        {actionLoading === item.id ? <Loader size={14} className="spin" /> : <X size={16} />} Reject
-                                    </button>
-                                    <button type="button" className="btn-view-details">
                                         <Eye size={16} /> Details
                                     </button>
                                 </div>
-                            )}
-                        </div>
-                    ))}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
 
@@ -303,6 +574,49 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     <p className="empty-status">0 {currentTab.toLowerCase()} items</p>
                     <p className="empty-desc">Everything is reviewed. Powering up precision for your automotive network.</p>
                 </div>
+            )}
+
+            {detailsTarget && (
+                <ApprovalDetailsModal
+                    entityType={detailsTarget.entityType}
+                    id={detailsTarget.id}
+                    onClose={() => setDetailsTarget(null)}
+                    actionDisabled={actionLoading === detailsTarget.id}
+                    onApprove={(data) => {
+                        const target = detailsTarget.item ?? {
+                            id: toStringId(data?.requestId ?? data?.id),
+                            entityType: detailsTarget.entityType,
+                            title: data?.title ?? data?.meta?.companyName ?? data?.meta?.name ?? 'this request',
+                        };
+                        setApproveTarget(target);
+                    }}
+                    onReject={(data) => {
+                        const target = detailsTarget.item ?? {
+                            id: toStringId(data?.requestId ?? data?.id),
+                            entityType: detailsTarget.entityType,
+                            title: data?.title ?? data?.meta?.companyName ?? data?.meta?.name ?? 'this request',
+                        };
+                        setRejectTarget(target);
+                    }}
+                />
+            )}
+
+            {approveTarget && (
+                <ApproveModal
+                    item={approveTarget}
+                    busy={actionLoading === approveTarget.id}
+                    onCancel={() => setApproveTarget(null)}
+                    onConfirm={(remarks) => handleApproveConfirm(approveTarget, remarks)}
+                />
+            )}
+
+            {rejectTarget && (
+                <RejectModal
+                    item={rejectTarget}
+                    busy={actionLoading === rejectTarget.id}
+                    onCancel={() => setRejectTarget(null)}
+                    onConfirm={(reason) => handleRejectConfirm(rejectTarget, reason)}
+                />
             )}
         </>
     );

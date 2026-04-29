@@ -22,11 +22,18 @@ export default function CounterClosingScreen({ onBack, onLogout }) {
 
     useEffect(() => {
         setLoadingSummary(true);
-        apiFetch('/cashier/store-closing')
+        // Reference sends date (YYYY-MM-DD) and workshopId; workshopId is optional when empty.
+        const today = new Date().toISOString().split('T')[0];
+        const workshopId = user?.workshopId || user?.workshop_id || '';
+        const qs = new URLSearchParams({
+            date: today,
+            ...(workshopId ? { workshopId: String(workshopId) } : {}),
+        }).toString();
+        apiFetch(`/cashier/store-closing?${qs}`)
             .then(d => setSummary(d.summary || d.data || d))
             .catch(() => setSummary(null))
             .finally(() => setLoadingSummary(false));
-    }, []);
+    }, [user]);
 
     const setCount = (k, v) => setCounts(c => ({ ...c, [k]: v }));
 

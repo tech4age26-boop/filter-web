@@ -93,7 +93,7 @@ export default function OrderBuilder({ orderInfo, department, createdOrderId, de
         setCart(prev => {
             const ex = prev.find(i => i.id === p.id);
             if (ex) return prev.filter(i => i.id !== p.id);
-            return [...prev, { ...p, qty: 1, discount: 0, discountType: 'amount' }];
+            return [...prev, { ...p, qty: 1, discount: 0, discountType: 'amount', _deptId: department?.id, _deptName: department?.name }];
         });
     };
 
@@ -111,10 +111,14 @@ export default function OrderBuilder({ orderInfo, department, createdOrderId, de
     const removeItem = (id) => setCart(prev => prev.filter(i => i.id !== id));
 
     const handleCreateInvoice = async () => {
-        if (!orderId) return;
+        if (!orderId) {
+            alert('No active order found. Please go back and place the order first before generating an invoice.');
+            return;
+        }
         setSubmitting(true);
         try {
             const payments = paymentRows.filter(r => parseFloat(r.amount) > 0).map(r => ({ method: r.method, amount: parseFloat(r.amount) || 0 }));
+            // Reference payload shape — backend computes totals from job pricing
             const res = await apiFetch('/cashier/invoice/create', {
                 method: 'POST',
                 body: JSON.stringify({

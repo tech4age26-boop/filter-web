@@ -9,6 +9,7 @@ import WorkshopDashboard from './workshop/WorkshopDashboard';
 import WorkshopEmployees from './workshop/WorkshopEmployees';
 import WorkshopDepartments from './workshop/WorkshopDepartments';
 import WorkshopCatalog from './workshop/WorkshopCatalog';
+import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
 import WorkshopPurchases from './workshop/WorkshopPurchases';
 import WorkshopApprovals from './workshop/WorkshopApprovals';
 import WorkshopSuppliers from './workshop/WorkshopSuppliers';
@@ -18,6 +19,7 @@ import WorkshopPromoCodes from './workshop/WorkshopPromoCodes';
 import WorkshopCorporateManagement from './workshop/WorkshopCorporateManagement';
 import WorkshopBranches from './workshop/WorkshopBranches';
 import WorkshopCommissions from './workshop/WorkshopCommissions';
+import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
 import { apiFetch } from '../services/api';
 import './workshop/Workshop.css';
@@ -37,8 +39,6 @@ export default function WorkshopLayout() {
             const mapping = {
                 'chart-of-accounts': 'acc-chart',
                 'cash-bank': 'acc-cash',
-                'commissions': 'acc-commissions',
-                'referral-commissions': 'acc-referral',
                 'transactions': 'acc-transactions',
                 'journal-entries': 'acc-journal',
                 'purchases': 'acc-purchases',
@@ -53,15 +53,17 @@ export default function WorkshopLayout() {
         return main;
     };
 
-    const activeTab = getActiveTabFromUrl();
+    const [activeTab, setActiveTab] = useState(getActiveTabFromUrl());
+    const [tabState, setTabState] = useState(null);
 
-    const handleTabChange = (id) => {
-        if (id.startsWith('acc-')) {
+    const handleTabChange = (tabId, state = null) => {
+        setActiveTab(tabId);
+        setTabState(state);
+        
+        if (tabId.startsWith('acc-')) {
             const reverseMapping = {
                 'acc-chart': 'chart-of-accounts',
                 'acc-cash': 'cash-bank',
-                'acc-commissions': 'commissions',
-                'acc-referral': 'referral-commissions',
                 'acc-transactions': 'transactions',
                 'acc-journal': 'journal-entries',
                 'acc-purchases': 'purchases',
@@ -71,9 +73,9 @@ export default function WorkshopLayout() {
                 'acc-advances': 'advances',
                 'acc-ledger': 'ledger',
             };
-            navigate(`/workshop/accounting/${reverseMapping[id]}`);
+            navigate(`/workshop/accounting/${reverseMapping[tabId]}`);
         } else {
-            navigate(`/workshop/${id}`);
+            navigate(`/workshop/${tabId}`);
         }
     };
 
@@ -84,8 +86,16 @@ export default function WorkshopLayout() {
     };
     const [selectedBranch, setSelectedBranch] = useState('all');
     const [branches, setBranches] = useState([]);
+    const [selectedProducts, setSelectedProducts] = useState([]);
+
+    const updateProductStatus = (productId, newStatus) => {
+        setSelectedProducts(prev => prev.map(p => 
+            p.id === productId ? { ...p, status: newStatus } : p
+        ));
+    };
+
     const [pendingApprovals, setPendingApprovals] = useState(0);
-    const stockAlerts = 2;
+    const [dashboardLowStockCount, setDashboardLowStockCount] = useState(0);
 
     const loadBranches = useCallback(async () => {
         try {
@@ -133,6 +143,10 @@ export default function WorkshopLayout() {
         return branches.find((branch) => branch.id === selectedBranch)?.name || 'All Branches';
     }, [branches, selectedBranch]);
 
+    useEffect(() => {
+        if (activeTab !== 'dashboard') setDashboardLowStockCount(0);
+    }, [activeTab]);
+
     const renderContent = () => {
         switch (activeTab) {
             case 'acc-chart':         
@@ -147,20 +161,54 @@ export default function WorkshopLayout() {
             case 'acc-payments':      
             case 'acc-advances':      
             case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} />;
-            case 'dashboard':         return <WorkshopDashboard onTabChange={handleTabChange} />;
-            case 'employees':   return <WorkshopEmployees />;
-            case 'departments': return <WorkshopDepartments />;
+            case 'dashboard':         return (
+                <WorkshopDashboard
+                    onTabChange={handleTabChange}
+                    selectedBranchId={selectedBranch}
+                    branches={branches}
+                    onLowStockAlertsChange={setDashboardLowStockCount}
+                />
+            );
+            case 'employees':   return <WorkshopEmployees selectedBranchId={selectedBranch} branches={branches} />;
+            case 'departments': return <WorkshopDepartments selectedBranchId={selectedBranch} branches={branches} />;
             case 'catalog':     return <WorkshopCatalog />;
-            case 'purchases':   return <WorkshopPurchases />;
+            case 'purchases':   return (
+                <WorkshopPurchases 
+                    tabState={tabState} 
+                    clearTabState={() => setTabState(null)} 
+                />
+            );
             case 'approvals':   return <WorkshopApprovals />;
             case 'suppliers':   return <WorkshopSuppliers />;
             case 'reports':     return <WorkshopReports />;
             case 'pos-monitoring': return <WorkshopPosMonitoring />;
+            case 'catalog-new': return (
+                <WorkshopCatalogNew
+                    selectedBranchId={selectedBranch}
+                    branches={branches}
+                />
+            );
             case 'promo-codes': return <WorkshopPromoCodes />;
             case 'corporate-management': return <WorkshopCorporateManagement />;
             case 'branches':    return <WorkshopBranches />;
             case 'commissions': return <WorkshopCommissions />;
-            default:            return <WorkshopDashboard onTabChange={handleTabChange} />;
+            case 'inventory': return (
+                <WorkshopInventory
+                    selectedBranchId={selectedBranch}
+                    branches={branches}
+                    selectedProducts={selectedProducts}
+                    onTabChange={handleTabChange}
+                    updateProductStatus={updateProductStatus}
+                />
+            );
+            default:            return (
+                <WorkshopDashboard
+                    onTabChange={handleTabChange}
+                    selectedBranchId={selectedBranch}
+                    branches={branches}
+                    onLowStockAlertsChange={setDashboardLowStockCount}
+                />
+            );
         }
     };
 
@@ -262,9 +310,9 @@ export default function WorkshopLayout() {
                 <header className="ws-topbar">
                     <div><p className="ws-topbar-title">{currentLabel}</p><p className="ws-topbar-sub">{selectedBranchName}</p></div>
                     <div className="ws-topbar-right">
-                        {stockAlerts > 0 && (
+                        {dashboardLowStockCount > 0 && (
                             <button className="ws-alert-badge" onClick={() => setActiveTab('departments')}>
-                                <AlertTriangle size={14}/> {stockAlerts} stock alert{stockAlerts > 1 ? 's' : ''}
+                                <AlertTriangle size={14}/> {dashboardLowStockCount} stock alert{dashboardLowStockCount > 1 ? 's' : ''}
                             </button>
                         )}
                         <div className="ws-online-badge"><div className="ws-online-dot"/> Online</div>

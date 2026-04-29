@@ -115,15 +115,23 @@ h4,
 
 /* Modal Implementation */
 .modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(8px);
-  z-index: 1000;
+  position: fixed !important;
+  inset: 0 !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15, 23, 42, 0.55) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+  backdrop-filter: blur(20px) saturate(140%) !important;
+  z-index: 9999 !important;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
+  overflow: hidden;
 }
 
 .modal-content {
@@ -134,7 +142,8 @@ h4,
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 30px 60px rgba(0, 0, 0, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  position: relative;
+  z-index: 1;
 }
 
 /* Utility */

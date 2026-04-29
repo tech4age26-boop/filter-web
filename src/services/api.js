@@ -1,28 +1,68 @@
-// export const BASE_URL = 'http://192.168.1.108:3000';
-
-export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+export const BASE_URL = 'http://localhost:3000';
 
 
 
+
+/** Super-admin multipart CSV import routes (single `file` field). */
+const traceCsvImportLabel = (path) => {
+    if (path === '/super-admin/products/import' || path.endsWith('/super-admin/products/import')) {
+        return 'products/import';
+    }
+    if (path === '/super-admin/services/import' || path.endsWith('/super-admin/services/import')) {
+        return 'services/import';
+    }
+    return null;
+};
 
 export async function apiFetch(path, options = {}) {
     const token = localStorage.getItem('filter_auth_token');
     const customHeaders = options.headers || {};
-    const res = await fetch(`${BASE_URL}${path}`, {
-        headers: {
-            'Content-Type': 'application/json',
-            'accept': '*/*',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            ...customHeaders,
-        },
+    const isFormData =
+        typeof FormData !== 'undefined' && options.body instanceof FormData;
+    const headers = {
+        accept: '*/*',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+        ...customHeaders,
+    };
+    const url = `${BASE_URL}${path}`;
+    const method = options.method || 'GET';
+    const csvImportLabel = traceCsvImportLabel(path);
+    const traceImport = !!csvImportLabel;
+    const t0 = traceImport ? performance.now() : 0;
+    const requestId = traceImport
+        ? `import-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+        : '';
+
+    if (traceImport) {
+        const file = isFormData ? options.body.get?.('file') : null;
+        console.log(`[apiFetch] ${csvImportLabel} — single POST`, {
+            requestId,
+            url,
+            method,
+            hasAuthHeader: !!token,
+            body: 'multipart/form-data (field file)',
+            fileName: file?.name,
+            fileSize: file?.size,
+            fileType: file?.type,
+        });
+    }
+
+    const res = await fetch(url, {
         ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            'accept': '*/*',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            ...customHeaders,
-        },
+        headers,
     });
+
+    if (traceImport) {
+        console.log(`[apiFetch] ${csvImportLabel} — response headers`, {
+            requestId,
+            status: res.status,
+            statusText: res.statusText,
+            msToHeaders: `${(performance.now() - t0).toFixed(0)}ms`,
+            contentType: res.headers.get('content-type'),
+        });
+    }
+
     if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         const detail = {
@@ -31,8 +71,20 @@ export async function apiFetch(path, options = {}) {
             status: res.status,
             statusText: res.statusText,
             response: err,
-            requestBody: options.body ? safeJsonParse(options.body) : undefined,
+            requestBody:
+                options.body instanceof FormData
+                    ? '[FormData]'
+                    : options.body
+                      ? safeJsonParse(options.body)
+                      : undefined,
         };
+        if (traceImport) {
+            console.error(`[apiFetch] ${csvImportLabel} — error body`, {
+                requestId,
+                ...detail,
+                msTotal: `${(performance.now() - t0).toFixed(0)}ms`,
+            });
+        }
         // Keep a full object log to make backend debugging easier.
         console.error('[apiFetch] Request failed', detail);
         throw new Error(
@@ -41,7 +93,27 @@ export async function apiFetch(path, options = {}) {
                 `Request failed: ${res.status} ${res.statusText} (${options.method || 'GET'} ${path})`,
         );
     }
-    return res.json();
+
+    const json = await res.json().catch((e) => {
+        if (traceImport) {
+            console.error(`[apiFetch] ${csvImportLabel} — JSON parse failed`, {
+                requestId,
+                err: e,
+                msTotal: `${(performance.now() - t0).toFixed(0)}ms`,
+            });
+        }
+        throw e;
+    });
+
+    if (traceImport) {
+        console.log(`[apiFetch] ${csvImportLabel} — JSON body (same request)`, {
+            requestId,
+            body: json,
+            msTotal: `${(performance.now() - t0).toFixed(0)}ms`,
+        });
+    }
+
+    return json;
 }
 
 function safeJsonParse(value) {

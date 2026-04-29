@@ -1,28 +1,68 @@
 import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Building2, User, Car } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import WalkInOrderModal from './modern/WalkInOrderModal';
 
-export default function POSHome({ onNewWalkIn, onCorporateBooking }) {
+export default function POSHome({ onNewWalkIn, onCorporateBooking, onViewHistory, onGoToOrders }) {
     const [search, setSearch]       = useState('');
     const [customers, setCustomers] = useState([]);
     const [searching, setSearching] = useState(false);
     const debounceRef = useRef(null);
+
+    // Walk-in modal state
+    const [showWalkInModal, setShowWalkInModal] = useState(false);
+    const [walkInLoading, setWalkInLoading] = useState(false);
+
+    // Departments for the modal
+    const [departments, setDepartments] = useState([]);
+
+    useEffect(() => {
+        apiFetch('/workshop-staff/departments')
+            .then(d => {
+                const list = Array.isArray(d) ? d : (d.departments || d.data || []);
+                setDepartments(list);
+            })
+            .catch(() => setDepartments([]));
+    }, []);
 
     useEffect(() => {
         if (!search.trim()) { setCustomers([]); return; }
         clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => {
             setSearching(true);
-            apiFetch('/cashier/customers/search', {
-                method: 'POST',
-                body: JSON.stringify({ name: search, limit: '10' }),
-            })
+            const trimmed = search.trim();
+            const isDigits = /^\d+$/.test(trimmed);
+            const qs = new URLSearchParams(
+                isDigits ? { phone: trimmed, limit: '10' } : { name: trimmed, limit: '10' }
+            ).toString();
+            apiFetch(`/cashier/customers/search?${qs}`)
                 .then(d => setCustomers(d.customers || d.data || []))
                 .catch(() => setCustomers([]))
                 .finally(() => setSearching(false));
         }, 350);
         return () => clearTimeout(debounceRef.current);
     }, [search]);
+
+    const handleWalkInSubmit = async (data) => {
+        setWalkInLoading(true);
+        try {
+            const res = await apiFetch('/cashier/walk-in-order', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+            setShowWalkInModal(false);
+            // Extract the new order ID from the response
+            const newOrderId = res?.order?.id || res?.orderId || res?.data?.id || res?.id || null;
+            // Navigate to Orders tab with the new order ID so it auto-selects
+            if (onGoToOrders) {
+                onGoToOrders(newOrderId);
+            }
+        } catch (err) {
+            alert("Failed to create walk-in order: " + err.message);
+        } finally {
+            setWalkInLoading(false);
+        }
+    };
 
     return (
         <div style={{ width: '100%' }}>
@@ -54,7 +94,7 @@ export default function POSHome({ onNewWalkIn, onCorporateBooking }) {
 
             {/* Action chips */}
             <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 28 }}>
-                <button onClick={() => onNewWalkIn(null)} style={chipBtn}>
+                <button onClick={() => setShowWalkInModal(true)} style={chipBtn}>
                     <Plus size={16} color="#23262D" />
                     <span>New walk-in</span>
                 </button>
@@ -160,12 +200,12 @@ export default function POSHome({ onNewWalkIn, onCorporateBooking }) {
                                     {/* Actions */}
                                     <div style={{ display: 'flex', gap: 8 }}>
                                         <button 
-                                            onClick={() => onNewWalkIn(c)}
+                                            onClick={() => setShowWalkInModal(true)}
                                             style={{ flex: 1, padding: '10px', background: '#23262D', color: '#FCC247', border: 'none', borderRadius: 10, fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
                                             New Service
                                         </button>
-                                        <button 
-                                            onClick={() => {/* TODO: Implement History View */}}
+                                        <button
+                                            onClick={() => onViewHistory?.(c)}
                                             style={{ padding: '10px 14px', background: '#fff', color: '#23262D', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
                                             History
                                         </button>
@@ -176,6 +216,15 @@ export default function POSHome({ onNewWalkIn, onCorporateBooking }) {
                     </div>
                 </div>
             )}
+
+            {/* Walk-in Order Modal — same modal and API as Orders screen */}
+            <WalkInOrderModal
+                isOpen={showWalkInModal}
+                onClose={() => setShowWalkInModal(false)}
+                onSubmit={handleWalkInSubmit}
+                departments={departments}
+                loading={walkInLoading}
+            />
 
             <style>{`
                 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}

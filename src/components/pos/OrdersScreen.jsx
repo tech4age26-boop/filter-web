@@ -14,13 +14,14 @@ import WalkInOrderModal from './modern/WalkInOrderModal';
 import CancelReasonModal from './modern/CancelReasonModal';
 import CustomerDetailsModal from './modern/CustomerDetailsModal';
 import PaymentSelectionModal from './modern/PaymentSelectionModal';
+import InvoiceDetailsModal from './modern/InvoiceDetailsModal';
 
 import './OrdersScreen.css';
 import './modern/ModernPOS.css';
 
 const PAYMENT_METHODS = ['Cash', 'Card', 'Bank Transfer', 'Tamara', 'Tabby', 'Monthly billing'];
 
-export default function OrdersScreen({ onNewOrder }) {
+export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSelectConsumed }) {
     const { orders, refreshOrders, socket, loading: contextLoading, catalog, refreshCatalog, catalogLoading } = usePOS();
     const [refreshing, setRefreshing] = useState(false);
     const [tab, setTab] = useState('All');
@@ -33,6 +34,8 @@ export default function OrdersScreen({ onNewOrder }) {
     const [availableTechs, setAvailableTechs] = useState([]);
     const [confirmEditJob, setConfirmEditJob] = useState(null); // { job, type }
     const [showCancelModal, setShowCancelModal] = useState(false);
+    const [cancelJobTarget, setCancelJobTarget] = useState(null); // { id, departmentName, status }
+    const [invoiceDetails, setInvoiceDetails] = useState(null); // populated after successful invoice
     const [workshopDepts, setWorkshopDepts] = useState([]);
     const [localPayments, setLocalPayments] = useState(null);
 
@@ -71,11 +74,98 @@ export default function OrdersScreen({ onNewOrder }) {
         fetchMeta();
     }, [refreshOrders, refreshCatalog, orders.length, catalog.length]);
 
+    // Match Flutter reference pattern (PosOrder.draftPosOrderTotalDisplay + _parseJobTotalAmount):
+    // prefer backend's authoritative VAT-inclusive totals; recompute locally ONLY when the user
+    // has unsaved edits in jobData for a given job, or when backend hasn't stored any total yet.
+    // This keeps the UI value and the /invoice/create validation target in sync — backend rejects
+    // payments that don't match ITS total, so the UI must reflect that exact figure.
+    const pickJobBackendTotal = (job) => {
+        for (const k of ['totalAmount', 'total_amount', 'grandTotal', 'grand_total', 'finalTotal', 'final_total']) {
+            const v = parseFloat(job?.[k]);
+            if (!isNaN(v) && v > 0) return v;
+        }
+        return 0;
+    };
+
+    const calculateOrderTotal = useCallback((order) => {
+        if (!order) return 0;
+        const jobs = order.jobs || [];
+
+        // Preferred: use backend's authoritative values for jobs without pending local edits.
+        // Any job currently being edited (jobData[jobId] present) is recomputed from cart items.
+        let total = 0;
+        let hasAnyLocalEdit = false;
+        jobs.forEach(job => {
+            const jobKey = job.id;
+            const local = jobData[jobKey];
+            if (local) {
+                // User is actively editing this job — compute from their cart (incl. VAT on top).
+                hasAnyLocalEdit = true;
+                const items = local.products || [];
+                const totalDiscType = local.totalDiscountType || 'amount';
+                const totalDiscVal = parseFloat(local.totalDiscountValue || 0) || 0;
+                const vatRate = parseFloat(local.VAT !== undefined && local.VAT !== null ? local.VAT : 15);
+                let sub = 0;
+                let itemDiscs = 0;
+                items.forEach(item => {
+                    const price = parseFloat(item.unitPrice || item.price || 0);
+                    const qty = parseFloat(item.qty || 1);
+                    const row = price * qty;
+                    const disc = item.discountType === 'percentage' || item.discountType === 'percent'
+                        ? (row * (item.discountValue || 0) / 100)
+                        : (item.discountValue || 0);
+                    sub += row;
+                    itemDiscs += disc;
+                });
+                const afterItems = sub - itemDiscs;
+                const globalDisc = (totalDiscType === 'percentage' || totalDiscType === 'percent')
+                    ? (afterItems * totalDiscVal / 100)
+                    : totalDiscVal;
+                const taxable = Math.max(0, afterItems - globalDisc);
+                total += taxable + (taxable * (vatRate / 100));
+            } else {
+                // No local edit — trust backend's stored job total (reference: _parseJobTotalAmount).
+                total += pickJobBackendTotal(job);
+            }
+        });
+
+        // If no jobs had local edits and backend has a rollup total, prefer that (reference: order.totalAmount path).
+        if (!hasAnyLocalEdit) {
+            const orderTotal = parseFloat(order.totalAmount ?? order.total_amount ?? order.grandTotal ?? order.grand_total ?? 0) || 0;
+            if (orderTotal > 0) return orderTotal;
+        }
+        return total;
+    }, [jobData]);
+
 
     const processJobCompletion = async (job) => {
         const jobId = job.id;
         const jobKey = job.id || job.jobKey;
-        const selections = jobData[jobKey] || { products: [], techs: [] };
+        
+        // Robust selection: If jobData is missing (auto-completing draft), fallback to backend items
+        let selections = jobData[jobKey];
+        if (!selections) {
+            selections = {
+                products: (job.items || []).map(item => ({
+                    ...item,
+                    id: String(item.productId || item.serviceId || item.id),
+                    isService: !!item.serviceId,
+                    price: parseFloat(item.unitPrice || item.price || 0),
+                    qty: item.qty || 1,
+                    discountType: item.discountType || 'amount',
+                    discountValue: parseFloat(item.discountValue || item.discount || 0)
+                })),
+                techs: (job.assignments || job.technicians || []).map(t => ({
+                    id: t.employeeId || t.id,
+                    name: t.employeeName || t.name || 'Technician'
+                })),
+                VAT: job.VAT !== undefined && job.VAT !== null ? job.VAT : 15,
+                totalDiscountType: job.totalDiscountType || 'amount',
+                totalDiscountValue: job.totalDiscountValue || 0,
+                promoCode: job.promoCode || '',
+                promoCodeId: job.promoCodeId || ''
+            };
+        }
         
         // 1. Assign technicians (Wrap in try/catch to avoid blocking completion on backend migration issues)
         if (selections.techs?.length > 0) {
@@ -135,7 +225,7 @@ export default function OrdersScreen({ onNewOrder }) {
             totalDiscountValue: selections.totalDiscountValue || 0,
             promoCode: selections.promoCode || '',
             promoCodeId: selections.promoCodeId || '',
-            VAT: selections.VAT || 15
+            VAT: selections.VAT !== undefined && selections.VAT !== null ? selections.VAT : 15
         };
 
         console.log(`[OrdersScreen] Step 1: Pricing Job ${jobId}`, pricingPayload);
@@ -149,25 +239,16 @@ export default function OrdersScreen({ onNewOrder }) {
             method: 'PATCH' 
         });
 
-        const completeCashierBody = {
-            items: (selections.products || []).map(p => ({
-                productId: p.isService ? undefined : p.id,
-                serviceId: p.isService ? p.id : undefined,
-                qty: p.qty || 1,
-                discountType: p.discountType || 'amount',
-                discount: p.discountValue || 0
-            })),
-            totalDiscountType: selections.totalDiscountType || 'amount',
-            totalDiscountValue: selections.totalDiscountValue || 0,
-            promoCode: selections.promoCode || ''
-        };
-
-        console.log(`[OrdersScreen] Step 3: Complete Job ${jobId}`, completeCashierBody);
-        await apiFetch(`/cashier/job/${jobId}/complete-cashier`, { 
+        // Per reference (Flutter POS): /pricing already persisted items+VAT+discount; complete-cashier
+        // with an empty body tells the backend to recalculate totals from stored pricing, without
+        // overwriting line items. Sending items again here causes the invoice total to diverge.
+        console.log(`[OrdersScreen] Step 3: Complete Job ${jobId} (recalc only)`);
+        await apiFetch(`/cashier/job/${jobId}/complete-cashier`, {
             method: 'POST',
-            body: JSON.stringify(completeCashierBody) 
+            body: JSON.stringify({})
         });
     };
+
 
     const handleGenerateInvoiceByOrder = async () => {
         if (!selected) return;
@@ -178,34 +259,141 @@ export default function OrdersScreen({ onNewOrder }) {
         try {
             setActionLoading('generating-invoice');
 
-            // If draft, ensure all jobs are completed first to satisfy backend requirements
-            if (selected.status === 'draft') {
+            const uiTotal = calculateOrderTotal(selected);
+            const backendTotal = parseFloat(selected.grandTotal ?? selected.totalAmount ?? selected.total ?? 0);
+
+            // Sync Logic: If it's a draft OR if the backend total differs from our UI calculation (VAT missing)
+            if (selected.status === 'draft' || Math.abs(uiTotal - backendTotal) > 0.1) {
+                console.log(`[OrdersScreen] Syncing prices before invoice: UI(${uiTotal.toFixed(2)}) vs Backend(${backendTotal.toFixed(2)})`);
                 const jobs = selected.jobs || [];
                 for (const job of jobs) {
-                    if (job.status !== 'completed' && job.status !== 'finished') {
-                        try {
-                            await processJobCompletion(job);
-                        } catch (completeErr) {
-                            console.warn(`Failed to auto-complete job ${job.id}:`, completeErr);
-                        }
+                    try {
+                        await processJobCompletion(job);
+                    } catch (completeErr) {
+                        console.warn(`Failed to sync job ${job.id}:`, completeErr);
                     }
+                }
+                await refreshOrders();
+                // Do NOT compare UI total against order.grandTotal here — that field is pre-VAT on
+                // the backend, while UI total is VAT-inclusive. Reference Flutter app trusts the
+                // invoice endpoint to reconcile payments; we do the same. If payments truly don't
+                // match, the catch block below self-heals by re-opening the payment modal.
+            }
+
+            // Step 1 — Create invoice (no payment info). Reference shape:
+            //   POST /cashier/invoice/create  { orderId, discountAmount, invoiceDate }
+            // Backend responds with the authoritative invoice.totalAmount.
+            const createRes = await apiFetch('/cashier/invoice/create', {
+                method: 'POST',
+                body: JSON.stringify({
+                    orderId: selected.id,
+                    discountAmount: 0,
+                    invoiceDate: new Date().toISOString(),
+                })
+            });
+
+            // Extract backend-authoritative total (VAT-inclusive per backend).
+            const createdInvoice = createRes.invoice || createRes.data?.invoice || createRes.data || createRes;
+            const authoritativeTotal = parseFloat(
+                createdInvoice?.totalAmount
+                ?? createdInvoice?.total_amount
+                ?? createdInvoice?.grandTotal
+                ?? createdInvoice?.grand_total
+                ?? 0
+            ) || 0;
+
+            // Step 2 — Persist payment(s) separately.
+            //   POST /cashier/invoice/:orderId/payment  { paymentMethod?, payments: [{method, amount}] }
+            // Reuse user's chosen split when provided; otherwise single-row with authoritative total.
+            let paymentsOut = (localPayments.payments || [])
+                .map(p => ({ method: p.method, amount: parseFloat(p.amount) || 0 }))
+                .filter(p => p.method && p.amount > 0);
+
+            if (paymentsOut.length === 0 && localPayments.method) {
+                paymentsOut = [{ method: localPayments.method, amount: authoritativeTotal }];
+            } else if (paymentsOut.length === 1 && authoritativeTotal > 0) {
+                // Single-method split: force backend total so amount reconciles exactly.
+                paymentsOut = [{ method: paymentsOut[0].method, amount: authoritativeTotal }];
+            } else if (paymentsOut.length > 1 && authoritativeTotal > 0) {
+                // Multi-method split: scale proportionally so sum matches backend total exactly.
+                const userSum = paymentsOut.reduce((s, p) => s + p.amount, 0);
+                if (userSum > 0 && Math.abs(userSum - authoritativeTotal) > 0.01) {
+                    const ratio = authoritativeTotal / userSum;
+                    let allocated = 0;
+                    paymentsOut = paymentsOut.map((p, i) => {
+                        if (i === paymentsOut.length - 1) {
+                            // Last entry gets remainder to avoid rounding drift
+                            return { method: p.method, amount: Math.round((authoritativeTotal - allocated) * 100) / 100 };
+                        }
+                        const scaled = Math.round(p.amount * ratio * 100) / 100;
+                        allocated += scaled;
+                        return { method: p.method, amount: scaled };
+                    });
                 }
             }
 
-            const payload = {
-                orderId: selected.id,
-                paymentMethod: localPayments.method,
-                payments: localPayments.payments
+            const paymentBody = {
+                ...(localPayments.method ? { paymentMethod: localPayments.method } : {}),
+                payments: paymentsOut,
             };
-            await apiFetch('/cashier/invoice/create', {
+
+            const paymentRes = await apiFetch(`/cashier/invoice/${selected.id}/payment`, {
                 method: 'POST',
-                body: JSON.stringify(payload)
+                body: JSON.stringify(paymentBody)
             });
+
             setLocalPayments(null);
+
+            // Step 3 — Fetch the full invoice for the detail dialog (reference:
+            // posRepository.getInvoiceByOrder after saveInvoicePayment). Merge priority
+            // mirrors the Flutter flow: detailedResponse.invoice first, then the createRes,
+            // then the paymentRes — whichever has the most complete record.
+            let resolvedInvoice = null;
+            try {
+                const detailedRes = await apiFetch('/cashier/invoice/by-order', {
+                    method: 'POST',
+                    body: JSON.stringify({ orderId: selected.id })
+                });
+                resolvedInvoice = detailedRes?.invoice || detailedRes?.data?.invoice || detailedRes?.data || detailedRes;
+            } catch (byOrderErr) {
+                console.warn('getInvoiceByOrder failed, falling back to inline invoice objects:', byOrderErr);
+            }
+            if (!resolvedInvoice) {
+                resolvedInvoice = createdInvoice || paymentRes?.invoice || paymentRes?.data?.invoice || null;
+            }
+            if (resolvedInvoice) {
+                // Backend invoice response typically only carries totals — line items
+                // live in the order's jobs. Merge them so the modal can display details.
+                const enriched = {
+                    ...resolvedInvoice,
+                    // Inject order jobs if invoice doesn't already carry items
+                    jobs: resolvedInvoice.jobs || resolvedInvoice.order?.jobs || selected.jobs || [],
+                    // Customer & vehicle fallback from the selected order
+                    customerName: resolvedInvoice.customerName || selected.customerName,
+                    customerMobile: resolvedInvoice.customerMobile || selected.customerMobile,
+                    customerTaxId: resolvedInvoice.customerTaxId || selected.customerTaxId,
+                    plateNo: resolvedInvoice.plateNo || selected.plateNumber,
+                    vehicleModel: resolvedInvoice.vehicleModel || (selected.vehicleInfo || '').split(' ')[1] || '',
+                    vehicleMake: resolvedInvoice.vehicleMake || (selected.vehicleInfo || '').split(' ')[0] || '',
+                    odometerReading: resolvedInvoice.odometerReading || selected.odometer,
+                };
+                console.log('[InvoiceDebug] enriched keys:', Object.keys(enriched), 'jobs:', enriched.jobs?.length, 'job items:', enriched.jobs?.flatMap(j => j.items || []).length);
+                setInvoiceDetails(enriched);
+            }
+
             await refreshOrders();
         } catch (e) {
             console.error('Failed to generate invoice by order:', e);
-            alert('Failed to generate invoice: ' + (e.message || 'Please try again.'));
+            // Self-heal: if backend rejected due to payment/total mismatch, clear stale payments
+            // and re-open the payment modal so the user can enter fresh amounts against the new total.
+            if (/do not match invoice total|exceeds remaining amount|payment amount.*exceeds/i.test(e.message || '')) {
+                setLocalPayments(null);
+                await refreshOrders();
+                alert('Invoice total was updated after sync. Please re-enter payment details for the new total.');
+                setActiveModal('payment');
+            } else {
+                alert('Failed to generate invoice: ' + (e.message || 'Please try again.'));
+            }
         } finally {
             setActionLoading(null);
         }
@@ -285,10 +473,29 @@ export default function OrdersScreen({ onNewOrder }) {
         }));
     }, [orders]);
 
+    // Match reference PosOrder.jsobsAggregateBadgeLabel — completion is derived from the aggregate
+    // state of non-cancelled jobs, NOT the order-level status field. 'edited' counts as COMPLETED
+    // so a completed-then-edited job doesn't jump back to the Pending tab while the cashier is
+    // still working through re-invoicing.
+    const jobsAggregateBadge = (order) => {
+        const jobs = order.jobs || [];
+        if (jobs.length === 0) return 'DRAFT';
+        const active = jobs.filter(j => !['cancelled', 'rejected_by_technician'].includes((j.status || '').toLowerCase()));
+        if (active.length === 0) return 'PENDING';
+        const allDone = active.every(j => {
+            const s = (j.status || '').toLowerCase();
+            return s === 'completed' || s === 'invoiced' || s === 'edited' || s === 'finished';
+        });
+        return allDone ? 'COMPLETED' : 'PENDING';
+    };
+
     const filtered = useMemo(() => {
         let list = mappedOrders.filter(o => (o.status || '').toLowerCase() !== 'cancelled');
-        if (tab === 'Pending') list = list.filter(o => !['completed', 'invoiced'].includes((o.status || '').toLowerCase()));
-        else if (tab === 'Completed') list = list.filter(o => ['completed', 'invoiced'].includes((o.status || '').toLowerCase()));
+        if (tab === 'Pending') {
+            list = list.filter(o => jobsAggregateBadge(o) !== 'COMPLETED');
+        } else if (tab === 'Completed') {
+            list = list.filter(o => jobsAggregateBadge(o) === 'COMPLETED');
+        }
         if (search.trim()) {
             const q = search.trim().toLowerCase();
             list = list.filter(o => (o.orderNumber + ' ' + o.customerName + ' ' + o.plateNumber).toLowerCase().includes(q));
@@ -353,19 +560,22 @@ export default function OrdersScreen({ onNewOrder }) {
             alert('Cannot complete job: Missing Job ID.');
             return;
         }
-        
+
         setActionLoading(jobId);
         try {
             if (isAlreadyDone) {
-                console.log('Restoring job to pending...');
-                await apiFetch(`/cashier/job/${jobId}/update-status`, { 
-                    method: 'POST', 
-                    body: JSON.stringify({ status: 'pending' }) 
+                // Reference: PATCH /cashier/job/:id/mark-edited with empty body transitions
+                // completed → edited on the backend. Sending { status: 'pending' } is wrong —
+                // the backend decides the target state (edited) from this endpoint alone.
+                console.log('Reverting job via /mark-edited (backend → edited)...');
+                await apiFetch(`/cashier/job/${jobId}/mark-edited`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({})
                 });
             } else {
                 await processJobCompletion(job);
             }
-            
+
             refreshOrders();
             // Clear local jobData
             setJobData(prev => {
@@ -374,11 +584,63 @@ export default function OrdersScreen({ onNewOrder }) {
                 delete next[key];
                 return next;
             });
-        } catch (e) { 
+        } catch (e) {
             console.error('Job Completion Error:', e);
-            alert(`Completion Error: ${e.message || 'Check console for details'}`); 
-        } finally { 
-            setActionLoading(null); 
+            alert(`Completion Error: ${e.message || 'Check console for details'}`);
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    // Reference: PATCH /cashier/job/:jobId/cancel  body: { reason }
+    // Cancels a single department/job before invoicing. Backend rejects invoiced jobs.
+    // UI flow: clicking the X on a JobCard opens the CancelReasonModal (via cancelJobTarget state),
+    // and the modal's onConfirm invokes performCancelJob with the reason.
+    const handleCancelJob = (job) => {
+        const jobId = job?.id || job?.jobId;
+        if (!jobId || jobId === 'undefined') {
+            alert('Cannot cancel: Missing Job ID.');
+            return;
+        }
+        const statusLower = (job.status || '').toLowerCase();
+        if (statusLower === 'invoiced') {
+            alert('Invoiced jobs cannot be cancelled.');
+            return;
+        }
+        if (['cancelled', 'rejected_by_technician'].includes(statusLower)) {
+            alert('This job is already cancelled.');
+            return;
+        }
+        setCancelJobTarget({
+            id: jobId,
+            jobKey: job.jobKey,
+            departmentName: job.departmentName || job.department?.name || job.department || 'this department',
+        });
+    };
+
+    const performCancelJob = async (reason) => {
+        if (!cancelJobTarget) return;
+        const { id: jobId, jobKey } = cancelJobTarget;
+        setActionLoading(`cancel-${jobId}`);
+        try {
+            await apiFetch(`/cashier/job/${jobId}/cancel`, {
+                method: 'PATCH',
+                body: JSON.stringify({ reason: reason || 'Cancelled by cashier' })
+            });
+            // Drop any local draft for this job so the fresh server status takes effect
+            setJobData(prev => {
+                const next = { ...prev };
+                delete next[jobId];
+                if (jobKey) delete next[jobKey];
+                return next;
+            });
+            setCancelJobTarget(null);
+            await refreshOrders();
+        } catch (e) {
+            console.error('Cancel Job Error:', e);
+            alert(`Could not cancel job: ${e.message || 'Please try again.'}`);
+        } finally {
+            setActionLoading(null);
         }
     };
 
@@ -479,7 +741,7 @@ export default function OrdersScreen({ onNewOrder }) {
                 totalDiscountValue: data.totalDiscountValue || 0,
                 promoCode: data.promoCode || '',
                 promoCodeId: data.promoCodeId || '',
-                VAT: data.VAT || 15
+                VAT: data.VAT !== undefined && data.VAT !== null ? data.VAT : 15
             };
             await apiFetch(`/cashier/job/${jobId}/pricing`, {
                 method: 'POST',
@@ -641,6 +903,7 @@ export default function OrdersScreen({ onNewOrder }) {
                                                 setActiveModal(type);
                                             }}
                                             onMarkComplete={markJobComplete}
+                                            onCancelJob={handleCancelJob}
                                             actionLoading={actionLoading}
                                         />
                                     );
@@ -714,13 +977,34 @@ export default function OrdersScreen({ onNewOrder }) {
             )}
 
             {showCancelModal && (
-                <CancelReasonModal 
+                <CancelReasonModal
                     isOpen={showCancelModal}
                     onClose={() => setShowCancelModal(false)}
                     onConfirm={handleCancelOrder}
                     loading={actionLoading === 'cancelling-order'}
                 />
             )}
+
+            {cancelJobTarget && (
+                <CancelReasonModal
+                    isOpen={true}
+                    onClose={() => setCancelJobTarget(null)}
+                    onConfirm={performCancelJob}
+                    loading={actionLoading === `cancel-${cancelJobTarget.id}`}
+                    title={`Cancel ${cancelJobTarget.departmentName}`}
+                    subtitle="This department/job will be cancelled."
+                    warningMessage="Only this job is voided — other departments on this order remain."
+                    placeholder="Why are you cancelling this job? (e.g., wrong department, customer removed this service...)"
+                    confirmLabel="Cancel Job"
+                    loadingLabel="Cancelling..."
+                />
+            )}
+
+            <InvoiceDetailsModal
+                isOpen={!!invoiceDetails}
+                invoice={invoiceDetails}
+                onClose={() => setInvoiceDetails(null)}
+            />
             
             <WalkInOrderModal 
                 isOpen={activeModal === 'walkin'}
@@ -784,33 +1068,7 @@ export default function OrdersScreen({ onNewOrder }) {
                 isOpen={activeModal === 'payment'}
                 onClose={() => setActiveModal(null)}
                 loading={actionLoading === 'saving-payment'}
-                totalAmount={(() => {
-                    if (!selected) return 0;
-                    let total = 0;
-                    (selected.jobs || []).forEach(job => {
-                        const local = jobData[job.id || job.jobKey];
-                        const items = local ? local.products : (job.items || []);
-                        const totalDiscType = local ? local.totalDiscountType : (job.totalDiscountType || 'amount');
-                        const totalDiscVal = parseFloat(local ? local.totalDiscountValue : (job.totalDiscountValue || 0)) || 0;
-                        const vatRate = parseFloat(local ? local.VAT : (job.VAT || 15)) || 15;
-
-                        let sub = 0;
-                        let itemDiscs = 0;
-                        items.forEach(item => {
-                            const price = parseFloat(item.unitPrice || item.price || 0);
-                            const qty = parseFloat(item.qty || 1);
-                            const row = price * qty;
-                            const disc = item.discountType === 'percentage' ? (row * (item.discountValue || 0) / 100) : (item.discountValue || 0);
-                            sub += row;
-                            itemDiscs += disc;
-                        });
-                        const afterItems = sub - itemDiscs;
-                        const globalDisc = totalDiscType === 'percentage' ? (afterItems * totalDiscVal / 100) : totalDiscVal;
-                        const taxable = Math.max(0, afterItems - globalDisc);
-                        total += taxable + (taxable * (vatRate / 100));
-                    });
-                    return total;
-                })()}
+                totalAmount={calculateOrderTotal(selected)}
                 onSave={async (payments) => {
                     setLocalPayments({
                         method: payments[0]?.method || 'Cash',
@@ -836,45 +1094,46 @@ export default function OrdersScreen({ onNewOrder }) {
                             This job is already marked as completed. Would you like to set it back to <strong>Pending</strong> to make changes?
                         </p>
                         <div style={{ display: 'flex', gap: 12 }}>
-                            <button onClick={() => setConfirmEditJob(null)} className="btn-modal btn-clear" style={{ flex: 1 }}>Cancel</button>
-                            <button onClick={async () => {
-                                const { job, type } = confirmEditJob;
-                                setConfirmEditJob(null);
-                                try {
-                                    setActionLoading(job.id);
-                                    await apiFetch(`/cashier/job/${job.id}/mark-edited`, { 
-                                        method: 'PATCH',
-                                        body: JSON.stringify({ status: 'pending' })
-                                    });
-                                    await refreshOrders();
-                                    
-                                    // Manually trigger the edit modal opening after status change
-                                    const jobKey = job.id; 
-                                    setEditingJob({ ...job, jobKey });
-                                    
-                                    // Initialize data
-                                    const initialProducts = (job.items || []).map(item => ({
-                                        ...item,
-                                        id: item.productId || item.serviceId || item.id,
-                                        name: item.product?.name || item.service?.name || item.name || 'Item',
-                                        price: parseFloat(item.unitPrice || item.price || 0),
-                                        qty: item.qty || 1,
-                                        isService: !!item.serviceId
-                                    }));
-                                    const initialTechs = (job.technicians || []).map(t => ({
-                                        ...t,
-                                        id: t.employeeId || t.id,
-                                        name: t.employee?.name || t.name || 'Technician'
-                                    }));
-                                    setJobData(prev => ({ ...prev, [jobKey]: { products: initialProducts, techs: initialTechs } }));
-                                    setActiveModal(type);
-                                } catch (e) {
-                                    console.error('Failed to mark job as edited:', e);
-                                    alert('Could not revert status. Please try manually.');
-                                } finally {
-                                    setActionLoading(null);
-                                }
-                            }} className="btn-modal btn-confirm" style={{ flex: 1.5, background: 'var(--pos-dark)', color: '#fff' }}>Confirm & Edit</button>
+                             <button onClick={() => setConfirmEditJob(null)} className="btn-modal btn-clear" style={{ flex: 1 }}>Cancel</button>
+                             <button onClick={async () => {
+                                 const { job, type } = confirmEditJob;
+                                 setConfirmEditJob(null);
+                                 try {
+                                     setActionLoading(job.id);
+                                     // Reference: empty body → backend transitions completed → edited
+                                     await apiFetch(`/cashier/job/${job.id}/mark-edited`, {
+                                         method: 'PATCH',
+                                         body: JSON.stringify({})
+                                     });
+                                     await refreshOrders();
+                                     
+                                     // Manually trigger the edit modal opening after status change
+                                     const jobKey = job.id; 
+                                     setEditingJob({ ...job, jobKey });
+                                     
+                                     // Initialize data
+                                     const initialProducts = (job.items || []).map(item => ({
+                                         ...item,
+                                         id: item.productId || item.serviceId || item.id,
+                                         name: item.product?.name || item.service?.name || item.name || 'Item',
+                                         price: parseFloat(item.unitPrice || item.price || 0),
+                                         qty: item.qty || 1,
+                                         isService: !!item.serviceId
+                                     }));
+                                     const initialTechs = (job.technicians || []).map(t => ({
+                                         ...t,
+                                         id: t.employeeId || t.id,
+                                         name: t.employee?.name || t.name || 'Technician'
+                                     }));
+                                     setJobData(prev => ({ ...prev, [jobKey]: { products: initialProducts, techs: initialTechs } }));
+                                     setActiveModal(type);
+                                 } catch (e) {
+                                     console.error('Failed to mark job as edited:', e);
+                                     alert('Could not revert status. Please try manually.');
+                                 } finally {
+                                     setActionLoading(null);
+                                 }
+                             }} className="btn-modal btn-confirm" style={{ flex: 1.5 }}>Confirm & Edit</button>
                         </div>
                     </div>
                 </div>

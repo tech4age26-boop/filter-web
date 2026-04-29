@@ -26,9 +26,11 @@ export default function PromotionsScreen({ onBack }) {
         setApplying(true);
         setApplyResult(null);
         try {
-            const res = await apiFetch('/cashier/promo-codes/validate', {
+            // Reference endpoint: POST /cashier/promo-code/apply with { code, orderAmount }
+            // On this screen we're only validating a code (no order context), so orderAmount = 0.
+            const res = await apiFetch('/cashier/promo-code/apply', {
                 method: 'POST',
-                body: JSON.stringify({ code }),
+                body: JSON.stringify({ code, orderAmount: 0 }),
             });
             const valid = res.valid !== false && (res.promo || res.data || res);
             if (valid) {

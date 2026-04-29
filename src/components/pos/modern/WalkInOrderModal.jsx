@@ -96,44 +96,118 @@ export default function WalkInOrderModal({ isOpen, onClose, onSubmit, department
                             </div>
                         </div>
 
-                        <div className="dept-selection-area" style={{ marginTop: 24 }}>
-                            <label className="section-label" style={{ display: 'block', marginBottom: 12, fontSize: '0.7rem', fontWeight: 900, color: 'var(--pos-text-muted)', letterSpacing: 1 }}>SELECT DEPARTMENTS</label>
-                            <div className="dept-grid-small" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                {departments.map(dept => (
-                                    <button 
-                                        key={dept.id}
-                                        type="button"
-                                        className={`dept-pill-btn ${formData.departmentIds.includes(String(dept.id)) ? 'active' : ''}`}
-                                        onClick={() => toggleDept(dept.id)}
-                                        style={{
-                                            padding: '8px 16px',
-                                            borderRadius: 12,
-                                            border: '1.5px solid var(--pos-border)',
-                                            background: formData.departmentIds.includes(String(dept.id)) ? 'var(--pos-dark)' : '#fff',
-                                            color: formData.departmentIds.includes(String(dept.id)) ? 'var(--pos-gold)' : 'var(--pos-text-muted)',
-                                            fontSize: '0.85rem',
-                                            fontWeight: 800,
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                            transition: 'all 0.2s'
-                                        }}
-                                    >
-                                        {formData.departmentIds.includes(String(dept.id)) && <Check size={14} />}
-                                        {dept.name}
-                                    </button>
-                                ))}
+                        <div style={{ marginTop: 28 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ width: 4, height: 18, borderRadius: 2, background: '#FCC247' }} />
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 900, color: '#64748b', letterSpacing: 1.2, textTransform: 'uppercase' }}>Select Departments</label>
+                                </div>
+                                {formData.departmentIds.length > 0 && (
+                                    <span style={{ 
+                                        padding: '3px 10px', borderRadius: 20, 
+                                        background: '#23262D', color: '#FCC247', 
+                                        fontSize: '0.7rem', fontWeight: 900 
+                                    }}>
+                                        {formData.departmentIds.length} selected
+                                    </span>
+                                )}
                             </div>
+                            <div style={{ 
+                                display: 'grid', 
+                                gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', 
+                                gap: 10 
+                            }}>
+                                {departments.map(dept => {
+                                    const isSelected = formData.departmentIds.includes(String(dept.id));
+                                    return (
+                                        <button 
+                                            key={dept.id}
+                                            type="button"
+                                            onClick={() => toggleDept(dept.id)}
+                                            style={{
+                                                position: 'relative',
+                                                padding: '14px 12px',
+                                                borderRadius: 14,
+                                                border: isSelected ? '2px solid #FCC247' : '1.5px solid #e2e8f0',
+                                                background: isSelected 
+                                                    ? 'linear-gradient(135deg, #23262D 0%, #2d3139 100%)' 
+                                                    : '#fff',
+                                                color: isSelected ? '#FCC247' : '#475569',
+                                                fontSize: '0.82rem',
+                                                fontWeight: 800,
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                alignItems: 'center',
+                                                gap: 8,
+                                                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                boxShadow: isSelected 
+                                                    ? '0 4px 16px rgba(252,194,71,0.2)' 
+                                                    : '0 2px 6px rgba(0,0,0,0.04)',
+                                                transform: isSelected ? 'translateY(-2px)' : 'none',
+                                                fontFamily: 'inherit',
+                                                overflow: 'hidden',
+                                                textTransform: 'capitalize',
+                                            }}
+                                            onMouseEnter={e => {
+                                                if (!isSelected) {
+                                                    e.currentTarget.style.borderColor = '#FCC247';
+                                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(252,194,71,0.12)';
+                                                    e.currentTarget.style.transform = 'translateY(-1px)';
+                                                }
+                                            }}
+                                            onMouseLeave={e => {
+                                                if (!isSelected) {
+                                                    e.currentTarget.style.borderColor = '#e2e8f0';
+                                                    e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.04)';
+                                                    e.currentTarget.style.transform = 'none';
+                                                }
+                                            }}
+                                        >
+                                            {/* Top accent bar */}
+                                            <div style={{
+                                                position: 'absolute', top: 0, left: 0, right: 0, height: 3,
+                                                background: isSelected ? '#FCC247' : 'transparent',
+                                                borderRadius: '14px 14px 0 0',
+                                                transition: 'background 0.2s',
+                                            }} />
+                                            {/* Icon circle */}
+                                            <div style={{
+                                                width: 36, height: 36, borderRadius: 10,
+                                                background: isSelected ? 'rgba(252,194,71,0.15)' : '#f8fafc',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                transition: 'all 0.2s',
+                                                border: isSelected ? '1.5px solid rgba(252,194,71,0.3)' : '1px solid #f1f5f9',
+                                            }}>
+                                                {isSelected 
+                                                    ? <Check size={18} strokeWidth={3} color="#FCC247" />
+                                                    : <Plus size={16} color="#94a3b8" />
+                                                }
+                                            </div>
+                                            <span style={{ 
+                                                lineHeight: 1.2, textAlign: 'center', 
+                                                fontSize: '0.78rem', wordBreak: 'break-word' 
+                                            }}>
+                                                {dept.name}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {departments.length === 0 && (
+                                <div style={{ textAlign: 'center', padding: '24px 0', color: '#94a3b8', fontSize: '0.82rem', fontWeight: 600 }}>
+                                    No departments available
+                                </div>
+                            )}
                         </div>
                     </div>
 
                     <div className="modal-footer-premium">
-                        <button type="button" className="btn-modal btn-clear" onClick={onClose}>Cancel</button>
+                        <button type="button" className="btn-modal btn-clear" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
                         <button 
                             type="submit" 
                             className="btn-modal btn-confirm" 
-                            style={{ flex: 1 }}
+                            style={{ flex: 2 }}
                             disabled={loading}
                         >
                             {loading ? <RefreshCw className="animate-spin" size={18} /> : 'Submit Walk-in Order'}

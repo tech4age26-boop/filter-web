@@ -6,6 +6,7 @@ export default function CurrentShiftScreen() {
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError]     = useState(null);
+    const [elapsed, setElapsed] = useState('—');
 
     const fetch = () => {
         setLoading(true); setError(null);
@@ -16,6 +17,36 @@ export default function CurrentShiftScreen() {
     };
 
     useEffect(() => { fetch(); }, []);
+
+    const openedAt = session?.openedAt || session?.createdAt || session?.startTime;
+
+    useEffect(() => {
+        if (!openedAt) {
+            setElapsed('—');
+            return;
+        }
+
+        const updateElapsed = () => {
+            const start = new Date(openedAt).getTime();
+            const now = new Date().getTime();
+            const diff = Math.max(0, now - start);
+
+            const hours = Math.floor(diff / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+            const parts = [];
+            if (hours > 0) parts.push(`${hours}h`);
+            if (minutes > 0 || hours > 0) parts.push(`${minutes}m`);
+            parts.push(`${seconds}s`);
+
+            setElapsed(parts.join(' '));
+        };
+
+        updateElapsed();
+        const interval = setInterval(updateElapsed, 1000);
+        return () => clearInterval(interval);
+    }, [openedAt]);
 
     if (loading) {
         return (
@@ -44,7 +75,6 @@ export default function CurrentShiftScreen() {
         );
     }
 
-    const openedAt = session.openedAt || session.createdAt || session.startTime;
     let parsedDate = openedAt;
     try {
         if (openedAt) parsedDate = new Date(openedAt).toLocaleString('en-SA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -71,7 +101,7 @@ export default function CurrentShiftScreen() {
                     <InfoTile label="Cashier"    value={session.cashierName || session.userName || 'Cashier'} Icon={User} />
                     <InfoTile label="Session ID" value={`#${session.posSessionId || session.id || '—'}`}      Icon={Tag}  />
                     <InfoTile label="Branch"     value={session.branchName || '—'}                             Icon={MapPin} />
-                    <InfoTile label="Elapsed"    value={session.elapsedTime || '—'}                            Icon={Timer} />
+                    <InfoTile label="Elapsed"    value={elapsed}                                               Icon={Timer} />
                 </div>
             </div>
 

@@ -4,8 +4,6 @@ import { Plus, Shield, X, Wallet, Landmark, Banknote, Settings, Trash2, Calendar
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import AccountDetailModal from '../../components/AccountDetailModal';
-import ReferralCommissionsPage from '../admin/ReferralCommissionsPage';
-import RM_Commissions from '../referral-management/RM_Commissions';
 import '../../styles/admin/AccountingPage.css';
 
 const CASH_BANK_TABS = ['All Accounts', 'Cash', 'Bank', 'Petty Cash'];
@@ -2978,10 +2976,7 @@ export default function SupplierAccountingPage({ activeSubTab: propActiveTab }) 
         const mapping = {
             'coa': 'chart-of-accounts',
             'cash_bank': 'cash-bank',
-            'referral': 'referral-commissions',
             'journal': 'journal-entries',
-            // Default mappings for those that already match
-            'commissions': 'commissions',
             'transactions': 'transactions',
             'purchases': 'purchases',
             'expenses': 'expenses',
@@ -3006,9 +3001,6 @@ export default function SupplierAccountingPage({ activeSubTab: propActiveTab }) 
         <div className="accounting-page module-container">
             {activeSub === 'chart-of-accounts' && <ChartOfAccountsView />}
             {activeSub === 'cash-bank' && <CashBankView />}
-            {activeSub === 'commissions' && <ReferralCommissionsPage />}
-            {activeSub === 'referral-commissions' && <ReferralCommissionsPage />}
-            {activeSub === 'referral-commissions-rm' && <RM_Commissions />}
             {activeSub === 'payments' && <PaymentsView />}
             {activeSub === 'transactions' && <TransactionEntryView />}
             {activeSub === 'journal-entries' && <GeneralJournalView />}

@@ -1,8 +1,25 @@
 import React, { useState } from 'react';
 import { X, AlertCircle, Trash2 } from 'lucide-react';
 
-export default function CancelReasonModal({ isOpen, onClose, onConfirm, loading }) {
+export default function CancelReasonModal({
+    isOpen,
+    onClose,
+    onConfirm,
+    loading,
+    title = 'Cancel Order',
+    subtitle = 'This action cannot be undone.',
+    warningMessage = 'This will void all jobs in the order.',
+    placeholder = 'Why are you cancelling this order? (e.g., Customer changed mind, incorrect department...)',
+    confirmLabel = 'Void Order',
+    loadingLabel = 'Processing...',
+}) {
     const [reason, setReason] = useState('');
+
+    // Reset reason whenever the modal re-opens so the previous text doesn't leak
+    // between different cancel targets (order vs job).
+    React.useEffect(() => {
+        if (isOpen) setReason('');
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -11,7 +28,7 @@ export default function CancelReasonModal({ isOpen, onClose, onConfirm, loading 
             alert("Please provide a reason for cancellation.");
             return;
         }
-        onConfirm(reason);
+        onConfirm(reason.trim());
     };
 
     return (
@@ -27,8 +44,8 @@ export default function CancelReasonModal({ isOpen, onClose, onConfirm, loading 
                             <Trash2 size={24} />
                         </div>
                         <div>
-                            <h2 className="modal-title" style={{ margin: 0 }}>Cancel Order</h2>
-                            <p className="modal-subtitle" style={{ margin: 0 }}>This action cannot be undone.</p>
+                            <h2 className="modal-title" style={{ margin: 0 }}>{title}</h2>
+                            <p className="modal-subtitle" style={{ margin: 0 }}>{subtitle}</p>
                         </div>
                     </div>
                     <button className="modal-close-btn" onClick={onClose}><X size={24} /></button>
@@ -45,9 +62,9 @@ export default function CancelReasonModal({ isOpen, onClose, onConfirm, loading 
                             marginBottom: 10,
                             textTransform: 'uppercase'
                         }}>Reason for Cancellation</label>
-                        <textarea 
+                        <textarea
                             className="modern-textarea"
-                            placeholder="Why are you cancelling this order? (e.g., Customer changed mind, incorrect department...)"
+                            placeholder={placeholder}
                             value={reason}
                             onChange={e => setReason(e.target.value)}
                             rows={4}
@@ -63,20 +80,20 @@ export default function CancelReasonModal({ isOpen, onClose, onConfirm, loading 
                             fontWeight: 500
                         }}>
                             <AlertCircle size={14} />
-                            <span>This will void all jobs in the order.</span>
+                            <span>{warningMessage}</span>
                         </div>
                     </div>
                 </div>
 
                 <div className="modal-footer-premium" style={{ borderTop: 'none', paddingTop: 0 }}>
                     <button className="btn-modal btn-outline" onClick={onClose} disabled={loading}>Close</button>
-                    <button 
-                        className="btn-modal btn-confirm" 
+                    <button
+                        className="btn-modal btn-confirm"
                         style={{ background: '#ef4444', color: '#fff' }}
                         onClick={handleConfirm}
                         disabled={loading || !reason.trim()}
                     >
-                        {loading ? 'Processing...' : 'Void Order'}
+                        {loading ? loadingLabel : confirmLabel}
                     </button>
                 </div>
             </div>

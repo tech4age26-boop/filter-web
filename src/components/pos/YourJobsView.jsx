@@ -1,32 +1,43 @@
-import { Trash2, Users, Package, ChevronRight, Save, Play } from 'lucide-react';
+import { Trash2, Users, Package, Plus, Save, Play } from 'lucide-react';
+import { usePOS } from '../../context/POSContext';
 
-export default function YourJobsView({ 
-    selectedDepartments = [], 
-    onAssignTechnicians, 
-    onAddInventory, 
+export default function YourJobsView({
+    selectedDepartments = [],
+    onAssignTechnicians,
+    onAddInventory,
     onRemoveDepartment,
+    onAddDepartment,
     onSaveDraft,
     onPlaceOrder,
-    orderInfo = {},
-    cartItems = [] // Items already in cart, if any
 }) {
-    // Mock calculations for the "Department-wise Invoice"
-    // In a real app, this would come from a context or API
+    const { cart } = usePOS();
+
+    // Cart items are tagged with _deptId by OrderBuilder when added
     const getDeptStats = (deptId) => {
-        const deptItems = cartItems.filter(item => item.product?.departmentId === deptId);
-        const total = deptItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const deptItems = cart.filter(item => item._deptId === deptId);
+        const total = deptItems.reduce((sum, item) => sum + ((item.price || 0) * (item.qty || 0)), 0);
         return { count: deptItems.length, total };
     };
 
-    const grandTotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const grandTotal = cart.reduce((sum, item) => sum + ((item.price || 0) * (item.qty || 0)), 0);
 
     return (
         <div style={{ display: 'flex', gap: 24, height: '100%', overflow: 'hidden' }}>
             {/* Jobs List */}
             <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#23262D' }}>Your Jobs</h2>
-                    <span style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600 }}>{selectedDepartments.length} Departments Selected</span>
+                    <div>
+                        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#23262D' }}>Your Jobs</h2>
+                        <span style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600 }}>{selectedDepartments.length} Departments Selected</span>
+                    </div>
+                    {onAddDepartment && (
+                        <button
+                            onClick={onAddDepartment}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: '#23262D', color: '#FCC247', border: 'none', borderRadius: 12, fontWeight: 800, fontSize: '0.82rem', cursor: 'pointer' }}>
+                            <Plus size={16} />
+                            <span>Add Department</span>
+                        </button>
+                    )}
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: 16 }}>

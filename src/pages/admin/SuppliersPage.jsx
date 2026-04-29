@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, ChevronDown, Loader } from 'lucide-react';
+import { Plus, Pencil, ChevronDown, Loader } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import '../../styles/admin/SuppliersPage.css';
-import { getSuppliers, createSupplier, updateSupplier } from '../../services/superAdminApi';
+import { getSuppliers, getSupplier, createSupplier, updateSupplier } from '../../services/superAdminApi';
 
 export default function SuppliersPage() {
     const [suppliers, setSuppliers] = useState([]);
@@ -14,18 +14,20 @@ export default function SuppliersPage() {
     const [editingSupplier, setEditingSupplier] = useState(null);
 
     const normalize = (s) => ({
-        id: s.id ?? s._id,
+        id: String(s.id ?? s._id ?? ''),
         name: s.name ?? '—',
-        category: s.category ?? 'Other',
+        category: s.registrationType ?? s.category ?? 'Other',
         vatId: s.vatId ?? s.taxId ?? '',
-        crNumber: s.crNumber ?? '',
+        crNumber: s.tradeLicenseNo ?? s.crNumber ?? '',
         contactPerson: s.contactPerson ?? s.ownerName ?? '',
         phone: s.mobile ?? s.phone ?? '',
         email: s.email ?? '',
         address: s.address ?? '',
         bankName: s.bankName ?? '',
-        bankIban: s.bankIban ?? '',
-        status: s.isActive === false ? 'inactive' : 'active',
+        bankIban: s.iban ?? s.bankIban ?? '',
+        street: s.street ?? '',
+        cityDistrict: s.cityDistrict ?? '',
+        status: s.status ?? (s.isActive === false ? 'inactive' : 'active'),
     });
 
     const reload = () =>
@@ -37,7 +39,7 @@ export default function SuppliersPage() {
 
     const [supplierForm, setSupplierForm] = useState({
         name: '',
-        category: 'Other',
+        category: 'supplier',
         vatId: '',
         crNumber: '',
         contactPerson: '',
@@ -46,31 +48,56 @@ export default function SuppliersPage() {
         address: '',
         bankName: '',
         bankIban: '',
-        status: 'active'
+        street: '',
+        cityDistrict: '',
+        status: 'active',
+        password: '',
     });
 
     const resetForm = () => {
         setSupplierForm({
-            name: '', category: 'Other', vatId: '', crNumber: '', contactPerson: '',
-            phone: '', email: '', address: '', bankName: '', bankIban: '', status: 'active'
+            name: '', category: 'supplier', vatId: '', crNumber: '', contactPerson: '',
+            phone: '', email: '', address: '', bankName: '', bankIban: '',
+            street: '', cityDistrict: '', status: 'active', password: ''
         });
     };
 
-    const openEdit = (s) => {
-        setEditingSupplier({ ...s });
-        setEditOpen(true);
+    const openEdit = async (s) => {
+        setSaving(true);
+        try {
+            const detail = await getSupplier(String(s.id));
+            const payload = detail?.data && typeof detail.data === 'object' ? detail.data : detail;
+            setEditingSupplier(normalize(payload || s));
+            setEditOpen(true);
+        } catch {
+            setEditingSupplier({ ...s });
+            setEditOpen(true);
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleSaveNew = async () => {
+        if (!String(supplierForm.password || '').trim()) {
+            alert('Password is required for login-ready supplier.');
+            return;
+        }
         setSaving(true);
         try {
             await createSupplier({
                 name: supplierForm.name,
-                mobile: supplierForm.phone,
+                vatId: supplierForm.vatId || undefined,
+                tradeLicenseNo: supplierForm.crNumber || undefined,
+                contactPerson: supplierForm.contactPerson || undefined,
+                mobile: supplierForm.phone || undefined,
                 email: supplierForm.email,
                 address: supplierForm.address,
-                openingBalance: 0,
-                password: `Pass@${Date.now()}`,
+                bankName: supplierForm.bankName || undefined,
+                iban: supplierForm.bankIban || undefined,
+                street: supplierForm.street || undefined,
+                cityDistrict: supplierForm.cityDistrict || undefined,
+                isActive: supplierForm.status === 'active',
+                password: supplierForm.password,
             });
             await reload();
             setCreateOpen(false);
@@ -88,9 +115,16 @@ export default function SuppliersPage() {
         try {
             await updateSupplier(editingSupplier.id, {
                 name: editingSupplier.name,
-                mobile: editingSupplier.phone,
-                email: editingSupplier.email,
-                address: editingSupplier.address,
+                vatId: editingSupplier.vatId || undefined,
+                tradeLicenseNo: editingSupplier.crNumber || undefined,
+                contactPerson: editingSupplier.contactPerson || undefined,
+                mobile: editingSupplier.phone || undefined,
+                email: editingSupplier.email || undefined,
+                address: editingSupplier.address || undefined,
+                bankName: editingSupplier.bankName || undefined,
+                iban: editingSupplier.bankIban || undefined,
+                street: editingSupplier.street || undefined,
+                cityDistrict: editingSupplier.cityDistrict || undefined,
                 isActive: editingSupplier.status === 'active',
             });
             await reload();
@@ -100,12 +134,6 @@ export default function SuppliersPage() {
             alert(err.message);
         } finally {
             setSaving(false);
-        }
-    };
-
-    const handleDelete = (id) => {
-        if (window.confirm('Are you sure you want to delete this supplier?')) {
-            setSuppliers((prev) => prev.filter((s) => s.id !== id));
         }
     };
 
@@ -158,10 +186,7 @@ export default function SuppliersPage() {
                                         </span>
                                     </td>
                                     <td className="table-cell">
-                                        <div style={{ display: 'flex', gap: '8px' }}>
-                                            <button type="button" className="btn-icon" onClick={() => openEdit(s)}><Pencil size={16} /></button>
-                                            <button type="button" className="btn-icon" onClick={() => handleDelete(s.id)} style={{ color: '#EF4444' }}><Trash2 size={16} /></button>
-                                        </div>
+                                        <button type="button" className="btn-icon" onClick={() => openEdit(s)}><Pencil size={16} /></button>
                                     </td>
                                 </tr>
                             ))
@@ -203,11 +228,9 @@ export default function SuppliersPage() {
                                             value={supplierForm.category}
                                             onChange={(e) => setSupplierForm({ ...supplierForm, category: e.target.value })}
                                         >
-                                            <option value="Other">Other</option>
-                                            <option value="Parts">Parts</option>
-                                            <option value="Lubricants">Lubricants</option>
-                                            <option value="Tires">Tires</option>
-                                            <option value="Equipment">Equipment</option>
+                                            <option value="supplier">Supplier</option>
+                                            <option value="warehouse">Warehouse</option>
+                                            <option value="other">Other</option>
                                         </select>
                                         <ChevronDown className="select-icon" size={16} />
                                     </div>
@@ -233,6 +256,29 @@ export default function SuppliersPage() {
                                         placeholder="Enter CR Number"
                                         value={supplierForm.crNumber}
                                         onChange={(e) => setSupplierForm({ ...supplierForm, crNumber: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-grid">
+                                <div className="form-group">
+                                    <label className="form-label">Street (optional)</label>
+                                    <input
+                                        type="text"
+                                        className="form-input-field"
+                                        placeholder="Street"
+                                        value={supplierForm.street || ''}
+                                        onChange={(e) => setSupplierForm({ ...supplierForm, street: e.target.value })}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">City / District (optional)</label>
+                                    <input
+                                        type="text"
+                                        className="form-input-field"
+                                        placeholder="City / District"
+                                        value={supplierForm.cityDistrict || ''}
+                                        onChange={(e) => setSupplierForm({ ...supplierForm, cityDistrict: e.target.value })}
                                     />
                                 </div>
                             </div>
@@ -279,6 +325,19 @@ export default function SuppliersPage() {
                                         placeholder="Office address"
                                         value={supplierForm.address}
                                         onChange={(e) => setSupplierForm({ ...supplierForm, address: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-grid">
+                                <div className="form-group">
+                                    <label className="form-label">Password *</label>
+                                    <input
+                                        type="password"
+                                        className="form-input-field"
+                                        placeholder="Set login password"
+                                        value={supplierForm.password}
+                                        onChange={(e) => setSupplierForm({ ...supplierForm, password: e.target.value })}
                                     />
                                 </div>
                             </div>

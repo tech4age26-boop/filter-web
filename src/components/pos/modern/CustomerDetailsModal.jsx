@@ -1,21 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Phone, Mail, Car, X, Check, Hash, Activity, ShieldCheck } from 'lucide-react';
 
+const buildFormData = (initialData = {}, vehicleInfo = {}) => ({
+    name: initialData.name || '',
+    phone: initialData.phone || '',
+    email: initialData.email || '',
+    vatNumber: initialData.vatNumber || '',
+    odometerReading: initialData.odometerReading || '',
+    vin: initialData.vin || '',
+    // These might come from vehicleInfo but API expects them in billing
+    vehicleNumber: initialData.vehicleNumber || vehicleInfo.vehicleNumber || '',
+    make: initialData.make || vehicleInfo.make || '',
+    model: initialData.model || vehicleInfo.model || '',
+    year: initialData.year || vehicleInfo.year || '',
+    color: initialData.color || vehicleInfo.color || '',
+});
+
 export default function CustomerDetailsModal({ isOpen, onClose, onSave, initialData = {}, vehicleInfo = {}, loading = false }) {
-    const [formData, setFormData] = useState({
-        name: initialData.name || '',
-        phone: initialData.phone || '',
-        email: initialData.email || '',
-        vatNumber: initialData.vatNumber || '',
-        odometerReading: initialData.odometerReading || '',
-        vin: initialData.vin || '',
-        // These might come from vehicleInfo but API expects them in billing
-        vehicleNumber: initialData.vehicleNumber || vehicleInfo.vehicleNumber || '',
-        make: initialData.make || vehicleInfo.make || '',
-        model: initialData.model || vehicleInfo.model || '',
-        year: initialData.year || vehicleInfo.year || '',
-        color: initialData.color || vehicleInfo.color || ''
-    });
+    const [formData, setFormData] = useState(() => buildFormData(initialData, vehicleInfo));
+
+    // Reset the form to the latest props whenever the modal transitions open.
+    // Without this, useState's initializer only runs on first mount — so when the
+    // same modal instance reopens for a different order, the previous order's
+    // customer/vehicle data was leaking into the inputs.
+    useEffect(() => {
+        if (isOpen) {
+            setFormData(buildFormData(initialData, vehicleInfo));
+        }
+        // Intentionally only depend on isOpen: initialData/vehicleInfo are inline
+        // objects that change identity every render, so including them would wipe
+        // out the user's in-progress edits on every parent re-render.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen]);
 
     if (!isOpen) return null;
 

@@ -15,6 +15,73 @@ function qs(params) {
 export const getStats = () =>
     apiFetch('/super-admin/stats');
 
+// ─── Master Catalog: Duplication Review ───────────────────────────────────────
+
+export const getDuplicates = ({ entityType } = {}) =>
+    apiFetch(`/super-admin/master-catalog/duplicates${qs({ entityType })}`);
+
+export const ignoreDuplicate = ({ entityType, nameKey }) =>
+    apiFetch('/super-admin/master-catalog/duplicates/ignore', {
+        method: 'POST',
+        body: JSON.stringify({ entityType, nameKey }),
+    });
+
+export const unignoreDuplicate = ({ entityType, nameKey }) =>
+    apiFetch(`/super-admin/master-catalog/duplicates/ignore${qs({ entityType, nameKey })}`, {
+        method: 'DELETE',
+    });
+
+/** Deletes one record from a duplicate group (uses underlying entity delete logic). */
+export const deleteDuplicateItem = (entityType, id) =>
+    apiFetch(`/super-admin/master-catalog/duplicates/${entityType}/${encodeURIComponent(String(id))}`, {
+        method: 'DELETE',
+    });
+
+// ─── Master Catalog: Product Requests ─────────────────────────────────────────
+
+export const getProductRequestKpis = ({ workshopId } = {}) =>
+    apiFetch(`/super-admin/master-catalog/product-requests/kpis${qs({ workshopId })}`);
+
+export const getProductRequests = ({ status, workshopId, limit, offset } = {}) =>
+    apiFetch(`/super-admin/master-catalog/product-requests${qs({ status, workshopId, limit, offset })}`);
+
+export const getProductRequest = (id) =>
+    apiFetch(`/super-admin/master-catalog/product-requests/${encodeURIComponent(String(id))}`);
+
+export const approveProductRequest = (id, remarks) =>
+    apiFetch(`/super-admin/master-catalog/product-requests/${encodeURIComponent(String(id))}/approve`, {
+        method: 'PATCH',
+        body: JSON.stringify(remarks ? { remarks } : {}),
+    });
+
+export const rejectProductRequest = (id, reason) =>
+    apiFetch(`/super-admin/master-catalog/product-requests/${encodeURIComponent(String(id))}/reject`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reason }),
+    });
+
+// ─── Master Catalog KPIs ──────────────────────────────────────────────────────
+
+/**
+ * Combined KPIs for the master catalog landing.
+ * Shape: { products: { total, active, inactive }, services: {...},
+ *          departments: {...}, categories: { total, byType: { product, service, expense } } }
+ */
+export const getMasterCatalogKpis = () =>
+    apiFetch('/super-admin/master-catalog/kpis');
+
+export const getMasterCatalogProductKpis = () =>
+    apiFetch('/super-admin/master-catalog/kpis/products');
+
+export const getMasterCatalogServiceKpis = () =>
+    apiFetch('/super-admin/master-catalog/kpis/services');
+
+export const getMasterCatalogDepartmentKpis = () =>
+    apiFetch('/super-admin/master-catalog/kpis/departments');
+
+export const getMasterCatalogCategoryKpis = () =>
+    apiFetch('/super-admin/master-catalog/kpis/categories');
+
 // ─── Workshops ────────────────────────────────────────────────────────────────
 
 export const getWorkshops = ({ status, limit, offset } = {}) =>
@@ -71,8 +138,8 @@ export const setUserActive = (id, isActive) =>
 
 // ─── Technicians ──────────────────────────────────────────────────────────────
 
-export const getTechnicians = ({ workshopId } = {}) =>
-    apiFetch(`/super-admin/technicians${qs({ workshopId })}`);
+export const getTechnicians = ({ workshopId, branchId } = {}) =>
+    apiFetch(`/super-admin/technicians${qs({ workshopId, branchId })}`);
 
 export const getTechnician = (id) =>
     apiFetch(`/super-admin/technicians/${id}`);
@@ -99,8 +166,8 @@ export const updateSupplier = (id, body) =>
 
 // ─── Products ─────────────────────────────────────────────────────────────────
 
-export const getProducts = ({ workshopId, branchId } = {}) =>
-    apiFetch(`/super-admin/products${qs({ workshopId, branchId })}`);
+export const getProducts = ({ branchId } = {}) =>
+    apiFetch(`/super-admin/products${qs({ branchId })}`);
 
 export const getProduct = (id) =>
     apiFetch(`/super-admin/products/${id}`);
@@ -108,18 +175,52 @@ export const getProduct = (id) =>
 export const createProduct = (body) =>
     apiFetch('/super-admin/products', { method: 'POST', body: JSON.stringify(body) });
 
+/** PATCH body: flat fields only. `departmentId` is not supported (department fixed after create). 200 = flat product (same shape as list/get), not `{ product }`. */
 export const updateProduct = (id, body) =>
     apiFetch(`/super-admin/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
+/** 200 `{ success, message }` when delete succeeds. 400 if in use — soft-delete with PATCH `{ isActive: false }`. */
+export const deleteProduct = (id) =>
+    apiFetch(`/super-admin/products/${id}`, { method: 'DELETE' });
+
+/** Multipart CSV import; field name must be `file` (max 5MB, .csv). Logging lives in apiFetch. */
+export const importProductsFromCsv = (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiFetch('/super-admin/products/import', {
+        method: 'POST',
+        body: formData,
+    });
+};
+
+/** Same response shape as product import: created, skippedDuplicate, failed, vatWarningsCount, rowDetails, vatWarnings. Header must match Services.csv / SERVICE_CSV_CANONICAL_HEADERS. */
+export const importServicesFromCsv = (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiFetch('/super-admin/services/import', {
+        method: 'POST',
+        body: formData,
+    });
+};
+
 // ─── Categories ───────────────────────────────────────────────────────────────
 
-export const getCategories = ({ workshopId, type } = {}) =>
-    apiFetch(`/super-admin/categories${qs({ workshopId, type })}`);
+export const getCategories = ({ type } = {}) =>
+    apiFetch(`/super-admin/categories${qs({ type })}`);
+
+export const createCategory = (body) =>
+    apiFetch('/super-admin/categories', { method: 'POST', body: JSON.stringify(body) });
+
+export const updateCategory = (id, body) =>
+    apiFetch(`/super-admin/categories/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+export const deleteCategory = (id) =>
+    apiFetch(`/super-admin/categories/${id}`, { method: 'DELETE' });
 
 // ─── Cashiers ─────────────────────────────────────────────────────────────────
 
-export const getCashiers = ({ workshopId } = {}) =>
-    apiFetch(`/super-admin/cashiers${qs({ workshopId })}`);
+export const getCashiers = ({ workshopId, branchId } = {}) =>
+    apiFetch(`/super-admin/cashiers${qs({ workshopId, branchId })}`);
 
 export const getCashier = (id) =>
     apiFetch(`/super-admin/cashiers/${id}`);
@@ -132,13 +233,25 @@ export const updateCashier = (id, body) =>
 
 // ─── Customers ────────────────────────────────────────────────────────────────
 
-export const getCustomers = ({ workshopId } = {}) =>
-    apiFetch(`/super-admin/customers${qs({ workshopId })}`);
+export const getCustomers = ({ workshopId, customerType } = {}) =>
+    apiFetch(`/super-admin/customers${qs({ workshopId, customerType })}`);
+
+export const getCustomerDetails = (id) =>
+    apiFetch(`/super-admin/customers/${encodeURIComponent(String(id))}/details`);
 
 // ─── Departments ──────────────────────────────────────────────────────────────
 
-export const getDepartments = ({ workshopId } = {}) =>
-    apiFetch(`/super-admin/departments${qs({ workshopId })}`);
+export const getDepartments = () =>
+    apiFetch('/super-admin/departments');
+
+export const createDepartment = (body) =>
+    apiFetch('/super-admin/departments', { method: 'POST', body: JSON.stringify(body) });
+
+export const updateDepartment = (id, body) =>
+    apiFetch(`/super-admin/departments/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+export const deleteDepartment = (id) =>
+    apiFetch(`/super-admin/departments/${id}`, { method: 'DELETE' });
 
 // ─── Sales Orders ─────────────────────────────────────────────────────────────
 
@@ -152,14 +265,17 @@ export const getInvoices = ({ workshopId, limit, offset } = {}) =>
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 
-export const getServices = ({ workshopId } = {}) =>
-    apiFetch(`/super-admin/services${qs({ workshopId })}`);
+export const getServices = () =>
+    apiFetch('/super-admin/services');
 
 export const createService = (body) =>
     apiFetch('/super-admin/services', { method: 'POST', body: JSON.stringify(body) });
 
 export const updateService = (id, body) =>
     apiFetch(`/super-admin/services/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+export const deleteService = (id) =>
+    apiFetch(`/super-admin/services/${id}`, { method: 'DELETE' });
 
 // ─── Corporate Registrations ──────────────────────────────────────────────────
 

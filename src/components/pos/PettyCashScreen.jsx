@@ -3,12 +3,12 @@ import { ArrowLeft, Wallet, Plus, TrendingDown, TrendingUp, History, Check } fro
 import { apiFetch } from '../../services/api';
 
 const DEFAULT_CATEGORIES = [
-    { value: 'supplies', label: 'Supplies' },
-    { value: 'cleaning', label: 'Cleaning' },
-    { value: 'food', label: 'Food & Drinks' },
-    { value: 'transport', label: 'Transport' },
-    { value: 'maintenance', label: 'Maintenance' },
-    { value: 'other', label: 'Other' },
+    { value: 'placeholder_supplies', label: 'Supplies' },
+    { value: 'placeholder_cleaning', label: 'Cleaning' },
+    { value: 'placeholder_food', label: 'Food & Drinks' },
+    { value: 'placeholder_transport', label: 'Transport' },
+    { value: 'placeholder_maintenance', label: 'Maintenance' },
+    { value: 'placeholder_other', label: 'Other' },
 ];
 
 export default function PettyCashScreen({ onBack }) {
@@ -25,27 +25,61 @@ export default function PettyCashScreen({ onBack }) {
     const loadHistory = () => {
         setHistLoading(true);
         apiFetch('/cashier/expense/history?limit=20')
-            .then(d => setHistory(d.expenses || d.history || d.data || []))
+            .then(d => {
+                const list = d.items || d.requests || d.history || d.expenses || d.data || d || [];
+                setHistory(Array.isArray(list) ? list : []);
+            })
             .catch(() => setHistory([]))
             .finally(() => setHistLoading(false));
     };
 
     const loadBalance = () => {
-        apiFetch('/cashier/petty-cash/balance')
-            .then(d => setBalance(parseFloat(d.balance ?? d.amount ?? 0)))
+        // Reference endpoint: GET /cashier/wallet/balance?currency=SAR
+        apiFetch('/cashier/wallet/balance?currency=SAR')
+            .then(d => setBalance(parseFloat(d.balance ?? d.amount ?? d.data?.balance ?? 0)))
             .catch(() => setBalance(0));
     };
 
     useEffect(() => {
         loadBalance();
-        apiFetch('/cashier/expense-categories')
-            .then(d => {
-                const cats = d.categories || d.data || d || [];
-                if (Array.isArray(cats) && cats.length) {
-                    setCategories(cats.map(c => ({ value: c.id || c.value, label: c.name || c.label })));
+        
+        const fetchCats = async () => {
+            const endpoints = [
+                '/cashier/expense-categories',
+                '/cashier/expense/categories',
+                '/workshop-staff/expense-categories'
+            ];
+            
+            for (const ep of endpoints) {
+                try {
+                    const d = await apiFetch(ep);
+                    let list = [];
+                    if (Array.isArray(d)) {
+                        list = d;
+                    } else if (d && typeof d === 'object') {
+                        // Extract list from various possible response keys
+                        const raw = d.categories || d.data || d.items || d.results || d.payload || d.expenseCategories || [];
+                        if (Array.isArray(raw)) {
+                            list = raw;
+                        } else if (d.data && d.data.categories && Array.isArray(d.data.categories)) {
+                            list = d.data.categories;
+                        }
+                    }
+                    
+                    if (list && list.length > 0) {
+                        setCategories(list.map(c => ({ 
+                            value: String(c.id || c.value || ''), 
+                            label: String(c.name || c.label || c.title || 'Unknown') 
+                        })));
+                        return; // Found categories, stop searching
+                    }
+                } catch (err) {
+                    // Try next endpoint
                 }
-            })
-            .catch(() => {});
+            }
+        };
+
+        fetchCats();
         loadHistory();
     }, []);
 
@@ -53,24 +87,32 @@ export default function PettyCashScreen({ onBack }) {
         e.preventDefault();
         const amt = parseFloat(expenseForm.amount);
         if (!expenseForm.description || !amt) return alert('Please fill description and amount');
+        
+        if (!expenseForm.categoryId) return alert('Please select a category');
+        
+        if (String(expenseForm.categoryId).startsWith('placeholder_')) {
+            return alert('The selected category is a placeholder. Please set up "Expense Accounts" in the Workshop Portal first so they appear here with valid IDs.');
+        }
+
         setSubmitting(true);
         try {
-            await apiFetch('/cashier/petty-cash/request', {
+            const body = {
+                amount: amt,
+                categoryId: expenseForm.categoryId,
+                description: expenseForm.description,
+                notes: expenseForm.notes || '',
+            };
+
+            await apiFetch('/cashier/expense/submit', {
                 method: 'POST',
-                body: JSON.stringify({
-                    type: 'expense',
-                    description: expenseForm.description,
-                    amount: amt,
-                    categoryId: expenseForm.categoryId,
-                    notes: expenseForm.notes,
-                }),
+                body: JSON.stringify(body),
             });
             setExpenseForm({ description: '', amount: '', categoryId: '', notes: '' });
-            alert('Expense recorded');
+            alert('Expense recorded successfully');
             loadBalance();
             loadHistory();
         } catch (err) {
-            alert('Error: ' + err.message);
+            alert('Server Error: ' + err.message);
         } finally {
             setSubmitting(false);
         }
@@ -203,8 +245,17 @@ export default function PettyCashScreen({ onBack }) {
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                 {history.map((h, i) => {
-                                    const isFund = (h.type || '').toLowerCase() === 'fund';
+                                    const kind = (h.kind || h.type || '').toLowerCase();
+                                    const isFund = kind === 'fund' || kind === 'fund_request';
                                     const amount = parseFloat(h.amount) || 0;
+                                    
+                                    const categoryLabel = typeof h.category === 'object' 
+                                        ? (h.category.name || h.category.id) 
+                                        : (h.category || h.categoryName || (isFund ? 'Fund' : 'Misc'));
+
+                                    const description = h.description || h.reason || h.notes || 'Workshop Transaction';
+                                    const dateStr = h.createdAt || h.requestedAt || h.submittedAt;
+
                                     return (
                                         <div key={h.id || i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px', borderRadius: 20, background: '#fff', border: '1.5px solid #f1f5f9', transition: '0.2s' }} className="history-row">
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -212,12 +263,12 @@ export default function PettyCashScreen({ onBack }) {
                                                     {isFund ? <TrendingUp size={22} color="#15803D" /> : <TrendingDown size={22} color="#b91c1c" />}
                                                 </div>
                                                 <div>
-                                                    <p style={{ margin: '0 0 4px', fontWeight: 900, fontSize: '0.9rem', color: '#1E2124' }}>{h.description || h.reason || 'Workshop Transaction'}</p>
+                                                    <p style={{ margin: '0 0 4px', fontWeight: 900, fontSize: '0.9rem', color: '#1E2124' }}>{description}</p>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                         <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '3px 8px', borderRadius: 6, background: '#F1F5F9', color: '#64748b', textTransform: 'uppercase' }}>
-                                                            {h.category || h.categoryName || (isFund ? 'Fund' : 'Misc')}
+                                                            {categoryLabel}
                                                         </span>
-                                                        <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>{h.createdAt ? new Date(h.createdAt).toLocaleDateString('en-SA', { day: '2-digit', month: 'short' }) : '--'}</span>
+                                                        <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>{dateStr ? new Date(dateStr).toLocaleDateString('en-SA', { day: '2-digit', month: 'short' }) : '--'}</span>
                                                     </div>
                                                 </div>
                                             </div>

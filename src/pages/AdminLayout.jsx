@@ -16,7 +16,7 @@ const TRANSLATIONS = {
         section: { CONTROL: 'CONTROL', OPERATIONS: 'OPERATIONS', FINANCE: 'FINANCE', SPECIALIZED: 'SPECIALIZED' },
         nav: {
             dashboard: 'Dashboard', reports: 'Reporting', pos: 'POS / New Order', approvals: 'Approvals', 'zone-management': 'Zone Management', 'tax-codes': 'Tax Code', permissions: 'Permissions', 'tier-management': 'Tier Management',
-            inventory: 'Inventory', 'products-services': 'Products & Services', 'stock-movements': 'Stock Movements', categories: 'Categories', 'units-of-measure': 'Units of Measure',
+            inventory: 'Inventory', 'master-catalog': 'Master Catalog', 'products-services': 'Products & Services', 'stock-movements': 'Stock Movements', categories: 'Categories', 'units-of-measure': 'Units of Measure',
             customers: 'Customers', 'all-customers': 'All Customers', 'corporate-billing': 'Corporate Billing',
             suppliers: 'Suppliers', employees: 'Employees', branches: 'Branches', workshop: 'Workshop',
             sales: 'Sales', 'workshop-sales': 'Workshop Sales', 'suppliers-warehouse-sales': 'Suppliers & Warehouse Sales', receipts: 'Receipts',
@@ -42,7 +42,7 @@ const TRANSLATIONS = {
         section: { CONTROL: 'التحكم', OPERATIONS: 'العمليات', FINANCE: 'المالية', SPECIALIZED: 'متخصص' },
         nav: {
             dashboard: 'لوحة التحكم', reports: 'التقارير', pos: 'نقطة البيع / طلب جديد', approvals: 'الموافقات', 'zone-management': 'إدارة المناطق', 'tax-codes': 'أكواد الضريبة', permissions: 'الصلاحيات', 'tier-management': 'إدارة الفئات',
-            inventory: 'المخزون', 'products-services': 'المنتجات والخدمات', 'stock-movements': 'حركة المخزون', categories: 'الفئات', 'units-of-measure': 'وحدات القياس',
+            inventory: 'المخزون', 'master-catalog': 'الكتالوج الرئيسي', 'products-services': 'المنتجات والخدمات', 'stock-movements': 'حركة المخزون', categories: 'الفئات', 'units-of-measure': 'وحدات القياس',
             customers: 'العملاء', 'all-customers': 'جميع العملاء', 'corporate-billing': 'الفواتير المؤسسية',
             suppliers: 'الموردون', employees: 'الموظفون', branches: 'الفروع', workshop: 'الورشة',
             sales: 'المبيعات', 'workshop-sales': 'مبيعات الورشة', 'suppliers-warehouse-sales': 'الموردون ومبيعات المستودع', receipts: 'الإيصالات',
@@ -88,9 +88,8 @@ const NAV_CONFIG = [
                 path: 'inventory',
                 icon: Package,
                 subItems: [
-                    { label: 'Products & Services', path: 'products-services' },
+                    { label: 'Master Catalog', path: 'master-catalog' },
                     { label: 'Stock Movements', path: 'stock-movements' },
-                    { label: 'Categories', path: 'categories' },
                     { label: 'Units of Measure', path: 'units-of-measure' },
                 ],
             },
