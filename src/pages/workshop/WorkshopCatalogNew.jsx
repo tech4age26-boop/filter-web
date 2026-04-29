@@ -402,7 +402,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         // need the full master list so the user can pick what to adopt).
         for (const d of selectedRows) {
             try {
-                const res = await getCatalogCategories({ departmentId: d.id });
+                const res = await getCatalogCategories({ departmentId: d.id, branchId: browseBranchId });
                 const cats = pickArray(res, ['categories', 'items']);
                 setDeptCatModal((prev) => {
                     if (!prev) return prev;
@@ -417,7 +417,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                 /* leave categories empty for this dept */
             }
         }
-    }, [deptSelected, deptRows, defaultTargetBranchIds]);
+    }, [deptSelected, deptRows, defaultTargetBranchIds, browseBranchId]);
 
     const submitDepartmentsAdopt = async () => {
         if (!deptCatModal) return;

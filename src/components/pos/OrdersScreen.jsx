@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, Search, Plus, Receipt, X, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { usePOS } from '../../context/POSContext';
+import { useAuth } from '../../context/AuthContext';
 
 // New Modern Components
 import OrderList from './modern/OrderList';
@@ -22,6 +23,7 @@ import './modern/ModernPOS.css';
 const PAYMENT_METHODS = ['Cash', 'Card', 'Bank Transfer', 'Tamara', 'Tabby', 'Monthly billing'];
 
 export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSelectConsumed }) {
+    const { user } = useAuth();
     const { orders, refreshOrders, socket, loading: contextLoading, catalog, refreshCatalog, catalogLoading } = usePOS();
     const [refreshing, setRefreshing] = useState(false);
     const [tab, setTab] = useState('All');
@@ -61,7 +63,12 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
 
                 // Fetch Departments
                 try {
-                    const deptRes = await apiFetch('/workshop-staff/departments');
+                    const posBranchId = user?.branchId || user?.branch_id;
+                    const deptPath =
+                        posBranchId != null && posBranchId !== ''
+                            ? `/workshop-staff/departments?branchId=${encodeURIComponent(String(posBranchId))}`
+                            : '/workshop-staff/departments';
+                    const deptRes = await apiFetch(deptPath);
                     const depts = Array.isArray(deptRes) ? deptRes : (deptRes.departments || []);
                     setWorkshopDepts(depts);
                 } catch (deptErr) {
@@ -72,7 +79,7 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
             }
         };
         fetchMeta();
-    }, [refreshOrders, refreshCatalog, orders.length, catalog.length]);
+    }, [refreshOrders, refreshCatalog, orders.length, catalog.length, user?.branchId, user?.branch_id]);
 
     // Match Flutter reference pattern (PosOrder.draftPosOrderTotalDisplay + _parseJobTotalAmount):
     // prefer backend's authoritative VAT-inclusive totals; recompute locally ONLY when the user

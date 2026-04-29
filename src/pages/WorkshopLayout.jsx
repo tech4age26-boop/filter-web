@@ -171,7 +171,9 @@ export default function WorkshopLayout() {
             );
             case 'employees':   return <WorkshopEmployees selectedBranchId={selectedBranch} branches={branches} />;
             case 'departments': return <WorkshopDepartments selectedBranchId={selectedBranch} branches={branches} />;
-            case 'catalog':     return <WorkshopCatalog />;
+            case 'catalog':     return (
+                <WorkshopCatalog selectedBranchId={selectedBranch} branches={branches} />
+            );
             case 'purchases':   return (
                 <WorkshopPurchases 
                     tabState={tabState} 

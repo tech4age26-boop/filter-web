@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Building2, User, Car } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import WalkInOrderModal from './modern/WalkInOrderModal';
 
 export default function POSHome({ onNewWalkIn, onCorporateBooking, onViewHistory, onGoToOrders }) {
+    const { user } = useAuth();
     const [search, setSearch]       = useState('');
     const [customers, setCustomers] = useState([]);
     const [searching, setSearching] = useState(false);
@@ -17,13 +19,18 @@ export default function POSHome({ onNewWalkIn, onCorporateBooking, onViewHistory
     const [departments, setDepartments] = useState([]);
 
     useEffect(() => {
-        apiFetch('/workshop-staff/departments')
+        const posBranchId = user?.branchId || user?.branch_id;
+        const path =
+            posBranchId != null && posBranchId !== ''
+                ? `/workshop-staff/departments?branchId=${encodeURIComponent(String(posBranchId))}`
+                : '/workshop-staff/departments';
+        apiFetch(path)
             .then(d => {
                 const list = Array.isArray(d) ? d : (d.departments || d.data || []);
                 setDepartments(list);
             })
             .catch(() => setDepartments([]));
-    }, []);
+    }, [user?.branchId, user?.branch_id]);
 
     useEffect(() => {
         if (!search.trim()) { setCustomers([]); return; }

@@ -143,7 +143,9 @@ export default function WorkshopDashboard({
     const loadTechnicians = useCallback(async () => {
         setTechLoadError('');
         try {
-            const techRes = await getWorkshopTechnicians({}).catch(() => null);
+            const isAll = !selectedBranchId || selectedBranchId === 'all';
+            const params = isAll ? {} : { branchId: String(selectedBranchId) };
+            const techRes = await getWorkshopTechnicians(params).catch(() => null);
             if (techRes == null) {
                 setTechnicians([]);
                 setTechLoadError('Could not load technicians (check GET /workshop-staff/technicians).');
@@ -157,7 +159,7 @@ export default function WorkshopDashboard({
             setTechnicians([]);
             setTechLoadError(error.message || 'Could not load technicians.');
         }
-    }, []);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         loadDashboard();
