@@ -1,13 +1,16 @@
 import {
     LayoutDashboard, Users, Layers, Package, ShoppingCart, ClipboardCheck,
     Truck, BarChart3, Building2, CheckCircle, CheckCircle2, PlayCircle,
-    Store, Shield, Globe, Landmark, Banknote, Monitor, TicketPercent, Briefcase
+    Store, Shield, Globe, Landmark, Banknote, Monitor, TicketPercent, Briefcase,
+    Archive
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
     { id: 'dashboard',   label: 'Dashboard',           icon: LayoutDashboard },
     { id: 'employees',   label: 'Employees',            icon: Users },
     { id: 'departments', label: 'Dept & Products',      icon: Layers },
+    { id: 'catalog-new', label: 'Catalog',              icon: Package },
+    { id: 'inventory',   label: 'Inventory',            icon: Archive },
     { id: 'catalog',     label: 'Product Catalog',      icon: Package },
     { id: 'purchases',   label: 'Purchase Invoices',    icon: ShoppingCart },
     { id: 'approvals',   label: 'Approvals Queue',      icon: ClipboardCheck, badge: true },
@@ -24,8 +27,6 @@ export const NAV_ITEMS = [
         subItems: [
             { id: 'acc-chart', label: 'Chart of Accounts' },
             { id: 'acc-cash', label: 'Cash & Bank' },
-            { id: 'acc-commissions', label: 'Commission' },
-            { id: 'acc-referral', label: 'Referral Commissions' },
             { id: 'acc-transactions', label: 'Transactions' },
             { id: 'acc-journal', label: 'Journal Entries' },
             { id: 'acc-purchases', label: 'Purchases' },
@@ -141,7 +142,36 @@ export const WORKFLOW_CONFIG = {
 export const BORDER_MAP = { assigned_pending_acceptance: 'ws-border-yellow', accepted_by_technician: 'ws-border-blue', task_in_progress: 'ws-border-purple', task_completed_by_technician: 'ws-border-green', invoice_generated: 'ws-border-gray' };
 
 export const ROLE_OPTIONS = ['cashier', 'technician', 'senior_technician', 'junior_technician', 'supervisor', 'manager', 'specialist'];
-export const COMMISSION_TYPE_OPTIONS = ['% of Revenue', '% of Profit', 'Fixed per Order'];
+
+// commissionType is a free-form string on the BE, but the FE sends a fixed
+// vocabulary. Each option carries a `label` for display and a `value` for the
+// API payload. Helpers below normalize legacy display labels into the new
+// canonical values so existing rows keep working when prefilled.
+export const COMMISSION_TYPE_OPTIONS = [
+    { value: 'percent_of_revenue', label: '% of Revenue' },
+    { value: 'percent_of_service', label: '% of Service' },
+    { value: 'percent_of_profit',  label: '% of Profit' },
+    { value: 'fixed',              label: 'Fixed per Order' },
+];
+
+const COMMISSION_TYPE_LEGACY_MAP = {
+    '% of revenue': 'percent_of_revenue',
+    '% of service': 'percent_of_service',
+    '% of profit': 'percent_of_profit',
+    'fixed per order': 'fixed',
+    fixed: 'fixed',
+    revenue: 'percent_of_revenue',
+    service: 'percent_of_service',
+    profit: 'percent_of_profit',
+};
+
+export function normalizeCommissionType(raw) {
+    if (!raw) return 'percent_of_revenue';
+    const s = String(raw).trim();
+    if (!s) return 'percent_of_revenue';
+    const lower = s.toLowerCase();
+    return COMMISSION_TYPE_LEGACY_MAP[lower] || s;
+}
 
 export const MOCK_BRANCHES_REPORTS = [{ id: 'b1', name: 'Petromin Services' }, { id: 'b2', name: 'Main Branch — Riyadh' }, { id: 'b3', name: 'North Branch — Jeddah' }];
 export const MOCK_SALES_BY_BRANCH = [

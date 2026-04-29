@@ -1,9 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Pencil, ChevronDown, Loader } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import '../../styles/admin/EmployeesPage.css';
-import { getTechnicians, getCashiers, createTechnician, createCashier, updateUser } from '../../services/superAdminApi';
+import {
+    getTechnicians,
+    getCashiers,
+    createTechnician,
+    createCashier,
+    updateUser,
+    getWorkshopOptions,
+    getBranches,
+} from '../../services/superAdminApi';
 
 const EMPTY_EMPLOYEE = {
     name: '',
@@ -29,34 +37,133 @@ export default function EmployeesPage() {
     const [employeeForm, setEmployeeForm] = useState(EMPTY_EMPLOYEE);
     const [editingId, setEditingId] = useState(null);
     const [roleFilter, setRoleFilter] = useState('All Roles');
-    const [statusFilter, setStatusFilter] = useState('All Status');
+    const [workshopOptions, setWorkshopOptions] = useState([]);
+    const [branchOptions, setBranchOptions] = useState([]);
+    const [workshopFilter, setWorkshopFilter] = useState('');
+    const [branchFilter, setBranchFilter] = useState('');
+    const latestFetchRef = useRef(0);
+
+    const inferRole = (emp) => {
+        const raw = String(emp?.role ?? '').trim().toLowerCase();
+        if (raw.includes('tech')) return 'technician';
+        if (raw.includes('cash')) return 'cashier';
+        if (emp?.technicianType) return 'technician';
+        return raw || 'cashier';
+    };
+
+    const pickArray = (res, keys = []) => {
+        if (Array.isArray(res)) return res;
+        for (const key of keys) {
+            if (Array.isArray(res?.[key])) return res[key];
+            if (Array.isArray(res?.data?.[key])) return res.data[key];
+        }
+        if (Array.isArray(res?.data)) return res.data;
+        if (Array.isArray(res?.items)) return res.items;
+        if (Array.isArray(res?.data?.items)) return res.data.items;
+        return [];
+    };
 
     const normalizeEmployee = (u, role) => ({
-        id: u.id ?? u._id,
+        id: String(u.id ?? u._id ?? ''),
         name: u.name ?? u.fullName ?? '—',
         mobile: u.mobile ?? u.phone ?? '—',
         email: u.email ?? '',
-        role: role ?? u.role ?? u.userType ?? 'cashier',
+        role: u.position ?? role ?? u.role ?? u.userType ?? 'cashier',
+        workshopName: u.workshopName ?? u.workshop?.name ?? '—',
         technicianType: u.technicianType ?? u.type ?? null,
         branch: u.branchName ?? u.branch?.name ?? '—',
         commission: u.commissionPercent != null ? `${u.commissionPercent}%` : '—',
         status: u.isActive === false ? 'inactive' : 'active',
     });
 
-    useEffect(() => {
-        Promise.all([
-            getTechnicians({}),
-            getCashiers({}),
-        ]).then(([techs, cashiers]) => {
-            const techList = (Array.isArray(techs) ? techs : (techs?.technicians ?? [])).map((u) => normalizeEmployee(u, 'technician'));
-            const cashierList = (Array.isArray(cashiers) ? cashiers : (cashiers?.cashiers ?? [])).map((u) => normalizeEmployee(u, 'cashier'));
+    const reloadEmployees = async () => {
+        const fetchId = ++latestFetchRef.current;
+        setLoading(true);
+        const params = {
+            workshopId: workshopFilter || undefined,
+            branchId: branchFilter || undefined,
+        };
+        try {
+            if (roleFilter === 'technician') {
+                const techs = await getTechnicians(params);
+                const techList = (Array.isArray(techs) ? techs : (techs?.technicians ?? techs?.data ?? []))
+                    .map((u) => normalizeEmployee(u, 'technician'))
+                    .filter((u) => inferRole(u) === 'technician');
+                if (fetchId !== latestFetchRef.current) return;
+                setEmployees(techList);
+                return;
+            }
+            if (roleFilter === 'cashier') {
+                const cashiers = await getCashiers(params);
+                const cashierList = (Array.isArray(cashiers) ? cashiers : (cashiers?.cashiers ?? cashiers?.data ?? []))
+                    .map((u) => normalizeEmployee(u, 'cashier'))
+                    .filter((u) => inferRole(u) === 'cashier');
+                if (fetchId !== latestFetchRef.current) return;
+                setEmployees(cashierList);
+                return;
+            }
+            const [techs, cashiers] = await Promise.all([
+                getTechnicians(params),
+                getCashiers(params),
+            ]);
+            const techList = (Array.isArray(techs) ? techs : (techs?.technicians ?? techs?.data ?? []))
+                .map((u) => normalizeEmployee(u, 'technician'))
+                .filter((u) => inferRole(u) === 'technician');
+            const cashierList = (Array.isArray(cashiers) ? cashiers : (cashiers?.cashiers ?? cashiers?.data ?? []))
+                .map((u) => normalizeEmployee(u, 'cashier'))
+                .filter((u) => inferRole(u) === 'cashier');
+            if (fetchId !== latestFetchRef.current) return;
             setEmployees([...techList, ...cashierList]);
-        }).catch(() => {}).finally(() => setLoading(false));
+        } catch {
+            if (fetchId !== latestFetchRef.current) return;
+            setEmployees([]);
+        } finally {
+            if (fetchId !== latestFetchRef.current) return;
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        getWorkshopOptions()
+            .then((res) => {
+                const rows = pickArray(res, ['options', 'workshops']);
+                setWorkshopOptions(rows.map((w) => ({
+                    id: String(w.id ?? w.value ?? w.workshopId ?? ''),
+                    name: w.name ?? w.label ?? w.workshopName ?? `Workshop ${w.id ?? w.workshopId ?? ''}`,
+                    status: String(w.status ?? '').toLowerCase(),
+                })).filter((w) => w.id));
+            })
+            .catch(() => setWorkshopOptions([]));
     }, []);
+
+    const approvedWorkshopOptions = workshopOptions.filter((w) => w.status === 'approved');
+
+    useEffect(() => {
+        if (!workshopFilter) {
+            setBranchOptions([]);
+            setBranchFilter('');
+            return;
+        }
+        getBranches({ workshopId: workshopFilter })
+            .then((res) => {
+                const rows = pickArray(res, ['branches']);
+                setBranchOptions(rows.map((b) => ({
+                    id: String(b.id ?? b.value ?? b.branchId ?? ''),
+                    name: b.name ?? b.branchName ?? b.label ?? `Branch ${b.id ?? ''}`,
+                })).filter((b) => b.id));
+            })
+            .catch(() => setBranchOptions([]));
+    }, [workshopFilter]);
+
+    useEffect(() => {
+        setEmployees([]);
+        reloadEmployees();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [roleFilter, workshopFilter, branchFilter]);
 
     const total = employees.length;
     const activeCount = employees.filter((e) => e.status.toLowerCase() === 'active').length;
-    const technicianCount = employees.filter((e) => e.role === 'technician').length;
+    const technicianCount = employees.filter((e) => inferRole(e) === 'technician').length;
     const onDutyCount = activeCount; // demo
 
     const openCreate = () => {
@@ -69,13 +176,6 @@ export default function EmployeesPage() {
         setEditingId(emp.id);
         setEditOpen(true);
     };
-
-    const reloadEmployees = () =>
-        Promise.all([getTechnicians({}), getCashiers({})]).then(([techs, cashiers]) => {
-            const t = (Array.isArray(techs) ? techs : (techs?.data ?? [])).map((u) => normalizeEmployee(u, 'technician'));
-            const c = (Array.isArray(cashiers) ? cashiers : (cashiers?.data ?? [])).map((u) => normalizeEmployee(u, 'cashier'));
-            setEmployees([...t, ...c]);
-        });
 
     const handleSave = async () => {
         setSaving(true);
@@ -115,8 +215,8 @@ export default function EmployeesPage() {
     };
 
     const filtered = employees.filter((e) => {
-        if (roleFilter !== 'All Roles' && e.role !== roleFilter.toLowerCase()) return false;
-        if (statusFilter !== 'All Status' && e.status.toLowerCase() !== statusFilter.toLowerCase()) return false;
+        const role = inferRole(e);
+        if (roleFilter !== 'All Roles' && role !== roleFilter.toLowerCase()) return false;
         return true;
     });
 
@@ -319,11 +419,53 @@ export default function EmployeesPage() {
             </div>
 
             <div className="employees-filters">
-                <button type="button" className={`employees-filter-pill ${roleFilter === 'All Roles' ? 'active' : ''}`} onClick={() => setRoleFilter('All Roles')}>All Roles</button>
-                <button type="button" className={`employees-filter-pill ${roleFilter === 'cashier' ? 'active' : ''}`} onClick={() => setRoleFilter('cashier')}>Cashier</button>
-                <button type="button" className={`employees-filter-pill ${roleFilter === 'technician' ? 'active' : ''}`} onClick={() => setRoleFilter('technician')}>Technician</button>
-                <button type="button" className={`employees-filter-pill ${statusFilter === 'All Status' ? 'active' : ''}`} onClick={() => setStatusFilter('All Status')}>All Status</button>
-                <button type="button" className={`employees-filter-pill ${statusFilter === 'active' ? 'active' : ''}`} onClick={() => setStatusFilter('active')}>Active</button>
+                <div className="employees-filters-main">
+                    <div className="select-wrapper" style={{ minWidth: 220 }}>
+                        <select
+                            className="form-input-field"
+                            value={roleFilter}
+                            onChange={(e) => setRoleFilter(e.target.value)}
+                        >
+                            <option value="All Roles">All Roles</option>
+                            <option value="cashier">Cashier</option>
+                            <option value="technician">Technician</option>
+                        </select>
+                        <ChevronDown size={16} className="select-icon" />
+                    </div>
+                </div>
+
+                <div className="employees-filters-selects">
+                    <div className="select-wrapper">
+                        <select
+                            className="form-input-field"
+                            value={workshopFilter}
+                            onChange={(e) => {
+                                setWorkshopFilter(e.target.value);
+                                setBranchFilter('');
+                            }}
+                        >
+                            <option value="">All Workshops</option>
+                            {approvedWorkshopOptions.map((w) => (
+                                <option key={w.id} value={w.id}>{w.name}</option>
+                            ))}
+                        </select>
+                        <ChevronDown size={16} className="select-icon" />
+                    </div>
+                    <div className="select-wrapper">
+                        <select
+                            className="form-input-field"
+                            value={branchFilter}
+                            onChange={(e) => setBranchFilter(e.target.value)}
+                            disabled={!workshopFilter}
+                        >
+                            <option value="">All Branches</option>
+                            {branchOptions.map((b) => (
+                                <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                        </select>
+                        <ChevronDown size={16} className="select-icon" />
+                    </div>
+                </div>
             </div>
 
             <section className="premium-table employees-table">
@@ -333,6 +475,7 @@ export default function EmployeesPage() {
                             <th className="table-th">Employee</th>
                             <th className="table-th">Mobile</th>
                             <th className="table-th">Role</th>
+                            <th className="table-th">Workshop</th>
                             <th className="table-th">Department</th>
                             <th className="table-th">Technician Type</th>
                             <th className="table-th">Branch</th>
@@ -343,9 +486,9 @@ export default function EmployeesPage() {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={9} className="table-cell table-empty"><Loader size={18} className="spin" /> Loading…</td></tr>
+                            <tr><td colSpan={10} className="table-cell table-empty"><Loader size={18} className="spin" /> Loading…</td></tr>
                         ) : filtered.map((emp) => (
-                            <tr key={emp.id} className="table-row">
+                            <tr key={`${inferRole(emp)}-${emp.id}`} className="table-row">
                                 <td className="table-cell">
                                     <div className="employee-cell">
                                         <span className="employee-avatar">{emp.name.charAt(0)}</span>
@@ -357,6 +500,7 @@ export default function EmployeesPage() {
                                 </td>
                                 <td className="table-cell">{emp.mobile || '–'}</td>
                                 <td className="table-cell" style={{ textTransform: 'capitalize' }}>{emp.role}</td>
+                                <td className="table-cell">{emp.workshopName || '–'}</td>
                                 <td className="table-cell">{emp.department || '–'}</td>
                                 <td className="table-cell">{emp.technicianType || '–'}</td>
                                 <td className="table-cell">{emp.branch}</td>

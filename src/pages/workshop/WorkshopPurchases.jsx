@@ -4,11 +4,40 @@ import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { PI_INVENTORY_ITEMS, PI_ACCOUNT_OPTIONS, PI_TAXES } from './constants';
 
-export default function WorkshopPurchases() {
+export default function WorkshopPurchases({ tabState, clearTabState }) {
     const [activeTab, setActiveTab] = useState('invoices');
     const [filterSupplier, setFilterSupplier] = useState('all');
     const [filterProduct, setFilterProduct] = useState('all');
     const [modalOpen, setModalOpen] = useState(false);
+
+    React.useEffect(() => {
+        if (tabState?.autoOpenModal) {
+            setModalOpen(true);
+            
+            // If a product was passed, pre-fill it in the lines
+            if (tabState.selectedItem) {
+                const item = tabState.selectedItem;
+                const newLine = {
+                    id: Date.now(),
+                    item: item.name,
+                    account: '1410 - Inventory Asset',
+                    description: '',
+                    uom: 'piece',
+                    qty: 1,
+                    price: item.basePrice || 0,
+                    discount: 0,
+                    taxCode: 'VAT 15%',
+                    taxAmt: ((item.basePrice || 0) * 0.15).toFixed(2),
+                    totalFinal: ((item.basePrice || 0) * 1.15).toFixed(2)
+                };
+                setLineItems([newLine]);
+            }
+
+            // Clear state so it doesn't reopen on every render/tab change
+            if (clearTabState) clearTabState();
+        }
+    }, [tabState, clearTabState]);
+
     const [showLineNum, setShowLineNum] = useState(false);
     const [showDesc, setShowDesc] = useState(false);
     const [showDiscount, setShowDiscount] = useState(false);

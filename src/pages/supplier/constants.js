@@ -25,8 +25,6 @@ export const NAV_GROUPS = [
             subItems: [
                 { id: 'accounting_coa', label: 'Chart of Accounts', icon: FileSpreadsheet },
                 { id: 'accounting_cash_bank', label: 'Cash & Bank', icon: Landmark },
-                { id: 'accounting_commissions', label: 'Commission', icon: DollarSign },
-                { id: 'accounting_referral', label: 'Referral Commissions', icon: BadgeDollarSign },
                 { id: 'accounting_transactions', label: 'Transactions', icon: ArrowLeftRight },
                 { id: 'accounting_journal', label: 'Journal Entries', icon: FileText },
                 { id: 'accounting_purchases', label: 'Purchases', icon: ShoppingCart },

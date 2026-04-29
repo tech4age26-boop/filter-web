@@ -117,7 +117,7 @@ function POSContent() {
         apiFetch('/cashier/session/current')
             .then(d => {
                 const sess = d.session || d.data || d;
-                if (sess && (sess.id || sess.sessionId)) {
+                if (sess && (sess.id || sess.sessionId || sess.posSessionId)) {
                     setSessionActive(true); setSessionChecked(true);
                 } else {
                     apiFetch('/cashier/session/open', { method: 'POST' })

@@ -101,7 +101,8 @@ export default function ProductSelectionModal({
         : (jobData.totalDiscountValue || 0);
     
     const totalBeforeVAT = Math.max(0, afterItemDiscounts - globalDiscount);
-    const vatAmount = totalBeforeVAT * ((jobData.VAT || 15) / 100);
+    const vatRate = jobData.VAT !== undefined && jobData.VAT !== null ? jobData.VAT : 15;
+    const vatAmount = totalBeforeVAT * (vatRate / 100);
     const finalTotal = totalBeforeVAT + vatAmount;
 
     return (
@@ -309,7 +310,7 @@ export default function ProductSelectionModal({
                                 <div className="price-row"><span>Subtotal</span><span>SAR {subtotal.toFixed(2)}</span></div>
                                 <div className="price-row"><span>Item Discounts</span><span className="negative">- SAR {itemDiscounts.toFixed(2)}</span></div>
                                 <div className="price-row"><span>Global Discount</span><span className="negative">- SAR {globalDiscount.toFixed(2)}</span></div>
-                                <div className="price-row"><span>VAT ({jobData.VAT || 15}%)</span><span>SAR {vatAmount.toFixed(2)}</span></div>
+                                <div className="price-row"><span>VAT ({jobData.VAT !== undefined && jobData.VAT !== null ? jobData.VAT : 15}%)</span><span>SAR {vatAmount.toFixed(2)}</span></div>
                                 <div className="price-total-row"><span>Final Total</span><span>SAR {finalTotal.toFixed(2)}</span></div>
                             </div>
 

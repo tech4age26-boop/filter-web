@@ -1,10 +1,88 @@
-import React, { useState, useEffect } from 'react';
-import { Search, X, User, Check, RefreshCw, AlertTriangle, Users } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Search, X, Check, RefreshCw, Users } from 'lucide-react';
 import { apiFetch } from '../../../services/api';
 
-export default function TechnicianAssignmentModal({ 
-    job, 
-    selectedTechs, 
+// Mirrors Flutter reference PosTechnician._parseSlotsUsed — tolerant to whichever
+// key the backend version exposes: flat slotsUsed/totalSlots, nested slots{active/total},
+// or legacy aliases.
+const firstInt = (obj, keys) => {
+    for (const k of keys) {
+        const v = obj?.[k];
+        if (v === undefined || v === null) continue;
+        const n = parseInt(String(v), 10);
+        if (!Number.isNaN(n)) return n;
+    }
+    return -1;
+};
+
+const parseSlotsUsed = (t) => {
+    const root = t?.slotsUsed;
+    if (root !== undefined && root !== null) {
+        const n = parseInt(String(root), 10);
+        if (!Number.isNaN(n)) return Math.max(0, n);
+    }
+    if (t?.slots && typeof t.slots === 'object') {
+        const n = firstInt(t.slots, ['active', 'used', 'inUse', 'in_use', 'assigned', 'current', 'count', 'busy']);
+        if (n >= 0) return n;
+    }
+    const alt = firstInt(t || {}, ['activeSlots', 'assignedJobs', 'activeJobs']);
+    if (alt >= 0) return alt;
+    return 0;
+};
+
+const parseTotalSlots = (t) => {
+    const root = t?.totalSlots;
+    if (root !== undefined && root !== null) {
+        const n = parseInt(String(root), 10);
+        if (!Number.isNaN(n) && n > 0) return n;
+    }
+    if (t?.slots && typeof t.slots === 'object') {
+        const n = firstInt(t.slots, ['total', 'max', 'capacity', 'limit', 'maxSlots']);
+        if (n > 0) return n;
+    }
+    return 3; // same default as reference
+};
+
+const parseStatus = (t) => {
+    // Reference reads from technicianStatus → status → onlineStatus in that order
+    const s = t?.technicianStatus?.status ?? t?.status?.status ?? t?.onlineStatus ?? t?.status;
+    return typeof s === 'string' ? s.toLowerCase() : 'offline';
+};
+
+const parseAssignable = (t, statusLower) => {
+    const raw = t?.assignable;
+    if (typeof raw === 'boolean') return raw;
+    if (typeof raw === 'string') {
+        const l = raw.toLowerCase();
+        if (l === 'true') return true;
+        if (l === 'false') return false;
+    }
+    // Backend didn't tell us → default to "online = assignable" (reference fallback)
+    return statusLower === 'online';
+};
+
+const formatLastSeen = (raw) => {
+    if (!raw) return 'Never';
+    try {
+        const d = new Date(raw);
+        if (isNaN(d.getTime())) return String(raw);
+        const diffMs = Date.now() - d.getTime();
+        const mins = Math.floor(diffMs / 60000);
+        if (mins < 1) return 'Just now';
+        if (mins < 60) return `${mins}m ago`;
+        const hrs = Math.floor(mins / 60);
+        if (hrs < 24) return `${hrs}h ago`;
+        const days = Math.floor(hrs / 24);
+        if (days < 7) return `${days}d ago`;
+        return d.toISOString().split('T')[0];
+    } catch {
+        return '';
+    }
+};
+
+export default function TechnicianAssignmentModal({
+    job,
+    selectedTechs,
     onConfirm,
     onClose,
     loading: parentLoading
@@ -14,6 +92,7 @@ export default function TechnicianAssignmentModal({
     const [localSelected, setLocalSelected] = useState(selectedTechs || []);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [onlineOnly, setOnlineOnly] = useState(false);
 
     const deptId = job.departmentId || job.deptId || job.department?.id || job.department_id;
     const deptName = job.departmentName || job.department?.name || job.department || 'Workshop';
@@ -43,45 +122,74 @@ export default function TechnicianAssignmentModal({
         fetchTechs();
     }, [deptId]);
 
-    const getTechId = (tech) => {
-        return tech.employeeId || tech.id || tech.userId || 
-               tech.employee?.id || tech.user?.id || tech.technician?.id;
-    };
+    // Normalize once — consistent shape for the rest of the component.
+    const normalizedTechs = useMemo(() => technicians.map(t => {
+        const id = t.employeeId || t.id || t.userId || t.employee?.id || t.user?.id || t.technician?.id || '';
+        const statusLower = parseStatus(t);
+        const slotsUsed = parseSlotsUsed(t);
+        const totalSlots = parseTotalSlots(t);
+        return {
+            ...t,
+            _id: String(id),
+            _name: t.name || t.employeeName || t.employee?.name || 'Technician',
+            _role: t.specialization || t.role || t.technicianType || 'Technician',
+            _statusLower: statusLower,
+            _isOnline: statusLower === 'online',
+            _lastSeenAt: t.lastSeenAt || t.technicianStatus?.lastSeenAt || t.status?.lastSeenAt || '',
+            _slotsUsed: slotsUsed,
+            _totalSlots: totalSlots,
+            _assignable: parseAssignable(t, statusLower),
+            _departmentIds: [
+                t.departmentId, t.deptId, t.department_id, t.department?.id,
+                ...(Array.isArray(t.departmentIds) ? t.departmentIds : []),
+                ...(Array.isArray(t.departments) ? t.departments.map(d => d?.id ?? d) : []),
+            ].filter(v => v !== undefined && v !== null).map(v => String(v).trim().toLowerCase()).filter(Boolean),
+        };
+    }), [technicians]);
+
+    const getTechId = (tech) => tech?._id || tech?.employeeId || tech?.id || tech?.userId ||
+        tech?.employee?.id || tech?.user?.id || tech?.technician?.id || '';
+
+    // Reference canPickNew logic (pos_technician_assignment_view.dart):
+    //   tech.assignable && tech.slotsUsed < tech.totalSlots
+    // Already-selected techs are always allowed to be deselected even if slots are full.
+    const isPickableForNewSelection = (t) => t._assignable && t._slotsUsed < t._totalSlots;
 
     const handleToggleTech = (tech) => {
         const techId = getTechId(tech);
+        if (!techId) return;
+        const isSel = localSelected.some(st => getTechId(st) === techId);
+        if (!isSel && !isPickableForNewSelection(tech)) {
+            // Blocked — full slots or not assignable. Deselecting would still be allowed.
+            return;
+        }
         setLocalSelected(prev => {
             const exists = prev.find(t => getTechId(t) === techId);
             if (exists) {
                 return prev.filter(t => getTechId(t) !== techId);
-            } else {
-                return [...prev, { ...tech, id: techId, name: tech.name || tech.employeeName }];
             }
+            return [...prev, { ...tech, id: techId, name: tech._name }];
         });
     };
 
-    const handleConfirm = () => {
-        onConfirm(localSelected);
-    };
+    const handleConfirm = () => onConfirm(localSelected);
 
-    const filteredTechs = technicians.filter(t => {
-        // Filter by Department (Dynamic & Robust)
-        const techDeptId = t.departmentId || t.department?.id || t.deptId || t.department;
-        const matchesDept = !deptId || 
-                           String(techDeptId).toLowerCase() === String(deptId).toLowerCase() ||
-                           (t.departmentName && String(t.departmentName).toLowerCase() === String(deptId).toLowerCase()) ||
-                           (t.department?.name && String(t.department.name).toLowerCase() === String(deptId).toLowerCase());
-        
-        // Filter by Search
-        const name = t.name || t.employeeName || '';
-        const spec = t.specialization || t.role || '';
-        const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) ||
-                             spec.toLowerCase().includes(search.toLowerCase());
+    // Reference trusts backend's ?departmentId=<id> filter. We only re-filter here
+    // as a defensive safety net, plus apply the search box + online-only toggle.
+    const wantedDept = (v => v === undefined || v === null ? '' : String(v).trim().toLowerCase())(deptId);
 
-        // If tech has no department info, we show them anyway as fallback
-        const isFallback = !techDeptId;
-
-        return (matchesDept || isFallback) && matchesSearch;
+    const filteredTechs = normalizedTechs.filter(t => {
+        // Search
+        const q = search.trim().toLowerCase();
+        if (q) {
+            const matchesSearch = t._name.toLowerCase().includes(q) || t._role.toLowerCase().includes(q);
+            if (!matchesSearch) return false;
+        }
+        // Online-only toggle
+        if (onlineOnly && !t._isOnline) return false;
+        // Dept safety net (only when backend reveals dept info on the tech record)
+        if (wantedDept && t._departmentIds.length > 0 && !t._departmentIds.includes(wantedDept)) return false;
+        return true;
     });
 
     return (
@@ -100,18 +208,29 @@ export default function TechnicianAssignmentModal({
                 </div>
 
                 <div className="modal-body-compact">
-                    {/* Search Bar: More integrated */}
-                    <div className="search-box-minimal">
-                        <Search size={16} />
-                        <input 
-                            type="text" 
-                            placeholder="Search name or role..." 
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                        />
+                    {/* Search + Online filter */}
+                    <div className="search-row-with-filter">
+                        <div className="search-box-minimal" style={{ flex: 1, marginBottom: 0 }}>
+                            <Search size={16} />
+                            <input
+                                type="text"
+                                placeholder="Search name or role..."
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            className={`online-toggle-btn ${onlineOnly ? 'active' : ''}`}
+                            onClick={() => setOnlineOnly(v => !v)}
+                            title="Only show technicians currently online"
+                        >
+                            <span className={`online-dot ${onlineOnly ? 'on' : ''}`} />
+                            Online only
+                        </button>
                     </div>
 
-                    <div className="tech-list-slim custom-scrollbar">
+                    <div className="tech-list-slim custom-scrollbar" style={{ marginTop: 12 }}>
                         {loading ? (
                             <div className="compact-loading">
                                 <RefreshCw size={24} className="animate-spin" color="var(--pos-gold)" />
@@ -122,38 +241,56 @@ export default function TechnicianAssignmentModal({
                             <div className="compact-empty">No personnel found</div>
                         ) : (
                             filteredTechs.map(t => {
-                                const empId = getTechId(t);
+                                const empId = t._id;
                                 const isSel = localSelected.some(st => getTechId(st) === empId);
-                                
+
+                                // Optimistic slot display: if the cashier is about to add
+                                // this tech to a job where they weren't before, bump +1. If
+                                // removing a tech that was on the job before, show −1.
                                 const wasInBackend = (job.technicians || []).some(bt => getTechId(bt) === empId);
-                                let displayUsedSlots = t.usedSlots || 0;
+                                let displayUsedSlots = t._slotsUsed;
                                 if (isSel && !wasInBackend) displayUsedSlots += 1;
                                 if (!isSel && wasInBackend) displayUsedSlots = Math.max(0, displayUsedSlots - 1);
 
-                                const isOnline = t.status?.toLowerCase() !== 'offline';
-                                const isBusy = displayUsedSlots >= (t.totalSlots || 3);
-                                
+                                const isFull = displayUsedSlots >= t._totalSlots;
+                                const canPick = isPickableForNewSelection(t);
+                                // Blocked = can't start a new selection. Already-selected always interactive (to allow deselect).
+                                const blocked = !isSel && !canPick;
+
+                                const statusDotClass = !t._isOnline
+                                    ? 'offline'
+                                    : (isFull ? 'busy' : 'online');
+
                                 return (
-                                    <div 
-                                        key={empId || Math.random()} 
-                                        className={`tech-row-slim ${isSel ? 'selected' : ''}`}
+                                    <div
+                                        key={empId || Math.random()}
+                                        className={`tech-row-slim ${isSel ? 'selected' : ''} ${blocked ? 'blocked' : ''}`}
                                         onClick={() => empId && handleToggleTech(t)}
+                                        title={blocked
+                                            ? (!t._assignable
+                                                ? 'Technician is offline / unavailable'
+                                                : `All ${t._totalSlots} slots in use`)
+                                            : undefined}
                                     >
                                         <div className="tech-avatar-slim">
                                             <div className="avatar-initial">
-                                                {(t.name || t.employeeName || 'T').charAt(0)}
+                                                {t._name.charAt(0).toUpperCase()}
                                             </div>
-                                            <div className={`tech-status-dot-minimal ${isOnline ? (isBusy ? 'busy' : 'online') : 'offline'}`} />
+                                            <div className={`tech-status-dot-minimal ${statusDotClass}`} />
                                         </div>
 
                                         <div className="tech-details-slim">
-                                            <span className="tech-name-slim">{t.name || t.employeeName}</span>
-                                            <span className="tech-role-slim">{t.specialization || t.role || 'Technician'}</span>
+                                            <span className="tech-name-slim">{t._name}</span>
+                                            <span className="tech-role-slim">
+                                                {t._isOnline
+                                                    ? (t._role || 'Online')
+                                                    : `Last seen: ${formatLastSeen(t._lastSeenAt)}`}
+                                            </span>
                                         </div>
 
                                         <div className="tech-meta-slim">
-                                            <div className="slot-badge">
-                                                {displayUsedSlots}/{t.totalSlots || 3}
+                                            <div className={`slot-badge ${isFull ? 'full' : ''}`}>
+                                                {displayUsedSlots}/{t._totalSlots}
                                             </div>
                                             {isSel && <div className="check-box-minimal"><Check size={14} /></div>}
                                         </div>
@@ -186,6 +323,45 @@ export default function TechnicianAssignmentModal({
             </div>
             
             <style>{`
+                .search-row-with-filter {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                .online-toggle-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 8px 12px;
+                    border-radius: 12px;
+                    border: 1.5px solid #e2e8f0;
+                    background: #fff;
+                    font-size: 0.75rem;
+                    font-weight: 800;
+                    color: #64748b;
+                    cursor: pointer;
+                    transition: all 0.15s;
+                    white-space: nowrap;
+                    font-family: inherit;
+                }
+                .online-toggle-btn:hover { border-color: #cbd5e1; }
+                .online-toggle-btn.active {
+                    background: #ecfdf5;
+                    border-color: #10b981;
+                    color: #047857;
+                }
+                .online-dot {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 50%;
+                    background: #94a3b8;
+                    box-shadow: 0 0 0 2px #fff, 0 0 0 3px #e2e8f0;
+                }
+                .online-dot.on {
+                    background: #10b981;
+                    box-shadow: 0 0 0 2px #fff, 0 0 0 3px #10b981, 0 0 8px #10b981;
+                }
+
                 .search-box-minimal {
                     display: flex;
                     align-items: center;
@@ -229,6 +405,14 @@ export default function TechnicianAssignmentModal({
                 .tech-row-slim.selected {
                     background: #fff9ec;
                     border-color: #fcc247;
+                }
+                .tech-row-slim.blocked {
+                    opacity: 0.45;
+                    cursor: not-allowed;
+                    filter: grayscale(0.3);
+                }
+                .tech-row-slim.blocked:hover {
+                    background: transparent;
                 }
 
                 .tech-avatar-slim {
@@ -291,10 +475,14 @@ export default function TechnicianAssignmentModal({
                 .slot-badge {
                     font-size: 0.7rem;
                     font-weight: 800;
-                    color: #64748b;
-                    background: #f1f5f9;
+                    color: #047857;
+                    background: #dcfce7;
                     padding: 2px 6px;
                     border-radius: 6px;
+                }
+                .slot-badge.full {
+                    color: #b91c1c;
+                    background: #fee2e2;
                 }
                 .check-box-minimal {
                     width: 20px;

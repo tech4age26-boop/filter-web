@@ -1,26 +1,38 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, Key, Plus, MapPin, Phone, Mail, Users, Edit, RefreshCw } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
+import { loadWorkshopEmployeesCombined } from '../../services/workshopStaffApi';
 import {
     BRANCH_PERMISSIONS,
     MOCK_ROLE_PERMISSIONS,
-    MOCK_EMPLOYEES,
 } from './constants';
 
-function BranchFormModal({ branch, onClose, onSave }) {
+function BranchFormModal({ branch, onClose, onSave, isSaving }) {
+    // Prefer BE-canonical field names (branchCode/vatId/crNumber/contactPerson)
+    // and fall back to the legacy snake_case keys for any older callers.
     const [form, setForm] = useState({
-        name: branch?.name || '', code: branch?.code || '', address: branch?.address || '', phone: branch?.phone || '',
-        email: branch?.email || '', vat_id: branch?.vat_id || '', cr_no: branch?.cr_no || '', contact_person: branch?.contact_person || '', status: branch?.status || 'active',
-        gpsLat: branch?.gpsLat || '', gpsLng: branch?.gpsLng || '',
+        name: branch?.name || '',
+        code: branch?.branchCode ?? branch?.code ?? '',
+        address: branch?.address || '',
+        phone: branch?.phone || '',
+        email: branch?.email || '',
+        vat_id: branch?.vatId ?? branch?.vat_id ?? '',
+        cr_no: branch?.crNumber ?? branch?.cr_no ?? '',
+        contact_person: branch?.contactPerson ?? branch?.contact_person ?? '',
+        status: branch?.status || (branch?.isActive === false ? 'inactive' : 'active'),
+        gpsLat: branch?.gpsLat ?? '',
+        gpsLng: branch?.gpsLng ?? '',
     });
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-    const handleSave = () => { onSave?.({ ...form, id: branch?.id }); onClose(); };
+    const handleSave = () => { onSave?.({ ...form, id: branch?.id }); };
     return (
-        <Modal title={branch?.id ? 'Edit Branch' : 'New Branch Portal'} onClose={onClose} width="520px"
+        <Modal title={branch?.id ? 'Edit Branch' : 'New Branch Portal'} onClose={isSaving ? () => {} : onClose} width="520px"
             footer={<>
-                <button className="btn-portal-outline" onClick={onClose}>Cancel</button>
-                <button className="btn-portal" disabled={!form.name} onClick={handleSave}>{branch?.id ? 'Update Branch' : 'Create Branch'}</button>
+                <button className="btn-portal-outline" onClick={onClose} disabled={isSaving}>Cancel</button>
+                <button className="btn-portal" disabled={!form.name.trim() || isSaving} onClick={handleSave}>
+                    {isSaving ? (branch?.id ? 'Updating...' : 'Creating...') : (branch?.id ? 'Update Branch' : 'Create Branch')}
+                </button>
             </>}>
             <div style={{ fontSize: '0.875rem' }}>
                 <p style={{ padding: '12px 14px', background: '#EFF6FF', borderRadius: 10, color: '#1E40AF', margin: '0 0 16px', fontSize: '0.75rem' }}>
@@ -32,7 +44,7 @@ function BranchFormModal({ branch, onClose, onSave }) {
                         <input type="text" value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Riyadh Main Branch" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/>
                     </div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Branch Code</label><input type="text" value={form.code} onChange={e => set('code', e.target.value)} placeholder="e.g. RYD-001" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Status</label><select value={form.status} onChange={e => set('status', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}><option value="active">Active</option><option value="inactive">Inactive</option><option value="suspended">Suspended</option></select></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Status</label><select value={form.status} onChange={e => set('status', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Phone</label><input type="text" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+966..." style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Email</label><input type="email" value={form.email} onChange={e => set('email', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>GPS Latitude</label><input type="number" value={form.gpsLat} onChange={e => set('gpsLat', e.target.value)} placeholder="e.g. 24.7136" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
@@ -105,8 +117,29 @@ export default function WorkshopBranches() {
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState('');
     const [isSavingBranch, setIsSavingBranch] = useState(false);
+    const [employees, setEmployees] = useState([]);
     const getBranchPerm = (branchId) => rolePermissions.find(r => r.role_name === `branch_admin_${branchId}`);
-    const countEmployees = (branch) => MOCK_EMPLOYEES.filter(e => e.branch === branch.name).length;
+
+    /**
+     * Map of `branchId → number of employees` built from a single workshop-wide
+     * employees fetch. This is what feeds the per-branch "X employees" tag on
+     * each card. Falls back to matching by branch name if the row only carries
+     * a name (older API rows).
+     */
+    const employeeCountByBranch = useMemo(() => {
+        const byId = new Map();
+        const byName = new Map();
+        for (const e of employees) {
+            if (e.branchId) byId.set(String(e.branchId), (byId.get(String(e.branchId)) || 0) + 1);
+            else if (e.branch) byName.set(e.branch, (byName.get(e.branch) || 0) + 1);
+        }
+        return { byId, byName };
+    }, [employees]);
+
+    const countEmployees = (branch) =>
+        employeeCountByBranch.byId.get(String(branch.id)) ??
+        employeeCountByBranch.byName.get(branch.name) ??
+        0;
 
     const loadBranches = useCallback(async () => {
         setIsLoading(true);
@@ -116,9 +149,13 @@ export default function WorkshopBranches() {
             if (!(response?.success && Array.isArray(response.branches))) {
                 throw new Error('Invalid branches response.');
             }
+            // Mirror the BE-canonical keys onto a few legacy aliases the rest
+            // of the page already reads (status, code) so we don't have to
+            // rewrite every consumer downstream.
             setBranches(response.branches.map((branch) => ({
                 ...branch,
-                status: branch.isActive ? 'active' : 'inactive',
+                status: branch.status || (branch.isActive ? 'active' : 'inactive'),
+                code: branch.branchCode ?? branch.code ?? '',
             })));
         } catch (error) {
             setLoadError(error.message || 'Failed to load branches.');
@@ -131,29 +168,80 @@ export default function WorkshopBranches() {
         loadBranches();
     }, [loadBranches]);
 
+    // Pull the workshop-wide staff list once so every branch card can show a
+    // real "N employees" count. Failures are swallowed — we just fall back to
+    // 0 rather than blocking the page.
+    const loadEmployeesCount = useCallback(async () => {
+        try {
+            const { employees: rows } = await loadWorkshopEmployeesCombined();
+            setEmployees(Array.isArray(rows) ? rows : []);
+        } catch {
+            setEmployees([]);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadEmployeesCount();
+    }, [loadEmployeesCount]);
+
+    /**
+     * Build the BE payload from the form state. The BE accepts every key as
+     * optional (except `name` on create) and treats empty strings or null as
+     * "clear this column". GPS values accept either numbers or numeric
+     * strings, and `status` is mapped to `isActive` server-side.
+     */
+    const buildBranchPayload = (data) => {
+        const trim = (v) => (typeof v === 'string' ? v.trim() : v);
+        const optStr = (v) => {
+            const t = trim(v);
+            return t === '' || t == null ? null : t;
+        };
+        const optNum = (v) => {
+            if (v === '' || v == null) return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        };
+        return {
+            name: trim(data.name) || '',
+            branchCode: optStr(data.code),
+            status: data.status === 'inactive' ? 'inactive' : 'active',
+            phone: optStr(data.phone),
+            email: optStr(data.email),
+            gpsLat: optNum(data.gpsLat),
+            gpsLng: optNum(data.gpsLng),
+            vatId: optStr(data.vat_id),
+            crNumber: optStr(data.cr_no),
+            contactPerson: optStr(data.contact_person),
+            address: optStr(data.address),
+        };
+    };
+
     const handleBranchSave = async (data) => {
-        if (data.id) {
-            // Edit endpoint is not wired yet; keep local update for now.
-            setBranches(prev => prev.map(b => b.id === data.id ? { ...b, ...data } : b));
+        if (!data.name?.trim()) {
+            setLoadError('Branch name is required.');
             return;
         }
 
         setIsSavingBranch(true);
         setLoadError('');
         try {
-            await apiFetch('/workshop-staff/branch/create', {
-                method: 'POST',
-                body: JSON.stringify({
-                    name: data.name,
-                    address: data.address || '',
-                    gpsLat: Number(data.gpsLat) || 0,
-                    gpsLng: Number(data.gpsLng) || 0,
-                    isActive: data.status !== 'inactive',
-                }),
-            });
+            const payload = buildBranchPayload(data);
+            if (data.id) {
+                await apiFetch(`/workshop-staff/branch/${encodeURIComponent(data.id)}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify(payload),
+                });
+            } else {
+                await apiFetch('/workshop-staff/branch/create', {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                });
+            }
             await loadBranches();
+            setShowBranchForm(false);
+            setEditBranch(null);
         } catch (error) {
-            setLoadError(error.message || 'Failed to create branch.');
+            setLoadError(error.message || (data.id ? 'Failed to update branch.' : 'Failed to create branch.'));
         } finally {
             setIsSavingBranch(false);
         }
@@ -171,7 +259,7 @@ export default function WorkshopBranches() {
             <div className="ws-page-header">
                 <div><h2 className="ws-page-title">Branches & Access Control</h2><p className="ws-page-sub">Manage branch portals and grant Branch Admin permissions</p></div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                    <button className="btn-portal-outline" onClick={loadBranches} disabled={isLoading}><RefreshCw size={15}/>{isLoading ? 'Refreshing...' : 'Refresh'}</button>
+                    <button className="btn-portal-outline" onClick={() => { loadBranches(); loadEmployeesCount(); }} disabled={isLoading}><RefreshCw size={15}/>{isLoading ? 'Refreshing...' : 'Refresh'}</button>
                     <button className="btn-portal-outline" onClick={() => setShowAccessForm(true)}><Key size={15}/> Grant Access</button>
                     <button className="btn-portal" onClick={() => { setEditBranch(null); setShowBranchForm(true); }} disabled={isSavingBranch}>
                         <Plus size={15}/> {isSavingBranch ? 'Creating...' : 'New Branch'}
@@ -266,7 +354,7 @@ export default function WorkshopBranches() {
                 </div>
             )}
 
-            {showBranchForm && <BranchFormModal branch={editBranch} onClose={() => { setShowBranchForm(false); setEditBranch(null); }} onSave={handleBranchSave}/>}
+            {showBranchForm && <BranchFormModal branch={editBranch} isSaving={isSavingBranch} onClose={() => { setShowBranchForm(false); setEditBranch(null); }} onSave={handleBranchSave}/>}
             {showAccessForm && <AccessPermissionFormModal branches={branches} onClose={() => setShowAccessForm(false)} onSave={handleAccessSave}/>}
         </div>
     );

@@ -4,18 +4,25 @@ import { Package, User, Check, RefreshCw, X, Pencil, Settings, Droplets, CircleD
 const statusConfig = {
     finished: { bg: 'var(--pos-status-complete-bg)', color: 'var(--pos-status-complete-text)', label: 'FINISHED' },
     completed: { bg: 'var(--pos-status-complete-bg)', color: 'var(--pos-status-complete-text)', label: 'COMPLETED' },
+    invoiced: { bg: 'var(--pos-status-complete-bg)', color: 'var(--pos-status-complete-text)', label: 'INVOICED' },
+    edited: { bg: '#E0E7FF', color: '#3949AB', label: 'EDITED' },
     in_progress: { bg: 'var(--pos-status-progress-bg)', color: 'var(--pos-status-progress-text)', label: 'IN PROGRESS' },
     pending: { bg: 'var(--pos-status-pending-bg)', color: 'var(--pos-status-pending-text)', label: 'PENDING' },
 };
 
-export default function JobCard({ 
-    job, 
-    jobData, 
-    onOpenModal, 
-    onMarkComplete, 
-    actionLoading 
+export default function JobCard({
+    job,
+    jobData,
+    onOpenModal,
+    onMarkComplete,
+    onCancelJob,
+    actionLoading
 }) {
-    const isDone = ['finished', 'completed'].includes((job.status || '').toLowerCase());
+    const statusLower = (job.status || '').toLowerCase();
+    const isDone = ['finished', 'completed'].includes(statusLower);
+    const isCancelled = ['cancelled', 'rejected_by_technician'].includes(statusLower);
+    const isInvoiced = statusLower === 'invoiced';
+    const canCancel = !!onCancelJob && !isInvoiced && !isCancelled;
     const config = statusConfig[(job.status || 'pending').toLowerCase()] || statusConfig.pending;
     
     const currentJobData = jobData || { products: [], techs: [] };
@@ -64,7 +71,19 @@ export default function JobCard({
                         </span>
                     </div>
                 </div>
-                <button className="job-close-btn"><X size={18} /></button>
+                <button
+                    className="job-close-btn"
+                    title={canCancel ? 'Cancel this job' : (isInvoiced ? 'Invoiced jobs cannot be cancelled' : 'Job already cancelled')}
+                    disabled={!canCancel || actionLoading === `cancel-${job.id}`}
+                    style={!canCancel ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (!canCancel) return;
+                        onCancelJob(job);
+                    }}
+                >
+                    {actionLoading === `cancel-${job.id}` ? <RefreshCw size={16} className="animate-spin" /> : <X size={18} />}
+                </button>
             </div>
 
             <div className="job-items-summary">

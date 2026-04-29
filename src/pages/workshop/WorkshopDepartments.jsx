@@ -3,6 +3,20 @@ import { AlertTriangle, Plus, Pencil, ShoppingCart, RefreshCw } from 'lucide-rea
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
+import {
+    getMyDepartments,
+    getMyCategories,
+    getMyProducts,
+    getMyServices,
+    getBranchDepartments,
+    getBranchCategories,
+    getBranchProducts,
+    getBranchServices,
+    removeBranchDepartment,
+    removeBranchCategory,
+    removeBranchProduct,
+    removeBranchService,
+} from '../../services/workshopCatalogApi';
 import { useAuth } from '../../context/AuthContext';
 import {
     MOCK_BRANCHES,
@@ -10,8 +24,32 @@ import {
     UNIT_OPTIONS,
 } from './constants';
 
-export default function WorkshopDepartments() {
+function pickNumber(...vals) {
+    for (const v of vals) {
+        if (v == null || v === '') continue;
+        const n = Number(v);
+        if (Number.isFinite(n)) return n;
+    }
+    return 0;
+}
+
+/** First numeric value, or `null` if unset (fall back to adoption opening). */
+function firstFiniteNumber(values) {
+    for (const v of values) {
+        if (v == null || v === '') continue;
+        const n = Number(v);
+        if (Number.isFinite(n)) return n;
+    }
+    return null;
+}
+
+export default function WorkshopDepartments({ selectedBranchId = 'all', branches: branchesProp = [] }) {
     const { workshop } = useAuth();
+    const isAllBranches = !selectedBranchId || selectedBranchId === 'all';
+    const branchScope = isAllBranches ? null : String(selectedBranchId);
+    const selectedBranchName = (Array.isArray(branchesProp) ? branchesProp : []).find(
+        (b) => String(b.id) === String(selectedBranchId),
+    )?.name;
     const [departments, setDepartments] = useState([]);
     const [products, setProducts] = useState([]);
     const [productCategories, setProductCategories] = useState(MOCK_CATEGORIES);
@@ -55,18 +93,25 @@ export default function WorkshopDepartments() {
         setIsDeptLoading(true);
         setDeptError('');
         try {
-            const response = await apiFetch('/workshop-staff/departments');
-            if (response?.success && Array.isArray(response.departments)) {
-                setDepartments(response.departments);
-                return;
-            }
-            throw new Error('Invalid departments response.');
+            // Branch-scoped: if a specific branch is selected, list only what
+            // that branch has adopted. Otherwise, list the workshop union.
+            const response = branchScope
+                ? await getBranchDepartments(branchScope)
+                : await getMyDepartments();
+            const list =
+                Array.isArray(response?.departments) ? response.departments
+                : Array.isArray(response?.data?.departments) ? response.data.departments
+                : Array.isArray(response?.data) ? response.data
+                : Array.isArray(response) ? response
+                : null;
+            if (!list) throw new Error('Invalid departments response.');
+            setDepartments(list);
         } catch (error) {
             setDeptError(error.message || 'Failed to load departments.');
         } finally {
             setIsDeptLoading(false);
         }
-    }, []);
+    }, [branchScope]);
 
     useEffect(() => {
         loadDepartments();
@@ -108,18 +153,24 @@ export default function WorkshopDepartments() {
         setIsCategoriesLoading(true);
         setCategoriesError('');
         try {
-            const response = await apiFetch('/workshop-staff/categories');
-            if (!(response?.success && Array.isArray(response.categories))) {
-                throw new Error('Invalid categories response.');
-            }
-            setCategories(response.categories);
-            setProductCategories(response.categories.map((category) => ({ id: category.id, name: category.name })));
+            const response = branchScope
+                ? await getBranchCategories(branchScope)
+                : await getMyCategories();
+            const list =
+                Array.isArray(response?.categories) ? response.categories
+                : Array.isArray(response?.data?.categories) ? response.data.categories
+                : Array.isArray(response?.data) ? response.data
+                : Array.isArray(response) ? response
+                : null;
+            if (!list) throw new Error('Invalid categories response.');
+            setCategories(list);
+            setProductCategories(list.map((category) => ({ id: category.id, name: category.name })));
         } catch (error) {
             setCategoriesError(error.message || 'Failed to load categories.');
         } finally {
             setIsCategoriesLoading(false);
         }
-    }, []);
+    }, [branchScope]);
 
     useEffect(() => {
         loadCategories();
@@ -161,23 +212,37 @@ export default function WorkshopDepartments() {
         }
     };
 
-    const normalizeProduct = (product, category) => ({
-        id: `product-${product.id}`,
-        sourceId: product.id,
-        name: product.name || 'Unnamed',
-        sku: product.sku || '',
-        category_id: product.categoryId || category?.id || '',
-        type: category?.type || product.type || 'product',
-        unit: product.unit || 'piece',
-        purchase_price: Number(product.purchasePrice) || 0,
-        sale_price: Number(product.salePrice) || 0,
-        stock_qty: Number(product.openingQty) || 0,
-        critical_level: Number(product.criticalStockPoint) || 0,
-        reorder_level: Number(product.reorderLevel) || 0,
-        department_ids: product.departmentId ? [product.departmentId] : [],
-        dept: product.departmentName || '—',
-        isActive: product.isActive !== false,
-    });
+    const normalizeProduct = (product, category) => {
+        const adoptionOpening = pickNumber(
+            product.openingQty,
+            product.opening_qty,
+        );
+        const onHand = firstFiniteNumber([
+            product.currentQty,
+            product.current_qty,
+            product.qtyOnHand,
+            product.qty_on_hand,
+        ]);
+        const effectiveStock = onHand !== null ? onHand : adoptionOpening;
+        return {
+            id: `product-${product.id}`,
+            sourceId: product.id,
+            name: product.name || 'Unnamed',
+            sku: product.sku || '',
+            category_id: product.categoryId || category?.id || '',
+            type: category?.type || product.type || 'product',
+            unit: product.unit || 'piece',
+            purchase_price: Number(product.purchasePrice) || 0,
+            sale_price: Number(product.salePrice) || 0,
+            adoption_opening_qty: adoptionOpening,
+            stock_qty: effectiveStock,
+            critical_level: Number(product.criticalStockPoint) || 0,
+            reorder_level: Number(product.reorderLevel) || 0,
+            department_ids: product.departmentId ? [product.departmentId] : [],
+            dept: product.departmentName || '—',
+            isActive: product.isActive !== false,
+        };
+    };
 
     const normalizeService = (service) => ({
         id: `service-${service.id}`,
@@ -198,67 +263,112 @@ export default function WorkshopDepartments() {
     });
 
     const loadProducts = useCallback(async () => {
-        const workshopId = workshop?.id;
-        if (!workshopId) {
-            setProductsError('Workshop session missing. Please login again.');
-            return;
-        }
-
         setIsProductsLoading(true);
         setProductsError('');
 
-        try {
-            const [productsResponse, servicesResponse] = await Promise.all([
-                apiFetch(`/workshop-staff/products?workshopId=${encodeURIComponent(workshopId)}`),
-                apiFetch('/workshop-products/services'),
-            ]);
+        const extractProducts = (res) =>
+            (Array.isArray(res?.products) && res.products)
+            || (Array.isArray(res?.data?.products) && res.data.products)
+            || (Array.isArray(res?.data) && res.data)
+            || (Array.isArray(res) && res)
+            || [];
+        const extractServices = (res) =>
+            (Array.isArray(res?.services) && res.services)
+            || (Array.isArray(res?.data?.services) && res.data.services)
+            || (Array.isArray(res?.data) && res.data)
+            || (Array.isArray(res) && res)
+            || [];
 
-            if (!(productsResponse?.success && Array.isArray(productsResponse.categories))) {
-                throw new Error('Invalid products response.');
-            }
-
-            const normalizedProducts = [];
-            const normalizedCategories = [];
-
-            productsResponse.categories.forEach((category) => {
-                normalizedCategories.push({ id: category.id, name: category.name });
-
-                (category.productsWithoutSub || []).forEach((product) => {
-                    normalizedProducts.push(normalizeProduct(product, category));
-                });
-
-                (category.subCategories || []).forEach((subCategory) => {
-                    (subCategory.products || []).forEach((product) => {
-                        normalizedProducts.push(normalizeProduct(product, category));
-                    });
-                });
+        // Per-branch listing rows can either be flat or wrapped as
+        // `{ product: {...}, openingQty, ... }`. Pull out the master row plus
+        // any per-branch overrides before normalizing.
+        const buildBranchProductRow = (row) => {
+            const master = row?.product || row;
+            return normalizeProduct(
+                {
+                    ...master,
+                    openingQty: row?.openingQty ?? master?.openingQty,
+                    opening_qty: row?.opening_qty ?? master?.opening_qty,
+                    currentQty: row?.currentQty ?? master?.currentQty,
+                    current_qty: row?.current_qty ?? master?.current_qty,
+                    qtyOnHand: row?.qtyOnHand ?? master?.qtyOnHand,
+                    qty_on_hand: row?.qty_on_hand ?? master?.qty_on_hand,
+                    criticalStockPoint: row?.criticalStockPoint ?? master?.criticalStockPoint,
+                    salePrice: row?.salePriceOverride ?? master?.salePrice,
+                },
+                master?.category,
+            );
+        };
+        const buildBranchServiceRow = (row) => {
+            const master = row?.service || row;
+            return normalizeService({
+                ...master,
+                sellingPrice: row?.sellingPriceOverride ?? master?.sellingPrice,
             });
+        };
 
-            const normalizedServices = Array.isArray(servicesResponse?.services)
-                ? servicesResponse.services.map(normalizeService)
-                : [];
+        // Workshop-union rows already carry their branch list as
+        // `branches: [{id,name}]` (and `branchNames`), so we just splice
+        // those onto the normalized row.
+        const buildUnionProductRow = (row) => {
+            const norm = normalizeProduct(
+                {
+                    ...row,
+                    departmentId: row?.departmentId,
+                    departmentName: row?.departmentName,
+                    categoryId: row?.categoryId,
+                },
+                { id: row?.categoryId, name: row?.categoryName, type: 'product' },
+            );
+            return {
+                ...norm,
+                branches: Array.isArray(row?.branches) ? row.branches : [],
+                branchNames: Array.isArray(row?.branchNames) ? row.branchNames : [],
+            };
+        };
+        const buildUnionServiceRow = (row) => {
+            const norm = normalizeService({
+                ...row,
+                sellingPrice: row?.sellingPrice,
+                departmentId: row?.departmentId,
+                departmentName: row?.departmentName,
+                categoryId: row?.categoryId,
+            });
+            return {
+                ...norm,
+                branches: Array.isArray(row?.branches) ? row.branches : [],
+                branchNames: Array.isArray(row?.branchNames) ? row.branchNames : [],
+            };
+        };
 
-            if (Array.isArray(servicesResponse?.services)) {
-                servicesResponse.services.forEach((service) => {
-                    if (service?.categoryId && service?.categoryName) {
-                        normalizedCategories.push({ id: service.categoryId, name: service.categoryName });
-                    }
-                });
+        try {
+            if (branchScope) {
+                const [prodRes, svcRes] = await Promise.all([
+                    getBranchProducts(branchScope).catch(() => null),
+                    getBranchServices(branchScope).catch(() => null),
+                ]);
+                const flatProd = extractProducts(prodRes).map(buildBranchProductRow);
+                const flatSvc = extractServices(svcRes).map(buildBranchServiceRow);
+                setProducts([...flatProd, ...flatSvc]);
+                return;
             }
 
-            setProducts([...normalizedProducts, ...normalizedServices]);
-            if (normalizedCategories.length > 0) {
-                const deduped = Array.from(
-                    new Map(normalizedCategories.map((category) => [String(category.id), category])).values()
-                );
-                setProductCategories(deduped);
-            }
+            // All-branches view: workshop-union endpoints return a flat list
+            // with `branches`/`branchNames` already attached per row, so the
+            // "Branches" column populates with no extra fetches.
+            const [prodRes, svcRes] = await Promise.all([
+                getMyProducts().catch(() => null),
+                getMyServices().catch(() => null),
+            ]);
+            const flatProducts = extractProducts(prodRes).map(buildUnionProductRow);
+            const flatServices = extractServices(svcRes).map(buildUnionServiceRow);
+            setProducts([...flatProducts, ...flatServices]);
         } catch (error) {
             setProductsError(error.message || 'Failed to load products and services.');
         } finally {
             setIsProductsLoading(false);
         }
-    }, [workshop?.id]);
+    }, [branchScope]);
 
     useEffect(() => {
         loadProducts();
@@ -285,14 +395,14 @@ export default function WorkshopDepartments() {
             setIsSavingDept(false);
         }
     };
-    const openAddProd = () => {
+    const openAddProd = (presetType = 'product') => {
         setEditingProd(null);
         setProdForm({
             name: '',
             sku: '',
             category_id: '',
-            type: 'product',
-            unit: defaultProductUnit || 'pcs',
+            type: presetType === 'service' ? 'service' : 'product',
+            unit: presetType === 'service' ? 'service' : (defaultProductUnit || 'pcs'),
             purchase_price: '',
             sale_price: '',
             stock_qty: 0,
@@ -304,6 +414,27 @@ export default function WorkshopDepartments() {
         });
         setShowProdForm(true);
     };
+
+    /**
+     * Render the "Branches" column for a row.
+     * - In branch-scoped view, every row is by definition in `selectedBranchName`.
+     * - In the workshop-union view, we show whatever the BE sent us
+     *   (`row.branches: [{id,name}]` or `row.branchNames: string[]`). If neither
+     *   is present we show '—' so you can spot rows where the BE hasn't been
+     *   updated to include the per-row branch list yet.
+     */
+    const formatRowBranches = (row) => {
+        if (branchScope) return selectedBranchName || `Branch ${selectedBranchId}`;
+        const list =
+            (Array.isArray(row?.branches) && row.branches.map((b) => b?.name).filter(Boolean))
+            || (Array.isArray(row?.branchNames) && row.branchNames)
+            || [];
+        if (!list.length) return '—';
+        return list.join(', ');
+    };
+
+    const productItems = filteredProds.filter((row) => row.type !== 'service');
+    const serviceItems = filteredProds.filter((row) => row.type === 'service');
     const openEditProd = (p) => {
         setEditingProd(p);
         setProdForm({
@@ -416,10 +547,64 @@ export default function WorkshopDepartments() {
         }
     };
 
+    const removeDeptFromBranch = async (deptId) => {
+        if (!branchScope) return;
+        if (!window.confirm(`Remove this department from ${selectedBranchName || 'this branch'}? Adopted categories under it stay; only the link to this branch is dropped. If this branch was the last one using it, it will also be removed from the workshop.`)) return;
+        try {
+            await removeBranchDepartment(branchScope, deptId);
+            await loadDepartments();
+        } catch (error) {
+            setDeptError(error.message || 'Failed to remove department from this branch.');
+        }
+    };
+
+    const removeCategoryFromBranch = async (categoryId) => {
+        if (!branchScope) return;
+        if (!window.confirm(`Remove this category from ${selectedBranchName || 'this branch'}?`)) return;
+        try {
+            await removeBranchCategory(branchScope, categoryId);
+            await loadCategories();
+        } catch (error) {
+            setCategoriesError(error.message || 'Failed to remove category from this branch.');
+        }
+    };
+
+    const removeProductFromBranch = async (sourceId, isService) => {
+        if (!branchScope || !sourceId) return;
+        const noun = isService ? 'service' : 'product';
+        if (!window.confirm(`Remove this ${noun} from ${selectedBranchName || 'this branch'}?`)) return;
+        try {
+            if (isService) {
+                await removeBranchService(branchScope, sourceId);
+            } else {
+                await removeBranchProduct(branchScope, sourceId);
+            }
+            await loadProducts();
+        } catch (error) {
+            setProductsError(error.message || `Failed to remove ${noun} from this branch.`);
+        }
+    };
+
     return (
         <div>
             <div className="ws-page-header">
                 <div><h2 className="ws-page-title">Dept & Products</h2><p className="ws-page-sub">Departments and product catalog with stock levels</p></div>
+            </div>
+
+            <div style={{
+                marginBottom: 16,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 12px',
+                borderRadius: 999,
+                background: branchScope ? '#ECFEFF' : '#EEF2FF',
+                color: branchScope ? '#0E7490' : '#4338CA',
+                fontSize: '0.8125rem',
+                fontWeight: 700,
+            }}>
+                <span>Viewing:</span>
+                <span>{branchScope ? (selectedBranchName || `Branch ${selectedBranchId}`) : 'All branches (workshop union)'}</span>
             </div>
 
             {criticalCount > 0 && (
@@ -436,8 +621,11 @@ export default function WorkshopDepartments() {
                     Departments ({departments.length})
                 </button>
                 <button onClick={() => setActiveTab('products')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='products' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='products' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
-                    Products & Services
+                    Products ({productItems.length})
                     {criticalCount > 0 && <span className="ws-nav-badge" style={{marginLeft:4}}>{criticalCount}</span>}
+                </button>
+                <button onClick={() => setActiveTab('services')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='services' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='services' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
+                    Services ({serviceItems.length})
                 </button>
                 <button onClick={() => setActiveTab('categories')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='categories' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='categories' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
                     Categories ({categories.length})
@@ -450,7 +638,7 @@ export default function WorkshopDepartments() {
                         <button className="btn-portal" onClick={loadDepartments} disabled={isDeptLoading}>
                             <RefreshCw size={14} /> {isDeptLoading ? 'Refreshing...' : 'Refresh'}
                         </button>
-                        <button className="btn-portal" onClick={() => setShowDeptForm(true)}><Plus size={14}/> Add Department</button>
+                        <button className="btn-portal" onClick={() => setShowDeptForm(true)}><Plus size={14}/> Request Department</button>
                     </div>
                     {deptError && (
                         <div style={{ marginBottom: 16, color: '#B91C1C', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: 12, fontSize: '0.875rem' }}>
@@ -459,17 +647,35 @@ export default function WorkshopDepartments() {
                     )}
                     <div className="ws-section">
                         <table className="ws-table">
-                            <thead><tr><th>Name</th><th>Workshop ID</th><th>Status</th></tr></thead>
+                            <thead><tr><th>Name</th><th>Branches</th><th>Status</th>{branchScope && <th>Actions</th>}</tr></thead>
                             <tbody>
                                 {departments.length === 0 ? (
-                                    <tr><td colSpan={3} style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>{isDeptLoading ? 'Loading departments...' : 'No departments found'}</td></tr>
+                                    <tr><td colSpan={branchScope ? 4 : 3} style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                        {isDeptLoading
+                                            ? 'Loading departments...'
+                                            : branchScope
+                                                ? `No departments adopted into ${selectedBranchName || 'this branch'} yet. Add some from the Master Catalog.`
+                                                : 'No departments adopted into your workshop yet. Add some from the Master Catalog.'}
+                                    </td></tr>
                                 ) : departments.map(d => {
                                     const isActive = Boolean(d.isActive ?? d.status === 'active');
+                                    const masterId = d.departmentId || d.masterId || d.id;
                                     return (
                                         <tr key={d.id}>
                                             <td><strong>{d.name}</strong></td>
-                                            <td>{d.workshopId || '—'}</td>
+                                            <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(d)}</td>
                                             <td><span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? 'active' : 'inactive'}</span></td>
+                                            {branchScope && (
+                                                <td>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeDeptFromBranch(masterId)}
+                                                        style={{ padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                    >
+                                                        Remove from this branch
+                                                    </button>
+                                                </td>
+                                            )}
                                         </tr>
                                     );
                                 })}
@@ -501,33 +707,132 @@ export default function WorkshopDepartments() {
                                 <button className="btn-portal" onClick={loadProducts} disabled={isProductsLoading}>
                                     <RefreshCw size={14}/> {isProductsLoading ? 'Refreshing...' : 'Refresh'}
                                 </button>
-                                <button className="btn-portal" onClick={openAddProd}><Plus size={14}/> Add Product/Service</button>
+                                <button className="btn-portal" onClick={() => openAddProd('product')}><Plus size={14}/> Request Product</button>
                             </div>
                         </div>
                     </div>
                     <div className="ws-section">
                         <div style={{overflowX:'auto'}}>
                             <table className="ws-table">
-                                <thead><tr><th>Name</th><th>SKU</th><th>Type</th><th>Unit</th><th>Sale Price</th><th>Purchase Price</th><th>Stock Qty</th><th>Critical</th><th>Status</th><th>Actions</th></tr></thead>
-                                <tbody>{filteredProds.length === 0 ? (
-                                    <tr><td colSpan={10} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading products...' : 'No products found'}</td></tr>
-                                ) : filteredProds.map(p => {
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>SKU</th>
+                                        <th>Unit</th>
+                                        <th>Sale Price</th>
+                                        <th>Purchase Price</th>
+                                        {branchScope ? (
+                                            <>
+                                                <th title="openingQty — set when this branch adopted from catalog; not changed by manual stock adjustments">Opening (adoption)</th>
+                                                <th title="currentQty — on hand now (sales, GRN, adjustments); matches opening until an inventory row exists">Current stock</th>
+                                            </>
+                                        ) : (
+                                            <th title="openingQty on workshop/union list (adoption baseline where applicable)">Opening (adoption)</th>
+                                        )}
+                                        <th>Critical</th>
+                                        <th>Branches</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>{productItems.length === 0 ? (
+                                    <tr><td colSpan={branchScope ? 11 : 10} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading products...' : 'No products found'}</td></tr>
+                                ) : productItems.map(p => {
                                     const isCritical = p.critical_level && p.stock_qty <= p.critical_level;
                                     return (
                                         <tr key={p.id} style={{background: isCritical ? '#FEF2F2' : undefined}}>
                                             <td><strong>{p.name}</strong></td>
                                             <td style={{fontFamily:'monospace',fontSize:'0.8rem',color:'var(--color-text-muted)'}}>{p.sku || '—'}</td>
-                                            <td><span className="ws-badge ws-badge--gray">{p.type}</span></td>
                                             <td style={{textTransform:'capitalize'}}>{p.unit}</td>
                                             <td>SAR {(p.sale_price||0).toFixed(2)}</td>
                                             <td style={{color:'var(--color-text-muted)'}}>SAR {(p.purchase_price||0).toFixed(2)}</td>
-                                            <td><span style={{fontWeight:700,color:isCritical?'#DC2626':'inherit'}}>{p.stock_qty ?? '—'}</span></td>
+                                            {branchScope ? (
+                                                <>
+                                                    <td style={{ textAlign: 'center', color: 'var(--color-text-muted)' }}>{p.adoption_opening_qty ?? '—'}</td>
+                                                    <td><span style={{fontWeight:700,color:isCritical?'#DC2626':'inherit'}}>{p.stock_qty ?? '—'}</span></td>
+                                                </>
+                                            ) : (
+                                                <td><span style={{fontWeight:700,color:isCritical?'#DC2626':'inherit'}}>{p.adoption_opening_qty ?? '—'}</span></td>
+                                            )}
                                             <td style={{color:'var(--color-text-muted)'}}>{p.critical_level ?? '—'}</td>
+                                            <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(p)}</td>
                                             <td><span className={`ws-badge ${isCritical?'ws-badge--red':'ws-badge--green'}`}>{isCritical ? '⚠ Critical' : 'OK'}</span></td>
                                             <td>
-                                                <div style={{display:'flex',gap:6}}>
+                                                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                                                     <button onClick={()=>openEditProd(p)} style={{padding:'4px 10px',background:'#EFF6FF',color:'#2563EB',border:'none',borderRadius:6,fontWeight:700,cursor:'pointer',fontSize:'0.75rem'}}><Pencil size={12}/></button>
                                                     <button onClick={()=>setShowRequestForm(p)} title="Request stock from supplier" style={{padding:'4px 10px',background:'#fff',color:'#2563EB',border:'1px solid #93C5FD',borderRadius:6,fontWeight:600,cursor:'pointer',fontSize:'0.75rem'}}><ShoppingCart size={12}/></button>
+                                                    {branchScope && (
+                                                        <button
+                                                            type="button"
+                                                            title={`Remove from ${selectedBranchName || 'this branch'}`}
+                                                            onClick={() => removeProductFromBranch(p.sourceId, false)}
+                                                            style={{ padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'services' && (
+                <div>
+                    {productsError && (
+                        <div style={{ marginBottom: 16, color: '#B91C1C', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: 12, fontSize: '0.875rem' }}>
+                            {productsError}
+                        </div>
+                    )}
+                    <div className="ws-section" style={{marginBottom:16}}>
+                        <div style={{display:'flex',flexWrap:'wrap',gap:12,alignItems:'center',justifyContent:'space-between',padding:16}}>
+                            <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
+                                <select value={filterDept} onChange={e=>setFilterDept(e.target.value)} style={{padding:'8px 12px',borderRadius:8,border:'1px solid var(--color-border)',fontSize:'0.875rem',minWidth:160}}>
+                                    <option value="all">All Departments</option>
+                                    {departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
+                                </select>
+                            </div>
+                            <div style={{display:'flex',gap:10}}>
+                                <button className="btn-portal" onClick={loadProducts} disabled={isProductsLoading}>
+                                    <RefreshCw size={14}/> {isProductsLoading ? 'Refreshing...' : 'Refresh'}
+                                </button>
+                                <button className="btn-portal" onClick={() => openAddProd('service')}><Plus size={14}/> Request Service</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="ws-section">
+                        <div style={{overflowX:'auto'}}>
+                            <table className="ws-table">
+                                <thead><tr><th>Name</th><th>Department</th><th>Sale Price</th><th>Branches</th><th>Status</th><th>Actions</th></tr></thead>
+                                <tbody>{serviceItems.length === 0 ? (
+                                    <tr><td colSpan={6} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading services...' : 'No services found'}</td></tr>
+                                ) : serviceItems.map(s => {
+                                    const isActive = s.isActive !== false;
+                                    return (
+                                        <tr key={s.id}>
+                                            <td><strong>{s.name}</strong></td>
+                                            <td style={{color:'var(--color-text-muted)'}}>{s.dept || '—'}</td>
+                                            <td>SAR {(s.sale_price||0).toFixed(2)}</td>
+                                            <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(s)}</td>
+                                            <td><span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? 'active' : 'inactive'}</span></td>
+                                            <td>
+                                                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                                                    <button onClick={()=>openEditProd(s)} style={{padding:'4px 10px',background:'#EFF6FF',color:'#2563EB',border:'none',borderRadius:6,fontWeight:700,cursor:'pointer',fontSize:'0.75rem'}}><Pencil size={12}/></button>
+                                                    {branchScope && (
+                                                        <button
+                                                            type="button"
+                                                            title={`Remove from ${selectedBranchName || 'this branch'}`}
+                                                            onClick={() => removeProductFromBranch(s.sourceId, true)}
+                                                            style={{ padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -546,7 +851,7 @@ export default function WorkshopDepartments() {
                             <RefreshCw size={14} /> {isCategoriesLoading ? 'Refreshing...' : 'Refresh'}
                         </button>
                         <button className="btn-portal" onClick={() => setShowCategoryForm(true)}>
-                            <Plus size={14}/> Add Category
+                            <Plus size={14}/> Request Category
                         </button>
                     </div>
                     {categoriesError && (
@@ -557,17 +862,38 @@ export default function WorkshopDepartments() {
                     <div className="ws-section">
                         <div style={{overflowX:'auto'}}>
                             <table className="ws-table">
-                                <thead><tr><th>Name</th><th>Type</th><th>Department</th></tr></thead>
+                                <thead><tr><th>Name</th><th>Type</th><th>Department</th><th>Branches</th>{branchScope && <th>Actions</th>}</tr></thead>
                                 <tbody>
                                     {categories.length === 0 ? (
-                                        <tr><td colSpan={3} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isCategoriesLoading ? 'Loading categories...' : 'No categories found'}</td></tr>
-                                    ) : categories.map((category) => (
-                                        <tr key={category.id}>
-                                            <td><strong>{category.name}</strong></td>
-                                            <td><span className="ws-badge ws-badge--gray">{category.type || '—'}</span></td>
-                                            <td>{category.departmentName || '—'}</td>
-                                        </tr>
-                                    ))}
+                                        <tr><td colSpan={branchScope ? 5 : 4} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>
+                                            {isCategoriesLoading
+                                                ? 'Loading categories...'
+                                                : branchScope
+                                                    ? `No categories adopted into ${selectedBranchName || 'this branch'} yet.`
+                                                    : 'No categories adopted into your workshop yet.'}
+                                        </td></tr>
+                                    ) : categories.map((category) => {
+                                        const masterId = category.categoryId || category.masterId || category.id;
+                                        return (
+                                            <tr key={category.id}>
+                                                <td><strong>{category.name}</strong></td>
+                                                <td><span className="ws-badge ws-badge--gray">{category.type || '—'}</span></td>
+                                                <td>{category.departmentName || '—'}</td>
+                                                <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(category)}</td>
+                                                {branchScope && (
+                                                    <td>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeCategoryFromBranch(masterId)}
+                                                            style={{ padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                        >
+                                                            Remove from this branch
+                                                        </button>
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -576,14 +902,14 @@ export default function WorkshopDepartments() {
             )}
 
             <AnimatePresence>
-                {showDeptForm && <Modal title="Add Department" onClose={()=>setShowDeptForm(false)} footer={<div style={{display:'flex',gap:10,justifyContent:'flex-end'}}><button className="btn-secondary" onClick={()=>setShowDeptForm(false)}>Cancel</button><button className="btn-submit" disabled={isSavingDept || !deptForm.name.trim()} onClick={saveDept}>{isSavingDept ? 'Saving...' : 'Save'}</button></div>}>
+                {showDeptForm && <Modal title="Request Department" onClose={()=>setShowDeptForm(false)} footer={<div style={{display:'flex',gap:10,justifyContent:'flex-end'}}><button className="btn-secondary" onClick={()=>setShowDeptForm(false)}>Cancel</button><button className="btn-submit" disabled={isSavingDept || !deptForm.name.trim()} onClick={saveDept}>{isSavingDept ? 'Saving...' : 'Save'}</button></div>}>
                     <div className="ws-form-grid">
                         <div className="ws-field"><label>Name *</label><input value={deptForm.name} onChange={e=>setDeptForm(f=>({...f,name:e.target.value}))}/></div>
                         <div className="ws-field"><label>Branch</label><select value={deptForm.branch_id} onChange={e=>setDeptForm(f=>({...f,branch_id:e.target.value}))}><option value="b1">Main Branch — Riyadh</option>{MOCK_BRANCHES.filter(b=>!b.includes('Main')).map((b,i)=><option key={i} value={'b'+(i+2)}>{b}</option>)}</select></div>
                     </div>
                 </Modal>}
                 {showProdForm && (
-                    <Modal title={editingProd ? 'Edit Product/Service' : 'Add Product/Service'} onClose={()=>setShowProdForm(false)} footer={<div style={{display:'flex',gap:10,justifyContent:'flex-end'}}><button className="btn-secondary" onClick={()=>setShowProdForm(false)}>Cancel</button><button className="btn-submit" disabled={isSavingProduct || !prodForm.name.trim()} onClick={saveProd}>{isSavingProduct ? 'Saving...' : 'Save'}</button></div>}>
+                    <Modal title={editingProd ? 'Edit Product/Service' : 'Request Product/Service'} onClose={()=>setShowProdForm(false)} footer={<div style={{display:'flex',gap:10,justifyContent:'flex-end'}}><button className="btn-secondary" onClick={()=>setShowProdForm(false)}>Cancel</button><button className="btn-submit" disabled={isSavingProduct || !prodForm.name.trim()} onClick={saveProd}>{isSavingProduct ? 'Saving...' : 'Save'}</button></div>}>
                         <div className="ws-form-grid">
                             <div className="ws-field" style={{gridColumn:'1/-1'}}><label>Name *</label><input value={prodForm.name} onChange={e=>setProdForm(f=>({...f,name:e.target.value}))}/></div>
                             <div className="ws-field"><label>SKU / Barcode</label><input value={prodForm.sku} onChange={e=>setProdForm(f=>({...f,sku:e.target.value}))} placeholder="Optional"/></div>
@@ -621,7 +947,7 @@ export default function WorkshopDepartments() {
                 )}
                 {showCategoryForm && (
                     <Modal
-                        title="Add Category"
+                        title="Request Category"
                         onClose={() => setShowCategoryForm(false)}
                         footer={
                             <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>

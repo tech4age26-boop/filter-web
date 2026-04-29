@@ -1189,20 +1189,41 @@
     font-weight: 800;
     font-size: 0.9rem;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     border: none;
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 10px;
 }
 
 .btn-modal.btn-confirm {
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 80px 0;
-    color: var(--pos-border);
-    gap: 16px;
+    background: var(--pos-gold);
+    color: var(--pos-dark);
+    box-shadow: 0 4px 12px rgba(252, 194, 71, 0.2);
+}
+
+.btn-modal.btn-confirm:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(252, 194, 71, 0.3);
+    filter: brightness(1.05);
+}
+
+.btn-modal.btn-clear {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1.5px solid transparent;
+}
+
+.btn-modal.btn-clear:hover {
+    background: #e2e8f0;
+    color: var(--pos-dark);
+}
+
+.btn-modal:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    filter: grayscale(1);
 }
 
 .empty-grid-state p {
@@ -1665,16 +1686,10 @@
 
 .jobs-scroll-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     gap: 20px;
     padding-bottom: 60px;
     margin-top: 8px;
-}
-
-@media (max-width: 640px) {
-    .jobs-scroll-grid {
-        grid-template-columns: 1fr;
-    }
 }
 
 /* Add Job Button */

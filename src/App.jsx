@@ -89,7 +89,9 @@ function App() {
 
               <Route path="tax-codes" element={<TaxCodePage />} />
               <Route path="permissions" element={<PermissionsPage />} />
-              <Route path="inventory" element={<Navigate to="/admin/inventory/products-services" replace />} />
+              <Route path="inventory" element={<Navigate to="/admin/inventory/master-catalog" replace />} />
+              <Route path="inventory/products-services" element={<Navigate to="/admin/inventory/master-catalog" replace />} />
+              <Route path="inventory/categories" element={<Navigate to="/admin/inventory/master-catalog" replace />} />
               <Route path="inventory/:subTab" element={<InventoryPage />} />
               <Route path="customers" element={<Navigate to="/admin/customers/all-customers" replace />} />
               <Route path="customers/:subTab" element={<CustomersPage />} />

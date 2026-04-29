@@ -1,22 +1,133 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { DollarSign, ShoppingCart, AlertTriangle, ClipboardCheck, Users, Package, Wrench, TrendingUp, Building2, RefreshCw } from 'lucide-react';
-import { MOCK_EMPLOYEES } from './constants';
 import { apiFetch } from '../../services/api';
-import { useAuth } from '../../context/AuthContext';
+import { getWorkshopTechnicians, unwrapWorkshopStaffList, normalizeWorkshopEmployee } from '../../services/workshopStaffApi';
+import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
 
-export default function WorkshopDashboard({ onTabChange }) {
-    const { workshop } = useAuth();
+/** Match WorkshopDepartments — branch and union handlers can return different wrapper shapes. */
+function extractProducts(res) {
+    return (
+        (Array.isArray(res?.products) && res.products)
+        || (Array.isArray(res?.data?.products) && res.data.products)
+        || (Array.isArray(res?.data) && res.data)
+        || (Array.isArray(res) && res)
+        || []
+    );
+}
+
+function pickNumber(...vals) {
+    for (const v of vals) {
+        if (v == null || v === '') continue;
+        const n = Number(v);
+        if (Number.isFinite(n)) return n;
+    }
+    return 0;
+}
+
+function firstFiniteNumber(values) {
+    for (const v of values) {
+        if (v == null || v === '') continue;
+        const n = Number(v);
+        if (Number.isFinite(n)) return n;
+    }
+    return null;
+}
+
+/** Branch rows may nest overrides under `product`; BE may use camelCase or snake_case. */
+function normalizeCatalogRowForStock(row) {
+    const master = row?.product || row;
+    const openingBaseline = pickNumber(
+        row?.openingQty,
+        master?.openingQty,
+        row?.opening_qty,
+        master?.opening_qty,
+    );
+    const onHand = firstFiniteNumber([
+        row?.currentQty,
+        master?.currentQty,
+        row?.current_qty,
+        master?.current_qty,
+        row?.qtyOnHand,
+        master?.qtyOnHand,
+        row?.qty_on_hand,
+        master?.qty_on_hand,
+        row?.stockQty,
+        master?.stockQty,
+        row?.stock_qty,
+        master?.stock_qty,
+    ]);
+    const stock_qty = onHand !== null ? onHand : openingBaseline;
+    const critical_level = pickNumber(
+        row?.criticalStockPoint,
+        master?.criticalStockPoint,
+        row?.critical_stock_point,
+        master?.critical_stock_point,
+    );
+    return {
+        id: master?.id ?? row?.id,
+        name: master?.name || 'Unnamed',
+        stock_qty,
+        critical_level,
+    };
+}
+
+function rowTouchesBranch(row, branchId, branchesList = []) {
+    const sid = String(branchId);
+    const meta = branchesList.find((b) => String(b.id) === sid);
+    const branchName = meta?.name?.trim();
+
+    if (Array.isArray(row?.branches)) {
+        const hit = row.branches.some((b) => {
+            if (b == null) return false;
+            if (typeof b === 'string') {
+                return branchName ? b.trim() === branchName : false;
+            }
+            return String(b?.id ?? b?.branchId ?? b?.branch_id) === sid;
+        });
+        if (hit) return true;
+    }
+    if (branchName && Array.isArray(row?.branchNames)) {
+        if (row.branchNames.some((n) => String(n).trim() === branchName)) return true;
+    }
+    if (Array.isArray(row?.branchIds)) {
+        return row.branchIds.some((id) => String(id) === sid);
+    }
+    if (row?.branchId != null && String(row.branchId) === sid) return true;
+    if (row?.branch_id != null && String(row.branch_id) === sid) return true;
+    return false;
+}
+
+/** Union ∪ branch alerts by product id; branch-specific row wins when both agree it's low (better qty display). */
+function mergeLowStockAlerts(unionLow, branchLow) {
+    const m = new Map();
+    for (const p of unionLow) m.set(String(p.id), p);
+    for (const p of branchLow) m.set(String(p.id), p);
+    return [...m.values()];
+}
+
+export default function WorkshopDashboard({
+    onTabChange,
+    selectedBranchId = 'all',
+    branches = [],
+    onLowStockAlertsChange,
+}) {
     const [dashboardData, setDashboardData] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState('');
     const [lowStockProducts, setLowStockProducts] = useState([]);
     const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
+    const [technicians, setTechnicians] = useState([]);
+    const [techLoadError, setTechLoadError] = useState('');
 
     const loadDashboard = useCallback(async () => {
         setIsLoading(true);
         setLoadError('');
         try {
-            const response = await apiFetch('/workshop-staff/dashboard');
+            const isAll = !selectedBranchId || selectedBranchId === 'all';
+            const path = isAll
+                ? '/workshop-staff/dashboard'
+                : `/workshop-staff/dashboard?branchId=${encodeURIComponent(String(selectedBranchId))}`;
+            const response = await apiFetch(path);
             if (response?.success) {
                 setDashboardData(response);
                 return;
@@ -27,55 +138,83 @@ export default function WorkshopDashboard({ onTabChange }) {
         } finally {
             setIsLoading(false);
         }
+    }, [selectedBranchId]);
+
+    const loadTechnicians = useCallback(async () => {
+        setTechLoadError('');
+        try {
+            const techRes = await getWorkshopTechnicians({}).catch(() => null);
+            if (techRes == null) {
+                setTechnicians([]);
+                setTechLoadError('Could not load technicians (check GET /workshop-staff/technicians).');
+                return;
+            }
+            const techList = unwrapWorkshopStaffList(techRes, 'technician').map((u) =>
+                normalizeWorkshopEmployee(u, 'technician'),
+            );
+            setTechnicians(techList);
+        } catch (error) {
+            setTechnicians([]);
+            setTechLoadError(error.message || 'Could not load technicians.');
+        }
     }, []);
 
     useEffect(() => {
         loadDashboard();
     }, [loadDashboard]);
 
+    useEffect(() => {
+        loadTechnicians();
+    }, [loadTechnicians]);
+
+    /**
+     * Low-stock KPI + list:
+     * - All branches → `getMyProducts()` (workshop union).
+     * - One branch → merge GET branch products with union rows scoped to that branch.
+     *   Per-branch responses sometimes omit critical/opening qty while union still
+     *   flags low stock; merging avoids “0 alerts” when All-branches showed alerts.
+     */
     const loadLowStockProducts = useCallback(async () => {
-        const workshopId = workshop?.id;
-        if (!workshopId) return;
+        const applyLowStockFilter = (rawProducts) => {
+            const normalized = rawProducts.map(normalizeCatalogRowForStock);
+            return normalized.filter((p) => p.critical_level > 0 && p.stock_qty <= p.critical_level);
+        };
 
         try {
-            const response = await apiFetch(`/workshop-staff/products?workshopId=${encodeURIComponent(workshopId)}`);
-            if (!(response?.success && Array.isArray(response.categories))) {
+            const isAll = !selectedBranchId || selectedBranchId === 'all';
+            if (isAll) {
+                const response = await getMyProducts();
+                setLowStockProducts(applyLowStockFilter(extractProducts(response)));
                 return;
             }
 
-            const normalizedProducts = [];
-            response.categories.forEach((category) => {
-                (category.productsWithoutSub || []).forEach((product) => {
-                    normalizedProducts.push({
-                        id: product.id,
-                        name: product.name || 'Unnamed',
-                        stock_qty: Number(product.openingQty) || 0,
-                        critical_level: Number(product.criticalStockPoint) || 0,
-                    });
-                });
-                (category.subCategories || []).forEach((subCategory) => {
-                    (subCategory.products || []).forEach((product) => {
-                        normalizedProducts.push({
-                            id: product.id,
-                            name: product.name || 'Unnamed',
-                            stock_qty: Number(product.openingQty) || 0,
-                            critical_level: Number(product.criticalStockPoint) || 0,
-                        });
-                    });
-                });
-            });
+            const [branchRes, unionRes] = await Promise.all([
+                getBranchProducts(String(selectedBranchId)).catch(() => null),
+                getMyProducts().catch(() => null),
+            ]);
 
-            setLowStockProducts(
-                normalizedProducts.filter((product) => product.critical_level > 0 && product.stock_qty <= product.critical_level)
-            );
+            const rawBranch = branchRes ? extractProducts(branchRes) : [];
+            const unionRows = unionRes
+                ? extractProducts(unionRes).filter((row) =>
+                      rowTouchesBranch(row, selectedBranchId, branches),
+                  )
+                : [];
+
+            const branchLow = applyLowStockFilter(rawBranch);
+            const unionLow = applyLowStockFilter(unionRows);
+            setLowStockProducts(mergeLowStockAlerts(unionLow, branchLow));
         } catch {
             setLowStockProducts([]);
         }
-    }, [workshop?.id]);
+    }, [selectedBranchId, branches]);
 
     useEffect(() => {
         loadLowStockProducts();
     }, [loadLowStockProducts]);
+
+    useEffect(() => {
+        onLowStockAlertsChange?.(lowStockProducts.length);
+    }, [lowStockProducts, onLowStockAlertsChange]);
 
     const loadPendingApprovalsCount = useCallback(async () => {
         try {
@@ -110,11 +249,34 @@ export default function WorkshopDashboard({ onTabChange }) {
 
     const todaySales = useMemo(() => toNumber(dashboardData?.totalSalesToday), [dashboardData]);
     const pendingInvoices = useMemo(() => toNumber(dashboardData?.pendingInvoicesCount), [dashboardData]);
-    const lowStockAlertsCount = useMemo(() => toNumber(dashboardData?.lowStockAlertsCount), [dashboardData]);
+    // KPI uses the same low-stock set as the panel below: workshop_union or
+    // per-branch `branch_products` (see getMyProducts / getBranchProducts).
+    // BE `getDashboard` now runs the same rule for `lowStockAlertsCount` (other
+    // consumers, mobile, etc.); the FE keeps the number derived from the list
+    // so the card and the widget never disagree even if one request lags.
+    const lowStockAlertsCount = lowStockProducts.length;
     const dataScopeLabel = dashboardData?.dataScopeLabel || 'All Branches';
     const branchPerformance = dashboardData?.branchPerformance || [];
 
-    const technicians = MOCK_EMPLOYEES.filter(e => e.role === 'technician');
+    const techniciansFiltered = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return technicians;
+        const bn = branches.find((b) => String(b.id) === String(selectedBranchId))?.name;
+        return technicians.filter(
+            (t) =>
+                String(t.branchId) === String(selectedBranchId) ||
+                (bn && t.branch === bn),
+        );
+    }, [technicians, selectedBranchId, branches]);
+
+    const techniciansByBranch = useMemo(() => {
+        const m = new Map();
+        for (const t of techniciansFiltered) {
+            const key = t.branch && t.branch !== '—' ? t.branch : 'Unassigned';
+            if (!m.has(key)) m.set(key, []);
+            m.get(key).push(t);
+        }
+        return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    }, [techniciansFiltered]);
     const kpis = [
         { label: 'Total Sales Today', value: `SAR ${todaySales.toLocaleString()}`, iconClass: 'ws-kpi-icon--green', Icon: DollarSign },
         { label: 'Pending Invoices', value: pendingInvoices, iconClass: 'ws-kpi-icon--orange', Icon: ShoppingCart },
@@ -139,6 +301,7 @@ export default function WorkshopDashboard({ onTabChange }) {
                         loadDashboard();
                         loadLowStockProducts();
                         loadPendingApprovalsCount();
+                        loadTechnicians();
                     }}
                     disabled={isLoading}
                 >
@@ -158,18 +321,69 @@ export default function WorkshopDashboard({ onTabChange }) {
                     </div>
                 ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
-                <div className="ws-section">
-                    <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}><p style={{ fontWeight: 700, margin: 0 }}>Active Technicians</p><span className="ws-badge ws-badge--blue">{technicians.length} total</span></div>
-                    {technicians.length === 0 ? <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No technicians found</p> : (
-                        <div style={{ padding: '0 16px 16px' }}>{technicians.slice(0, 4).map(t => (
-                            <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--color-border-light)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--color-bg-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700 }}>{t.name?.[0] || 'T'}</div><div><p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{t.name}</p><p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{(t.workshop_duty ? 'Workshop' : '') + (t.oncall_available ? ' + On-Call' : '') || 'Workshop'}</p></div></div>
-                                <span className="ws-badge ws-badge--green">Active</span>
-                            </div>
-                        ))}</div>
-                    )}
+            <div className="ws-section" style={{ marginBottom: 16 }}>
+                <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+                    <p style={{ fontWeight: 700, margin: 0 }}>Technicians by branch</p>
+                    <span className="ws-badge ws-badge--blue">
+                        {techniciansFiltered.length} technician{techniciansFiltered.length === 1 ? '' : 's'}
+                        {selectedBranchId !== 'all' ? ' (filtered)' : ''}
+                    </span>
                 </div>
+                {techLoadError && (
+                    <p style={{ padding: '0 16px 12px', margin: 0, color: '#B91C1C', fontSize: '0.8125rem' }}>{techLoadError}</p>
+                )}
+                {techniciansFiltered.length === 0 && !techLoadError ? (
+                    <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No technicians for this selection.</p>
+                ) : (
+                    <div style={{ padding: '0 16px 16px' }}>
+                        {techniciansByBranch.map(([branchLabel, list]) => (
+                            <div key={branchLabel} style={{ marginBottom: 14 }}>
+                                <p style={{ margin: '0 0 8px', fontSize: '0.75rem', fontWeight: 800, color: 'var(--color-text-muted)', letterSpacing: '0.06em' }}>{branchLabel}</p>
+                                {list.map((t) => (
+                                    <div
+                                        key={`${branchLabel}-${t.id}`}
+                                        style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            padding: '8px 0',
+                                            borderBottom: '1px solid var(--color-border-light)',
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                            <div
+                                                style={{
+                                                    width: 28,
+                                                    height: 28,
+                                                    borderRadius: '50%',
+                                                    background: 'var(--color-bg-muted)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: '0.75rem',
+                                                    fontWeight: 700,
+                                                }}
+                                            >
+                                                {t.name?.[0] || 'T'}
+                                            </div>
+                                            <div>
+                                                <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{t.name}</p>
+                                                <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                                    {(t.workshop_duty ? 'Workshop' : '') + (t.oncall_available ? ' + On-Call' : '') || '—'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <span className={`ws-badge ${t.status === 'active' ? 'ws-badge--green' : 'ws-badge--gray'}`}>
+                                            {t.status === 'active' ? 'Active' : 'Inactive'}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
                 <div className="ws-section">
                     <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}><p style={{ fontWeight: 700, margin: 0 }}>Low Stock Products</p><span className="ws-badge ws-badge--red">{lowStockProducts.length} alerts</span></div>
                     {lowStockProducts.length === 0 ? <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>All stock levels are healthy</p> : (

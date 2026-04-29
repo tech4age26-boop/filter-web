@@ -27,9 +27,15 @@ export default function CorporateBookings({ onBack, onApproveAndEdit }) {
     };
 
     const handleReject = async (booking) => {
+        const reason = prompt('Reason for rejection (optional):') ?? '';
+        if (reason === null) return; // user cancelled
         if (!confirm('Reject this booking?')) return;
         try {
-            await apiFetch(`/cashier/corporate-bookings/${booking.id}/reject`, { method: 'PATCH', body: JSON.stringify({}) });
+            // Reference uses POST with { reason }
+            await apiFetch(`/cashier/corporate-bookings/${booking.id}/reject`, {
+                method: 'POST',
+                body: JSON.stringify({ reason: reason.trim() || 'Rejected by cashier' })
+            });
             fetchBookings();
         } catch (e) {
             alert('Error: ' + e.message);
