@@ -11,7 +11,6 @@ export const NAV_ITEMS = [
     { id: 'departments', label: 'Dept & Products',      icon: Layers },
     { id: 'catalog-new', label: 'Catalog',              icon: Package },
     { id: 'inventory',   label: 'Inventory',            icon: Archive },
-    { id: 'catalog',     label: 'Product Catalog',      icon: Package },
     { id: 'purchases',   label: 'Purchase Invoices',    icon: ShoppingCart },
     { id: 'approvals',   label: 'Approvals Queue',      icon: ClipboardCheck, badge: true },
     { id: 'suppliers',   label: 'Suppliers & Purchases', icon: Truck },

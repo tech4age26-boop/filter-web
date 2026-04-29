@@ -6,17 +6,16 @@ import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { MOCK_SUPPLIERS_CATALOG } from './constants';
 import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
+import {
+    getWorkshopStaffBranchProducts,
+    getWorkshopStaffProducts,
+    unwrapWorkshopBranchListResponse,
+} from '../../services/workshopStaffApi';
 import { postBranchProductInventoryAdjustment, getBranchProductInventoryAdjustments } from '../../services/workshopInventoryApi';
 
 /** Match WorkshopDashboard / WorkshopDepartments response shapes. */
 function extractProducts(res) {
-    return (
-        (Array.isArray(res?.products) && res.products)
-        || (Array.isArray(res?.data?.products) && res.data.products)
-        || (Array.isArray(res?.data) && res.data)
-        || (Array.isArray(res) && res)
-        || []
-    );
+    return unwrapWorkshopBranchListResponse(res, 'products');
 }
 
 function pickNumber(...vals) {
@@ -81,15 +80,40 @@ function isLowStockRow(p) {
     return crit > 0 && qty <= crit;
 }
 
+function pickDisplayName(master, row) {
+    const candidates = [
+        master?.name,
+        row?.name,
+        row?.productName,
+        row?.product_name,
+        row?.serviceName,
+        row?.itemName,
+        row?.item_name,
+        master?.title,
+    ];
+    for (const c of candidates) {
+        if (c != null && String(c).trim() !== '') return String(c).trim();
+    }
+    const sku = master?.sku ?? row?.sku;
+    if (sku != null && String(sku).trim() !== '') return String(sku).trim();
+    return 'Unnamed';
+}
+
 /**
- * Map a catalog row to a flat inventory row.
- * - openingQty → column "Opening (adoption)" (branch_products.opening_qty; not moved by manual adjust).
- * - qty → column "Current stock" (currentQty / branch_inventory.qty_on_hand; else opening until inventory exists).
+ * Map a catalog row to a flat inventory row (products only).
+ * Merges link row + nested `product` like Dept & Products branch lists.
  */
 function mapApiRowToInventory(row) {
-    const master = row?.product || row;
-    const id = master?.id ?? row?.id;
-    if (id == null) return null;
+    const nested = row?.product && typeof row.product === 'object' ? row.product : null;
+    const master = nested || row;
+    const id =
+        master?.id ??
+        row?.id ??
+        row?.productId ??
+        row?.product_id ??
+        row?.serviceId ??
+        row?.service_id;
+    if (id == null || String(id).trim() === '') return null;
 
     const openingQty = pickNumber(
         row?.openingQty,
@@ -116,7 +140,13 @@ function mapApiRowToInventory(row) {
     );
     const basePrice = pickNumber(
         row?.salePriceOverride,
+        row?.sellingPriceOverride,
+        row?.salePriceBeforeVat,
+        row?.sellingPriceBeforeVat,
+        master?.salePriceBeforeVat,
+        master?.sellingPriceBeforeVat,
         master?.salePrice,
+        master?.sellingPrice,
         row?.sale_price,
         master?.sale_price,
         row?.purchasePrice,
@@ -127,11 +157,23 @@ function mapApiRowToInventory(row) {
 
     return {
         id: String(id),
-        name: master?.name || 'Unnamed',
+        name: pickDisplayName(master, row),
         brand: master?.brand || '',
-        sku: master?.sku || '',
-        departmentName: master?.departmentName || master?.department?.name || '—',
-        categoryName: master?.categoryName || master?.category?.name || '—',
+        sku: master?.sku || row?.sku || '',
+        departmentName:
+            master?.departmentName ||
+            master?.department_name ||
+            master?.department?.name ||
+            row?.departmentName ||
+            row?.department_name ||
+            row?.department?.name ||
+            '—',
+        categoryName:
+            master?.categoryName ||
+            master?.category_name ||
+            master?.category?.name ||
+            row?.categoryName ||
+            '—',
         basePrice,
         openingQty,
         qty,
@@ -259,11 +301,42 @@ export default function WorkshopInventory({
         setLoadError('');
         try {
             const isAll = !selectedBranchId || selectedBranchId === 'all';
-            const res = isAll
-                ? await getMyProducts()
-                : await getBranchProducts(String(selectedBranchId));
-            const raw = extractProducts(res);
-            const mapped = raw.map(mapApiRowToInventory).filter(Boolean);
+            let products = [];
+
+            if (isAll) {
+                try {
+                    const pRes = await getWorkshopStaffProducts({ allBranches: true });
+                    products = extractProducts(pRes);
+                } catch {
+                    products = [];
+                }
+                if (products.length === 0) {
+                    try {
+                        products = extractProducts(await getMyProducts());
+                    } catch {
+                        products = [];
+                    }
+                }
+            } else {
+                const bid = String(selectedBranchId);
+                try {
+                    const prodRes = await getWorkshopStaffBranchProducts(bid);
+                    products = extractProducts(prodRes);
+                } catch {
+                    products = [];
+                }
+                if (products.length === 0) {
+                    try {
+                        products = extractProducts(await getBranchProducts(bid));
+                    } catch {
+                        products = [];
+                    }
+                }
+                // Do not fall back to getMyProducts({ branchId }) here: some backends return a
+                // workshop-wide union that ignores branchId, which wrongly fills empty branches (e.g. Riyadh with Dubai SKUs).
+            }
+
+            const mapped = products.map(mapApiRowToInventory).filter(Boolean);
             setProductRows(applyStatusesFromParent(mapped, selectedProductsRef.current));
         } catch (error) {
             setLoadError(error.message || 'Failed to load inventory.');
@@ -466,7 +539,7 @@ export default function WorkshopInventory({
                 <div className="mc-header-left">
                     <h3>Inventory Management</h3>
                     <p>
-                        Track and manage stock for <strong>{selectedBranchName}</strong>
+                        Track and manage <strong>product</strong> stock for <strong>{selectedBranchName}</strong>
                         {isAllBranches ? ' (workshop-wide product list)' : ''}.
                     </p>
                     <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -581,7 +654,7 @@ export default function WorkshopInventory({
                                         style={{ paddingLeft: '40px', width: '100%' }}
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
-                                        disabled={isLoading && productRows.length === 0}
+                                        disabled={isLoading}
                                     />
                                 </div>
                             </div>
@@ -698,13 +771,13 @@ export default function WorkshopInventory({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {isLoading && productRows.length === 0 ? (
+                                    {isLoading ? (
                                         <tr>
                                             <td colSpan={8} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <p style={{ fontWeight: 600 }}>Loading inventory…</p>
                                             </td>
                                         </tr>
-                                    ) : !isLoading && filteredProducts.length === 0 ? (
+                                    ) : filteredProducts.length === 0 ? (
                                         <tr>
                                             <td colSpan={8} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <div style={{ marginBottom: '16px', opacity: 0.3 }}>

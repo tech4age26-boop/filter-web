@@ -107,7 +107,7 @@ function AccessPermissionFormModal({ branches, onClose, onSave }) {
     );
 }
 
-export default function WorkshopBranches() {
+export default function WorkshopBranches({ selectedBranchId = 'all' }) {
     const [branches, setBranches] = useState([]);
     const [rolePermissions, setRolePermissions] = useState(MOCK_ROLE_PERMISSIONS);
     const [activeTab, setActiveTab] = useState('branches');
@@ -119,6 +119,11 @@ export default function WorkshopBranches() {
     const [isSavingBranch, setIsSavingBranch] = useState(false);
     const [employees, setEmployees] = useState([]);
     const getBranchPerm = (branchId) => rolePermissions.find(r => r.role_name === `branch_admin_${branchId}`);
+
+    const visibleBranches = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return branches;
+        return branches.filter((b) => String(b.id) === String(selectedBranchId));
+    }, [branches, selectedBranchId]);
 
     /**
      * Map of `branchId → number of employees` built from a single workshop-wide
@@ -173,12 +178,14 @@ export default function WorkshopBranches() {
     // 0 rather than blocking the page.
     const loadEmployeesCount = useCallback(async () => {
         try {
-            const { employees: rows } = await loadWorkshopEmployeesCombined();
+            const params =
+                selectedBranchId && selectedBranchId !== 'all' ? { branchId: String(selectedBranchId) } : {};
+            const { employees: rows } = await loadWorkshopEmployeesCombined(params);
             setEmployees(Array.isArray(rows) ? rows : []);
         } catch {
             setEmployees([]);
         }
-    }, []);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         loadEmployeesCount();
@@ -257,7 +264,7 @@ export default function WorkshopBranches() {
     return (
         <div>
             <div className="ws-page-header">
-                <div><h2 className="ws-page-title">Branches & Access Control</h2><p className="ws-page-sub">Manage branch portals and grant Branch Admin permissions</p></div>
+                <div><h2 className="ws-page-title">Branches & Access Control</h2><p className="ws-page-sub">Manage branch portals and grant Branch Admin permissions{selectedBranchId && selectedBranchId !== 'all' ? ` · filtered to one branch` : ''}</p></div>
                 <div style={{ display: 'flex', gap: 10 }}>
                     <button className="btn-portal-outline" onClick={() => { loadBranches(); loadEmployeesCount(); }} disabled={isLoading}><RefreshCw size={15}/>{isLoading ? 'Refreshing...' : 'Refresh'}</button>
                     <button className="btn-portal-outline" onClick={() => setShowAccessForm(true)}><Key size={15}/> Grant Access</button>
@@ -282,9 +289,14 @@ export default function WorkshopBranches() {
                         <Building2 size={48} className="ws-empty-icon"/>
                         <p className="ws-empty-text" style={{ fontWeight: 600 }}>No branches yet. Create your first branch portal.</p>
                     </div>
+                ) : visibleBranches.length === 0 ? (
+                    <div className="ws-empty">
+                        <Building2 size={48} className="ws-empty-icon"/>
+                        <p className="ws-empty-text" style={{ fontWeight: 600 }}>No branch matches the current sidebar filter.</p>
+                    </div>
                 ) : (
                     <div className="ws-branches-grid">
-                        {branches.map(branch => {
+                        {visibleBranches.map(branch => {
                             const perm = getBranchPerm(branch.id);
                             const empCount = countEmployees(branch);
                             return (
@@ -329,7 +341,13 @@ export default function WorkshopBranches() {
 
             {activeTab === 'access' && (
                 <div className="ws-section">
-                    {rolePermissions.filter(r => r.role_name?.startsWith('branch_admin_')).length === 0 ? (
+                    {rolePermissions
+                        .filter(r => r.role_name?.startsWith('branch_admin_'))
+                        .filter((r) => {
+                            if (!selectedBranchId || selectedBranchId === 'all') return true;
+                            const bid = r.role_name.replace('branch_admin_', '');
+                            return String(bid) === String(selectedBranchId);
+                        }).length === 0 ? (
                         <div style={{ textAlign: 'center', padding: 48, color: 'var(--color-text-muted)' }}>
                             <Key size={48} style={{ opacity: 0.3, margin: '0 auto 12px', display: 'block' }}/>
                             <p style={{ margin: '0 0 16px', fontWeight: 600 }}>No branch admin access configured yet.</p>
@@ -339,7 +357,14 @@ export default function WorkshopBranches() {
                         <table className="ws-table">
                             <thead><tr><th>Branch</th><th>Permitted Sections</th><th>Description</th></tr></thead>
                             <tbody>
-                                {rolePermissions.filter(r => r.role_name?.startsWith('branch_admin_')).map(rp => {
+                                {rolePermissions
+                                    .filter(r => r.role_name?.startsWith('branch_admin_'))
+                                    .filter((r) => {
+                                        if (!selectedBranchId || selectedBranchId === 'all') return true;
+                                        const bid = r.role_name.replace('branch_admin_', '');
+                                        return String(bid) === String(selectedBranchId);
+                                    })
+                                    .map(rp => {
                                     const branchId = rp.role_name.replace('branch_admin_', '');
                                     const branch = branches.find(b => b.id === branchId);
                                     return (

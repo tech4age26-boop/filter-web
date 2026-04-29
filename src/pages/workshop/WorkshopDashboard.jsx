@@ -1,18 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { DollarSign, ShoppingCart, AlertTriangle, ClipboardCheck, Users, Package, Wrench, TrendingUp, Building2, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
-import { getWorkshopTechnicians, unwrapWorkshopStaffList, normalizeWorkshopEmployee } from '../../services/workshopStaffApi';
-import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
+import { getWorkshopTechnicians, unwrapWorkshopStaffList, normalizeWorkshopEmployee, flattenWorkshopStaffRow, getWorkshopStaffBranchProducts, unwrapWorkshopBranchListResponse, getWorkshopStaffProducts } from '../../services/workshopStaffApi';
+import { getMyProducts } from '../../services/workshopCatalogApi';
 
 /** Match WorkshopDepartments — branch and union handlers can return different wrapper shapes. */
 function extractProducts(res) {
-    return (
-        (Array.isArray(res?.products) && res.products)
-        || (Array.isArray(res?.data?.products) && res.data.products)
-        || (Array.isArray(res?.data) && res.data)
-        || (Array.isArray(res) && res)
-        || []
-    );
+    return unwrapWorkshopBranchListResponse(res, 'products');
 }
 
 function pickNumber(...vals) {
@@ -71,32 +65,6 @@ function normalizeCatalogRowForStock(row) {
     };
 }
 
-function rowTouchesBranch(row, branchId, branchesList = []) {
-    const sid = String(branchId);
-    const meta = branchesList.find((b) => String(b.id) === sid);
-    const branchName = meta?.name?.trim();
-
-    if (Array.isArray(row?.branches)) {
-        const hit = row.branches.some((b) => {
-            if (b == null) return false;
-            if (typeof b === 'string') {
-                return branchName ? b.trim() === branchName : false;
-            }
-            return String(b?.id ?? b?.branchId ?? b?.branch_id) === sid;
-        });
-        if (hit) return true;
-    }
-    if (branchName && Array.isArray(row?.branchNames)) {
-        if (row.branchNames.some((n) => String(n).trim() === branchName)) return true;
-    }
-    if (Array.isArray(row?.branchIds)) {
-        return row.branchIds.some((id) => String(id) === sid);
-    }
-    if (row?.branchId != null && String(row.branchId) === sid) return true;
-    if (row?.branch_id != null && String(row.branch_id) === sid) return true;
-    return false;
-}
-
 /** Union ∪ branch alerts by product id; branch-specific row wins when both agree it's low (better qty display). */
 function mergeLowStockAlerts(unionLow, branchLow) {
     const m = new Map();
@@ -152,7 +120,7 @@ export default function WorkshopDashboard({
                 return;
             }
             const techList = unwrapWorkshopStaffList(techRes, 'technician').map((u) =>
-                normalizeWorkshopEmployee(u, 'technician'),
+                normalizeWorkshopEmployee(flattenWorkshopStaffRow(u, 'technician'), 'technician'),
             );
             setTechnicians(techList);
         } catch (error) {
@@ -171,10 +139,8 @@ export default function WorkshopDashboard({
 
     /**
      * Low-stock KPI + list:
-     * - All branches → `getMyProducts()` (workshop union).
-     * - One branch → merge GET branch products with union rows scoped to that branch.
-     *   Per-branch responses sometimes omit critical/opening qty while union still
-     *   flags low stock; merging avoids “0 alerts” when All-branches showed alerts.
+     * - All branches → `getWorkshopStaffProducts({ allBranches: true })`, fallback `getMyProducts()`.
+     * - One branch → branch-path products plus `getMyProducts({ branchId })` (no workshop-wide union).
      */
     const loadLowStockProducts = useCallback(async () => {
         const applyLowStockFilter = (rawProducts) => {
@@ -185,30 +151,37 @@ export default function WorkshopDashboard({
         try {
             const isAll = !selectedBranchId || selectedBranchId === 'all';
             if (isAll) {
-                const response = await getMyProducts();
-                setLowStockProducts(applyLowStockFilter(extractProducts(response)));
+                let response = null;
+                try {
+                    response = await getWorkshopStaffProducts({ allBranches: true });
+                } catch {
+                    response = null;
+                }
+                let raw = extractProducts(response);
+                if (raw.length === 0) {
+                    response = await getMyProducts().catch(() => null);
+                    raw = extractProducts(response);
+                }
+                setLowStockProducts(applyLowStockFilter(raw));
                 return;
             }
 
-            const [branchRes, unionRes] = await Promise.all([
-                getBranchProducts(String(selectedBranchId)).catch(() => null),
-                getMyProducts().catch(() => null),
+            const bid = String(selectedBranchId);
+            const [branchRes, scopedRes] = await Promise.all([
+                getWorkshopStaffBranchProducts(bid).catch(() => null),
+                getMyProducts({ branchId: bid }).catch(() => null),
             ]);
 
             const rawBranch = branchRes ? extractProducts(branchRes) : [];
-            const unionRows = unionRes
-                ? extractProducts(unionRes).filter((row) =>
-                      rowTouchesBranch(row, selectedBranchId, branches),
-                  )
-                : [];
+            const scopedRows = scopedRes ? extractProducts(scopedRes) : [];
 
             const branchLow = applyLowStockFilter(rawBranch);
-            const unionLow = applyLowStockFilter(unionRows);
+            const unionLow = applyLowStockFilter(scopedRows);
             setLowStockProducts(mergeLowStockAlerts(unionLow, branchLow));
         } catch {
             setLowStockProducts([]);
         }
-    }, [selectedBranchId, branches]);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         loadLowStockProducts();
@@ -251,8 +224,7 @@ export default function WorkshopDashboard({
 
     const todaySales = useMemo(() => toNumber(dashboardData?.totalSalesToday), [dashboardData]);
     const pendingInvoices = useMemo(() => toNumber(dashboardData?.pendingInvoicesCount), [dashboardData]);
-    // KPI uses the same low-stock set as the panel below: workshop_union or
-    // per-branch `branch_products` (see getMyProducts / getBranchProducts).
+    // KPI low-stock list: staff union (`allBranches`) or per-branch `branchId` + branch-path products.
     // BE `getDashboard` now runs the same rule for `lowStockAlertsCount` (other
     // consumers, mobile, etc.); the FE keeps the number derived from the list
     // so the card and the widget never disagree even if one request lags.

@@ -1028,3 +1028,95 @@
     color: #1F2937;
     border-color: #D1D5DB;
 }
+
+/* Purchase invoice line grid — table layout keeps header/body columns aligned */
+.ws-pi-lines-section {
+    padding: 0;
+    overflow: hidden;
+}
+
+.ws-pi-lines-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.ws-pi-lines-table {
+    width: 100%;
+    min-width: 960px;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.ws-pi-lines-table thead th {
+    background: #f8fafc;
+    padding: 12px 10px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    text-align: left;
+    vertical-align: middle;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.ws-pi-lines-table tbody td {
+    padding: 10px 10px;
+    vertical-align: middle;
+    border-bottom: 1px solid #e2e8f0;
+    background: #fff;
+    color: #1e293b;
+}
+
+.ws-pi-lines-table tbody tr:hover td {
+    background: #fafafa;
+}
+
+.ws-pi-th-hash,
+.ws-pi-td-hash {
+    width: 44px;
+    text-align: center;
+}
+
+.ws-pi-th-num,
+.ws-pi-td-num {
+    text-align: right;
+}
+
+.ws-pi-td-num .pi-row-input-num {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.ws-pi-td-muted {
+    font-size: 0.8125rem;
+    color: #64748b;
+}
+
+.ws-pi-td-tax {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #475569;
+    white-space: nowrap;
+}
+
+.ws-pi-td-strong {
+    font-weight: 700;
+}
+
+.ws-pi-price-cell {
+    font-variant-numeric: tabular-nums;
+    background: #f1f5f9;
+    font-weight: 600;
+    color: #334155;
+}
+
+.ws-pi-select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    display: block;
+}

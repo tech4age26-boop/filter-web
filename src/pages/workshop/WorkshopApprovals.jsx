@@ -3,8 +3,24 @@ import { Clock, CheckCircle, X, Eye, RefreshCw } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
+import { qs, branchScopeParams } from '../../services/workshopStaffApi';
 
-export default function WorkshopApprovals() {
+function rowMatchesBranch(row, branchId, branchName = '') {
+    if (branchId == null || branchId === '' || branchId === 'all') return true;
+    const bid = String(branchId);
+    const direct = row?.branchId ?? row?.branch_id;
+    if (direct != null && String(direct) === bid) return true;
+    const nested = row?.branch?.id;
+    if (nested != null && String(nested) === bid) return true;
+    if (branchName && String(row.branchName ?? row.branch_name ?? '').trim() === branchName) return true;
+    return false;
+}
+
+export default function WorkshopApprovals({ selectedBranchId = 'all', branches = [] }) {
+    const scopeBranchName = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return '';
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || '';
+    }, [branches, selectedBranchId]);
     const [approvals, setApprovals] = useState([]);
     const [filterType, setFilterType] = useState('all');
     const [queueFilter, setQueueFilter] = useState('all');
@@ -20,18 +36,38 @@ export default function WorkshopApprovals() {
         setIsLoading(true);
         setLoadError('');
         try {
-            const response = await apiFetch(`/workshop-staff/petty-cash/requests?limit=100&offset=0&queue=${encodeURIComponent(queueFilter)}`);
+            const response = await apiFetch(
+                `/workshop-staff/petty-cash/requests${qs({
+                    limit: 100,
+                    offset: 0,
+                    queue: queueFilter,
+                    ...branchScopeParams(selectedBranchId),
+                })}`,
+            );
             if (!(response?.success && Array.isArray(response.requests))) {
                 throw new Error('Invalid approvals response.');
             }
-            setApprovals(response.requests);
+            let list = response.requests;
+            if (selectedBranchId && selectedBranchId !== 'all') {
+                const anyHasBranch = list.some(
+                    (a) =>
+                        a.branchId != null ||
+                        a.branch_id != null ||
+                        a.branch?.id != null ||
+                        (a.branchName ?? a.branch_name ?? '').toString().trim() !== '',
+                );
+                if (anyHasBranch) {
+                    list = list.filter((a) => rowMatchesBranch(a, selectedBranchId, scopeBranchName));
+                }
+            }
+            setApprovals(list);
             setCurrency(response.currency || 'SAR');
         } catch (error) {
             setLoadError(error.message || 'Failed to load approvals queue.');
         } finally {
             setIsLoading(false);
         }
-    }, [queueFilter]);
+    }, [queueFilter, selectedBranchId, scopeBranchName]);
 
     useEffect(() => {
         loadApprovals();
@@ -85,7 +121,22 @@ export default function WorkshopApprovals() {
     return (
         <div>
             <div className="ws-page-header">
-                <div><h2 className="ws-page-title">Approvals Queue</h2><p className="ws-page-sub">Review and act on pending requests</p></div>
+                <div>
+                    <h2 className="ws-page-title">Approvals Queue</h2>
+                    <p className="ws-page-sub">
+                        Review and act on pending requests
+                        {selectedBranchId && selectedBranchId !== 'all' ? (
+                            <>
+                                {' · '}
+                                <strong>
+                                    {branches.find((b) => String(b.id) === String(selectedBranchId))?.name || `Branch ${selectedBranchId}`}
+                                </strong>
+                            </>
+                        ) : (
+                            ' · All branches'
+                        )}
+                    </p>
+                </div>
             </div>
             {loadError && (
                 <div style={{ marginBottom: 16, color: '#B91C1C', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: 12, fontSize: '0.875rem' }}>

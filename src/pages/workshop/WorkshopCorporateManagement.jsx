@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Building2, FileText, Lock, Mail, Pencil, Phone, RefreshCw, Store, User, UserPlus, ToggleLeft,
 } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
+import { qs, branchScopeParams } from '../../services/workshopStaffApi';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -361,7 +362,7 @@ function AddCorporateUserModal({ row, onClose, onSuccess }) {
     );
 }
 
-export default function WorkshopCorporateManagement() {
+export default function WorkshopCorporateManagement({ selectedBranchId = 'all', branches: branchesFromLayout = [] }) {
     const [customers, setCustomers] = useState([]);
     const [total, setTotal] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
@@ -369,6 +370,25 @@ export default function WorkshopCorporateManagement() {
     const [branches, setBranches] = useState([]);
     const [editing, setEditing] = useState(null);
     const [addUserFor, setAddUserFor] = useState(null);
+
+    const branchLabel = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
+        return (
+            branchesFromLayout.find((b) => String(b.id) === String(selectedBranchId))?.name ||
+            branches.find((b) => String(b.id) === String(selectedBranchId))?.name ||
+            'Branch'
+        );
+    }, [branches, branchesFromLayout, selectedBranchId]);
+
+    const visibleCustomers = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return customers;
+        const bid = String(selectedBranchId);
+        return customers.filter((row) => {
+            const ids = row.selectedBranchIds ?? row.selected_branch_ids ?? [];
+            if (!Array.isArray(ids) || ids.length === 0) return true;
+            return ids.some((id) => String(id) === bid);
+        });
+    }, [customers, selectedBranchId]);
 
     const loadBranches = useCallback(async () => {
         try {
@@ -385,7 +405,7 @@ export default function WorkshopCorporateManagement() {
         setIsLoading(true);
         setError('');
         try {
-            const response = await apiFetch('/workshop-staff/corporate-customers');
+            const response = await apiFetch(`/workshop-staff/corporate-customers${qs(branchScopeParams(selectedBranchId))}`);
             if (!(response?.success && Array.isArray(response.corporateCustomers))) {
                 throw new Error('Invalid corporate customers response.');
             }
@@ -396,7 +416,7 @@ export default function WorkshopCorporateManagement() {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         loadCorporateCustomers();
@@ -411,7 +431,9 @@ export default function WorkshopCorporateManagement() {
             <div className="ws-page-header">
                 <div>
                     <h2 className="ws-page-title">Corporate Management</h2>
-                    <p className="ws-page-sub">Corporate customers linked to your workshop</p>
+                    <p className="ws-page-sub">
+                        Corporate customers linked to your workshop · <strong>{branchLabel}</strong>
+                    </p>
                 </div>
                 <button className="btn-portal" onClick={loadCorporateCustomers} disabled={isLoading}>
                     <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
@@ -428,7 +450,7 @@ export default function WorkshopCorporateManagement() {
                 <div className="ws-kpi-card">
                     <div>
                         <p className="ws-kpi-label">Total Corporate Customers</p>
-                        <p className="ws-kpi-value">{total}</p>
+                        <p className="ws-kpi-value">{(selectedBranchId && selectedBranchId !== 'all' ? visibleCustomers.length : total)}</p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--blue">CORP</div>
                 </div>
@@ -451,14 +473,14 @@ export default function WorkshopCorporateManagement() {
                             </tr>
                         </thead>
                         <tbody>
-                            {customers.length === 0 ? (
+                            {visibleCustomers.length === 0 ? (
                                 <tr>
                                     <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                         {isLoading ? 'Loading corporate customers...' : 'No corporate customers found'}
                                     </td>
                                 </tr>
                             ) : (
-                                customers.map((row) => (
+                                visibleCustomers.map((row) => (
                                     <tr key={row.id}>
                                         <td><strong>{row.companyName || row.customer?.name || '—'}</strong></td>
                                         <td>{row.contactPerson || '—'}</td>

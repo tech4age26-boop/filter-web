@@ -18,7 +18,7 @@ import {
     previewServiceDeps,
 } from '../../services/workshopCatalogApi';
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 50;
 
 const TABS = [
     { id: 'departments', label: 'Departments', Icon: Layers },
@@ -29,9 +29,10 @@ const TABS = [
 
 /** Pull an array out of a backend response, trying a few common shapes. */
 function pickArray(res, keys) {
+    const extended = [...keys, 'rows', 'results', 'list', 'records'];
     if (Array.isArray(res)) return res;
     if (!res || typeof res !== 'object') return [];
-    for (const k of keys) {
+    for (const k of extended) {
         if (Array.isArray(res[k])) return res[k];
         if (Array.isArray(res?.data?.[k])) return res.data[k];
     }
@@ -41,19 +42,56 @@ function pickArray(res, keys) {
 
 /** Pull pagination metadata out of a list response. */
 function pickPagination(res, fallbackPageSize = PAGE_SIZE) {
-    const r = res?.data && typeof res.data === 'object' ? res.data : res || {};
-    return {
-        total: Number(r.total ?? r.count ?? 0) || 0,
-        page: Number(r.page ?? 1) || 1,
-        pageSize: Number(r.pageSize ?? fallbackPageSize) || fallbackPageSize,
-    };
-}
+    const r =
+        res?.data != null && typeof res.data === 'object' && !Array.isArray(res.data) ? res.data : res || {};
+    const nested = r.pagination || r.meta || {};
+    const pageBlock =
+        r.page != null && typeof r.page === 'object' && !Array.isArray(r.page)
+            ? r.page
+            : nested.page != null && typeof nested.page === 'object'
+              ? nested.page
+              : null;
+    const rawTotal =
+        r.total ??
+        r.count ??
+        r.totalCount ??
+        r.totalElements ??
+        r.recordsTotal ??
+        r.itemCount ??
+        nested.total ??
+        nested.count ??
+        nested.totalElements ??
+        (pageBlock ? pageBlock.totalElements ?? pageBlock.total : undefined) ??
+        (Array.isArray(res?.data) ? undefined : res?.total) ??
+        res?.count;
+    const n = rawTotal != null && rawTotal !== '' ? Number(rawTotal) : NaN;
+    const total = Number.isFinite(n) && n >= 0 ? n : 0;
 
-function rowHasInBranch(row) {
-    return row?.inBranch === true || row?.in_branch === true;
-}
-function rowHasInWorkshop(row) {
-    return row?.inWorkshop === true || row?.in_workshop === true || row?.adopted === true;
+    let resolvedPage = 1;
+    if (typeof r.page === 'number') resolvedPage = r.page;
+    else if (typeof nested.page === 'number') resolvedPage = nested.page;
+    else if (pageBlock != null && pageBlock.number != null) resolvedPage = Number(pageBlock.number) + 1;
+
+    let resolvedSize = fallbackPageSize;
+    if (typeof r.pageSize === 'number') resolvedSize = r.pageSize;
+    else if (typeof nested.pageSize === 'number') resolvedSize = nested.pageSize;
+    else if (pageBlock != null && pageBlock.size != null) resolvedSize = Number(pageBlock.size);
+
+    const hasNext =
+        r.hasNext === true ||
+        r.has_next === true ||
+        r.hasMore === true ||
+        r.has_more === true ||
+        nested.hasNext === true ||
+        nested.hasMore === true ||
+        (pageBlock && pageBlock.last === false);
+
+    return {
+        total,
+        page: Number(resolvedPage) || 1,
+        pageSize: Number(resolvedSize) || fallbackPageSize,
+        hasNext,
+    };
 }
 
 /** Group an array of `{ branchName, itemName }` adoption rows by branch. */
@@ -202,18 +240,20 @@ function CatalogCard({ row, label, subtitle, meta, selected, disabled, disabledL
     );
 }
 
-export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches: branchesProp = [] }) {
+export default function WorkshopCatalogNew({ branches: branchesProp = [], selectedBranchId = 'all' }) {
     const [activeTab, setActiveTab] = useState('departments');
     const [banner, setBanner] = useState(null);
 
-    // Resolve the workshop-level branch context.
-    const isAllBranches = !selectedBranchId || selectedBranchId === 'all';
-    const browseBranchId = isAllBranches ? undefined : String(selectedBranchId);
-    const branchList = useMemo(() => Array.isArray(branchesProp) ? branchesProp : [], [branchesProp]);
-    const selectedBranchName = useMemo(
-        () => branchList.find((b) => String(b.id) === String(selectedBranchId))?.name,
-        [branchList, selectedBranchId],
+    const catalogBranchId = useMemo(
+        () => (!selectedBranchId || selectedBranchId === 'all' ? undefined : String(selectedBranchId)),
+        [selectedBranchId],
     );
+
+    // Corporate master catalog via GET /workshop-catalog/catalog/* (same rows as super-admin
+    // tables; workshop JWT). We omit branchId on list calls for full master browse—branchId only
+    // affects per-row inBranch on the API, not which rows are returned. Branch pickers here
+    // are only inside adopt modals.
+    const branchList = useMemo(() => (Array.isArray(branchesProp) ? branchesProp : []), [branchesProp]);
 
     // ─── Departments tab ────────────────────────────────────────────────────
     const [deptRows, setDeptRows] = useState([]);
@@ -224,13 +264,13 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
     const loadDepartments = useCallback((signal) => {
         setDeptLoading(true);
         setDeptError('');
-        getCatalogDepartments({ branchId: browseBranchId, signal })
+        getCatalogDepartments({ signal, branchId: catalogBranchId })
             .then((res) => setDeptRows(pickArray(res, ['departments', 'items'])))
             .catch((err) => {
                 if (err.name !== 'AbortError') setDeptError(err.message || 'Failed to load departments.');
             })
             .finally(() => setDeptLoading(false));
-    }, [browseBranchId]);
+    }, [catalogBranchId]);
 
     // ─── Categories tab ─────────────────────────────────────────────────────
     const [catRows, setCatRows] = useState([]);
@@ -245,7 +285,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         const params = {
             departmentId: catFilter.departmentId === 'all' ? undefined : catFilter.departmentId,
             type: catFilter.type === 'all' ? undefined : catFilter.type,
-            branchId: browseBranchId,
+            branchId: catalogBranchId,
             signal,
         };
         getCatalogCategories(params)
@@ -254,7 +294,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                 if (err.name !== 'AbortError') setCatError(err.message || 'Failed to load categories.');
             })
             .finally(() => setCatLoading(false));
-    }, [catFilter.departmentId, catFilter.type, browseBranchId]);
+    }, [catFilter.departmentId, catFilter.type, catalogBranchId]);
 
     // ─── Products tab ───────────────────────────────────────────────────────
     const [prodRows, setProdRows] = useState([]);
@@ -265,6 +305,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
     const [prodQInput, setProdQInput] = useState('');
     const [prodPage, setProdPage] = useState(1);
     const [prodTotal, setProdTotal] = useState(0);
+    const [prodHasNext, setProdHasNext] = useState(false);
 
     const loadProducts = useCallback((signal) => {
         setProdLoading(true);
@@ -275,19 +316,22 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
             q: prodFilter.q || undefined,
             page: prodPage,
             pageSize: PAGE_SIZE,
-            branchId: browseBranchId,
+            branchId: catalogBranchId,
             signal,
         };
         getCatalogProducts(params)
             .then((res) => {
-                setProdRows(pickArray(res, ['products', 'items']));
-                setProdTotal(pickPagination(res).total);
+                const rows = pickArray(res, ['products', 'items']);
+                const meta = pickPagination(res);
+                setProdRows(rows);
+                setProdTotal(meta.total);
+                setProdHasNext(meta.hasNext);
             })
             .catch((err) => {
                 if (err.name !== 'AbortError') setProdError(err.message || 'Failed to load products.');
             })
             .finally(() => setProdLoading(false));
-    }, [prodFilter.departmentId, prodFilter.categoryId, prodFilter.q, prodPage, browseBranchId]);
+    }, [prodFilter.departmentId, prodFilter.categoryId, prodFilter.q, prodPage, catalogBranchId]);
 
     // ─── Services tab ───────────────────────────────────────────────────────
     const [svcRows, setSvcRows] = useState([]);
@@ -298,6 +342,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
     const [svcQInput, setSvcQInput] = useState('');
     const [svcPage, setSvcPage] = useState(1);
     const [svcTotal, setSvcTotal] = useState(0);
+    const [svcHasNext, setSvcHasNext] = useState(false);
 
     const loadServices = useCallback((signal) => {
         setSvcLoading(true);
@@ -308,19 +353,22 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
             q: svcFilter.q || undefined,
             page: svcPage,
             pageSize: PAGE_SIZE,
-            branchId: browseBranchId,
+            branchId: catalogBranchId,
             signal,
         };
         getCatalogServices(params)
             .then((res) => {
-                setSvcRows(pickArray(res, ['services', 'items']));
-                setSvcTotal(pickPagination(res).total);
+                const rows = pickArray(res, ['services', 'items']);
+                const meta = pickPagination(res);
+                setSvcRows(rows);
+                setSvcTotal(meta.total);
+                setSvcHasNext(meta.hasNext);
             })
             .catch((err) => {
                 if (err.name !== 'AbortError') setSvcError(err.message || 'Failed to load services.');
             })
             .finally(() => setSvcLoading(false));
-    }, [svcFilter.departmentId, svcFilter.categoryId, svcFilter.q, svcPage, browseBranchId]);
+    }, [svcFilter.departmentId, svcFilter.categoryId, svcFilter.q, svcPage, catalogBranchId]);
 
     // ─── Effects: load when tab/filters change ──────────────────────────────
     useEffect(() => {
@@ -342,7 +390,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         return undefined;
     }, [deptRows.length, deptLoading, loadDepartments]);
 
-    // Reset to page 1 when filters change.
+    // Reset to page 1 when filters or adoption branch context changes.
     useEffect(() => { setProdPage(1); }, [prodFilter.departmentId, prodFilter.categoryId, prodFilter.q]);
     useEffect(() => { setSvcPage(1); }, [svcFilter.departmentId, svcFilter.categoryId, svcFilter.q]);
 
@@ -366,14 +414,6 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
     }, [svcQInput]);
 
     // ─── Modals ─────────────────────────────────────────────────────────────
-    // Default branch targets for any new modal: the currently-selected branch
-    // when one is picked, otherwise "all branches" (empty array → BE resolves
-    // to every active branch).
-    const defaultTargetBranchIds = useMemo(
-        () => (isAllBranches ? [] : [String(selectedBranchId)]),
-        [isAllBranches, selectedBranchId],
-    );
-
     const [deptCatModal, setDeptCatModal] = useState(null);
     // { departments, selections, targetBranchIds, loading, error }
     const [productAdopt, setProductAdopt] = useState(null);
@@ -394,7 +434,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         setDeptCatModal({
             departments: selectedRows,
             selections,
-            targetBranchIds: defaultTargetBranchIds,
+            targetBranchIds: [],
             loading: false,
             error: '',
         });
@@ -402,7 +442,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         // need the full master list so the user can pick what to adopt).
         for (const d of selectedRows) {
             try {
-                const res = await getCatalogCategories({ departmentId: d.id, branchId: browseBranchId });
+                const res = await getCatalogCategories({ departmentId: d.id });
                 const cats = pickArray(res, ['categories', 'items']);
                 setDeptCatModal((prev) => {
                     if (!prev) return prev;
@@ -417,7 +457,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                 /* leave categories empty for this dept */
             }
         }
-    }, [deptSelected, deptRows, defaultTargetBranchIds, browseBranchId]);
+    }, [deptSelected, deptRows]);
 
     const submitDepartmentsAdopt = async () => {
         if (!deptCatModal) return;
@@ -462,7 +502,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         if (catSelected.size === 0) return;
         setCategoryAdopt({
             ids: [...catSelected].map(String),
-            targetBranchIds: defaultTargetBranchIds,
+            targetBranchIds: [],
             loading: false,
             error: '',
         });
@@ -505,7 +545,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
             })),
             bulkOpeningQty: '',
             bulkCriticalStockPoint: '',
-            targetBranchIds: defaultTargetBranchIds,
+            targetBranchIds: [],
             loading: true,
             error: '',
         });
@@ -524,7 +564,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         } catch (err) {
             setProductAdopt((prev) => prev && { ...prev, loading: false, error: err.message || 'Could not check dependencies.' });
         }
-    }, [prodSelected, prodRows, defaultTargetBranchIds]);
+    }, [prodSelected, prodRows]);
 
     const submitProductsAdopt = async () => {
         if (!productAdopt) return;
@@ -557,7 +597,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         setServiceAdopt({
             rows: selectedRows,
             missing: { departments: [], categories: [] },
-            targetBranchIds: defaultTargetBranchIds,
+            targetBranchIds: [],
             loading: true,
             error: '',
         });
@@ -576,7 +616,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         } catch (err) {
             setServiceAdopt((prev) => prev && { ...prev, loading: false, error: err.message || 'Could not check dependencies.' });
         }
-    }, [svcSelected, svcRows, defaultTargetBranchIds]);
+    }, [svcSelected, svcRows]);
 
     const submitServicesAdopt = async () => {
         if (!serviceAdopt) return;
@@ -679,7 +719,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
             {renderToolbar(
                 deptSelected.size,
                 openDeptCategoryModal,
-                isAllBranches ? 'Add Selected to branches…' : `Add Selected to ${selectedBranchName || 'this branch'}`,
+                'Add Selected to branches…',
                 () => setDeptSelected(new Set()),
             )}
             <div className="mc-product-grid">
@@ -688,14 +728,6 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                     : deptRows.length === 0 ? renderEmpty(Layers, 'No departments in the master catalog.')
                     : deptRows.map((d) => {
                         const id = String(d.id);
-                        const inB = rowHasInBranch(d);
-                        const inWs = rowHasInWorkshop(d);
-                        const disabled = !isAllBranches ? inB : false;
-                        const hint = isAllBranches && inWs
-                            ? 'Already in some branches — adopt again to add to more.'
-                            : !isAllBranches && !inB && inWs
-                                ? 'In another branch — not in this one yet.'
-                                : null;
                         return (
                             <CatalogCard
                                 key={id}
@@ -704,9 +736,9 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                                 subtitle={d.description || 'Master Department'}
                                 meta={typeof d.categoriesCount === 'number' ? [{ Icon: Tags, text: `${d.categoriesCount} categories` }] : []}
                                 selected={deptSelected.has(id)}
-                                disabled={disabled}
-                                disabledLabel={!isAllBranches ? `In ${selectedBranchName || 'this branch'}` : 'In your workshop'}
-                                hint={hint}
+                                disabled={false}
+                                disabledLabel=""
+                                hint={null}
                                 onToggle={() => toggleId(deptSelected, setDeptSelected, id)}
                             />
                         );
@@ -744,7 +776,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
             {renderToolbar(
                 catSelected.size,
                 openCategoryAdopt,
-                isAllBranches ? 'Add Selected to branches…' : `Add Selected to ${selectedBranchName || 'this branch'}`,
+                'Add Selected to branches…',
                 () => setCatSelected(new Set()),
             )}
             <div className="mc-product-grid">
@@ -753,15 +785,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                     : catRows.length === 0 ? renderEmpty(Tags, 'No categories match these filters.')
                     : catRows.map((c) => {
                         const id = String(c.id);
-                        const inB = rowHasInBranch(c);
-                        const inWs = rowHasInWorkshop(c);
-                        const disabled = !isAllBranches ? inB : false;
                         const deptName = c.departmentName || c.department?.name || departmentOptions.find((d) => d.id === String(c.departmentId))?.name;
-                        const hint = isAllBranches && inWs
-                            ? 'Already in some branches.'
-                            : !isAllBranches && !inB && inWs
-                                ? 'In another branch — not in this one yet.'
-                                : null;
                         return (
                             <CatalogCard
                                 key={id}
@@ -770,9 +794,9 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                                 subtitle={deptName ? `${deptName} department` : 'Category'}
                                 meta={[]}
                                 selected={catSelected.has(id)}
-                                disabled={disabled}
-                                disabledLabel={!isAllBranches ? `In ${selectedBranchName || 'this branch'}` : 'In your workshop'}
-                                hint={hint}
+                                disabled={false}
+                                disabledLabel=""
+                                hint={null}
                                 onToggle={() => toggleId(catSelected, setCatSelected, id)}
                             />
                         );
@@ -785,9 +809,17 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         rows, loading, error, selected, setSelected,
         filter, setFilter, qInput, setQInput,
         page, setPage, total,
+        serverHasNext,
         kind,
     }) => {
-        const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+        const totalPagesKnown = total > 0 ? Math.max(1, Math.ceil(total / PAGE_SIZE)) : null;
+        const canGoNext =
+            serverHasNext === true
+                ? true
+                : totalPagesKnown != null
+                  ? page < totalPagesKnown
+                  : rows.length === PAGE_SIZE;
+        const canGoPrev = page > 1;
         const Icon = kind === 'product' ? Package : Wrench;
         const subtitleFn = (row) => {
             const dept = row.departmentName || row.department?.name;
@@ -798,8 +830,22 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
             const list = [];
             if (row.sku) list.push({ Icon: Tags, text: row.sku });
             if (kind === 'product' && row.brandName) list.push({ Icon: Layers, text: row.brandName });
-            const price = row.salePrice ?? row.sellingPrice ?? row.basePrice;
-            if (price != null) list.push({ Icon: undefined, text: `SAR ${Number(price).toLocaleString()}` });
+            const exRaw =
+                kind === 'product'
+                    ? row.salePriceBeforeVat ?? row.sale_price_before_vat
+                    : row.sellingPriceBeforeVat ?? row.selling_price_before_vat;
+            const exNum = exRaw != null && exRaw !== '' ? Number(exRaw) : 0;
+            const fallback =
+                kind === 'product'
+                    ? Number(row.salePrice ?? row.basePrice ?? 0)
+                    : Number(row.sellingPrice ?? 0);
+            const priceLabel =
+                exNum > 0
+                    ? `SAR ${exNum.toLocaleString()} · ex VAT`
+                    : fallback > 0
+                      ? `SAR ${fallback.toLocaleString()}`
+                      : null;
+            if (priceLabel) list.push({ Icon: undefined, text: priceLabel });
             return list;
         };
         return (
@@ -829,7 +875,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                 {renderToolbar(
                     selected.size,
                     kind === 'product' ? openProductAdopt : openServiceAdopt,
-                    isAllBranches ? 'Add Selected to branches…' : `Add Selected to ${selectedBranchName || 'this branch'}`,
+                    'Add Selected to branches…',
                     () => setSelected(new Set()),
                 )}
                 <div className="mc-product-grid">
@@ -838,14 +884,6 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                         : rows.length === 0 ? renderEmpty(Icon, `No ${kind === 'product' ? 'products' : 'services'} match these filters.`)
                         : rows.map((row) => {
                             const id = String(row.id);
-                            const inB = rowHasInBranch(row);
-                            const inWs = rowHasInWorkshop(row);
-                            const disabled = !isAllBranches ? inB : false;
-                            const hint = isAllBranches && inWs
-                                ? 'Already in some branches.'
-                                : !isAllBranches && !inB && inWs
-                                    ? 'In another branch — not in this one yet.'
-                                    : null;
                             return (
                                 <CatalogCard
                                     key={id}
@@ -854,23 +892,31 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                                     subtitle={subtitleFn(row)}
                                     meta={metaFn(row)}
                                     selected={selected.has(id)}
-                                    disabled={disabled}
-                                    disabledLabel={!isAllBranches ? `In ${selectedBranchName || 'this branch'}` : 'In your workshop'}
-                                    hint={hint}
+                                    disabled={false}
+                                    disabledLabel=""
+                                    hint={null}
                                     onToggle={() => toggleId(selected, setSelected, id)}
                                 />
                             );
                         })}
                 </div>
-                {!loading && rows.length > 0 && (
+                {!loading && (rows.length > 0 || page > 1) && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 16 }}>
-                        <button type="button" className="mc-btn-ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                        <button type="button" className="mc-btn-ghost" disabled={!canGoPrev} onClick={() => setPage((p) => Math.max(1, p - 1))}>
                             <ChevronLeft size={14} /> Previous
                         </button>
                         <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                            Page {page} of {totalPages} · {total} total
+                            {totalPagesKnown != null ? (
+                                <>Page {page} of {totalPagesKnown} · {total} total</>
+                            ) : (
+                                <>
+                                    Page {page}
+                                    {rows.length === PAGE_SIZE ? ' · full page' : ''} · {(page - 1) * PAGE_SIZE + rows.length}
+                                    {rows.length === PAGE_SIZE ? ' loaded — Next if more exist' : ' loaded'}
+                                </>
+                            )}
                         </span>
-                        <button type="button" className="mc-btn-ghost" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                        <button type="button" className="mc-btn-ghost" disabled={!canGoNext} onClick={() => setPage((p) => p + 1)}>
                             Next <ChevronRight size={14} />
                         </button>
                     </div>
@@ -879,33 +925,21 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
         );
     };
 
+    const catalogBranchLabel = useMemo(() => {
+        if (!catalogBranchId) return 'All branches';
+        return branchList.find((b) => String(b.id) === String(catalogBranchId))?.name || 'Branch';
+    }, [branchList, catalogBranchId]);
+
     return (
         <div className="mc-container">
             <div className="mc-header">
                 <div className="mc-title-group">
                     <h1>Master Catalog</h1>
                     <p>
-                        Browse the corporate catalog and add items to your workshop branches. Adding a category auto-adopts its parent department to the same branches; adding a product or service also auto-adopts its parent department and category.
+                        This is the same corporate catalog managed in Super Admin (departments, categories, products, and services). Select items here, then choose which workshop branches to add them to in the next step.
+                        {' '}
+                        <strong>Branch row context: {catalogBranchLabel}</strong>
                     </p>
-                    <div style={{
-                        marginTop: 8,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '6px 10px',
-                        borderRadius: 999,
-                        background: isAllBranches ? '#EEF2FF' : '#ECFEFF',
-                        color: isAllBranches ? '#4338CA' : '#0E7490',
-                        fontSize: '0.8125rem',
-                        fontWeight: 700,
-                    }}>
-                        <span>Adoption target:</span>
-                        <span>
-                            {isAllBranches
-                                ? 'All branches (you can change per item before submit)'
-                                : selectedBranchName || `Branch ${selectedBranchId}`}
-                        </span>
-                    </div>
                 </div>
                 <div className="mc-header-actions">
                     <button type="button" className="mc-btn-ghost" onClick={refreshActive}>
@@ -939,6 +973,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                     filter: prodFilter, setFilter: setProdFilter,
                     qInput: prodQInput, setQInput: setProdQInput,
                     page: prodPage, setPage: setProdPage, total: prodTotal,
+                    serverHasNext: prodHasNext,
                     kind: 'product',
                 })}
                 {activeTab === 'services' && renderListTab({
@@ -947,6 +982,7 @@ export default function WorkshopCatalogNew({ selectedBranchId = 'all', branches:
                     filter: svcFilter, setFilter: setSvcFilter,
                     qInput: svcQInput, setQInput: setSvcQInput,
                     page: svcPage, setPage: setSvcPage, total: svcTotal,
+                    serverHasNext: svcHasNext,
                     kind: 'service',
                 })}
             </div>
