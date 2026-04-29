@@ -13,7 +13,7 @@ import {
     deleteWorkshopCashier,
     getWorkshopBranches,
 } from '../../services/workshopStaffApi';
-import { getMyDepartments } from '../../services/workshopCatalogApi';
+import { getMyDepartments, getBranchDepartments } from '../../services/workshopCatalogApi';
 
 const isTechnicianRole = (r) =>
     r === 'technician' ||
@@ -124,12 +124,15 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
 
     const loadWorkshopDepartmentCatalog = useCallback(async () => {
         try {
-            const res = await getMyDepartments();
+            const isAll = !selectedBranchId || selectedBranchId === 'all';
+            const res = isAll
+                ? await getMyDepartments()
+                : await getBranchDepartments(String(selectedBranchId));
             setWorkshopDepartments(parseWorkshopDepartmentsResponse(res));
         } catch {
             setWorkshopDepartments([]);
         }
-    }, []);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         loadWorkshopDepartmentCatalog();

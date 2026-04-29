@@ -29,17 +29,18 @@ export const getCatalogServices = ({ departmentId, categoryId, q, page, pageSize
 // Every row now includes `branches: [{ id, name }]` and `branchNames: string[]`
 // listing every branch in the workshop that's currently holding the item.
 
-export const getMyDepartments = ({ signal } = {}) =>
-    apiFetch('/workshop-catalog/my/departments', { signal });
+/** Optional `branchId`: when set, only items adopted for that branch (workshop JWT). */
+export const getMyDepartments = ({ branchId, signal } = {}) =>
+    apiFetch(`/workshop-catalog/my/departments${qs({ branchId })}`, { signal });
 
-export const getMyCategories = ({ departmentId, type, signal } = {}) =>
-    apiFetch(`/workshop-catalog/my/categories${qs({ departmentId, type })}`, { signal });
+export const getMyCategories = ({ departmentId, type, branchId, signal } = {}) =>
+    apiFetch(`/workshop-catalog/my/categories${qs({ departmentId, type, branchId })}`, { signal });
 
-export const getMyProducts = ({ departmentId, categoryId, isActive, signal } = {}) =>
-    apiFetch(`/workshop-catalog/my/products${qs({ departmentId, categoryId, isActive })}`, { signal });
+export const getMyProducts = ({ departmentId, categoryId, isActive, branchId, signal } = {}) =>
+    apiFetch(`/workshop-catalog/my/products${qs({ departmentId, categoryId, isActive, branchId })}`, { signal });
 
-export const getMyServices = ({ departmentId, categoryId, isActive, signal } = {}) =>
-    apiFetch(`/workshop-catalog/my/services${qs({ departmentId, categoryId, isActive })}`, { signal });
+export const getMyServices = ({ departmentId, categoryId, isActive, branchId, signal } = {}) =>
+    apiFetch(`/workshop-catalog/my/services${qs({ departmentId, categoryId, isActive, branchId })}`, { signal });
 
 // ─── Adopt (auto-adds missing parents) ───────────────────────────────────────
 

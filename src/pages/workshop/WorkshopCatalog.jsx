@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Package, Plus, Truck, ShoppingCart, Search, Send, Globe2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { MOCK_CATALOG_ITEMS, MOCK_SUPPLIERS_CATALOG, UNIT_OPTIONS } from './constants';
 
-export default function WorkshopCatalog({ branchName = 'Petromin Services' }) {
+export default function WorkshopCatalog({ selectedBranchId = 'all', branches = [] }) {
+    const branchLabel = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
+    }, [selectedBranchId, branches]);
     const [search, setSearch] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [selectedSupplier, setSelectedSupplier] = useState('all');
@@ -39,7 +43,7 @@ export default function WorkshopCatalog({ branchName = 'Petromin Services' }) {
                 <div>
                     <h2 className="ws-page-title" style={{display:'flex',alignItems:'center',gap:8}}><Package size={20} style={{color:'#2563EB'}}/> Product Catalog</h2>
                     <p className="ws-page-sub" style={{display:'flex',alignItems:'center',gap:6,marginTop:4}}>
-                        <Globe2 size={14} style={{color:'#7C3AED'}}/> Zone: <strong>{zoneName}</strong> · {MOCK_SUPPLIERS_CATALOG.length} suppliers · {catalogItems.length} products
+                        <Globe2 size={14} style={{color:'#7C3AED'}}/> Branch: <strong>{branchLabel}</strong> · {zoneName} · {MOCK_SUPPLIERS_CATALOG.length} suppliers · {catalogItems.length} products
                     </p>
                 </div>
                 <button className="btn-portal" onClick={() => setShowRequestForm(true)}><Plus size={15}/> Request New Product</button>
