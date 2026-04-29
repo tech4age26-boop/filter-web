@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { Plus, Shield, X, Wallet, Landmark, Banknote, Settings, Trash2, Calendar, FileText, ArrowLeftRight, Search, Filter, CreditCard, DollarSign, Book, CheckCircle, Eye, Printer, AlertTriangle, ChevronDown, ShoppingCart, Zap, Users, UserPlus, Clock, Activity, Coins, BookOpen, Save, Percent, Calculator } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
@@ -2967,8 +2967,13 @@ function EmployeeAdvancesView() {
     );
 }
 
-export default function WorkshopAccountingPage({ activeTab }) {
+export default function WorkshopAccountingPage({ activeTab, selectedBranchId = 'all', branches = [] }) {
     const { subTab: paramsSubTab } = useParams();
+
+    const branchLabel = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
+    }, [branches, selectedBranchId]);
     
     // Normalize activeSub to match the internal view keys
     const getActiveSub = () => {
@@ -2999,6 +3004,9 @@ export default function WorkshopAccountingPage({ activeTab }) {
 
     return (
         <div className="accounting-page module-container">
+            <p style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                Branch context · <strong>{branchLabel}</strong>
+            </p>
             {activeSub === 'chart-of-accounts' && <ChartOfAccountsView />}
             {activeSub === 'cash-bank' && <CashBankView />}
             {activeSub === 'payments' && <PaymentsView />}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { 
     Clock, CheckCircle, DollarSign, Users, Wallet, 
     ArrowRight, Search, Filter, Calendar, X, 
@@ -7,14 +7,14 @@ import {
 import Modal from '../../components/Modal';
 
 const MOCK_COMMISSIONS = [
-    { id: 1, employee: 'Nasser Al-Shehri', initials: 'N', service: 'Full Service Package', date: '2026-03-22', rate: '10%', amount: 180, status: 'accrued' },
-    { id: 2, employee: 'Faisal Al-Ghamdi', initials: 'F', service: 'Suspension Check', date: '2026-03-21', rate: '11%', amount: 55, status: 'accrued' },
-    { id: 3, employee: 'Omar Al-Qahtani', initials: 'O', service: 'Paint Protection Film', date: '2026-03-20', rate: '10%', amount: 200, status: 'accrued' },
-    { id: 4, employee: 'Khalid Al-Mutairi', initials: 'K', service: 'Windshield Replacement', date: '2026-03-19', rate: '10%', amount: 150, status: 'accrued' },
-    { id: 5, employee: 'Ahmed Al-Harthi', initials: 'A', service: 'Differential Service', date: '2026-03-18', rate: '12%', amount: 100, status: 'paid' },
-    { id: 6, employee: 'Nasser Al-Shehri', initials: 'N', service: 'Exhaust Repair', date: '2026-03-16', rate: '15%', amount: 90, status: 'accrued' },
-    { id: 7, employee: 'Faisal Al-Ghamdi', initials: 'F', service: 'AC Service', date: '2026-03-15', rate: '13%', amount: 65, status: 'accrued' },
-    { id: 8, employee: 'Omar Al-Qahtani', initials: 'O', service: 'Full Oil Change', date: '2026-03-14', rate: '10%', amount: 45, status: 'accrued' },
+    { id: 1, branchId: '1', employee: 'Nasser Al-Shehri', initials: 'N', service: 'Full Service Package', date: '2026-03-22', rate: '10%', amount: 180, status: 'accrued' },
+    { id: 2, branchId: '2', employee: 'Faisal Al-Ghamdi', initials: 'F', service: 'Suspension Check', date: '2026-03-21', rate: '11%', amount: 55, status: 'accrued' },
+    { id: 3, branchId: '1', employee: 'Omar Al-Qahtani', initials: 'O', service: 'Paint Protection Film', date: '2026-03-20', rate: '10%', amount: 200, status: 'accrued' },
+    { id: 4, branchId: '2', employee: 'Khalid Al-Mutairi', initials: 'K', service: 'Windshield Replacement', date: '2026-03-19', rate: '10%', amount: 150, status: 'accrued' },
+    { id: 5, branchId: '1', employee: 'Ahmed Al-Harthi', initials: 'A', service: 'Differential Service', date: '2026-03-18', rate: '12%', amount: 100, status: 'paid' },
+    { id: 6, branchId: '2', employee: 'Nasser Al-Shehri', initials: 'N', service: 'Exhaust Repair', date: '2026-03-16', rate: '15%', amount: 90, status: 'accrued' },
+    { id: 7, branchId: '1', employee: 'Faisal Al-Ghamdi', initials: 'F', service: 'AC Service', date: '2026-03-15', rate: '13%', amount: 65, status: 'accrued' },
+    { id: 8, branchId: '2', employee: 'Omar Al-Qahtani', initials: 'O', service: 'Full Oil Change', date: '2026-03-14', rate: '10%', amount: 45, status: 'accrued' },
 ];
 
 const EMPLOYEE_SUMMARIES = [
@@ -34,8 +34,24 @@ const ACCOUNTS = [
     "Bank — SAR 1,500"
 ];
 
-export default function WorkshopCommissions() {
+export default function WorkshopCommissions({ selectedBranchId = 'all', branches = [] }) {
     const [commissions, setCommissions] = useState(MOCK_COMMISSIONS);
+    const branchLabel = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
+    }, [branches, selectedBranchId]);
+
+    const scopedCommissions = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return commissions;
+        const bid = String(selectedBranchId);
+        return commissions.filter((c) => String(c.branchId) === bid);
+    }, [commissions, selectedBranchId]);
+
+    const scopedEmpSummaries = useMemo(() => {
+        const names = new Set(scopedCommissions.map((c) => c.employee));
+        return EMPLOYEE_SUMMARIES.filter((emp) => names.has(emp.name));
+    }, [scopedCommissions]);
+
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [payoutModalOpen, setPayoutModalOpen] = useState(false);
     const [selectedAccount, setSelectedAccount] = useState('');
@@ -50,11 +66,13 @@ export default function WorkshopCommissions() {
     };
 
     const toggleSelectAllAccrued = () => {
-        const accruedOnly = commissions.filter(c => c.status === 'accrued');
-        if (selectedIds.size === accruedOnly.length) {
+        const accruedOnly = scopedCommissions.filter((c) => c.status === 'accrued');
+        const accruedIds = accruedOnly.map((c) => c.id);
+        const allSelected = accruedIds.length > 0 && accruedIds.every((id) => selectedIds.has(id));
+        if (allSelected) {
             setSelectedIds(new Set());
         } else {
-            setSelectedIds(new Set(accruedOnly.map(c => c.id)));
+            setSelectedIds(new Set(accruedIds));
         }
     };
 
@@ -64,11 +82,15 @@ export default function WorkshopCommissions() {
     }, 0);
 
     const stats = {
-        totalAccrued: commissions.filter(c => c.status === 'accrued').reduce((sum, c) => sum + c.amount, 0),
-        totalPaid: commissions.filter(c => c.status === 'paid').reduce((sum, c) => sum + c.amount, 0),
-        pendingEmployees: new Set(commissions.filter(c => c.status === 'accrued').map(c => c.employee)).size,
+        totalAccrued: scopedCommissions.filter(c => c.status === 'accrued').reduce((sum, c) => sum + c.amount, 0),
+        totalPaid: scopedCommissions.filter(c => c.status === 'paid').reduce((sum, c) => sum + c.amount, 0),
+        pendingEmployees: new Set(scopedCommissions.filter(c => c.status === 'accrued').map(c => c.employee)).size,
         selectedAmount: selectedTotal
     };
+
+    const accruedScoped = scopedCommissions.filter((c) => c.status === 'accrued');
+    const allAccruedScopedSelected =
+        accruedScoped.length > 0 && accruedScoped.every((c) => selectedIds.has(c.id));
 
     const confirmPayout = () => {
         if (!selectedAccount) return;
@@ -82,6 +104,9 @@ export default function WorkshopCommissions() {
 
     return (
         <div className="ws-commissions">
+            <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                Scope · <strong>{branchLabel}</strong>
+            </p>
             {/* Stats Overview */}
             <div className="ws-commissions-stats">
                 <div className="ws-stat-card border-orange">
@@ -109,7 +134,7 @@ export default function WorkshopCommissions() {
                     <h4>Pending Payout by Employee</h4>
                 </header>
                 <div className="ws-employee-chips">
-                    {EMPLOYEE_SUMMARIES.map(emp => (
+                    {scopedEmpSummaries.map(emp => (
                         <div key={emp.name} className="ws-emp-chip">
                             <div className="ws-emp-avatar" style={{ backgroundColor: emp.color, color: emp.textColor }}>
                                 {emp.initials}
@@ -165,7 +190,7 @@ export default function WorkshopCommissions() {
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th width="40"><input type="checkbox" checked={selectedIds.size > 0 && selectedIds.size === commissions.filter(c => c.status === 'accrued').length} onChange={toggleSelectAllAccrued} /></th>
+                            <th width="40"><input type="checkbox" checked={allAccruedScopedSelected} onChange={toggleSelectAllAccrued} /></th>
                             <th>EMPLOYEE</th>
                             <th>SERVICE</th>
                             <th>JOB CARD</th>
@@ -176,7 +201,7 @@ export default function WorkshopCommissions() {
                         </tr>
                     </thead>
                     <tbody>
-                        {commissions.map(c => (
+                        {scopedCommissions.map(c => (
                             <tr key={c.id} className={selectedIds.has(c.id) ? 'selected' : ''}>
                                 <td>
                                     <input 

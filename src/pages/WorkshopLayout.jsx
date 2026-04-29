@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { Building2, ArrowLeft, LogOut, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -8,7 +8,6 @@ import {
 import WorkshopDashboard from './workshop/WorkshopDashboard';
 import WorkshopEmployees from './workshop/WorkshopEmployees';
 import WorkshopDepartments from './workshop/WorkshopDepartments';
-import WorkshopCatalog from './workshop/WorkshopCatalog';
 import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
 import WorkshopPurchases from './workshop/WorkshopPurchases';
 import WorkshopApprovals from './workshop/WorkshopApprovals';
@@ -140,12 +139,23 @@ export default function WorkshopLayout() {
 
     const selectedBranchName = useMemo(() => {
         if (selectedBranch === 'all') return 'All Branches';
-        return branches.find((branch) => branch.id === selectedBranch)?.name || 'All Branches';
+        return branches.find((branch) => String(branch.id) === String(selectedBranch))?.name || 'All Branches';
     }, [branches, selectedBranch]);
 
     useEffect(() => {
         if (activeTab !== 'dashboard') setDashboardLowStockCount(0);
     }, [activeTab]);
+
+    /** Inventory is branch-scoped only: no workshop-wide union in the UI. */
+    const inventoryBranchOnly = activeTab === 'inventory';
+    useEffect(() => {
+        if (!inventoryBranchOnly) return;
+        const hasBranch = branches.some((b) => String(b.id) === String(selectedBranch));
+        if (selectedBranch !== 'all' && hasBranch) return;
+        if (branches.length > 0) {
+            setSelectedBranch(String(branches[0].id));
+        }
+    }, [inventoryBranchOnly, selectedBranch, branches]);
 
     const renderContent = () => {
         switch (activeTab) {
@@ -160,7 +170,7 @@ export default function WorkshopLayout() {
             case 'acc-receipts':      
             case 'acc-payments':      
             case 'acc-advances':      
-            case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} />;
+            case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={branches} />;
             case 'dashboard':         return (
                 <WorkshopDashboard
                     onTabChange={handleTabChange}
@@ -171,29 +181,27 @@ export default function WorkshopLayout() {
             );
             case 'employees':   return <WorkshopEmployees selectedBranchId={selectedBranch} branches={branches} />;
             case 'departments': return <WorkshopDepartments selectedBranchId={selectedBranch} branches={branches} />;
-            case 'catalog':     return (
-                <WorkshopCatalog selectedBranchId={selectedBranch} branches={branches} />
-            );
+            case 'catalog':
+                return <Navigate to="/workshop/departments" replace />;
             case 'purchases':   return (
-                <WorkshopPurchases 
-                    tabState={tabState} 
-                    clearTabState={() => setTabState(null)} 
-                />
-            );
-            case 'approvals':   return <WorkshopApprovals />;
-            case 'suppliers':   return <WorkshopSuppliers />;
-            case 'reports':     return <WorkshopReports />;
-            case 'pos-monitoring': return <WorkshopPosMonitoring />;
-            case 'catalog-new': return (
-                <WorkshopCatalogNew
+                <WorkshopPurchases
+                    tabState={tabState}
+                    clearTabState={() => setTabState(null)}
                     selectedBranchId={selectedBranch}
                     branches={branches}
                 />
             );
-            case 'promo-codes': return <WorkshopPromoCodes />;
-            case 'corporate-management': return <WorkshopCorporateManagement />;
-            case 'branches':    return <WorkshopBranches />;
-            case 'commissions': return <WorkshopCommissions />;
+            case 'approvals':   return <WorkshopApprovals selectedBranchId={selectedBranch} branches={branches} />;
+            case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={branches} />;
+            case 'reports':     return <WorkshopReports selectedBranchId={selectedBranch} branches={branches} />;
+            case 'pos-monitoring': return <WorkshopPosMonitoring selectedBranchId={selectedBranch} branches={branches} />;
+            case 'catalog-new': return (
+                <WorkshopCatalogNew branches={branches} selectedBranchId={selectedBranch} />
+            );
+            case 'promo-codes': return <WorkshopPromoCodes selectedBranchId={selectedBranch} branches={branches} />;
+            case 'corporate-management': return <WorkshopCorporateManagement selectedBranchId={selectedBranch} branches={branches} />;
+            case 'branches':    return <WorkshopBranches selectedBranchId={selectedBranch} />;
+            case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={branches} />;
             case 'inventory': return (
                 <WorkshopInventory
                     selectedBranchId={selectedBranch}
@@ -215,6 +223,7 @@ export default function WorkshopLayout() {
     };
 
     const currentLabel = NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
+    const topbarSubtitle = activeTab === 'catalog-new' ? 'Corporate master catalog' : selectedBranchName;
 
     return (
         <div className="workshop-layout">
@@ -226,13 +235,15 @@ export default function WorkshopLayout() {
                 <a className="ws-back-link" onClick={() => navigate('/admin/dashboard')} style={{cursor:'pointer'}}>
                     <ArrowLeft size={14}/> Back to Super Admin
                 </a>
+                {activeTab !== 'catalog-new' && (
                 <div className="ws-branch-selector">
                     <select className="ws-branch-select" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
                         style={{ background: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.1)', color: '#000000' }}>
-                        <option value="all">All Branches</option>
+                        {!inventoryBranchOnly ? <option value="all">All Branches</option> : null}
                         {branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
                     </select>
                 </div>
+                )}
                 <nav className="ws-nav">
                     {NAV_ITEMS.map((item) => {
                         const hasSub = item.subItems?.length > 0;
@@ -310,7 +321,7 @@ export default function WorkshopLayout() {
             </aside>
             <div className="ws-main">
                 <header className="ws-topbar">
-                    <div><p className="ws-topbar-title">{currentLabel}</p><p className="ws-topbar-sub">{selectedBranchName}</p></div>
+                    <div><p className="ws-topbar-title">{currentLabel}</p><p className="ws-topbar-sub">{topbarSubtitle}</p></div>
                     <div className="ws-topbar-right">
                         {dashboardLowStockCount > 0 && (
                             <button className="ws-alert-badge" onClick={() => setActiveTab('departments')}>

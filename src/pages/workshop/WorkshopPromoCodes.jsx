@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Plus } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { qs, branchScopeParams } from '../../services/workshopStaffApi';
 import Modal from '../../components/Modal';
 
 const toNumber = (value) => {
@@ -8,7 +9,11 @@ const toNumber = (value) => {
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
-export default function WorkshopPromoCodes() {
+export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches = [] }) {
+    const branchLabel = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
+    }, [branches, selectedBranchId]);
     const [promoCodes, setPromoCodes] = useState([]);
     const [total, setTotal] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
@@ -30,18 +35,34 @@ export default function WorkshopPromoCodes() {
         setIsLoading(true);
         setError('');
         try {
-            const response = await apiFetch('/workshop-staff/promo-codes?isActive=true&limit=20&offset=0');
+            const response = await apiFetch(
+                `/workshop-staff/promo-codes${qs({
+                    isActive: true,
+                    limit: 20,
+                    offset: 0,
+                    ...branchScopeParams(selectedBranchId),
+                })}`,
+            );
             if (!(response?.success && Array.isArray(response.promoCodes))) {
                 throw new Error('Invalid promo codes response.');
             }
-            setPromoCodes(response.promoCodes);
-            setTotal(toNumber(response.total));
+            let rows = response.promoCodes;
+            if (selectedBranchId && selectedBranchId !== 'all') {
+                const bid = String(selectedBranchId);
+                rows = rows.filter((pc) => {
+                    const ids = pc.branchIds ?? pc.branch_ids ?? pc.applicableBranchIds;
+                    if (!Array.isArray(ids) || ids.length === 0) return true;
+                    return ids.some((id) => String(id) === bid);
+                });
+            }
+            setPromoCodes(rows);
+            setTotal(rows.length);
         } catch (err) {
             setError(err.message || 'Failed to load promo codes.');
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         loadPromoCodes();
@@ -92,7 +113,9 @@ export default function WorkshopPromoCodes() {
             <div className="ws-page-header">
                 <div>
                     <h2 className="ws-page-title">Promo Codes</h2>
-                    <p className="ws-page-sub">Active promotional codes for workshop sales</p>
+                    <p className="ws-page-sub">
+                        Active promotional codes · <strong>{branchLabel}</strong>
+                    </p>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                     <button className="btn-portal" onClick={loadPromoCodes} disabled={isLoading}>
