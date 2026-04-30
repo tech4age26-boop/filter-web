@@ -8,9 +8,9 @@ import {
 export const NAV_ITEMS = [
     { id: 'dashboard',   label: 'Dashboard',           icon: LayoutDashboard },
     { id: 'employees',   label: 'Employees',            icon: Users },
-    { id: 'departments', label: 'Dept & Products',      icon: Layers },
-    { id: 'catalog-new', label: 'Catalog',              icon: Package },
-    { id: 'inventory',   label: 'Inventory',            icon: Archive },
+    { id: 'departments', label: 'View Invertory and departments', icon: Layers },
+    { id: 'catalog-new', label: 'Master Catelog',       icon: Package },
+    { id: 'inventory',   label: 'Manage Inventory',     icon: Archive },
     { id: 'purchases',   label: 'Purchase Invoices',    icon: ShoppingCart },
     { id: 'approvals',   label: 'Approvals Queue',      icon: ClipboardCheck, badge: true },
     { id: 'suppliers',   label: 'Suppliers & Purchases', icon: Truck },

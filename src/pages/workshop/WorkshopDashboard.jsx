@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { DollarSign, ShoppingCart, AlertTriangle, ClipboardCheck, Users, Package, Wrench, TrendingUp, Building2, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { getWorkshopTechnicians, unwrapWorkshopStaffList, normalizeWorkshopEmployee, flattenWorkshopStaffRow, getWorkshopStaffBranchProducts, unwrapWorkshopBranchListResponse, getWorkshopStaffProducts } from '../../services/workshopStaffApi';
-import { getMyProducts } from '../../services/workshopCatalogApi';
+import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
 
 /** Match WorkshopDepartments — branch and union handlers can return different wrapper shapes. */
 function extractProducts(res) {
@@ -25,6 +25,27 @@ function firstFiniteNumber(values) {
         if (Number.isFinite(n)) return n;
     }
     return null;
+}
+
+function pickItemName(obj) {
+    if (!obj || typeof obj !== 'object') return '';
+    const candidates = [
+        obj.name,
+        obj.title,
+        obj.label,
+        obj.productName,
+        obj.product_name,
+        obj.serviceName,
+        obj.service_name,
+        obj.itemName,
+        obj.item_name,
+    ];
+    for (const c of candidates) {
+        if (c != null && String(c).trim() !== '') return String(c).trim();
+    }
+    const sku = obj.sku ?? obj.SKU;
+    if (sku != null && String(sku).trim() !== '') return String(sku).trim();
+    return '';
 }
 
 /** Branch rows may nest overrides under `product`; BE may use camelCase or snake_case. */
@@ -59,7 +80,7 @@ function normalizeCatalogRowForStock(row) {
     );
     return {
         id: master?.id ?? row?.id,
-        name: master?.name || 'Unnamed',
+        name: pickItemName(master) || pickItemName(row) || 'Unnamed',
         stock_qty,
         critical_level,
     };
@@ -140,7 +161,8 @@ export default function WorkshopDashboard({
     /**
      * Low-stock KPI + list:
      * - All branches → `getWorkshopStaffProducts({ allBranches: true })`, fallback `getMyProducts()`.
-     * - One branch → branch-path products plus `getMyProducts({ branchId })` (no workshop-wide union).
+     * - One branch → `getWorkshopStaffBranchProducts(id)`, fallback `getBranchProducts(id)`.
+     *   (Same branch-specific source as Dept & Products / Inventory.)
      */
     const loadLowStockProducts = useCallback(async () => {
         const applyLowStockFilter = (rawProducts) => {
@@ -167,17 +189,14 @@ export default function WorkshopDashboard({
             }
 
             const bid = String(selectedBranchId);
-            const [branchRes, scopedRes] = await Promise.all([
-                getWorkshopStaffBranchProducts(bid).catch(() => null),
-                getMyProducts({ branchId: bid }).catch(() => null),
-            ]);
-
-            const rawBranch = branchRes ? extractProducts(branchRes) : [];
-            const scopedRows = scopedRes ? extractProducts(scopedRes) : [];
-
-            const branchLow = applyLowStockFilter(rawBranch);
-            const unionLow = applyLowStockFilter(scopedRows);
-            setLowStockProducts(mergeLowStockAlerts(unionLow, branchLow));
+            let rawBranch = [];
+            const branchRes = await getWorkshopStaffBranchProducts(bid).catch(() => null);
+            if (branchRes) rawBranch = extractProducts(branchRes);
+            if (rawBranch.length === 0) {
+                const catalogBranchRes = await getBranchProducts(bid).catch(() => null);
+                rawBranch = catalogBranchRes ? extractProducts(catalogBranchRes) : [];
+            }
+            setLowStockProducts(applyLowStockFilter(rawBranch));
         } catch {
             setLowStockProducts([]);
         }

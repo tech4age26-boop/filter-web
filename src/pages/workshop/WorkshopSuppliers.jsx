@@ -3,7 +3,12 @@ import { ShoppingCart, Plus, RefreshCw, Loader, AlertCircle } from 'lucide-react
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { PI_INVENTORY_ITEMS } from './constants';
-import { getWorkshopSuppliers, branchScopeParams } from '../../services/workshopStaffApi';
+import {
+    getWorkshopSuppliers,
+    getRegisteredWorkshopSuppliers,
+    linkSuppliersToWorkshop,
+    branchScopeParams,
+} from '../../services/workshopStaffApi';
 
 const SUPPLIERS_PAGE_LIMIT = 500;
 
@@ -51,6 +56,7 @@ function normalizeSupplierRow(s) {
         phone: s.phone ?? s.mobile ?? s.contactPhone ?? '',
         email: s.email ?? '',
         status,
+        raw: s,
     };
 }
 
@@ -69,6 +75,14 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
     });
     const [loading, setLoading] = useState(true);
     const [listError, setListError] = useState('');
+    const [usingRegisteredFallback, setUsingRegisteredFallback] = useState(false);
+    const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
+    const [registeredSearchInput, setRegisteredSearchInput] = useState('');
+    const [registeredSuppliers, setRegisteredSuppliers] = useState([]);
+    const [registeredLoading, setRegisteredLoading] = useState(false);
+    const [registeredError, setRegisteredError] = useState('');
+    const [linkingSuppliers, setLinkingSuppliers] = useState(false);
+    const [selectedRegisteredIds, setSelectedRegisteredIds] = useState([]);
 
     const [showPurchaseForm, setShowPurchaseForm] = useState(false);
     const [selectedSupplier, setSelectedSupplier] = useState(null);
@@ -83,6 +97,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
     const loadSuppliers = useCallback(async (queryForApi) => {
         setLoading(true);
         setListError('');
+        setUsingRegisteredFallback(false);
         const q = String(queryForApi ?? '').trim();
         const baseParams = q ? { q } : {};
         try {
@@ -112,6 +127,40 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                 currencyCode: lastMeta.currencyCode,
             });
         } catch (e) {
+            const msg = String(e?.message || '');
+            const missingWorkshopIdColumn =
+                msg.includes('suppliers.workshop_id') || msg.includes('workshop_id');
+            if (missingWorkshopIdColumn) {
+                try {
+                    const res = await getRegisteredWorkshopSuppliers({
+                        ...(q ? { q } : {}),
+                        limit: SUPPLIERS_PAGE_LIMIT,
+                        offset: 0,
+                    });
+                    const rows = unwrapSuppliersResponse(res)
+                        .map(normalizeSupplierRow)
+                        .filter((r) => r.id);
+                    const linkedOnly = rows.filter(
+                        (r) =>
+                            r?.raw?.isLinkedToWorkshop === true ||
+                            r?.raw?.is_linked_to_workshop === true ||
+                            r?.raw?.linkedToWorkshop === true,
+                    );
+                    setSuppliers(linkedOnly);
+                    setListMeta({
+                        total: linkedOnly.length,
+                        outstanding: null,
+                        currencyCode: null,
+                    });
+                    setUsingRegisteredFallback(true);
+                    setListError(
+                        'Loaded via fallback: /workshop-staff/suppliers currently fails due backend schema (missing suppliers.workshop_id).',
+                    );
+                    return;
+                } catch {
+                    // fallthrough to standard error below
+                }
+            }
             setListError(e.message || 'Could not load suppliers.');
             setSuppliers([]);
             setListMeta({ total: null, outstanding: null, currencyCode: null });
@@ -190,6 +239,58 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
         setNotes('');
     };
 
+    const loadRegisteredSuppliers = useCallback(async (queryForApi) => {
+        setRegisteredLoading(true);
+        setRegisteredError('');
+        const q = String(queryForApi ?? '').trim();
+        try {
+            const res = await getRegisteredWorkshopSuppliers({
+                ...(q ? { q } : {}),
+                limit: SUPPLIERS_PAGE_LIMIT,
+                offset: 0,
+            });
+            const rows = unwrapSuppliersResponse(res).map(normalizeSupplierRow).filter((r) => r.id);
+            setRegisteredSuppliers(rows);
+        } catch (e) {
+            setRegisteredSuppliers([]);
+            setRegisteredError(e.message || 'Could not load registered suppliers.');
+        } finally {
+            setRegisteredLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!showAddSupplierModal) return undefined;
+        const t = setTimeout(() => {
+            loadRegisteredSuppliers(registeredSearchInput);
+        }, 280);
+        return () => clearTimeout(t);
+    }, [showAddSupplierModal, registeredSearchInput, loadRegisteredSuppliers]);
+
+    const toggleRegisteredSupplier = (supplierId) => {
+        const sid = String(supplierId);
+        setSelectedRegisteredIds((prev) =>
+            prev.includes(sid) ? prev.filter((id) => id !== sid) : [...prev, sid],
+        );
+    };
+
+    const handleLinkSelectedSuppliers = async () => {
+        if (selectedRegisteredIds.length === 0) return;
+        setLinkingSuppliers(true);
+        setRegisteredError('');
+        try {
+            await linkSuppliersToWorkshop(selectedRegisteredIds);
+            setShowAddSupplierModal(false);
+            setSelectedRegisteredIds([]);
+            setRegisteredSearchInput('');
+            await loadSuppliers(searchInput);
+        } catch (e) {
+            setRegisteredError(e.message || 'Failed to add selected suppliers to workshop.');
+        } finally {
+            setLinkingSuppliers(false);
+        }
+    };
+
     return (
         <div>
             <div className="ws-page-header">
@@ -259,6 +360,19 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                             >
                                 <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
                             </button>
+                            <button
+                                type="button"
+                                className="btn-portal"
+                                onClick={() => {
+                                    setShowAddSupplierModal(true);
+                                    setSelectedRegisteredIds([]);
+                                    setRegisteredSearchInput('');
+                                    setRegisteredError('');
+                                }}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                            >
+                                <Plus size={14} /> Add Supplier
+                            </button>
                         </div>
                         {listSummaryLine && !listError ? (
                             <div
@@ -280,9 +394,9 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 padding: 14,
                                 marginBottom: 16,
                                 borderRadius: 10,
-                                background: '#FEF2F2',
-                                border: '1px solid #FECACA',
-                                color: '#991B1B',
+                                background: usingRegisteredFallback ? '#FEFCE8' : '#FEF2F2',
+                                border: usingRegisteredFallback ? '1px solid #FDE68A' : '1px solid #FECACA',
+                                color: usingRegisteredFallback ? '#854D0E' : '#991B1B',
                                 fontSize: '0.875rem',
                                 display: 'flex',
                                 alignItems: 'flex-start',
@@ -293,10 +407,22 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                             <div>
                                 <strong>{listError}</strong>
                                 <p style={{ margin: '6px 0 0', opacity: 0.9 }}>
-                                    The workshop portal expects{' '}
-                                    <code style={{ fontSize: '0.8rem' }}>GET /workshop-staff/suppliers</code> with the
-                                    workshop JWT. Optional: <code>q</code> or <code>search</code>, <code>limit</code> (≤500),{' '}
-                                    <code>offset</code>.
+                                    {usingRegisteredFallback ? (
+                                        <>
+                                            Showing only rows with <code>isLinkedToWorkshop=true</code> from{' '}
+                                            <code style={{ fontSize: '0.8rem' }}>
+                                                GET /workshop-staff/suppliers/registered
+                                            </code>{' '}
+                                            until backend query is migrated to <code>workshop_suppliers</code>.
+                                        </>
+                                    ) : (
+                                        <>
+                                            The workshop portal expects{' '}
+                                            <code style={{ fontSize: '0.8rem' }}>GET /workshop-staff/suppliers</code> with the
+                                            workshop JWT. Optional: <code>q</code> or <code>search</code>, <code>limit</code> (≤500),{' '}
+                                            <code>offset</code>.
+                                        </>
+                                    )}
                                 </p>
                             </div>
                         </div>
@@ -427,6 +553,104 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
             )}
 
             <AnimatePresence>
+                {showAddSupplierModal && (
+                    <Modal
+                        title="Add Supplier to Workshop"
+                        onClose={() => {
+                            if (!linkingSuppliers) setShowAddSupplierModal(false);
+                        }}
+                        footer={
+                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                                <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    disabled={linkingSuppliers}
+                                    onClick={() => setShowAddSupplierModal(false)}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn-submit"
+                                    disabled={linkingSuppliers || selectedRegisteredIds.length === 0}
+                                    onClick={handleLinkSelectedSuppliers}
+                                >
+                                    {linkingSuppliers ? 'Adding...' : `Add Selected (${selectedRegisteredIds.length})`}
+                                </button>
+                            </div>
+                        }
+                    >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            <input
+                                placeholder="Search all registered suppliers..."
+                                value={registeredSearchInput}
+                                onChange={(e) => setRegisteredSearchInput(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '9px 12px',
+                                    borderRadius: 8,
+                                    border: '1px solid var(--color-border)',
+                                    fontSize: '0.875rem',
+                                }}
+                            />
+                            {registeredError && (
+                                <div
+                                    style={{
+                                        padding: 10,
+                                        borderRadius: 8,
+                                        border: '1px solid #FECACA',
+                                        background: '#FEF2F2',
+                                        color: '#991B1B',
+                                        fontSize: '0.8125rem',
+                                    }}
+                                >
+                                    {registeredError}
+                                </div>
+                            )}
+                            {registeredLoading ? (
+                                <div style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem', border: '1px solid var(--color-border)', borderRadius: 10 }}>
+                                    Loading registered suppliers...
+                                </div>
+                            ) : registeredSuppliers.length === 0 ? (
+                                <div style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem', border: '1px solid var(--color-border)', borderRadius: 10 }}>
+                                    No registered suppliers found.
+                                </div>
+                            ) : (
+                                <div>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, marginBottom: 6, display: 'block' }}>
+                                        Select supplier(s) from dropdown
+                                    </label>
+                                    <select
+                                        multiple
+                                        value={selectedRegisteredIds}
+                                        onChange={(e) => {
+                                            const picked = Array.from(e.target.selectedOptions).map((opt) => String(opt.value));
+                                            setSelectedRegisteredIds(picked);
+                                        }}
+                                        style={{
+                                            width: '100%',
+                                            minHeight: 220,
+                                            padding: '10px 12px',
+                                            borderRadius: 10,
+                                            border: '1px solid var(--color-border)',
+                                            fontSize: '0.84rem',
+                                            background: '#fff',
+                                        }}
+                                    >
+                                        {registeredSuppliers.map((s) => (
+                                            <option key={s.id} value={s.id}>
+                                                {s.name} · {s.phone || '—'} · VAT {s.vatId || '—'}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                                Select from registered suppliers and add them to your workshop.
+                            </p>
+                        </div>
+                    </Modal>
+                )}
                 {showPurchaseForm && selectedSupplier && (
                     <Modal
                         title={`Add Purchase Invoice — ${selectedSupplier.name}`}

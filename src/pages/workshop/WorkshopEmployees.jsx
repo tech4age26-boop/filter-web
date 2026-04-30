@@ -67,6 +67,7 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
     /** Bumps on each openEdit so late detail responses do not overwrite a newer modal. */
     const editDetailGenerationRef = useRef(0);
     const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+    const isCreateTechnicianMode = !editing && (form.is_technician || isTechnicianRole(form.role));
     const toggleDepartmentId = (id) =>
         setForm((f) => {
             const s = String(id);
@@ -143,6 +144,13 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
     useEffect(() => {
         loadWorkshopDepartmentCatalog();
     }, [loadWorkshopDepartmentCatalog]);
+
+    // New technician creation is fixed as dual-duty by policy.
+    useEffect(() => {
+        if (!isCreateTechnicianMode) return;
+        if (form.workshop_duty && form.oncall_available) return;
+        setForm((f) => ({ ...f, workshop_duty: true, oncall_available: true }));
+    }, [isCreateTechnicianMode, form.workshop_duty, form.oncall_available]);
 
     const ensureDepartmentsLoaded = useCallback(async () => {
         if (workshopDepartments.length > 0) return;
@@ -282,12 +290,19 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
         };
 
         if (asTechnician) {
-            body.workshopDuty = !!form.workshop_duty;
-            body.oncallAvailable = !!form.oncall_available;
-            if (form.workshop_duty && !form.oncall_available) {
-                body.technicianType = 'workshop';
-            } else if (!form.workshop_duty && form.oncall_available) {
-                body.technicianType = 'on_call';
+            if (!isEdit) {
+                // Create flow: always dual-duty, not user-selectable.
+                body.workshopDuty = true;
+                body.oncallAvailable = true;
+                body.technicianType = 'both';
+            } else {
+                body.workshopDuty = !!form.workshop_duty;
+                body.oncallAvailable = !!form.oncall_available;
+                if (form.workshop_duty && !form.oncall_available) {
+                    body.technicianType = 'workshop';
+                } else if (!form.workshop_duty && form.oncall_available) {
+                    body.technicianType = 'on_call';
+                }
             }
             // When both are true, rely on workshopDuty + oncallAvailable; omit technicianType so BE can persist both flags.
             // Always send the array on technician requests so the BE can
@@ -667,7 +682,7 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                                     ...f,
                                                     is_technician: v,
                                                     ...(!v ? { workshop_duty: false, oncall_available: false } : {}),
-                                                    ...(v && !f.workshop_duty && !f.oncall_available ? { workshop_duty: true } : {}),
+                                                    ...(v ? { workshop_duty: true, oncall_available: true } : {}),
                                                 }));
                                             }}
                                         />
@@ -689,7 +704,9 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                             Technician type
                                         </div>
                                         <p style={{ margin: '0 0 10px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.45 }}>
-                                            Select one or both. Workshop covers in-house assignment; On-Call covers mobile / after-hours eligibility.
+                                            {isCreateTechnicianMode
+                                                ? 'Default for new technicians: both Workshop and On-Call are enabled.'
+                                                : 'Select one or both. Workshop covers in-house assignment; On-Call covers mobile / after-hours eligibility.'}
                                         </p>
                                         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                                             <label
@@ -704,8 +721,9 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                             >
                                                 <input
                                                     type="checkbox"
-                                                    checked={form.workshop_duty}
+                                                    checked={isCreateTechnicianMode ? true : form.workshop_duty}
                                                     onChange={(e) => set('workshop_duty', e.target.checked)}
+                                                    disabled={isCreateTechnicianMode}
                                                 />
                                                 Workshop
                                             </label>
@@ -721,8 +739,9 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                             >
                                                 <input
                                                     type="checkbox"
-                                                    checked={form.oncall_available}
+                                                    checked={isCreateTechnicianMode ? true : form.oncall_available}
                                                     onChange={(e) => set('oncall_available', e.target.checked)}
+                                                    disabled={isCreateTechnicianMode}
                                                 />
                                                 On-Call
                                             </label>
