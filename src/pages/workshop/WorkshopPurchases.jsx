@@ -17,7 +17,7 @@ import {
     normalizeWorkshopSupplierPurchaseInvoiceRow,
     unwrapWorkshopSupplierPurchaseInvoiceList,
 } from '../../services/workshopSupplierPurchaseInvoices';
-import { PI_INVENTORY_ITEMS, PI_ACCOUNT_OPTIONS } from './constants';
+import { PI_ACCOUNT_OPTIONS } from './constants';
 import {
     PURCHASE_INVOICE_VAT_RATE as VAT_RATE,
     PURCHASE_INVOICE_TAX_LABEL as TAX_LABEL,
@@ -384,6 +384,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     }, [modalOpen, effectiveBranchId, loadBranchProducts, loadLinkedSuppliers]);
 
     useEffect(() => {
+        if (activeTab !== 'price_report') return;
+        loadLinkedSuppliers();
+    }, [activeTab, loadLinkedSuppliers]);
+
+    useEffect(() => {
         if (!tabState?.autoOpenModal) return;
         setModalOpen(true);
         if (tabState.prefillSupplier?.name) {
@@ -569,21 +574,89 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         .filter((i) => i.payment_status !== 'paid')
         .reduce((s, i) => s + (i.balance_due || i.grand_total || 0), 0);
     const overduePayables = 0;
-    const priceHistory = invoices.flatMap((inv) =>
-        (inv.items || []).map((item) => ({
-            ...item,
-            invoice_number: inv.invoice_number || inv.id,
-            vendor_name: inv.vendor_name || inv.supplier,
-            invoice_date: inv.date,
-            invoice_id: inv.id,
-        })),
+    const priceHistory = useMemo(
+        () =>
+            invoices.flatMap((inv) =>
+                (inv.items || []).map((item) => ({
+                    ...item,
+                    invoice_number: inv.invoice_number || inv.id,
+                    vendor_name: inv.vendor_name || inv.supplier,
+                    invoice_date: inv.date,
+                    invoice_id: inv.id,
+                })),
+            ),
+        [invoices],
     );
-    const filteredHistory = priceHistory.filter((r) => {
-        const matchSupplier = filterSupplier === 'all' || r.vendor_name === filterSupplier;
-        const matchProduct = filterProduct === 'all' || r.product_id === filterProduct;
-        return matchSupplier && matchProduct;
-    });
-    const uniqueVendors = [...new Set(invoices.map((i) => i.vendor_name || i.supplier).filter(Boolean))];
+
+    /** Vendors from invoices plus linked workshop suppliers (so new links appear before first invoice). */
+    const priceReportVendorOptions = useMemo(() => {
+        const set = new Set();
+        for (const v of invoices.map((i) => i.vendor_name || i.supplier).filter(Boolean)) {
+            set.add(String(v).trim());
+        }
+        for (const s of linkedSuppliers) {
+            if (s?.name && String(s.name).trim()) set.add(String(s.name).trim());
+        }
+        return [...set].sort((a, b) => a.localeCompare(b));
+    }, [invoices, linkedSuppliers]);
+
+    /** Products that actually appear on at least one invoice line (not static catalog). */
+    const invoicedProductOptions = useMemo(() => {
+        const seen = new Set();
+        const opts = [];
+        for (const r of priceHistory) {
+            const pid =
+                r.product_id ??
+                r.productId ??
+                r.branchCatalogProductId ??
+                r.branch_catalog_product_id;
+            const pname = String(r.product_name ?? r.productName ?? r.itemName ?? r.item_name ?? '').trim();
+            if (pid != null && String(pid).trim() !== '') {
+                const key = String(pid);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                opts.push({ value: key, label: pname || `Product ${key}` });
+            } else if (pname) {
+                const key = `name:${pname}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                opts.push({ value: key, label: pname });
+            }
+        }
+        opts.sort((a, b) => a.label.localeCompare(b.label));
+        return opts;
+    }, [priceHistory]);
+
+    const filteredHistory = useMemo(() => {
+        return priceHistory.filter((r) => {
+            const matchSupplier = filterSupplier === 'all' || r.vendor_name === filterSupplier;
+            const rowPid = String(
+                r.product_id ?? r.productId ?? r.branchCatalogProductId ?? r.branch_catalog_product_id ?? '',
+            );
+            const rowName = String(r.product_name ?? r.productName ?? '').trim();
+            let matchProduct = filterProduct === 'all';
+            if (!matchProduct && filterProduct.startsWith('name:')) {
+                matchProduct = rowName === filterProduct.slice(5);
+            } else if (!matchProduct) {
+                matchProduct = rowPid === filterProduct;
+            }
+            return matchSupplier && matchProduct;
+        });
+    }, [priceHistory, filterSupplier, filterProduct]);
+
+    useEffect(() => {
+        if (filterProduct === 'all') return;
+        if (!invoicedProductOptions.some((o) => o.value === filterProduct)) {
+            setFilterProduct('all');
+        }
+    }, [invoicedProductOptions, filterProduct]);
+
+    useEffect(() => {
+        if (filterSupplier === 'all') return;
+        if (!priceReportVendorOptions.includes(filterSupplier)) {
+            setFilterSupplier('all');
+        }
+    }, [priceReportVendorOptions, filterSupplier]);
     const invoiceSupplierOptions = useMemo(() => {
         const names = linkedSuppliers.map((s) => s.name).filter(Boolean);
         return [...new Set(names)].sort((a, b) => a.localeCompare(b));
@@ -803,7 +876,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     <th>Issue Date</th>
                                     <th>Due Date</th>
                                     <th>Status</th>
-                                    <th>Subtotal</th>
                                     <th>Tax</th>
                                     <th>Total</th>
                                     <th>Paid</th>
@@ -816,7 +888,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             <tbody>
                                 {invoicesLoading && invoices.length === 0 ? (
                                     <tr>
-                                        <td colSpan={14} style={{ textAlign: 'center', padding: 40 }}>
+                                        <td colSpan={13} style={{ textAlign: 'center', padding: 40 }}>
                                             Loading purchase invoices…
                                         </td>
                                     </tr>
@@ -837,7 +909,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                 {inv.status || '—'}
                                             </span>
                                         </td>
-                                        <td>SAR {(inv.subtotal || 0).toLocaleString()}</td>
                                         <td style={{ fontSize: '0.75rem' }}>SAR {(inv.vat_amount || 0).toLocaleString()}</td>
                                         <td>
                                             <strong>SAR {(inv.grand_total || 0).toLocaleString()}</strong>
@@ -865,7 +936,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 ))}
                                 {!invoicesLoading && invoices.length === 0 && (
                                     <tr>
-                                        <td colSpan={14} style={{ textAlign: 'center', padding: 40 }}>
+                                        <td colSpan={13} style={{ textAlign: 'center', padding: 40 }}>
                                             No purchase invoices yet
                                         </td>
                                     </tr>
@@ -888,7 +959,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--color-border)', minWidth: 160 }}
                             >
                                 <option value="all">All Vendors</option>
-                                {uniqueVendors.map((v) => (
+                                {priceReportVendorOptions.map((v) => (
                                     <option key={v} value={v}>
                                         {v}
                                     </option>
@@ -905,9 +976,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--color-border)', minWidth: 160 }}
                             >
                                 <option value="all">All Products</option>
-                                {PI_INVENTORY_ITEMS.map((p) => (
-                                    <option key={p.id} value={p.id}>
-                                        {p.name}
+                                {invoicedProductOptions.map((p) => (
+                                    <option key={p.value} value={p.value}>
+                                        {p.label}
                                     </option>
                                 ))}
                             </select>

@@ -12,6 +12,7 @@ import {
     listSupplierInvoices,
     updateSupplierInvoice,
 } from '../../services/supplierApi';
+import WorkshopPurchaseInvoicesSupplierPanel from './WorkshopPurchaseInvoicesSupplierPanel';
 
 const INVENTORY_ITEMS = [
     { id: 1, name: 'Engine Oil — Full Synthetic 5W40', price: 45, unit: 'liter', lastPrice: 42 },
@@ -522,6 +523,22 @@ export default function SupplierSalesInvoices() {
                 creates an <strong>Accounts Receivable</strong> for you and auto-creates a{' '}
                 <strong>Purchase Invoice</strong> on the workshop side. Stock is updated on both ends.
             </div>
+            <div
+                style={{
+                    padding: 14,
+                    background: '#FFFBEB',
+                    border: '1px solid #FDE68A',
+                    borderRadius: 12,
+                    marginBottom: 16,
+                    fontSize: '0.875rem',
+                    color: '#92400E',
+                }}
+            >
+                <strong>Workshop purchase invoices</strong> — when a workshop submits a purchase invoice to you as
+                supplier, it appears in the table below. You can <strong>edit</strong> ref / description / notes while
+                it is pending, then <strong>approve</strong> or <strong>reject</strong> (stock applies on approve).
+            </div>
+            <WorkshopPurchaseInvoicesSupplierPanel variant="embedded" />
             <div className="ws-page-header">
                 <div>
                     <h2 className="ws-page-title">Sales Invoices (AR)</h2>
@@ -568,7 +585,7 @@ export default function SupplierSalesInvoices() {
                             color: 'var(--color-text-muted)',
                         }}
                     >
-                        No sales invoices yet
+                        No warehouse sales invoices yet
                     </p>
                     <button
                         className="btn-portal"
