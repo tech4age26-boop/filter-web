@@ -130,7 +130,9 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
             const msg = String(e?.message || '');
             const missingWorkshopIdColumn =
                 msg.includes('suppliers.workshop_id') || msg.includes('workshop_id');
-            if (missingWorkshopIdColumn) {
+            const unauthorized =
+                /unauthorized|401|forbidden|403|jwt|token/i.test(msg);
+            if (missingWorkshopIdColumn || unauthorized) {
                 try {
                     const res = await getRegisteredWorkshopSuppliers({
                         ...(q ? { q } : {}),
@@ -154,7 +156,9 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                     });
                     setUsingRegisteredFallback(true);
                     setListError(
-                        'Loaded via fallback: /workshop-staff/suppliers currently fails due backend schema (missing suppliers.workshop_id).',
+                        missingWorkshopIdColumn
+                            ? 'Loaded via fallback: /workshop-staff/suppliers currently fails due backend schema (missing suppliers.workshop_id).'
+                            : 'Loaded via fallback: /workshop-staff/suppliers is not authorized for this session/token.',
                     );
                     return;
                 } catch {
@@ -616,37 +620,62 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                     No registered suppliers found.
                                 </div>
                             ) : (
-                                <div>
-                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, marginBottom: 6, display: 'block' }}>
-                                        Select supplier(s) from dropdown
-                                    </label>
-                                    <select
-                                        multiple
-                                        value={selectedRegisteredIds}
-                                        onChange={(e) => {
-                                            const picked = Array.from(e.target.selectedOptions).map((opt) => String(opt.value));
-                                            setSelectedRegisteredIds(picked);
-                                        }}
-                                        style={{
-                                            width: '100%',
-                                            minHeight: 220,
-                                            padding: '10px 12px',
-                                            borderRadius: 10,
-                                            border: '1px solid var(--color-border)',
-                                            fontSize: '0.84rem',
-                                            background: '#fff',
-                                        }}
-                                    >
-                                        {registeredSuppliers.map((s) => (
-                                            <option key={s.id} value={s.id}>
-                                                {s.name} · {s.phone || '—'} · VAT {s.vatId || '—'}
-                                            </option>
-                                        ))}
-                                    </select>
+                                <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, overflow: 'hidden' }}>
+                                    <table className="ws-table" style={{ margin: 0 }}>
+                                        <thead>
+                                            <tr>
+                                                <th>Supplier</th>
+                                                <th>Contact</th>
+                                                <th>CR</th>
+                                                <th>VAT</th>
+                                                <th style={{ textAlign: 'right' }}>Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {registeredSuppliers.map((s) => {
+                                                const selected = selectedRegisteredIds.includes(String(s.id));
+                                                return (
+                                                    <tr
+                                                        key={s.id}
+                                                        onClick={() => toggleRegisteredSupplier(s.id)}
+                                                        style={{
+                                                            cursor: 'pointer',
+                                                            background: selected ? '#EFF6FF' : 'transparent',
+                                                        }}
+                                                    >
+                                                        <td>
+                                                            <strong>{s.name}</strong>
+                                                        </td>
+                                                        <td>{s.phone || s.email || '—'}</td>
+                                                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{s.crNumber || '—'}</td>
+                                                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{s.vatId || '—'}</td>
+                                                        <td style={{ textAlign: 'right' }}>
+                                                            <button
+                                                                type="button"
+                                                                className="btn-portal"
+                                                                style={{
+                                                                    padding: '5px 10px',
+                                                                    fontSize: '0.75rem',
+                                                                    background: selected ? '#0F172A' : undefined,
+                                                                    color: selected ? '#fff' : undefined,
+                                                                }}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    toggleRegisteredSupplier(s.id);
+                                                                }}
+                                                            >
+                                                                {selected ? 'Selected' : 'Select'}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
                                 </div>
                             )}
                             <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-                                Select from registered suppliers and add them to your workshop.
+                                Select suppliers from the table and click "Add Selected".
                             </p>
                         </div>
                     </Modal>

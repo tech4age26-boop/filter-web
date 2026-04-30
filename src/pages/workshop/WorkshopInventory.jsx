@@ -42,9 +42,22 @@ function normalizeAdjustmentEntry(raw) {
     const at = raw.at ?? raw.createdAt;
     if (!at) return null;
     const id = String(raw.id ?? raw.logId ?? `${at}-${raw.previousQty}-${raw.newQty}`);
-    const previousQty = Number(raw.previousQty) || 0;
-    const newQty = Number(raw.newQty) || 0;
-    const delta = raw.delta != null ? Number(raw.delta) : newQty - previousQty;
+    const previousQty = raw.previousQty == null ? null : Number(raw.previousQty);
+    const newQty = raw.newQty == null ? null : Number(raw.newQty);
+    const delta =
+        raw.delta != null
+            ? Number(raw.delta)
+            : previousQty != null && newQty != null
+              ? newQty - previousQty
+              : 0;
+    const source = String(raw.source ?? 'manual');
+    const reference =
+        raw.reference && typeof raw.reference === 'object' && !Array.isArray(raw.reference)
+            ? {
+                type: raw.reference.type ? String(raw.reference.type) : '',
+                id: raw.reference.id != null ? String(raw.reference.id) : '',
+            }
+            : null;
     return {
         id,
         at: String(at),
@@ -52,7 +65,10 @@ function normalizeAdjustmentEntry(raw) {
         newQty,
         delta,
         reason: raw.reason || '—',
+        note: raw.note || null,
         adjustedBy: raw.adjustedBy || null,
+        source,
+        reference,
     };
 }
 
@@ -1045,7 +1061,7 @@ export default function WorkshopInventory({
 
             <AnimatePresence>
                 {logProduct && (
-                    <Modal onClose={() => setLogProduct(null)} title="Manual adjustment log" width="720px">
+                    <Modal onClose={() => setLogProduct(null)} title="Inventory stock timeline" width="780px">
                         <div style={{ padding: '0 24px 24px' }}>
                             <div style={{ marginBottom: 20, padding: '14px 16px', background: '#F9FAFB', borderRadius: 12, border: '1px solid var(--color-border-light)' }}>
                                 <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', margin: '0 0 6px' }}>Product</p>
@@ -1079,11 +1095,12 @@ export default function WorkshopInventory({
                                 if (!merged.length) {
                                     return (
                                         <p style={{ margin: 0, padding: '24px 0', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
-                                            No manual adjustments yet. Use <strong>Manual Adjust</strong> with a branch selected to record changes on the server.
+                                            No timeline entries yet for this branch/product.
                                         </p>
                                     );
                                 }
                                 const showByCol = merged.some((e) => e.adjustedBy?.name || e.adjustedBy?.id);
+                                const showRefCol = merged.some((e) => e.reference?.id || e.source !== 'manual');
                                 return (
                                     <div style={{ overflowX: 'auto', maxHeight: 'min(420px, 55vh)', overflowY: 'auto', border: '1px solid var(--color-border-light)', borderRadius: 12 }}>
                                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
@@ -1094,6 +1111,9 @@ export default function WorkshopInventory({
                                                     <th style={{ textAlign: 'right', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>To</th>
                                                     <th style={{ textAlign: 'right', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>Δ</th>
                                                     <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>Reason</th>
+                                                    {showRefCol ? (
+                                                        <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>Source / Ref</th>
+                                                    ) : null}
                                                     {showByCol ? (
                                                         <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>By</th>
                                                     ) : null}
@@ -1105,12 +1125,18 @@ export default function WorkshopInventory({
                                                         <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', color: 'var(--color-text-muted)' }}>
                                                             {new Date(e.at).toLocaleString()}
                                                         </td>
-                                                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>{e.previousQty}</td>
-                                                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>{e.newQty}</td>
+                                                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>{e.previousQty == null ? '—' : e.previousQty}</td>
+                                                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>{e.newQty == null ? '—' : e.newQty}</td>
                                                         <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: e.delta >= 0 ? '#047857' : '#B91C1C' }}>
                                                             {e.delta > 0 ? `+${e.delta}` : e.delta}
                                                         </td>
                                                         <td style={{ padding: '12px 14px' }}>{e.reason}</td>
+                                                        {showRefCol ? (
+                                                            <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>
+                                                                <span style={{ textTransform: 'capitalize' }}>{String(e.source || 'manual').replace(/_/g, ' ')}</span>
+                                                                {e.reference?.id ? ` · ${e.reference.type || 'ref'} #${e.reference.id}` : ''}
+                                                            </td>
+                                                        ) : null}
                                                         {showByCol ? (
                                                             <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>
                                                                 {e.adjustedBy?.name || e.adjustedBy?.id || '—'}
