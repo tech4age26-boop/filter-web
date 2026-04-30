@@ -1,7 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { DollarSign, ShoppingCart, AlertTriangle, ClipboardCheck, Users, Package, Wrench, TrendingUp, Building2, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
-import { getWorkshopTechnicians, unwrapWorkshopStaffList, normalizeWorkshopEmployee, flattenWorkshopStaffRow, getWorkshopStaffBranchProducts, unwrapWorkshopBranchListResponse, getWorkshopStaffProducts } from '../../services/workshopStaffApi';
+import {
+    getWorkshopTechnicians,
+    unwrapWorkshopStaffList,
+    normalizeWorkshopEmployee,
+    flattenWorkshopStaffRow,
+    getWorkshopStaffBranchProducts,
+    unwrapWorkshopBranchListResponse,
+    getWorkshopStaffProducts,
+    qs,
+    branchScopeParams,
+} from '../../services/workshopStaffApi';
 import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
 
 /** Match WorkshopDepartments — branch and union handlers can return different wrapper shapes. */
@@ -212,14 +222,21 @@ export default function WorkshopDashboard({
 
     const loadPendingApprovalsCount = useCallback(async () => {
         try {
-            const response = await apiFetch('/workshop-staff/petty-cash/requests?limit=1&offset=0&queue=pending');
+            const response = await apiFetch(
+                `/workshop-staff/petty-cash/requests${qs({
+                    limit: 1,
+                    offset: 0,
+                    queue: 'pending',
+                    ...branchScopeParams(selectedBranchId),
+                })}`,
+            );
             if (response?.success) {
                 setPendingApprovalsCount(Number(response.total) || 0);
             }
         } catch {
             setPendingApprovalsCount(0);
         }
-    }, []);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         loadPendingApprovalsCount();

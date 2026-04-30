@@ -1,7 +1,7 @@
 import {
     LayoutDashboard, Package, ShoppingCart, Warehouse, AlertTriangle, Users,
     FileText, CreditCard, DollarSign, BookOpen, Landmark, FileSpreadsheet,
-    BadgeDollarSign, ArrowLeftRight, Receipt, UserPlus, Box
+    BadgeDollarSign, ArrowLeftRight, Receipt, UserPlus, Box, ClipboardList,
 } from 'lucide-react';
 
 export const NAV_GROUPS = [
@@ -17,6 +17,7 @@ export const NAV_GROUPS = [
     ]},
     { label: 'FINANCE', items: [
         { id: 'sales_invoices', label: 'Sales Invoices (AR)', icon: FileText },
+        { id: 'workshop_purchase_invoices', label: 'Workshop purchases', icon: ClipboardList },
         { id: 'purchase_invoices', label: 'Purchase Invoices (AP)', icon: ShoppingCart },
         { 
             id: 'accounting', 

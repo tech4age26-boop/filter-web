@@ -60,7 +60,7 @@ function normalizeSupplierRow(s) {
     };
 }
 
-export default function WorkshopSuppliers({ selectedBranchId = 'all', branches = [] }) {
+export default function WorkshopSuppliers({ selectedBranchId = 'all', branches = [], onTabChange }) {
     const branchLabel = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
         return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
@@ -488,6 +488,16 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                                     className="btn-portal"
                                                     style={{ padding: '6px 12px', fontSize: '0.75rem' }}
                                                     onClick={() => {
+                                                        if (typeof onTabChange === 'function') {
+                                                            onTabChange('purchases', {
+                                                                autoOpenModal: true,
+                                                                prefillSupplier: {
+                                                                    id: s.id,
+                                                                    name: s.name,
+                                                                },
+                                                            });
+                                                            return;
+                                                        }
                                                         setSelectedSupplier(s);
                                                         setShowPurchaseForm(true);
                                                     }}

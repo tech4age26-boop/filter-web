@@ -266,6 +266,20 @@ export const linkSuppliersToWorkshop = (supplierIds = []) =>
         body: JSON.stringify({ supplierIds: (supplierIds || []).map(String) }),
     });
 
+/** Workshop — create supplier purchase invoice (starts pending; no stock until supplier approves). */
+export const createWorkshopSupplierPurchaseInvoice = (body) =>
+    apiFetch('/workshop-staff/supplier-purchase-invoices', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
+/** Workshop — list supplier purchase invoices. Query: status, supplierId, limit, offset (+ optional branchId). */
+export const listWorkshopSupplierPurchaseInvoices = (params = {}) =>
+    apiFetch(`/workshop-staff/supplier-purchase-invoices${qs(params)}`);
+
+/** Workshop — single invoice */
+export const getWorkshopSupplierPurchaseInvoice = (invoiceId) =>
+    apiFetch(`/workshop-staff/supplier-purchase-invoices/${encodeURIComponent(String(invoiceId))}`);
 
 /**
  * Map API user row to UI row (WorkshopEmployees / dashboard).

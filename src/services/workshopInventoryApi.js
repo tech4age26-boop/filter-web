@@ -42,7 +42,9 @@ function qs(params) {
  *             delta: number,
  *             reason: string,
  *             adjustedBy?: { id, name },
- *             source?: 'manual' | 'pos' | 'purchase_receipt'
+ *             source?: 'manual' | 'pos' | 'purchase_receipt' | 'supplier_purchase_invoice' | string
+ *             (supplier_purchase_invoice = inventory_movements with movementType
+ *             workshop_supplier_purchase_received when a supplier approves a workshop purchase invoice)
  *           }
  *         ],
  *         total?: number

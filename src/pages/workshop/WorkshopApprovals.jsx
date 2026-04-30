@@ -5,6 +5,33 @@ import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
 import { qs, branchScopeParams } from '../../services/workshopStaffApi';
 
+/** Petty-cash / approval request kinds → fixed UI buckets */
+function requestKindKey(row) {
+    return String(row?.kind ?? row?.type ?? '')
+        .trim()
+        .toLowerCase();
+}
+
+function isTopUpRequest(row) {
+    const k = requestKindKey(row);
+    return k === 'fund_request' || k === 'fund' || k === 'top_up' || k === 'topup' || k === 'reload';
+}
+
+function isExpenseRequest(row) {
+    const k = requestKindKey(row);
+    return k === 'expense' || k === 'expenses';
+}
+
+function formatRequestKindLabel(kind) {
+    const k = String(kind || '')
+        .trim()
+        .toLowerCase();
+    if (isTopUpRequest({ kind })) return 'Top up';
+    if (isExpenseRequest({ kind })) return 'Expense';
+    if (!kind) return '—';
+    return String(kind).replace(/_/g, ' ');
+}
+
 function rowMatchesBranch(row, branchId, branchName = '') {
     if (branchId == null || branchId === '' || branchId === 'all') return true;
     const bid = String(branchId);
@@ -22,7 +49,8 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
         return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || '';
     }, [branches, selectedBranchId]);
     const [approvals, setApprovals] = useState([]);
-    const [filterType, setFilterType] = useState('all');
+    /** all | topup | expenses */
+    const [requestTypeFilter, setRequestTypeFilter] = useState('all');
     const [queueFilter, setQueueFilter] = useState('all');
     const [rejectDialog, setRejectDialog] = useState(null);
     const [rejectReason, setRejectReason] = useState('');
@@ -73,11 +101,14 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
         loadApprovals();
     }, [loadApprovals]);
 
-    const typeOptions = useMemo(() => {
-        return Array.from(new Set(approvals.map((a) => a.kind).filter(Boolean)));
-    }, [approvals]);
-
-    const filtered = approvals.filter((a) => filterType === 'all' || a.kind === filterType);
+    const filtered = useMemo(() => {
+        return approvals.filter((a) => {
+            if (requestTypeFilter === 'all') return true;
+            if (requestTypeFilter === 'topup') return isTopUpRequest(a);
+            if (requestTypeFilter === 'expenses') return isExpenseRequest(a);
+            return true;
+        });
+    }, [approvals, requestTypeFilter]);
     const typeColors = { expense: 'ws-badge--yellow', fund_request: 'ws-badge--blue', payment: 'ws-badge--green', advance: 'ws-badge--purple', purchase: 'ws-badge--purple' };
     const statusColors = { pending: 'ws-badge--yellow', approved: 'ws-badge--green', rejected: 'ws-badge--red' };
 
@@ -151,11 +182,15 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                         <option value="approved">Approved</option>
                         <option value="rejected">Rejected</option>
                     </select>
-                    <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: '0.875rem', minWidth: 160 }}>
-                        <option value="all">All Types</option>
-                        {typeOptions.map(t => (
-                            <option key={t} value={t}>{t.replace('_', ' ')}</option>
-                        ))}
+                    <select
+                        value={requestTypeFilter}
+                        onChange={(e) => setRequestTypeFilter(e.target.value)}
+                        style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: '0.875rem', minWidth: 160 }}
+                        aria-label="Request type"
+                    >
+                        <option value="all">All</option>
+                        <option value="topup">Top up</option>
+                        <option value="expenses">Expenses</option>
                     </select>
                     <button className="btn-portal" onClick={loadApprovals} disabled={isLoading}>
                         <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
@@ -173,7 +208,11 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                             <tr><td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>{isLoading ? 'Loading approvals...' : 'No approvals found'}</td></tr>
                         ) : filtered.map(a => (
                             <tr key={a.id}>
-                                <td><span className={`ws-badge ${typeColors[a.kind] || 'ws-badge--gray'}`}>{a.kind?.replace('_', ' ')}</span></td>
+                                <td>
+                                    <span className={`ws-badge ${typeColors[a.kind] || 'ws-badge--gray'}`}>
+                                        {formatRequestKindLabel(a.kind)}
+                                    </span>
+                                </td>
                                 <td><strong>{currency} {(a.amount || 0).toLocaleString()}</strong></td>
                                 <td>{a.cashier?.name || a.employee?.name || '—'}</td>
                                 <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>{formatDate(a.requestedAt)}</td>
@@ -215,7 +254,10 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                 {viewDialog && (
                     <Modal title="Approval Details" onClose={() => setViewDialog(null)}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--color-text-muted)' }}>Type</span><span className="capitalize">{viewDialog.kind?.replace('_', ' ')}</span></div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--color-text-muted)' }}>Type</span>
+                                <span className="capitalize">{formatRequestKindLabel(viewDialog.kind)}</span>
+                            </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--color-text-muted)' }}>Amount</span><strong>{currency} {(viewDialog.amount || 0).toLocaleString()}</strong></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--color-text-muted)' }}>Requested by</span><span>{viewDialog.cashier?.name || viewDialog.employee?.name || '—'}</span></div>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--color-text-muted)' }}>Category</span><span>{viewDialog.category?.name || '—'}</span></div>

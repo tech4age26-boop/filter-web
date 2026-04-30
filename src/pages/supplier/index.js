@@ -7,6 +7,7 @@ export { default as SupplierCatalog } from './SupplierCatalog';
 export { default as SupplierStaff } from './SupplierStaff';
 export { default as SupplierSalesInvoices } from './SupplierSalesInvoices';
 export { default as SupplierPurchaseInvoices } from './SupplierPurchaseInvoices';
+export { default as SupplierWorkshopPurchaseInvoices } from './SupplierWorkshopPurchaseInvoices';
 export { default as SupplierCashBank } from './SupplierCashBank';
 export { default as SupplierExpenses } from './SupplierExpenses';
 export { default as SupplierAccounting } from './SupplierAccounting';

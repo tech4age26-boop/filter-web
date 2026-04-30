@@ -21,6 +21,7 @@ import WorkshopCommissions from './workshop/WorkshopCommissions';
 import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
 import { apiFetch } from '../services/api';
+import { qs, branchScopeParams } from '../services/workshopStaffApi';
 import './workshop/Workshop.css';
 import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
@@ -95,6 +96,7 @@ export default function WorkshopLayout() {
 
     const [pendingApprovals, setPendingApprovals] = useState(0);
     const [dashboardLowStockCount, setDashboardLowStockCount] = useState(0);
+    const [apiLoading, setApiLoading] = useState(false);
 
     const loadBranches = useCallback(async () => {
         try {
@@ -113,14 +115,21 @@ export default function WorkshopLayout() {
 
     const loadPendingApprovalsCount = useCallback(async () => {
         try {
-            const response = await apiFetch('/workshop-staff/petty-cash/requests?limit=1&offset=0&queue=pending');
+            const response = await apiFetch(
+                `/workshop-staff/petty-cash/requests${qs({
+                    limit: 1,
+                    offset: 0,
+                    queue: 'pending',
+                    ...branchScopeParams(selectedBranch),
+                })}`,
+            );
             if (response?.success) {
                 setPendingApprovals(Number(response.total) || 0);
             }
         } catch {
             setPendingApprovals(0);
         }
-    }, []);
+    }, [selectedBranch]);
 
     useEffect(() => {
         loadPendingApprovalsCount();
@@ -136,6 +145,15 @@ export default function WorkshopLayout() {
             window.removeEventListener('workshop-approvals-updated', handleApprovalsUpdated);
         };
     }, [loadPendingApprovalsCount]);
+
+    useEffect(() => {
+        const handleApiLoading = (event) => {
+            const pending = Number(event?.detail?.pending || 0);
+            setApiLoading(pending > 0);
+        };
+        window.addEventListener('filter-api-loading', handleApiLoading);
+        return () => window.removeEventListener('filter-api-loading', handleApiLoading);
+    }, []);
 
     const selectedBranchName = useMemo(() => {
         if (selectedBranch === 'all') return 'All Branches';
@@ -192,7 +210,7 @@ export default function WorkshopLayout() {
                 />
             );
             case 'approvals':   return <WorkshopApprovals selectedBranchId={selectedBranch} branches={branches} />;
-            case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={branches} />;
+            case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={branches} onTabChange={handleTabChange} />;
             case 'reports':     return <WorkshopReports selectedBranchId={selectedBranch} branches={branches} />;
             case 'pos-monitoring': return <WorkshopPosMonitoring selectedBranchId={selectedBranch} branches={branches} />;
             case 'catalog-new': return (
@@ -331,7 +349,15 @@ export default function WorkshopLayout() {
                         <div className="ws-online-badge"><div className="ws-online-dot"/> Online</div>
                     </div>
                 </header>
-                <main className="ws-content">{renderContent()}</main>
+                <main className="ws-content">
+                    {apiLoading && (
+                        <div className="ws-global-loader" role="status" aria-live="polite">
+                            <div className="ws-global-loader__spinner" />
+                            <span>Loading...</span>
+                        </div>
+                    )}
+                    {renderContent()}
+                </main>
             </div>
         </div>
     );
