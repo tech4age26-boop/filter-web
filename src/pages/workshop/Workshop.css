@@ -1032,7 +1032,9 @@
 /* Purchase invoice line grid — table layout keeps header/body columns aligned */
 .ws-pi-lines-section {
     padding: 0;
-    overflow: hidden;
+    /* `overflow: hidden` clips native <select> dropdowns in some browsers */
+    overflow-x: auto;
+    overflow-y: visible;
 }
 
 .ws-pi-lines-scroll {
@@ -1119,4 +1121,44 @@
     min-width: 0;
     box-sizing: border-box;
     display: block;
+}
+
+.ws-content {
+    position: relative;
+}
+
+.ws-global-loader {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    z-index: 30;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid #e2e8f0;
+    background: rgba(255, 255, 255, 0.95);
+    color: #334155;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+}
+
+.ws-global-loader__spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #e2e8f0;
+    border-top-color: #d4a017;
+    animation: ws-global-loader-spin 0.8s linear infinite;
+}
+
+@keyframes ws-global-loader-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }

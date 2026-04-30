@@ -162,6 +162,27 @@ export const createSupplierSuperSupplierPurchase = (body) =>
 export const listSupplierSuperSupplierAudit = (params = {}) =>
     apiFetch(withQuery('/supplier/super-supplier-audit', params));
 
+// Workshop purchase invoices (workshop submits → supplier reviews / stock on approve)
+export const listSupplierWorkshopPurchaseInvoices = (params = {}) =>
+    apiFetch(withQuery('/supplier/workshop-purchase-invoices', params));
+export const getSupplierWorkshopPurchaseInvoice = (id) =>
+    apiFetch(`/supplier/workshop-purchase-invoices/${encodeURIComponent(String(id))}`);
+export const updateSupplierWorkshopPurchaseInvoice = (id, body) =>
+    apiFetch(`/supplier/workshop-purchase-invoices/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+export const approveSupplierWorkshopPurchaseInvoice = (id) =>
+    apiFetch(`/supplier/workshop-purchase-invoices/${encodeURIComponent(String(id))}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+    });
+export const rejectSupplierWorkshopPurchaseInvoice = (id, body) =>
+    apiFetch(`/supplier/workshop-purchase-invoices/${encodeURIComponent(String(id))}/reject`, {
+        method: 'POST',
+        body: JSON.stringify(body || {}),
+    });
+
 /** Download PDF for a payable (GET /supplier/payables/:id/pdf). Returns blob + suggested filename from Content-Disposition when present. */
 export async function downloadSupplierPayablePdf(id) {
     const token = localStorage.getItem('filter_auth_token');

@@ -37,38 +37,71 @@ function firstFiniteNumber(values) {
     return null;
 }
 
+function humanizeInventoryLogSource(source) {
+    const s = String(source || 'manual').toLowerCase();
+    if (s === 'supplier_purchase_invoice') return 'Supplier purchase (approved)';
+    if (s === 'pos') return 'POS';
+    if (s === 'purchase_receipt') return 'Purchase receipt';
+    return s.replace(/_/g, ' ');
+}
+
+function humanizeInventoryLogReferenceType(type) {
+    const t = String(type || '').toLowerCase();
+    if (t === 'workshop_supplier_purchase_invoice') return 'Workshop purchase invoice';
+    return t.replace(/_/g, ' ');
+}
+
 function normalizeAdjustmentEntry(raw) {
     if (!raw) return null;
-    const at = raw.at ?? raw.createdAt;
+    const at = raw.at ?? raw.createdAt ?? raw.created_at ?? raw.occurredAt;
     if (!at) return null;
-    const id = String(raw.id ?? raw.logId ?? `${at}-${raw.previousQty}-${raw.newQty}`);
-    const previousQty = raw.previousQty == null ? null : Number(raw.previousQty);
-    const newQty = raw.newQty == null ? null : Number(raw.newQty);
-    const delta =
-        raw.delta != null
-            ? Number(raw.delta)
-            : previousQty != null && newQty != null
-              ? newQty - previousQty
-              : 0;
-    const source = String(raw.source ?? 'manual');
+    const movementType = String(raw.movementType ?? raw.movement_type ?? '').toLowerCase();
+    let source = String(raw.source ?? 'manual').toLowerCase();
+    if (
+        (source === 'manual' || source === '') &&
+        (movementType === 'workshop_supplier_purchase_received' || movementType.includes('supplier_purchase'))
+    ) {
+        source = 'supplier_purchase_invoice';
+    }
+    const id = String(
+        raw.id ?? raw.logId ?? raw.movementId ?? raw.movement_id ?? `${at}-${raw.previousQty}-${raw.newQty}`,
+    );
+    const previousQty =
+        raw.previousQty != null
+            ? Number(raw.previousQty)
+            : raw.previous_qty != null
+              ? Number(raw.previous_qty)
+              : null;
+    const newQty =
+        raw.newQty != null ? Number(raw.newQty) : raw.new_qty != null ? Number(raw.new_qty) : null;
+    let delta = 0;
+    if (raw.delta != null) delta = Number(raw.delta);
+    else if (raw.qty != null) delta = Number(raw.qty);
+    else if (previousQty != null && newQty != null) delta = newQty - previousQty;
+    const referenceRaw = raw.reference ?? raw.reference_json;
     const reference =
-        raw.reference && typeof raw.reference === 'object' && !Array.isArray(raw.reference)
+        referenceRaw && typeof referenceRaw === 'object' && !Array.isArray(referenceRaw)
             ? {
-                type: raw.reference.type ? String(raw.reference.type) : '',
-                id: raw.reference.id != null ? String(raw.reference.id) : '',
+                type: referenceRaw.type ? String(referenceRaw.type) : '',
+                id: referenceRaw.id != null ? String(referenceRaw.id) : '',
             }
             : null;
+    const reason =
+        raw.reason ||
+        (source === 'supplier_purchase_invoice' ? 'Supplier purchase (approved)' : null) ||
+        '—';
     return {
         id,
         at: String(at),
         previousQty,
         newQty,
         delta,
-        reason: raw.reason || '—',
-        note: raw.note || null,
-        adjustedBy: raw.adjustedBy || null,
+        reason,
+        note: raw.note ?? raw.notes ?? null,
+        adjustedBy: raw.adjustedBy ?? raw.adjusted_by ?? raw.user ?? null,
         source,
         reference,
+        movementType: movementType || undefined,
     };
 }
 
@@ -76,6 +109,8 @@ function extractAdjustmentEntries(res) {
     const list =
         (Array.isArray(res?.data?.entries) && res.data.entries)
         || (Array.isArray(res?.entries) && res.entries)
+        || (Array.isArray(res?.data?.movements) && res.data.movements)
+        || (Array.isArray(res?.movements) && res.movements)
         || [];
     return list.map(normalizeAdjustmentEntry).filter(Boolean);
 }
@@ -677,7 +712,10 @@ export default function WorkshopInventory({
                             }}
                         >
                             <div className="mc-header-filter" style={{ width: '100%', maxWidth: 'none' }}>
-                                <div className="mc-filter-select-wrapper" style={{ position: 'relative' }}>
+                                <div
+                                    className="mc-filter-select-wrapper"
+                                    style={{ position: 'relative', width: '100%', minWidth: 'min(900px, 100%)', maxWidth: '100%' }}
+                                >
                                     <Search className="mc-filter-icon" size={16} />
                                     <input
                                         type="text"
@@ -1100,7 +1138,9 @@ export default function WorkshopInventory({
                                     );
                                 }
                                 const showByCol = merged.some((e) => e.adjustedBy?.name || e.adjustedBy?.id);
-                                const showRefCol = merged.some((e) => e.reference?.id || e.source !== 'manual');
+                                const showRefCol = merged.some(
+                                    (e) => e.reference?.id || (e.source && e.source !== 'manual'),
+                                );
                                 return (
                                     <div style={{ overflowX: 'auto', maxHeight: 'min(420px, 55vh)', overflowY: 'auto', border: '1px solid var(--color-border-light)', borderRadius: 12 }}>
                                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
@@ -1133,8 +1173,14 @@ export default function WorkshopInventory({
                                                         <td style={{ padding: '12px 14px' }}>{e.reason}</td>
                                                         {showRefCol ? (
                                                             <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>
-                                                                <span style={{ textTransform: 'capitalize' }}>{String(e.source || 'manual').replace(/_/g, ' ')}</span>
-                                                                {e.reference?.id ? ` · ${e.reference.type || 'ref'} #${e.reference.id}` : ''}
+                                                                <span>{humanizeInventoryLogSource(e.source)}</span>
+                                                                {e.reference?.id ? (
+                                                                    <span>
+                                                                        {' '}
+                                                                        · {humanizeInventoryLogReferenceType(e.reference.type)} #
+                                                                        {e.reference.id}
+                                                                    </span>
+                                                                ) : null}
                                                             </td>
                                                         ) : null}
                                                         {showByCol ? (

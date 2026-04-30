@@ -20,6 +20,7 @@ import SupplierCatalog from './supplier/SupplierCatalog';
 import SupplierStaff from './supplier/SupplierStaff';
 import SupplierSalesInvoices from './supplier/SupplierSalesInvoices';
 import SupplierPurchaseInvoices from './supplier/SupplierPurchaseInvoices';
+import SupplierWorkshopPurchaseInvoices from './supplier/SupplierWorkshopPurchaseInvoices';
 import SupplierCashBank from './supplier/SupplierCashBank';
 import SupplierExpenses from './supplier/SupplierExpenses';
 import SupplierAccountingPage from './supplier/SupplierAccountingPage';
@@ -132,6 +133,7 @@ export default function SupplierLayout() {
             case 'catalog': return <SupplierCatalog/>;
             case 'employees': return <SupplierStaff/>;
             case 'sales_invoices': return <SupplierSalesInvoices/>;
+            case 'workshop_purchase_invoices': return <SupplierWorkshopPurchaseInvoices/>;
             case 'purchase_invoices': return <SupplierPurchaseInvoices/>;
             case 'cash_bank': return <SupplierCashBank/>;
             case 'expenses': return <SupplierExpenses/>;

@@ -446,15 +446,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             const master = row?.product && typeof row.product === 'object' ? row.product : {};
             const merged = {
                 ...row,
-                ...master,
+                    ...master,
                 id: master.id ?? row.productId ?? row.product_id ?? row.id,
-                openingQty: row?.openingQty ?? master?.openingQty,
-                opening_qty: row?.opening_qty ?? master?.opening_qty,
-                currentQty: row?.currentQty ?? master?.currentQty,
-                current_qty: row?.current_qty ?? master?.current_qty,
-                qtyOnHand: row?.qtyOnHand ?? master?.qtyOnHand,
-                qty_on_hand: row?.qty_on_hand ?? master?.qty_on_hand,
-                criticalStockPoint: row?.criticalStockPoint ?? master?.criticalStockPoint,
+                    openingQty: row?.openingQty ?? master?.openingQty,
+                    opening_qty: row?.opening_qty ?? master?.opening_qty,
+                    currentQty: row?.currentQty ?? master?.currentQty,
+                    current_qty: row?.current_qty ?? master?.current_qty,
+                    qtyOnHand: row?.qtyOnHand ?? master?.qtyOnHand,
+                    qty_on_hand: row?.qty_on_hand ?? master?.qty_on_hand,
+                    criticalStockPoint: row?.criticalStockPoint ?? master?.criticalStockPoint,
                 salePrice: row?.salePriceOverride ?? master?.salePrice ?? row?.salePrice,
                 purchasePrice: row?.purchasePriceOverride ?? master?.purchasePrice ?? row?.purchasePrice,
             };
@@ -547,9 +547,9 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             let flatServices = extractServices(svcRes).map(buildUnionServiceRow);
             if (flatProducts.length === 0 && flatServices.length === 0) {
                 const [p2, s2] = await Promise.all([
-                    getMyProducts().catch(() => null),
-                    getMyServices().catch(() => null),
-                ]);
+                getMyProducts().catch(() => null),
+                getMyServices().catch(() => null),
+            ]);
                 flatProducts = extractProducts(p2).map(buildUnionProductRow);
                 flatServices = extractServices(s2).map(buildUnionServiceRow);
             }
@@ -591,17 +591,17 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         const isReqProduct = presetType === 'product';
         setIsProductRequestFlow(isReqProduct);
         if (isReqProduct) {
-            setProdForm({
-                name: '',
+        setProdForm({
+            name: '',
                 arabic_name: '',
                 brand_name: '',
-                sku: '',
+            sku: '',
                 description: '',
                 notes: '',
                 master_department_id: '',
                 master_category_id: '',
                 sale_price_incl_vat: '',
-                category_id: '',
+            category_id: '',
                 type: 'product',
                 unit: defaultProductUnit || 'pcs',
                 purchase_price: '',
@@ -627,15 +627,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 category_id: '',
                 type: 'service',
                 unit: 'service',
-                purchase_price: '',
-                sale_price: '',
-                stock_qty: 0,
-                critical_level: '',
-                reorder_level: '',
-                department_ids: [],
-                branch_id: branches[0]?.id || '',
-                department_id: departments[0]?.id || '',
-            });
+            purchase_price: '',
+            sale_price: '',
+            stock_qty: 0,
+            critical_level: '',
+            reorder_level: '',
+            department_ids: [],
+            branch_id: branches[0]?.id || '',
+            department_id: departments[0]?.id || '',
+        });
         }
         setShowProdForm(true);
     };
@@ -784,29 +784,29 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 setShowProdForm(false);
                 setIsProductRequestFlow(false);
             } else {
-                await apiFetch('/workshop-staff/product/create', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        workshopId: String(workshopId),
-                        branchId: String(data.branch_id || ''),
-                        name: data.name,
-                        departmentId: String(data.department_id || ''),
-                        categoryId: String(data.category_id || ''),
-                        unit: data.unit || defaultProductUnit || 'pcs',
-                        purchasePrice: data.purchase_price,
-                        salePrice: data.sale_price,
-                        openingQty: data.stock_qty,
-                        minPriceCorporate: 0,
-                        maxPriceCorporate: 0,
-                        criticalStockPoint: data.critical_level,
-                        kmTypeValue: 0,
-                        allowDecimalQty: true,
-                        type: data.type || 'product',
-                        isActive: true,
-                    }),
-                });
-                await loadProducts();
-                setShowProdForm(false);
+            await apiFetch('/workshop-staff/product/create', {
+                method: 'POST',
+                body: JSON.stringify({
+                    workshopId: String(workshopId),
+                    branchId: String(data.branch_id || ''),
+                    name: data.name,
+                    departmentId: String(data.department_id || ''),
+                    categoryId: String(data.category_id || ''),
+                    unit: data.unit || defaultProductUnit || 'pcs',
+                    purchasePrice: data.purchase_price,
+                    salePrice: data.sale_price,
+                    openingQty: data.stock_qty,
+                    minPriceCorporate: 0,
+                    maxPriceCorporate: 0,
+                    criticalStockPoint: data.critical_level,
+                    kmTypeValue: 0,
+                    allowDecimalQty: true,
+                    type: data.type || 'product',
+                    isActive: true,
+                }),
+            });
+            await loadProducts();
+            setShowProdForm(false);
             }
         } catch (error) {
             setProductsError(
@@ -1204,7 +1204,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         }
                     >
                         {isProductRequestFlow && !editingProd ? (
-                            <div className="ws-form-grid">
+                        <div className="ws-form-grid">
                                 <p
                                     style={{
                                         gridColumn: '1 / -1',
@@ -1222,7 +1222,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         value={prodForm.name}
                                         onChange={(e) => setProdForm((f) => ({ ...f, name: e.target.value }))}
                                     />
-                                </div>
+                        </div>
                                 <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
                                     <label>Arabic name</label>
                                     <input
@@ -1523,7 +1523,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         >
                                             <AlertTriangle size={16} /> Current stock is at/below critical level —
                                             saving will notify all active suppliers.
-                                        </div>
+                            </div>
                                     )}
                             </>
                         )}
