@@ -76,6 +76,32 @@ function normalizeItem(raw) {
     };
 }
 
+/** Accept all known list shapes from /super-admin/approvals*. */
+function unwrapApprovalsListResponse(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (!payload || typeof payload !== 'object') return [];
+
+    const candidates = [
+        payload.items,
+        payload.data,
+        payload.results,
+        payload.rows,
+        payload.list,
+        payload?.data?.items,
+        payload?.data?.rows,
+        payload?.data?.results,
+        payload?.data?.list,
+    ];
+    for (const c of candidates) {
+        if (Array.isArray(c)) return c;
+    }
+
+    // Legacy numeric-key object fallback.
+    return Object.entries(payload || {})
+        .filter(([k]) => !Number.isNaN(Number(k)))
+        .map(([, v]) => v);
+}
+
 /** Entity-specific compact "meta chips" shown on the card. */
 function buildMetaChips(item) {
     const m = item.meta || {};
@@ -303,13 +329,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         listApprovals({ status, entityType: entityTypeFilter })
             .then((data) => {
                 if (cancelled) return;
-                const arr = Array.isArray(data)
-                    ? data
-                    : Array.isArray(data?.items)
-                        ? data.items
-                        : Object.entries(data || {})
-                            .filter(([k]) => !isNaN(Number(k)))
-                            .map(([, v]) => v);
+                const arr = unwrapApprovalsListResponse(data);
                 setItems(arr.map(normalizeItem));
             })
             .catch((err) => {

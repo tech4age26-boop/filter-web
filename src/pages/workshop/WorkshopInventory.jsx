@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Package, AlertCircle, Wallet, RefreshCw, History } from 'lucide-react';
+import { Search, Package, AlertCircle, Wallet, RefreshCw, History, X } from 'lucide-react';
 import './Workshop.css';
 
 import { AnimatePresence } from 'framer-motion';
@@ -97,6 +97,21 @@ function pickDisplayName(master, row) {
     const sku = master?.sku ?? row?.sku;
     if (sku != null && String(sku).trim() !== '') return String(sku).trim();
     return 'Unnamed';
+}
+
+function buildInventorySearchText(row) {
+    const fields = [
+        row?.name,
+        row?.sku,
+        row?.brand,
+        row?.departmentName,
+        row?.categoryName,
+        row?.id,
+    ];
+    return fields
+        .map((v) => (v == null ? '' : String(v).toLowerCase().trim()))
+        .filter(Boolean)
+        .join(' ');
 }
 
 /**
@@ -518,11 +533,12 @@ export default function WorkshopInventory({
     const filteredProducts = useMemo(() => {
         const q = searchQuery.toLowerCase().trim();
         if (!q) return productRows;
+        const terms = q.split(/\s+/).filter(Boolean);
         return productRows.filter(
-            (p) =>
-                p.name.toLowerCase().includes(q) ||
-                (p.brand && p.brand.toLowerCase().includes(q)) ||
-                (p.sku && p.sku.toLowerCase().includes(q)),
+            (p) => {
+                const hay = buildInventorySearchText(p);
+                return terms.every((term) => hay.includes(term));
+            },
         );
     }, [productRows, searchQuery]);
 
@@ -644,20 +660,51 @@ export default function WorkshopInventory({
                                 gap: 8,
                             }}
                         >
-                            <div className="mc-header-filter" style={{ width: '100%', maxWidth: '400px' }}>
-                                <div className="mc-filter-select-wrapper">
+                            <div className="mc-header-filter" style={{ width: '100%', maxWidth: 'none' }}>
+                                <div className="mc-filter-select-wrapper" style={{ position: 'relative' }}>
                                     <Search className="mc-filter-icon" size={16} />
                                     <input
                                         type="text"
-                                        placeholder="Search products..."
+                                        placeholder="Search by name, SKU, department, category..."
                                         className="mc-filter-select"
-                                        style={{ paddingLeft: '40px', width: '100%' }}
+                                        style={{ paddingLeft: '40px', paddingRight: searchQuery ? '70px' : '14px', width: '100%', minHeight: 46, fontSize: '0.95rem' }}
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                         disabled={isLoading}
                                     />
+                                    {searchQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSearchQuery('')}
+                                            aria-label="Clear search"
+                                            title="Clear search"
+                                            style={{
+                                                position: 'absolute',
+                                                right: 8,
+                                                top: '50%',
+                                                transform: 'translateY(-50%)',
+                                                border: 'none',
+                                                background: '#F3F4F6',
+                                                color: '#374151',
+                                                borderRadius: 8,
+                                                width: 26,
+                                                height: 26,
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
+                            <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                Showing <strong>{filteredProducts.length}</strong> of{' '}
+                                <strong>{productRows.length}</strong> products
+                                {searchQuery ? ` for "${searchQuery}"` : ''}.
+                            </p>
                             <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                                 Click a <strong>row</strong> for adjustment history.
                                 {isAllBranches
@@ -681,6 +728,18 @@ export default function WorkshopInventory({
                                             }}
                                         >
                                             Name
+                                        </th>
+                                        <th
+                                            style={{
+                                                padding: '16px 24px',
+                                                textAlign: 'left',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 800,
+                                                color: 'var(--color-text-muted)',
+                                                textTransform: 'uppercase',
+                                            }}
+                                        >
+                                            SKU
                                         </th>
                                         <th
                                             style={{
@@ -773,13 +832,13 @@ export default function WorkshopInventory({
                                 <tbody>
                                     {isLoading ? (
                                         <tr>
-                                            <td colSpan={8} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                            <td colSpan={9} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <p style={{ fontWeight: 600 }}>Loading inventory…</p>
                                             </td>
                                         </tr>
                                     ) : filteredProducts.length === 0 ? (
                                         <tr>
-                                            <td colSpan={8} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                            <td colSpan={9} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <div style={{ marginBottom: '16px', opacity: 0.3 }}>
                                                     <Package size={48} style={{ margin: '0 auto' }} />
                                                 </div>
@@ -856,6 +915,9 @@ export default function WorkshopInventory({
                                                                 </span>
                                                             )}
                                                         </div>
+                                                    </td>
+                                                    <td style={{ padding: '16px 24px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
+                                                        {item.sku || '—'}
                                                     </td>
                                                     <td style={{ padding: '16px 24px', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>{item.departmentName}</td>
                                                     <td style={{ padding: '16px 24px', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>{item.categoryName}</td>

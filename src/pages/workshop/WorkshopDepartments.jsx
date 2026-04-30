@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Plus, Pencil, ShoppingCart, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
@@ -879,6 +879,22 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 <span>Viewing:</span>
                 <span>{branchScope ? (selectedBranchName || `Branch ${selectedBranchId}`) : 'All branches (workshop union)'}</span>
             </div>
+            {!branchScope && (
+                <div
+                    style={{
+                        marginBottom: 16,
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        border: '1px solid #C7D2FE',
+                        background: '#EEF2FF',
+                        color: '#3730A3',
+                        fontSize: '0.8125rem',
+                        fontWeight: 600,
+                    }}
+                >
+                    To see correct current stock of the branch select a specific branch
+                </div>
+            )}
 
             {criticalCount > 0 && (
                 <div style={{display:'flex',alignItems:'center',gap:12,background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:12,padding:14,marginBottom:20}}>
@@ -911,7 +927,6 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         <button className="btn-portal" onClick={loadDepartments} disabled={isDeptLoading}>
                             <RefreshCw size={14} /> {isDeptLoading ? 'Refreshing...' : 'Refresh'}
                         </button>
-                        <button className="btn-portal" onClick={() => setShowDeptForm(true)}><Plus size={14}/> Request Department</button>
                     </div>
                     {deptError && (
                         <div style={{ marginBottom: 16, color: '#B91C1C', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: 12, fontSize: '0.875rem' }}>
@@ -1005,11 +1020,10 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         <th>Critical</th>
                                         <th>Branches</th>
                                         <th>Status</th>
-                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>{productItems.length === 0 ? (
-                                    <tr><td colSpan={branchScope ? 11 : 10} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading products...' : 'No products found'}</td></tr>
+                                    <tr><td colSpan={branchScope ? 10 : 9} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading products...' : 'No products found'}</td></tr>
                                 ) : productItems.map(p => {
                                     const isCritical = p.critical_level && p.stock_qty <= p.critical_level;
                                     return (
@@ -1030,22 +1044,6 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                             <td style={{color:'var(--color-text-muted)'}}>{p.critical_level ?? '—'}</td>
                                             <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(p)}</td>
                                             <td><span className={`ws-badge ${isCritical?'ws-badge--red':'ws-badge--green'}`}>{isCritical ? '⚠ Critical' : 'OK'}</span></td>
-                                            <td>
-                                                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                                                    <button onClick={()=>openEditProd(p)} style={{padding:'4px 10px',background:'#EFF6FF',color:'#2563EB',border:'none',borderRadius:6,fontWeight:700,cursor:'pointer',fontSize:'0.75rem'}}><Pencil size={12}/></button>
-                                                    <button onClick={()=>setShowRequestForm(p)} title="Request stock from supplier" style={{padding:'4px 10px',background:'#fff',color:'#2563EB',border:'1px solid #93C5FD',borderRadius:6,fontWeight:600,cursor:'pointer',fontSize:'0.75rem'}}><ShoppingCart size={12}/></button>
-                                                    {branchScope && (
-                                                        <button
-                                                            type="button"
-                                                            title={`Remove from ${selectedBranchName || 'this branch'}`}
-                                                            onClick={() => removeProductFromBranch(p.sourceId, false)}
-                                                            style={{ padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
-                                                        >
-                                                            Remove
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </td>
                                         </tr>
                                     );
                                 })}</tbody>
@@ -1074,16 +1072,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 <button className="btn-portal" onClick={loadProducts} disabled={isProductsLoading}>
                                     <RefreshCw size={14}/> {isProductsLoading ? 'Refreshing...' : 'Refresh'}
                                 </button>
-                                <button className="btn-portal" onClick={() => openAddProd('service')}><Plus size={14}/> Request Service</button>
                             </div>
                         </div>
                     </div>
                     <div className="ws-section">
                         <div style={{overflowX:'auto'}}>
                             <table className="ws-table">
-                                <thead><tr><th>Name</th><th>Department</th><th>Sale Price</th><th>Branches</th><th>Status</th><th>Actions</th></tr></thead>
+                                <thead><tr><th>Name</th><th>Department</th><th>Sale Price</th><th>Branches</th><th>Status</th></tr></thead>
                                 <tbody>{serviceItems.length === 0 ? (
-                                    <tr><td colSpan={6} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading services...' : 'No services found'}</td></tr>
+                                    <tr><td colSpan={5} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading services...' : 'No services found'}</td></tr>
                                 ) : serviceItems.map(s => {
                                     const isActive = s.isActive !== false;
                                     return (
@@ -1093,21 +1090,6 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                             <td>SAR {(s.sale_price||0).toFixed(2)}</td>
                                             <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(s)}</td>
                                             <td><span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? 'active' : 'inactive'}</span></td>
-                                            <td>
-                                                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                                                    <button onClick={()=>openEditProd(s)} style={{padding:'4px 10px',background:'#EFF6FF',color:'#2563EB',border:'none',borderRadius:6,fontWeight:700,cursor:'pointer',fontSize:'0.75rem'}}><Pencil size={12}/></button>
-                                                    {branchScope && (
-                                                        <button
-                                                            type="button"
-                                                            title={`Remove from ${selectedBranchName || 'this branch'}`}
-                                                            onClick={() => removeProductFromBranch(s.sourceId, true)}
-                                                            style={{ padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
-                                                        >
-                                                            Remove
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </td>
                                         </tr>
                                     );
                                 })}</tbody>
@@ -1122,9 +1104,6 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                     <div style={{display:'flex',justifyContent:'flex-end',alignItems:'center',gap:10,marginBottom:16}}>
                         <button className="btn-portal" onClick={loadCategories} disabled={isCategoriesLoading}>
                             <RefreshCw size={14} /> {isCategoriesLoading ? 'Refreshing...' : 'Refresh'}
-                        </button>
-                        <button className="btn-portal" onClick={() => setShowCategoryForm(true)}>
-                            <Plus size={14}/> Request Category
                         </button>
                     </div>
                     {categoriesError && (

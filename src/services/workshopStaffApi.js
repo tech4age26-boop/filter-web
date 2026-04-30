@@ -116,13 +116,29 @@ export function unwrapWorkshopStaffDetail(res, kind) {
 
 /**
  * Create a technician.
+ * Preferred route: POST /workshop-staff/technician/create.
+ * Backward compatibility: if unavailable, fallback to POST /workshop-staff/technicians.
  * Body: { name, mobile, email?, password?, technicianType?, workshopDuty?, oncallAvailable?, commissionPercent,
  *         branchId?, departmentIds?, basicSalary?, iqama? }.
- * If `branchId` is omitted the BE creates the technician without a branch and
- * skips the `technicianStatus` row (it can be initialized later).
  */
-export const createWorkshopTechnician = (body) =>
-    apiFetch('/workshop-staff/technicians', { method: 'POST', body: JSON.stringify(body) });
+export const createWorkshopTechnician = async (body) => {
+    try {
+        return await apiFetch('/workshop-staff/technician/create', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+    } catch (primaryErr) {
+        // Older backends used the plural route for create.
+        try {
+            return await apiFetch('/workshop-staff/technicians', {
+                method: 'POST',
+                body: JSON.stringify(body),
+            });
+        } catch {
+            throw primaryErr;
+        }
+    }
+};
 
 /**
  * Create a cashier.
@@ -230,6 +246,25 @@ export function unwrapWorkshopBranchListResponse(res, kind = 'products') {
  */
 export const getWorkshopSuppliers = (params = {}) =>
     apiFetch(`/workshop-staff/suppliers${qs(params)}`);
+
+/**
+ * Global supplier registry visible to workshop admins.
+ * GET /workshop-staff/suppliers/registered
+ * Query: q/search, isActive, limit, offset.
+ */
+export const getRegisteredWorkshopSuppliers = (params = {}) =>
+    apiFetch(`/workshop-staff/suppliers/registered${qs(params)}`);
+
+/**
+ * Link existing suppliers to the current workshop.
+ * POST /workshop-staff/suppliers/link
+ * Body: { supplierIds: string[] }
+ */
+export const linkSuppliersToWorkshop = (supplierIds = []) =>
+    apiFetch('/workshop-staff/suppliers/link', {
+        method: 'POST',
+        body: JSON.stringify({ supplierIds: (supplierIds || []).map(String) }),
+    });
 
 
 /**
