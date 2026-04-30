@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, NavLink } from 'react-router-dom';
-import { Plus, Pencil, Trash2, Package, FileText, TrendingUp, TrendingDown, Minus, Download, Search, LayoutGrid, Folder, Layers, ChevronDown, Loader } from 'lucide-react';
+import { Plus, Pencil, Trash2, Package, FileText, TrendingUp, TrendingDown, Minus, Search, Folder, Layers, ChevronDown, Loader } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import MasterCatalog from '../../components/admin/MasterCatalog';
+import StockMovementsSuperAdmin from '../../components/admin/StockMovementsSuperAdmin';
 import '../../styles/admin/InventoryPage.css';
 import { getProducts, getServices, createProduct, createService, updateProduct, updateService } from '../../services/superAdminApi';
 
@@ -32,12 +33,6 @@ const MOCK_UOM = [
     { id: 3, name: 'Kilogram', abbreviation: 'kg', category: 'weight', description: 'Kilogram', status: 'active' },
     { id: 4, name: 'Piece', abbreviation: 'pcs', category: 'quantity', description: 'Single unit / piece', status: 'active' },
     { id: 5, name: 'Service', abbreviation: 'svc', category: 'service', description: 'Service unit', status: 'active' },
-];
-
-const MOCK_MOVEMENTS = [
-    { id: 1, date: 'Feb 28, 2026 5:00 AM', type: 'Sale', product: 'Castrol 10W30', in: '—', out: '-7 liter', balance: '17.00 liter', reference: 'Order', notes: '—' },
-    { id: 2, date: 'Feb 27, 2026 11:30 AM', type: 'Purchase', product: 'Shell Helix Ultra', in: '50 liter', out: '—', balance: '50.00 liter', reference: 'PO-992', notes: 'Monthly restock' },
-    { id: 3, date: 'Feb 26, 2026 09:15 AM', type: 'Transfer', product: 'BOSCH Brake Pads', in: '—', out: '20 pcs', balance: '10 pcs', reference: 'TR-088', notes: 'To Branch A' },
 ];
 
 export default function InventoryPage() {
@@ -113,8 +108,6 @@ export default function InventoryPage() {
 
     const [editOpen, setEditOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null);
-    const [movements, setMovements] = useState(MOCK_MOVEMENTS);
-    const [newMovementOpen, setNewMovementOpen] = useState(false);
     const [departments, setDepartments] = useState(MOCK_DEPARTMENTS);
     const [categories, setCategories] = useState(MOCK_CATEGORIES);
     const [innerTab, setInnerTab] = useState('Departments');
@@ -779,155 +772,7 @@ export default function InventoryPage() {
                 </>
             )}
 
-            {activeSub === 'stock-movements' && (
-                <>
-                    <header className="stock-movements-header">
-                        <div>
-                            <h1 className="stock-movements-title">Stock Movements</h1>
-                            <p className="stock-movements-subtitle">Track inventory in and out</p>
-                        </div>
-                        <button type="button" className="btn-export">
-                            <Download size={16} /> Export
-                        </button>
-                    </header>
-
-                    <div className="stock-movements-summary">
-                        <div className="movement-summary-card">
-                            <div className="summary-main">
-                                <div className="summary-info">
-                                    <span className="summary-label">Total Stock In</span>
-                                    <span className="summary-value">0.00</span>
-                                </div>
-                                <div className="summary-icon-box in">
-                                    <TrendingUp size={20} />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="movement-summary-card">
-                            <div className="summary-main">
-                                <div className="summary-info">
-                                    <span className="summary-label">Total Stock Out</span>
-                                    <span className="summary-value">7.00</span>
-                                </div>
-                                <div className="summary-icon-box out">
-                                    <TrendingDown size={20} />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="movement-summary-card">
-                            <div className="summary-main">
-                                <div className="summary-info">
-                                    <span className="summary-label">Net Movement</span>
-                                    <span className="summary-value">-7.00</span>
-                                </div>
-                                <div className="summary-icon-box net">
-                                    <LayoutGrid size={20} />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="stock-movements-filter-bar">
-                        <div className="search-input-wrapper">
-                            <Search size={18} className="search-icon" />
-                            <input type="text" placeholder="Search products..." className="movements-search-field" />
-                        </div>
-                        <div className="filter-select-wrapper">
-                            <select className="movements-filter-select">
-                                <option>All Types</option>
-                                <option>Sale</option>
-                                <option>Purchase</option>
-                                <option>Transfer</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <section className="premium-table stock-movements-table">
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr className="table-header-row">
-                                    <th className="table-th">Date</th>
-                                    <th className="table-th">Product</th>
-                                    <th className="table-th">Type</th>
-                                    <th className="table-th">In</th>
-                                    <th className="table-th">Out</th>
-                                    <th className="table-th">Balance</th>
-                                    <th className="table-th">Reference</th>
-                                    <th className="table-th">Notes</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {movements.map((m) => (
-                                    <tr key={m.id} className="table-row">
-                                        <td className="table-cell" style={{ fontSize: '0.8125rem' }}>{m.date}</td>
-                                        <td className="table-cell">
-                                            <div className="product-cell-with-icon">
-                                                <div className="product-mini-icon"><Package size={14} /></div>
-                                                <span className="cell-main-text">{m.product}</span>
-                                            </div>
-                                        </td>
-                                        <td className="table-cell">
-                                            <span className={`movement-badge badge-${m.type.toLowerCase()}`}>{m.type}</span>
-                                        </td>
-                                        <td className="table-cell">{m.in}</td>
-                                        <td className="table-cell"><span className={m.out !== '—' ? 'stock-out-val' : ''}>{m.out}</span></td>
-                                        <td className="table-cell font-bold">{m.balance}</td>
-                                        <td className="table-cell">
-                                            <span className="reference-pill">{m.reference}</span>
-                                        </td>
-                                        <td className="table-cell text-muted" style={{ fontSize: '0.8125rem' }}>{m.notes}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </section>
-                    <AnimatePresence>
-                        {newMovementOpen && (
-                            <Modal
-                                title="New Stock Movement"
-                                onClose={() => setNewMovementOpen(false)}
-                                footer={
-                                    <>
-                                        <button type="button" className="btn-secondary" onClick={() => setNewMovementOpen(false)}>Cancel</button>
-                                        <button type="button" className="btn-submit" onClick={() => { setMovements((prev) => [...prev, { id: Date.now(), date: '2026-03-01', type: 'In', product: 'New Item', qty: 0, from: '—', to: 'Main Warehouse', reference: '' }]); setNewMovementOpen(false); }}>Create Movement</button>
-                                    </>
-                                }
-                            >
-                                <div className="form-group">
-                                    <label className="form-label">Type</label>
-                                    <select className="form-input-field"><option>In</option><option>Out</option><option>Transfer</option><option>Adjustment</option></select>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Product</label>
-                                    <input type="text" className="form-input-field" placeholder="Select product" />
-                                </div>
-                                <div className="form-grid">
-                                    <div className="form-group">
-                                        <label className="form-label">Quantity</label>
-                                        <input type="number" className="form-input-field" placeholder="0" />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Date</label>
-                                        <input type="date" className="form-input-field" defaultValue="2026-03-01" />
-                                    </div>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">From Location</label>
-                                    <input type="text" className="form-input-field" placeholder="Warehouse / Branch" />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">To Location</label>
-                                    <input type="text" className="form-input-field" placeholder="Warehouse / Branch" />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Reference</label>
-                                    <input type="text" className="form-input-field" placeholder="PO / SO / TR number" />
-                                </div>
-                            </Modal>
-                        )}
-                    </AnimatePresence>
-                </>
-            )}
+            {activeSub === 'stock-movements' && <StockMovementsSuperAdmin />}
 
             {activeSub === 'categories' && (
                 <>
