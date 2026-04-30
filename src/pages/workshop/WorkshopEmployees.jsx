@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Users, Wrench, Radio, Plus, Pencil, Trash2, Loader, Eye, EyeOff } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -12,8 +12,12 @@ import {
     deleteWorkshopTechnician,
     deleteWorkshopCashier,
     getWorkshopBranches,
+    getWorkshopTechnicianById,
+    getWorkshopCashierById,
+    unwrapWorkshopStaffDetail,
+    normalizeWorkshopEmployee,
 } from '../../services/workshopStaffApi';
-import { getMyDepartments } from '../../services/workshopCatalogApi';
+import { getMyDepartments, getBranchDepartments } from '../../services/workshopCatalogApi';
 
 const isTechnicianRole = (r) =>
     r === 'technician' ||
@@ -60,6 +64,8 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
     const [editing, setEditing] = useState(null);
     const [form, setForm] = useState(EMPTY_FORM);
     const [showPassword, setShowPassword] = useState(false);
+    /** Bumps on each openEdit so late detail responses do not overwrite a newer modal. */
+    const editDetailGenerationRef = useRef(0);
     const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
     const toggleDepartmentId = (id) =>
         setForm((f) => {
@@ -124,12 +130,15 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
 
     const loadWorkshopDepartmentCatalog = useCallback(async () => {
         try {
-            const res = await getMyDepartments();
+            const isAll = !selectedBranchId || selectedBranchId === 'all';
+            const res = isAll
+                ? await getMyDepartments()
+                : await getBranchDepartments(String(selectedBranchId));
             setWorkshopDepartments(parseWorkshopDepartmentsResponse(res));
         } catch {
             setWorkshopDepartments([]);
         }
-    }, []);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         loadWorkshopDepartmentCatalog();
@@ -168,6 +177,9 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
     };
 
     const openEdit = (emp) => {
+        const gen = ++editDetailGenerationRef.current;
+        const empId = emp.id;
+        const source = emp._source;
         setEditing(emp);
         const roleVal = (emp.role || '').toLowerCase().replace(/\s+/g, '_');
         const hasRole = ROLE_OPTIONS.includes(roleVal);
@@ -195,6 +207,48 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
         setShowPassword(false);
         setModalOpen(true);
         ensureDepartmentsLoaded();
+
+        (async () => {
+            try {
+                const res =
+                    source === 'technician'
+                        ? await getWorkshopTechnicianById(empId)
+                        : await getWorkshopCashierById(empId);
+                if (gen !== editDetailGenerationRef.current) return;
+                const raw = unwrapWorkshopStaffDetail(res, source);
+                if (!raw) return;
+                const n = normalizeWorkshopEmployee(raw, source);
+                if (gen !== editDetailGenerationRef.current) return;
+                setEditing((prev) =>
+                    prev && String(prev.id) === String(empId) ? { ...prev, ...n } : prev,
+                );
+                setForm((f) => ({
+                    ...f,
+                    full_name: n.name && n.name !== '—' ? n.name : f.full_name,
+                    mobile: n.phone || f.mobile,
+                    email: n.email || f.email,
+                    iqama: n.iqama || f.iqama,
+                    branchId: n.branchId || f.branchId,
+                    departmentIds:
+                        Array.isArray(n.departmentIds) && n.departmentIds.length > 0
+                            ? n.departmentIds.map(String)
+                            : f.departmentIds,
+                    workshop_duty:
+                        source === 'technician' ? !!n.workshop_duty : f.workshop_duty,
+                    oncall_available:
+                        source === 'technician' ? !!n.oncall_available : f.oncall_available,
+                    basic_salary:
+                        n.basic_salary !== '' && n.basic_salary != null ? n.basic_salary : f.basic_salary,
+                    commission_percent: n.commission_percent ?? f.commission_percent,
+                    commission_type: n.commission_type
+                        ? normalizeCommissionType(n.commission_type)
+                        : f.commission_type,
+                    status: n.status || f.status,
+                }));
+            } catch {
+                /* List row is enough if GET :id is missing or restricted */
+            }
+        })();
     };
 
     /**

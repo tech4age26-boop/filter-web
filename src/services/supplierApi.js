@@ -23,6 +23,15 @@ export const getSupplierProfile = () => apiFetch('/supplier/profile');
 // Products / catalog
 export const listSupplierProducts = (params = {}) =>
     apiFetch(withQuery('/supplier/products', params));
+export const listSupplierMasterCatalogProducts = ({ branchId, signal } = {}) =>
+    apiFetch(withQuery('/supplier/products/master-catalog', { branchId }), { signal });
+export const createSupplierProductRequest = (body) =>
+    apiFetch('/supplier/product-requests', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+export const listSupplierProductRequests = (params = {}) =>
+    apiFetch(withQuery('/supplier/product-requests', params));
 export const getSupplierProduct = (productId) =>
     apiFetch(`/supplier/products/${productId}`);
 export const createSupplierProduct = (body) =>
@@ -133,6 +142,25 @@ export const updateSupplierPayable = (id, body) =>
     });
 export const deleteSupplierPayable = (id) =>
     apiFetch(`/supplier/payables/${id}`, { method: 'DELETE' });
+
+// Super suppliers (upstream vendors you buy inventory from)
+export const listSupplierSuperSuppliers = () => apiFetch('/supplier/super-suppliers');
+export const createSupplierSuperSupplier = (body) =>
+    apiFetch('/supplier/super-suppliers', { method: 'POST', body: JSON.stringify(body) });
+export const updateSupplierSuperSupplier = (id, body) =>
+    apiFetch(`/supplier/super-suppliers/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+export const listSupplierSuperSupplierPurchases = (params = {}) =>
+    apiFetch(withQuery('/supplier/super-supplier-purchases', params));
+export const createSupplierSuperSupplierPurchase = (body) =>
+    apiFetch('/supplier/super-supplier-purchases', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+export const listSupplierSuperSupplierAudit = (params = {}) =>
+    apiFetch(withQuery('/supplier/super-supplier-audit', params));
 
 /** Download PDF for a payable (GET /supplier/payables/:id/pdf). Returns blob + suggested filename from Content-Disposition when present. */
 export async function downloadSupplierPayablePdf(id) {

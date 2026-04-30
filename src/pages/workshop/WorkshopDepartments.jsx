@@ -16,7 +16,12 @@ import {
     removeBranchCategory,
     removeBranchProduct,
     removeBranchService,
+    getCatalogDepartments,
+    getCatalogCategories,
+    getCatalogUnitsOfMeasure,
+    submitCatalogProductRequest,
 } from '../../services/workshopCatalogApi';
+import { getWorkshopStaffBranchProducts, getWorkshopStaffBranchServices, getWorkshopStaffProducts, getWorkshopStaffServices, unwrapWorkshopBranchListResponse } from '../../services/workshopStaffApi';
 import { useAuth } from '../../context/AuthContext';
 import {
     MOCK_BRANCHES,
@@ -41,6 +46,70 @@ function firstFiniteNumber(values) {
         if (Number.isFinite(n)) return n;
     }
     return null;
+}
+
+function pickItemName(obj) {
+    if (!obj || typeof obj !== 'object') return '';
+    const candidates = [
+        obj.name,
+        obj.title,
+        obj.label,
+        obj.productName,
+        obj.product_name,
+        obj.serviceName,
+        obj.service_name,
+        obj.itemName,
+        obj.item_name,
+    ];
+    for (const c of candidates) {
+        if (c != null && String(c).trim() !== '') return String(c).trim();
+    }
+    const sku = obj.sku ?? obj.SKU;
+    if (sku != null && String(sku).trim() !== '') return String(sku).trim();
+    return '';
+}
+
+function pickDeptLabel(obj) {
+    if (!obj || typeof obj !== 'object') return '—';
+    const candidates = [
+        obj.departmentName,
+        obj.department_name,
+        obj.department?.name,
+        typeof obj.department === 'string' ? obj.department : '',
+    ];
+    for (const c of candidates) {
+        if (c != null && String(c).trim() !== '') return String(c).trim();
+    }
+    return '—';
+}
+
+/** Unwrap catalog list responses (same keys as WorkshopCatalogNew). */
+function pickCatalogArray(res, keys) {
+    const extended = [...keys, 'rows', 'results', 'list', 'records'];
+    if (Array.isArray(res)) return res;
+    if (!res || typeof res !== 'object') return [];
+    for (const k of extended) {
+        if (Array.isArray(res[k])) return res[k];
+        if (Array.isArray(res?.data?.[k])) return res.data[k];
+    }
+    if (Array.isArray(res?.data)) return res.data;
+    return [];
+}
+
+function normalizeUomOption(row) {
+    if (row == null) return null;
+    if (typeof row === 'string') {
+        const s = row.trim();
+        return s ? { value: s, label: s } : null;
+    }
+    if (typeof row !== 'object') return null;
+    const value = String(
+        row.abbreviation ?? row.code ?? row.symbol ?? row.unitCode ?? row.name ?? row.id ?? '',
+    ).trim();
+    if (!value) return null;
+    const name = row.name ? String(row.name).trim() : '';
+    const label = name && name.toLowerCase() !== value.toLowerCase() ? `${name} (${value})` : name || value;
+    return { value, label };
 }
 
 export default function WorkshopDepartments({ selectedBranchId = 'all', branches: branchesProp = [] }) {
@@ -76,14 +145,41 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     const [isSavingCategory, setIsSavingCategory] = useState(false);
     const [categoryForm, setCategoryForm] = useState({ name: '', type: 'product', departmentId: '' });
 
+    /** True only for "Request Product" new-item flow (not edit / not service). */
+    const [isProductRequestFlow, setIsProductRequestFlow] = useState(false);
+    const [masterDeptOptions, setMasterDeptOptions] = useState([]);
+    const [masterCatOptions, setMasterCatOptions] = useState([]);
+    const [masterDeptLoading, setMasterDeptLoading] = useState(false);
+    const [masterCatLoading, setMasterCatLoading] = useState(false);
+    /** `{ value, label }[]` for unit dropdown; built from catalog UOM or staff product-units. */
+    const [uomSelectOptions, setUomSelectOptions] = useState([]);
+
     const [deptForm, setDeptForm] = useState({ name: '', branch_id: 'b1' });
     const [prodForm, setProdForm] = useState({
-        name: '', sku: '', category_id: '', type: 'product', unit: 'piece',
-        purchase_price: '', sale_price: '', stock_qty: 0, critical_level: '', reorder_level: '', department_ids: [], branch_id: '', department_id: '',
+        name: '',
+        arabic_name: '',
+        brand_name: '',
+        sku: '',
+        description: '',
+        notes: '',
+        master_department_id: '',
+        master_category_id: '',
+        sale_price_incl_vat: '',
+        category_id: '',
+        type: 'product',
+        unit: 'piece',
+        purchase_price: '',
+        sale_price: '',
+        stock_qty: 0,
+        critical_level: '',
+        reorder_level: '',
+        department_ids: [],
+        branch_id: '',
+        department_id: '',
     });
 
-    const filteredProds = products.filter(p => {
-        if (filterDept !== 'all' && !p.department_ids?.includes(filterDept)) return false;
+    const filteredProds = products.filter((p) => {
+        if (filterDept !== 'all' && !p.department_ids?.some((id) => String(id) === String(filterDept))) return false;
         if (lowStockOnly && !(p.critical_level && p.stock_qty <= p.critical_level)) return false;
         return true;
     });
@@ -148,6 +244,74 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     useEffect(() => {
         loadProductUnits();
     }, [loadProductUnits]);
+
+    /** Master catalog departments + UOM when opening Request Product. */
+    useEffect(() => {
+        if (!showProdForm || !isProductRequestFlow) return undefined;
+        let cancelled = false;
+        setMasterDeptLoading(true);
+        getCatalogDepartments({ branchId: branchScope || undefined })
+            .then((res) => {
+                if (!cancelled) setMasterDeptOptions(pickCatalogArray(res, ['departments', 'items']));
+            })
+            .catch(() => {
+                if (!cancelled) setMasterDeptOptions([]);
+            })
+            .finally(() => {
+                if (!cancelled) setMasterDeptLoading(false);
+            });
+
+        (async () => {
+            try {
+                const uomRes = await getCatalogUnitsOfMeasure({ branchId: branchScope || undefined });
+                if (cancelled) return;
+                const rows = pickCatalogArray(uomRes, ['units', 'items', 'uoms', 'unitOfMeasures']);
+                const opts = rows.map(normalizeUomOption).filter(Boolean);
+                if (opts.length) {
+                    setUomSelectOptions(opts);
+                    return;
+                }
+            } catch {
+                /* catalog UOM route may not exist yet */
+            }
+            if (cancelled) return;
+            const fallback = productUnits?.length ? productUnits : UNIT_OPTIONS;
+            setUomSelectOptions(
+                fallback.map((u) => (typeof u === 'string' ? { value: u, label: u } : normalizeUomOption(u))).filter(Boolean),
+            );
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [showProdForm, isProductRequestFlow, branchScope, productUnits]);
+
+    /** Master categories for selected master department (product type only). */
+    useEffect(() => {
+        if (!showProdForm || !isProductRequestFlow || !prodForm.master_department_id) {
+            if (showProdForm && isProductRequestFlow) setMasterCatOptions([]);
+            return undefined;
+        }
+        let cancelled = false;
+        setMasterCatLoading(true);
+        getCatalogCategories({
+            departmentId: String(prodForm.master_department_id),
+            type: 'product',
+            branchId: branchScope || undefined,
+        })
+            .then((res) => {
+                if (!cancelled) setMasterCatOptions(pickCatalogArray(res, ['categories', 'items']));
+            })
+            .catch(() => {
+                if (!cancelled) setMasterCatOptions([]);
+            })
+            .finally(() => {
+                if (!cancelled) setMasterCatLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [showProdForm, isProductRequestFlow, prodForm.master_department_id, branchScope]);
 
     const loadCategories = useCallback(async () => {
         setIsCategoriesLoading(true);
@@ -227,19 +391,22 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         return {
             id: `product-${product.id}`,
             sourceId: product.id,
-            name: product.name || 'Unnamed',
+            name: pickItemName(product) || 'Unnamed',
             sku: product.sku || '',
-            category_id: product.categoryId || category?.id || '',
+            category_id: product.categoryId || product.category_id || category?.id || '',
             type: category?.type || product.type || 'product',
             unit: product.unit || 'piece',
-            purchase_price: Number(product.purchasePrice) || 0,
-            sale_price: Number(product.salePrice) || 0,
+            purchase_price: Number(product.purchasePrice ?? product.purchase_price) || 0,
+            sale_price: Number(product.salePrice ?? product.sale_price) || 0,
             adoption_opening_qty: adoptionOpening,
             stock_qty: effectiveStock,
-            critical_level: Number(product.criticalStockPoint) || 0,
-            reorder_level: Number(product.reorderLevel) || 0,
-            department_ids: product.departmentId ? [product.departmentId] : [],
-            dept: product.departmentName || '—',
+            critical_level: Number(product.criticalStockPoint ?? product.critical_stock_point) || 0,
+            reorder_level: Number(product.reorderLevel ?? product.reorder_level) || 0,
+            department_ids:
+                product.departmentId != null || product.department_id != null
+                    ? [String(product.departmentId ?? product.department_id)]
+                    : [],
+            dept: pickDeptLabel(product),
             isActive: product.isActive !== false,
         };
     };
@@ -247,18 +414,21 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     const normalizeService = (service) => ({
         id: `service-${service.id}`,
         sourceId: service.id,
-        name: service.name || 'Unnamed Service',
+        name: pickItemName(service) || 'Unnamed Service',
         sku: '',
-        category_id: service.categoryId || '',
+        category_id: service.categoryId || service.category_id || '',
         type: 'service',
         unit: 'service',
         purchase_price: 0,
-        sale_price: Number(service.sellingPrice) || 0,
+        sale_price: Number(service.sellingPrice ?? service.salePrice ?? service.selling_price) || 0,
         stock_qty: 0,
         critical_level: 0,
         reorder_level: 0,
-        department_ids: service.departmentId ? [service.departmentId] : [],
-        dept: service.departmentName || '—',
+        department_ids:
+            service.departmentId != null || service.department_id != null
+                ? [String(service.departmentId ?? service.department_id)]
+                : [],
+        dept: pickDeptLabel(service),
         isActive: service.isActive !== false,
     });
 
@@ -266,45 +436,44 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         setIsProductsLoading(true);
         setProductsError('');
 
-        const extractProducts = (res) =>
-            (Array.isArray(res?.products) && res.products)
-            || (Array.isArray(res?.data?.products) && res.data.products)
-            || (Array.isArray(res?.data) && res.data)
-            || (Array.isArray(res) && res)
-            || [];
-        const extractServices = (res) =>
-            (Array.isArray(res?.services) && res.services)
-            || (Array.isArray(res?.data?.services) && res.data.services)
-            || (Array.isArray(res?.data) && res.data)
-            || (Array.isArray(res) && res)
-            || [];
+        const extractProducts = (res) => unwrapWorkshopBranchListResponse(res, 'products');
+        const extractServices = (res) => unwrapWorkshopBranchListResponse(res, 'services');
 
         // Per-branch listing rows can either be flat or wrapped as
         // `{ product: {...}, openingQty, ... }`. Pull out the master row plus
         // any per-branch overrides before normalizing.
         const buildBranchProductRow = (row) => {
-            const master = row?.product || row;
-            return normalizeProduct(
-                {
-                    ...master,
-                    openingQty: row?.openingQty ?? master?.openingQty,
-                    opening_qty: row?.opening_qty ?? master?.opening_qty,
-                    currentQty: row?.currentQty ?? master?.currentQty,
-                    current_qty: row?.current_qty ?? master?.current_qty,
-                    qtyOnHand: row?.qtyOnHand ?? master?.qtyOnHand,
-                    qty_on_hand: row?.qty_on_hand ?? master?.qty_on_hand,
-                    criticalStockPoint: row?.criticalStockPoint ?? master?.criticalStockPoint,
-                    salePrice: row?.salePriceOverride ?? master?.salePrice,
-                },
-                master?.category,
-            );
+            const master = row?.product && typeof row.product === 'object' ? row.product : {};
+            const merged = {
+                ...row,
+                ...master,
+                id: master.id ?? row.productId ?? row.product_id ?? row.id,
+                openingQty: row?.openingQty ?? master?.openingQty,
+                opening_qty: row?.opening_qty ?? master?.opening_qty,
+                currentQty: row?.currentQty ?? master?.currentQty,
+                current_qty: row?.current_qty ?? master?.current_qty,
+                qtyOnHand: row?.qtyOnHand ?? master?.qtyOnHand,
+                qty_on_hand: row?.qty_on_hand ?? master?.qty_on_hand,
+                criticalStockPoint: row?.criticalStockPoint ?? master?.criticalStockPoint,
+                salePrice: row?.salePriceOverride ?? master?.salePrice ?? row?.salePrice,
+                purchasePrice: row?.purchasePriceOverride ?? master?.purchasePrice ?? row?.purchasePrice,
+            };
+            return normalizeProduct(merged, master?.category || row?.category);
         };
         const buildBranchServiceRow = (row) => {
-            const master = row?.service || row;
-            return normalizeService({
+            const master = row?.service && typeof row.service === 'object' ? row.service : {};
+            const merged = {
+                ...row,
                 ...master,
-                sellingPrice: row?.sellingPriceOverride ?? master?.sellingPrice,
-            });
+                id: master.id ?? row.serviceId ?? row.service_id ?? row.id,
+                sellingPrice:
+                    row?.sellingPriceOverride ??
+                    master?.sellingPrice ??
+                    master?.salePrice ??
+                    row?.sellingPrice ??
+                    row?.salePrice,
+            };
+            return normalizeService(merged);
         };
 
         // Workshop-union rows already carry their branch list as
@@ -344,24 +513,46 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         try {
             if (branchScope) {
                 const [prodRes, svcRes] = await Promise.all([
-                    getBranchProducts(branchScope).catch(() => null),
-                    getBranchServices(branchScope).catch(() => null),
+                    getWorkshopStaffBranchProducts(branchScope).catch(() => null),
+                    getWorkshopStaffBranchServices(branchScope).catch(() => null),
                 ]);
-                const flatProd = extractProducts(prodRes).map(buildBranchProductRow);
-                const flatSvc = extractServices(svcRes).map(buildBranchServiceRow);
+                let flatProd = extractProducts(prodRes).map(buildBranchProductRow);
+                let flatSvc = extractServices(svcRes).map(buildBranchServiceRow);
+                // Same branch as departments/categories (`getBranch*` on workshop-catalog); staff list may be empty or another shape.
+                if (flatProd.length === 0) {
+                    const catP = await getBranchProducts(branchScope).catch(() => null);
+                    flatProd = extractProducts(catP).map(buildBranchProductRow);
+                }
+                if (flatSvc.length === 0) {
+                    const catS = await getBranchServices(branchScope).catch(() => null);
+                    flatSvc = extractServices(catS).map(buildBranchServiceRow);
+                }
                 setProducts([...flatProd, ...flatSvc]);
                 return;
             }
 
-            // All-branches view: workshop-union endpoints return a flat list
-            // with `branches`/`branchNames` already attached per row, so the
-            // "Branches" column populates with no extra fetches.
-            const [prodRes, svcRes] = await Promise.all([
-                getMyProducts().catch(() => null),
-                getMyServices().catch(() => null),
-            ]);
-            const flatProducts = extractProducts(prodRes).map(buildUnionProductRow);
-            const flatServices = extractServices(svcRes).map(buildUnionServiceRow);
+            // All-branches view: workshop union — staff list APIs require branchId *or* allBranches=true.
+            let prodRes;
+            let svcRes;
+            try {
+                [prodRes, svcRes] = await Promise.all([
+                    getWorkshopStaffProducts({ allBranches: true }),
+                    getWorkshopStaffServices({ allBranches: true }),
+                ]);
+            } catch {
+                prodRes = null;
+                svcRes = null;
+            }
+            let flatProducts = extractProducts(prodRes).map(buildUnionProductRow);
+            let flatServices = extractServices(svcRes).map(buildUnionServiceRow);
+            if (flatProducts.length === 0 && flatServices.length === 0) {
+                const [p2, s2] = await Promise.all([
+                    getMyProducts().catch(() => null),
+                    getMyServices().catch(() => null),
+                ]);
+                flatProducts = extractProducts(p2).map(buildUnionProductRow);
+                flatServices = extractServices(s2).map(buildUnionServiceRow);
+            }
             setProducts([...flatProducts, ...flatServices]);
         } catch (error) {
             setProductsError(error.message || 'Failed to load products and services.');
@@ -397,21 +588,55 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     };
     const openAddProd = (presetType = 'product') => {
         setEditingProd(null);
-        setProdForm({
-            name: '',
-            sku: '',
-            category_id: '',
-            type: presetType === 'service' ? 'service' : 'product',
-            unit: presetType === 'service' ? 'service' : (defaultProductUnit || 'pcs'),
-            purchase_price: '',
-            sale_price: '',
-            stock_qty: 0,
-            critical_level: '',
-            reorder_level: '',
-            department_ids: [],
-            branch_id: branches[0]?.id || '',
-            department_id: departments[0]?.id || '',
-        });
+        const isReqProduct = presetType === 'product';
+        setIsProductRequestFlow(isReqProduct);
+        if (isReqProduct) {
+            setProdForm({
+                name: '',
+                arabic_name: '',
+                brand_name: '',
+                sku: '',
+                description: '',
+                notes: '',
+                master_department_id: '',
+                master_category_id: '',
+                sale_price_incl_vat: '',
+                category_id: '',
+                type: 'product',
+                unit: defaultProductUnit || 'pcs',
+                purchase_price: '',
+                sale_price: '',
+                stock_qty: 0,
+                critical_level: '',
+                reorder_level: '',
+                department_ids: [],
+                branch_id: branches[0]?.id || '',
+                department_id: '',
+            });
+        } else {
+            setProdForm({
+                name: '',
+                arabic_name: '',
+                brand_name: '',
+                sku: '',
+                description: '',
+                notes: '',
+                master_department_id: '',
+                master_category_id: '',
+                sale_price_incl_vat: '',
+                category_id: '',
+                type: 'service',
+                unit: 'service',
+                purchase_price: '',
+                sale_price: '',
+                stock_qty: 0,
+                critical_level: '',
+                reorder_level: '',
+                department_ids: [],
+                branch_id: branches[0]?.id || '',
+                department_id: departments[0]?.id || '',
+            });
+        }
         setShowProdForm(true);
     };
 
@@ -437,8 +662,16 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     const serviceItems = filteredProds.filter((row) => row.type === 'service');
     const openEditProd = (p) => {
         setEditingProd(p);
+        setIsProductRequestFlow(false);
         setProdForm({
             ...p,
+            arabic_name: p.arabic_name ?? '',
+            brand_name: p.brand_name ?? '',
+            description: p.description ?? '',
+            notes: p.notes ?? '',
+            master_department_id: '',
+            master_category_id: '',
+            sale_price_incl_vat: p.sale_price != null ? String(p.sale_price) : '',
             purchase_price: p.purchase_price || '',
             sale_price: p.sale_price || '',
             critical_level: p.critical_level || '',
@@ -465,6 +698,13 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         if (!workshopId) {
             setProductsError('Workshop session missing. Please login again.');
             return;
+        }
+
+        if (!editingProd && isProductRequestFlow) {
+            if (!prodForm.master_department_id || !prodForm.master_category_id) {
+                setProductsError('Select a master department and category.');
+                return;
+            }
         }
 
         setIsSavingProduct(true);
@@ -517,31 +757,64 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         }
 
         try {
-            await apiFetch('/workshop-staff/product/create', {
-                method: 'POST',
-                body: JSON.stringify({
+            if (isProductRequestFlow) {
+                const payload = {
                     workshopId: String(workshopId),
-                    branchId: String(data.branch_id || ''),
-                    name: data.name,
-                    departmentId: String(data.department_id || ''),
-                    categoryId: String(data.category_id || ''),
-                    unit: data.unit || defaultProductUnit || 'pcs',
-                    purchasePrice: data.purchase_price,
-                    salePrice: data.sale_price,
-                    openingQty: data.stock_qty,
-                    minPriceCorporate: 0,
-                    maxPriceCorporate: 0,
-                    criticalStockPoint: data.critical_level,
-                    kmTypeValue: 0,
-                    allowDecimalQty: true,
-                    type: data.type || 'product',
-                    isActive: true,
-                }),
-            });
-            await loadProducts();
-            setShowProdForm(false);
+                    branchId: branchScope ? String(branchScope) : data.branch_id ? String(data.branch_id) : undefined,
+                    name: prodForm.name.trim(),
+                    arabicName: prodForm.arabic_name?.trim() || undefined,
+                    brandName: prodForm.brand_name?.trim() || undefined,
+                    sku: prodForm.sku?.trim() || undefined,
+                    description: prodForm.description?.trim() || undefined,
+                    unit: prodForm.unit || defaultProductUnit || 'pcs',
+                    salePriceInclusiveVat: parseFloat(prodForm.sale_price_incl_vat) || 0,
+                    notes: prodForm.notes?.trim() || undefined,
+                    masterDepartmentId: String(prodForm.master_department_id),
+                    masterCategoryId: String(prodForm.master_category_id),
+                };
+                try {
+                    await submitCatalogProductRequest(payload);
+                } catch (err) {
+                    await apiFetch('/workshop-staff/catalog/product-request', {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                    });
+                }
+                await loadProducts();
+                setShowProdForm(false);
+                setIsProductRequestFlow(false);
+            } else {
+                await apiFetch('/workshop-staff/product/create', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        workshopId: String(workshopId),
+                        branchId: String(data.branch_id || ''),
+                        name: data.name,
+                        departmentId: String(data.department_id || ''),
+                        categoryId: String(data.category_id || ''),
+                        unit: data.unit || defaultProductUnit || 'pcs',
+                        purchasePrice: data.purchase_price,
+                        salePrice: data.sale_price,
+                        openingQty: data.stock_qty,
+                        minPriceCorporate: 0,
+                        maxPriceCorporate: 0,
+                        criticalStockPoint: data.critical_level,
+                        kmTypeValue: 0,
+                        allowDecimalQty: true,
+                        type: data.type || 'product',
+                        isActive: true,
+                    }),
+                });
+                await loadProducts();
+                setShowProdForm(false);
+            }
         } catch (error) {
-            setProductsError(error.message || 'Failed to create product.');
+            setProductsError(
+                error.message ||
+                    (isProductRequestFlow
+                        ? 'Failed to submit product request. Ensure the catalog product-request API is deployed.'
+                        : 'Failed to create product.'),
+            );
         } finally {
             setIsSavingProduct(false);
         }
@@ -909,25 +1182,371 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                     </div>
                 </Modal>}
                 {showProdForm && (
-                    <Modal title={editingProd ? 'Edit Product/Service' : 'Request Product/Service'} onClose={()=>setShowProdForm(false)} footer={<div style={{display:'flex',gap:10,justifyContent:'flex-end'}}><button className="btn-secondary" onClick={()=>setShowProdForm(false)}>Cancel</button><button className="btn-submit" disabled={isSavingProduct || !prodForm.name.trim()} onClick={saveProd}>{isSavingProduct ? 'Saving...' : 'Save'}</button></div>}>
-                        <div className="ws-form-grid">
-                            <div className="ws-field" style={{gridColumn:'1/-1'}}><label>Name *</label><input value={prodForm.name} onChange={e=>setProdForm(f=>({...f,name:e.target.value}))}/></div>
-                            <div className="ws-field"><label>SKU / Barcode</label><input value={prodForm.sku} onChange={e=>setProdForm(f=>({...f,sku:e.target.value}))} placeholder="Optional"/></div>
-                            <div className="ws-field"><label>Category</label><select value={prodForm.category_id} onChange={e=>setProdForm(f=>({...f,category_id:e.target.value}))}><option value="">Select Category</option>{productCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                            <div className="ws-field"><label>Branch</label><select value={prodForm.branch_id} onChange={e=>setProdForm(f=>({...f,branch_id:e.target.value}))}><option value="">Select Branch</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
-                            <div className="ws-field"><label>Department</label><select value={prodForm.department_id} onChange={e=>setProdForm(f=>({...f,department_id:e.target.value,department_ids:e.target.value?[e.target.value]:[]}))}><option value="">Select Department</option>{departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
-                            <div className="ws-field"><label>Type</label><select value={prodForm.type} onChange={e=>setProdForm(f=>({...f,type:e.target.value}))}><option value="product">Product</option><option value="service">Service</option></select></div>
-                            <div className="ws-field"><label>Unit</label><select value={prodForm.unit} onChange={e=>setProdForm(f=>({...f,unit:e.target.value}))}>{productUnits.map(u=><option key={u} value={u}>{u}</option>)}</select></div>
-                            <div className="ws-field"><label>Purchase Price (SAR)</label><input type="number" value={prodForm.purchase_price} onChange={e=>setProdForm(f=>({...f,purchase_price:e.target.value}))}/></div>
-                            <div className="ws-field"><label>Sale Price (SAR, incl. VAT)</label><input type="number" value={prodForm.sale_price} onChange={e=>setProdForm(f=>({...f,sale_price:e.target.value}))}/></div>
-                            <div className="ws-field"><label>Current Stock Qty</label><input type="number" value={prodForm.stock_qty} onChange={e=>setProdForm(f=>({...f,stock_qty:e.target.value}))}/></div>
-                            <div className="ws-field"><label>Critical Level <span style={{fontSize:'0.6875rem',color:'#DC2626'}}>(alert threshold)</span></label><input type="number" value={prodForm.critical_level} onChange={e=>setProdForm(f=>({...f,critical_level:e.target.value}))}/></div>
-                            <div className="ws-field"><label>Reorder Level</label><input type="number" value={prodForm.reorder_level} onChange={e=>setProdForm(f=>({...f,reorder_level:e.target.value}))}/></div>
-                        </div>
-                        {prodForm.critical_level && prodForm.stock_qty <= parseFloat(prodForm.critical_level) && (
-                            <div style={{display:'flex',alignItems:'center',gap:8,background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,padding:12,marginTop:16,fontSize:'0.8125rem',color:'#DC2626'}}>
-                                <AlertTriangle size={16}/> Current stock is at/below critical level — saving will notify all active suppliers.
+                    <Modal
+                        title={
+                            editingProd
+                                ? 'Edit Product/Service'
+                                : isProductRequestFlow
+                                  ? 'Request Product'
+                                  : prodForm.type === 'service'
+                                    ? 'Request Service'
+                                    : 'Request Product/Service'
+                        }
+                        onClose={() => {
+                            setShowProdForm(false);
+                            setIsProductRequestFlow(false);
+                        }}
+                        footer={
+                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                                <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    onClick={() => {
+                                        setShowProdForm(false);
+                                        setIsProductRequestFlow(false);
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn-submit"
+                                    disabled={
+                                        isSavingProduct ||
+                                        !prodForm.name.trim() ||
+                                        (isProductRequestFlow &&
+                                            (!prodForm.master_department_id || !prodForm.master_category_id))
+                                    }
+                                    onClick={saveProd}
+                                >
+                                    {isSavingProduct ? 'Saving...' : 'Save'}
+                                </button>
                             </div>
+                        }
+                    >
+                        {isProductRequestFlow && !editingProd ? (
+                            <div className="ws-form-grid">
+                                <p
+                                    style={{
+                                        gridColumn: '1 / -1',
+                                        margin: 0,
+                                        fontSize: '0.8125rem',
+                                        color: 'var(--color-text-muted)',
+                                    }}
+                                >
+                                    Request adds a row to the master catalog queue (super-admin). Departments and
+                                    categories are loaded from the global master catalog.
+                                </p>
+                                <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                    <label>Name *</label>
+                                    <input
+                                        value={prodForm.name}
+                                        onChange={(e) => setProdForm((f) => ({ ...f, name: e.target.value }))}
+                                    />
+                                </div>
+                                <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                    <label>Arabic name</label>
+                                    <input
+                                        value={prodForm.arabic_name}
+                                        onChange={(e) => setProdForm((f) => ({ ...f, arabic_name: e.target.value }))}
+                                        dir="rtl"
+                                        placeholder="الاسم بالعربية"
+                                    />
+                                </div>
+                                <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                    <label>Brand name</label>
+                                    <input
+                                        value={prodForm.brand_name}
+                                        onChange={(e) => setProdForm((f) => ({ ...f, brand_name: e.target.value }))}
+                                    />
+                                </div>
+                                <div className="ws-field">
+                                    <label>SKU</label>
+                                    <input
+                                        value={prodForm.sku}
+                                        onChange={(e) => setProdForm((f) => ({ ...f, sku: e.target.value }))}
+                                        placeholder="Optional"
+                                    />
+                                </div>
+                                <div className="ws-field">
+                                    <label>Unit *</label>
+                                    <select
+                                        value={prodForm.unit}
+                                        onChange={(e) => setProdForm((f) => ({ ...f, unit: e.target.value }))}
+                                    >
+                                        {(uomSelectOptions.length
+                                            ? uomSelectOptions
+                                            : (productUnits || []).map((u) =>
+                                                  typeof u === 'string' ? { value: u, label: u } : normalizeUomOption(u),
+                                              ).filter(Boolean)
+                                        ).map((o) => (
+                                            <option key={o.value} value={o.value}>
+                                                {o.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                    <label>Description</label>
+                                    <textarea
+                                        rows={3}
+                                        value={prodForm.description}
+                                        onChange={(e) => setProdForm((f) => ({ ...f, description: e.target.value }))}
+                                        placeholder="Product description"
+                                        style={{ width: '100%', resize: 'vertical' }}
+                                    />
+                                </div>
+                                <div className="ws-field">
+                                    <label>Sales price inclusive VAT (expected) *</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        step="0.01"
+                                        value={prodForm.sale_price_incl_vat}
+                                        onChange={(e) =>
+                                            setProdForm((f) => ({ ...f, sale_price_incl_vat: e.target.value }))
+                                        }
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                    <label>Notes</label>
+                                    <textarea
+                                        rows={2}
+                                        value={prodForm.notes}
+                                        onChange={(e) => setProdForm((f) => ({ ...f, notes: e.target.value }))}
+                                        placeholder="Internal notes for approvers"
+                                        style={{ width: '100%', resize: 'vertical' }}
+                                    />
+                                </div>
+                                <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                    <label>Department (master) *</label>
+                                    <select
+                                        value={prodForm.master_department_id}
+                                        disabled={masterDeptLoading}
+                                        onChange={(e) =>
+                                            setProdForm((f) => ({
+                                                ...f,
+                                                master_department_id: e.target.value,
+                                                master_category_id: '',
+                                                category_id: '',
+                                            }))
+                                        }
+                                    >
+                                        <option value="">
+                                            {masterDeptLoading ? 'Loading…' : 'Select department'}
+                                        </option>
+                                        {masterDeptOptions.map((d) => {
+                                            const id = d.id ?? d.departmentId ?? d.masterId;
+                                            return (
+                                                <option key={id} value={id}>
+                                                    {d.name || pickDeptLabel(d)}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                </div>
+                                <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                    <label>Category (master) *</label>
+                                    <select
+                                        value={prodForm.master_category_id}
+                                        disabled={!prodForm.master_department_id || masterCatLoading}
+                                        onChange={(e) =>
+                                            setProdForm((f) => ({
+                                                ...f,
+                                                master_category_id: e.target.value,
+                                                category_id: e.target.value,
+                                            }))
+                                        }
+                                    >
+                                        <option value="">
+                                            {!prodForm.master_department_id
+                                                ? 'Select a department first'
+                                                : masterCatLoading
+                                                  ? 'Loading…'
+                                                  : 'Select category'}
+                                        </option>
+                                        {masterCatOptions.map((c) => {
+                                            const id = c.id ?? c.categoryId ?? c.masterId;
+                                            return (
+                                                <option key={id} value={id}>
+                                                    {c.name || c.categoryName || '—'}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="ws-form-grid">
+                                    <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                        <label>Name *</label>
+                                        <input
+                                            value={prodForm.name}
+                                            onChange={(e) => setProdForm((f) => ({ ...f, name: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>SKU / Barcode</label>
+                                        <input
+                                            value={prodForm.sku}
+                                            onChange={(e) => setProdForm((f) => ({ ...f, sku: e.target.value }))}
+                                            placeholder="Optional"
+                                        />
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>Category</label>
+                                        <select
+                                            value={prodForm.category_id}
+                                            onChange={(e) =>
+                                                setProdForm((f) => ({ ...f, category_id: e.target.value }))
+                                            }
+                                        >
+                                            <option value="">Select Category</option>
+                                            {productCategories.map((c) => (
+                                                <option key={c.id} value={c.id}>
+                                                    {c.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>Branch</label>
+                                        <select
+                                            value={prodForm.branch_id}
+                                            onChange={(e) =>
+                                                setProdForm((f) => ({ ...f, branch_id: e.target.value }))
+                                            }
+                                        >
+                                            <option value="">Select Branch</option>
+                                            {branches.map((b) => (
+                                                <option key={b.id} value={b.id}>
+                                                    {b.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>Department</label>
+                                        <select
+                                            value={prodForm.department_id}
+                                            onChange={(e) =>
+                                                setProdForm((f) => ({
+                                                    ...f,
+                                                    department_id: e.target.value,
+                                                    department_ids: e.target.value ? [e.target.value] : [],
+                                                }))
+                                            }
+                                        >
+                                            <option value="">Select Department</option>
+                                            {departments.map((d) => (
+                                                <option key={d.id} value={d.id}>
+                                                    {d.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>Type</label>
+                                        <select
+                                            value={prodForm.type}
+                                            onChange={(e) => setProdForm((f) => ({ ...f, type: e.target.value }))}
+                                        >
+                                            <option value="product">Product</option>
+                                            <option value="service">Service</option>
+                                        </select>
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>Unit</label>
+                                        <select
+                                            value={prodForm.unit}
+                                            onChange={(e) => setProdForm((f) => ({ ...f, unit: e.target.value }))}
+                                        >
+                                            {productUnits.map((u) => (
+                                                <option key={u} value={u}>
+                                                    {u}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>Purchase Price (SAR)</label>
+                                        <input
+                                            type="number"
+                                            value={prodForm.purchase_price}
+                                            onChange={(e) =>
+                                                setProdForm((f) => ({ ...f, purchase_price: e.target.value }))
+                                            }
+                                        />
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>Sale Price (SAR, incl. VAT)</label>
+                                        <input
+                                            type="number"
+                                            value={prodForm.sale_price}
+                                            onChange={(e) =>
+                                                setProdForm((f) => ({ ...f, sale_price: e.target.value }))
+                                            }
+                                        />
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>Current Stock Qty</label>
+                                        <input
+                                            type="number"
+                                            value={prodForm.stock_qty}
+                                            onChange={(e) =>
+                                                setProdForm((f) => ({ ...f, stock_qty: e.target.value }))
+                                            }
+                                        />
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>
+                                            Critical Level{' '}
+                                            <span style={{ fontSize: '0.6875rem', color: '#DC2626' }}>
+                                                (alert threshold)
+                                            </span>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={prodForm.critical_level}
+                                            onChange={(e) =>
+                                                setProdForm((f) => ({ ...f, critical_level: e.target.value }))
+                                            }
+                                        />
+                                    </div>
+                                    <div className="ws-field">
+                                        <label>Reorder Level</label>
+                                        <input
+                                            type="number"
+                                            value={prodForm.reorder_level}
+                                            onChange={(e) =>
+                                                setProdForm((f) => ({ ...f, reorder_level: e.target.value }))
+                                            }
+                                        />
+                                    </div>
+                                </div>
+                                {prodForm.critical_level &&
+                                    prodForm.stock_qty <= parseFloat(prodForm.critical_level) && (
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 8,
+                                                background: '#FEF2F2',
+                                                border: '1px solid #FECACA',
+                                                borderRadius: 10,
+                                                padding: 12,
+                                                marginTop: 16,
+                                                fontSize: '0.8125rem',
+                                                color: '#DC2626',
+                                            }}
+                                        >
+                                            <AlertTriangle size={16} /> Current stock is at/below critical level —
+                                            saving will notify all active suppliers.
+                                        </div>
+                                    )}
+                            </>
                         )}
                     </Modal>
                 )}

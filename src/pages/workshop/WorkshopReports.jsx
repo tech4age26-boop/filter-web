@@ -7,6 +7,7 @@ import {
     Tooltip, ResponsiveContainer
 } from 'recharts';
 import { apiFetch } from '../../services/api';
+import { qs, branchScopeParams } from '../../services/workshopStaffApi';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -53,7 +54,11 @@ function TechDropdown({ value, options, onChange }) {
     );
 }
 
-export default function WorkshopReports() {
+export default function WorkshopReports({ selectedBranchId = 'all', branches = [] }) {
+    const branchLabel = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
+    }, [branches, selectedBranchId]);
     const [dateFrom, setDateFrom] = useState('2026-03-01');
     const [dateTo, setDateTo] = useState('2026-03-27');
     const [activeTab, setActiveTab] = useState('daily_sales');
@@ -66,7 +71,7 @@ export default function WorkshopReports() {
         setIsLoading(true);
         setLoadError('');
         try {
-            const response = await apiFetch('/workshop-staff/reports-analytics');
+            const response = await apiFetch(`/workshop-staff/reports-analytics${qs(branchScopeParams(selectedBranchId))}`);
             if (!response?.success) {
                 throw new Error('Invalid reports response.');
             }
@@ -76,7 +81,7 @@ export default function WorkshopReports() {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [selectedBranchId]);
 
     useEffect(() => {
         loadReports();
@@ -129,7 +134,7 @@ export default function WorkshopReports() {
             <div className="ws-reports-header">
                 <div>
                     <h2 className="ws-page-title">Reports & Analytics</h2>
-                    <p className="ws-page-sub">All Branches</p>
+                    <p className="ws-page-sub">Scope · <strong>{branchLabel}</strong></p>
                 </div>
                 <div className="ws-online-badge">
                     <div className="ws-online-dot" /> Online

@@ -9,37 +9,97 @@ function qs(params) {
     return s ? `?${s}` : '';
 }
 
-// ─── Browse super-admin catalog ──────────────────────────────────────────────
-// Rows include `inWorkshop` always, and `inBranch` when a `branchId` query is
-// supplied. When `branchId` is omitted, the legacy behavior is preserved.
+/** Maps page/pageSize to limit/offset for backends that ignore page-based params. */
+function pagedQueryFields(page, pageSize) {
+    const pg = page != null ? Number(page) : NaN;
+    const ps = pageSize != null ? Number(pageSize) : NaN;
+    if (!Number.isFinite(pg) || !Number.isFinite(ps) || pg < 1 || ps < 1) return {};
+    const offset = (pg - 1) * ps;
+    return {
+        page: pg,
+        pageSize: ps,
+        size: ps,
+        limit: ps,
+        offset,
+    };
+}
 
-export const getCatalogDepartments = ({ branchId, signal } = {}) =>
-    apiFetch(`/workshop-catalog/catalog/departments${qs({ branchId })}`, { signal });
+// ─── Browse master catalog (workshop JWT) ───────────────────────────────────
+// Same global rows as super-admin departments / categories / products / services tables.
+// GET /workshop-catalog/catalog/* is a read-only, workshop-safe projection (filters,
+// pagination, adoption flags)—not a separate product list. Do not call /super-admin/* here.
+//
+// `listScope=master` (default on these helpers): asks for full master-table browse for adoption.
+//
+// Optional `branchId`: affects `inBranch` and branch validation on each row only—it does NOT
+// change which master rows are returned. Omit for full browse; pass when the UI needs
+// branch-specific badges or adopt flows.
+//
+// `inWorkshop` / `inBranch` reflect active adoption only (isActive on workshop_* / branch_* links;
+// soft-disabled adoptions should not appear as “in catalog” for that workshop/branch).
+//
+// Writes: POST /workshop-catalog/... and POST /workshop-catalog/branches/... (adoption/link rows).
+const DEFAULT_CATALOG_LIST_SCOPE = 'master';
 
-export const getCatalogCategories = ({ departmentId, type, branchId, signal } = {}) =>
-    apiFetch(`/workshop-catalog/catalog/categories${qs({ departmentId, type, branchId })}`, { signal });
+export const getCatalogDepartments = ({ branchId, listScope = DEFAULT_CATALOG_LIST_SCOPE, signal } = {}) =>
+    apiFetch(`/workshop-catalog/catalog/departments${qs({ branchId, listScope })}`, { signal });
 
-export const getCatalogProducts = ({ departmentId, categoryId, q, page, pageSize, branchId, signal } = {}) =>
-    apiFetch(`/workshop-catalog/catalog/products${qs({ departmentId, categoryId, q, page, pageSize, branchId })}`, { signal });
+export const getCatalogCategories = ({ departmentId, type, branchId, listScope = DEFAULT_CATALOG_LIST_SCOPE, signal } = {}) =>
+    apiFetch(`/workshop-catalog/catalog/categories${qs({ departmentId, type, branchId, listScope })}`, { signal });
 
-export const getCatalogServices = ({ departmentId, categoryId, q, page, pageSize, branchId, signal } = {}) =>
-    apiFetch(`/workshop-catalog/catalog/services${qs({ departmentId, categoryId, q, page, pageSize, branchId })}`, { signal });
+/** Master units of measure (same registry as super-admin inventory UOM). Optional until BE exposes the route. */
+export const getCatalogUnitsOfMeasure = ({ branchId, listScope = DEFAULT_CATALOG_LIST_SCOPE, signal } = {}) =>
+    apiFetch(`/workshop-catalog/catalog/units-of-measure${qs({ branchId, listScope })}`, { signal });
+
+/**
+ * Workshop submits a request to add a new product to the master catalog (super-admin approval queue).
+ * Body shape is best-effort across BE versions; adjust when the contract is finalized.
+ */
+export const submitCatalogProductRequest = (body) =>
+    apiFetch('/workshop-catalog/catalog/product-requests', { method: 'POST', body: JSON.stringify(body) });
+
+export const getCatalogProducts = ({ departmentId, categoryId, q, page, pageSize, branchId, listScope = DEFAULT_CATALOG_LIST_SCOPE, signal } = {}) =>
+    apiFetch(
+        `/workshop-catalog/catalog/products${qs({
+            departmentId,
+            categoryId,
+            q,
+            ...pagedQueryFields(page, pageSize),
+            branchId,
+            listScope,
+        })}`,
+        { signal },
+    );
+
+export const getCatalogServices = ({ departmentId, categoryId, q, page, pageSize, branchId, listScope = DEFAULT_CATALOG_LIST_SCOPE, signal } = {}) =>
+    apiFetch(
+        `/workshop-catalog/catalog/services${qs({
+            departmentId,
+            categoryId,
+            q,
+            ...pagedQueryFields(page, pageSize),
+            branchId,
+            listScope,
+        })}`,
+        { signal },
+    );
 
 // ─── Browse what's already adopted in my workshop ────────────────────────────
 // Every row now includes `branches: [{ id, name }]` and `branchNames: string[]`
 // listing every branch in the workshop that's currently holding the item.
 
-export const getMyDepartments = ({ signal } = {}) =>
-    apiFetch('/workshop-catalog/my/departments', { signal });
+/** Optional `branchId`: when set, only items adopted for that branch (workshop JWT). */
+export const getMyDepartments = ({ branchId, signal } = {}) =>
+    apiFetch(`/workshop-catalog/my/departments${qs({ branchId })}`, { signal });
 
-export const getMyCategories = ({ departmentId, type, signal } = {}) =>
-    apiFetch(`/workshop-catalog/my/categories${qs({ departmentId, type })}`, { signal });
+export const getMyCategories = ({ departmentId, type, branchId, signal } = {}) =>
+    apiFetch(`/workshop-catalog/my/categories${qs({ departmentId, type, branchId })}`, { signal });
 
-export const getMyProducts = ({ departmentId, categoryId, isActive, signal } = {}) =>
-    apiFetch(`/workshop-catalog/my/products${qs({ departmentId, categoryId, isActive })}`, { signal });
+export const getMyProducts = ({ departmentId, categoryId, isActive, branchId, signal } = {}) =>
+    apiFetch(`/workshop-catalog/my/products${qs({ departmentId, categoryId, isActive, branchId })}`, { signal });
 
-export const getMyServices = ({ departmentId, categoryId, isActive, signal } = {}) =>
-    apiFetch(`/workshop-catalog/my/services${qs({ departmentId, categoryId, isActive })}`, { signal });
+export const getMyServices = ({ departmentId, categoryId, isActive, branchId, signal } = {}) =>
+    apiFetch(`/workshop-catalog/my/services${qs({ departmentId, categoryId, isActive, branchId })}`, { signal });
 
 // ─── Adopt (auto-adds missing parents) ───────────────────────────────────────
 
@@ -111,6 +171,11 @@ export const getBranchDepartments = (branchId, { signal } = {}) =>
 export const getBranchCategories = (branchId, { type, departmentId, signal } = {}) =>
     apiFetch(`/workshop-catalog/branches/${branchId}/categories${qs({ type, departmentId })}`, { signal });
 
+/**
+ * Catalog-service flat lists (workshop-catalog). Prefer workshop-staff branch products/services
+ * for portal reads — see `getWorkshopStaffBranchProducts` / `getWorkshopStaffBranchServices`.
+ * Each row: branch-effective *BeforeVat; nested product/service snapshot.
+ */
 export const getBranchProducts = (branchId, { signal } = {}) =>
     apiFetch(`/workshop-catalog/branches/${branchId}/products`, { signal });
 

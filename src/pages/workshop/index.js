@@ -1,7 +1,6 @@
 export { default as WorkshopDashboard } from './WorkshopDashboard';
 export { default as WorkshopEmployees } from './WorkshopEmployees';
 export { default as WorkshopDepartments } from './WorkshopDepartments';
-export { default as WorkshopCatalog } from './WorkshopCatalog';
 export { default as WorkshopPurchases } from './WorkshopPurchases';
 export { default as WorkshopApprovals } from './WorkshopApprovals';
 export { default as WorkshopSuppliers } from './WorkshopSuppliers';

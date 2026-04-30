@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import COAView from '../../components/accounting/COAView';
 import GlobalCashBankView from '../../components/accounting/CashBankView';
@@ -15,6 +15,11 @@ import '../../styles/admin/AccountingPage.css';
 
 export default function WorkshopAccountingPage({ activeTab }) {
     const { subTab: paramsSubTab } = useParams();
+
+    const branchLabel = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
+    }, [branches, selectedBranchId]);
     
     // Normalize activeSub to match the internal view keys
     const getActiveSub = () => {

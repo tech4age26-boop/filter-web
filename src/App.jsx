@@ -128,7 +128,14 @@ function App() {
               } 
             />
             <Route path="/locker/*" element={<LockerLayout />} />
-            <Route path="/supplier/*" element={<SupplierLayout />} />
+            <Route
+              path="/supplier/*"
+              element={
+                <ProtectedRoute requiredType="supplier_user" redirectTo="/supplier/login">
+                  <SupplierLayout />
+                </ProtectedRoute>
+              }
+            />
             <Route 
               path="/corporate/*" 
               element={

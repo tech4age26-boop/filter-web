@@ -35,7 +35,19 @@ const ProtectedRoute = ({ children, requiredType, redirectTo = "/" }) => {
         }
 
         if (normalizedRequiredType === 'supplier_user') {
-            return normalizedUserType === 'supplier_user' || normalizedUserType === 'supplier';
+            if (normalizedUserType === 'supplier_user' || normalizedUserType === 'supplier') {
+                return true;
+            }
+            // Platform admins may open the supplier shell (sidebar "Back to Super Admin").
+            if (
+                normalizedUserType === 'admin' ||
+                normalizedUserType === 'super_admin' ||
+                normalizedUserType === 'admin_user' ||
+                normalizedUserType === 'platform_admin'
+            ) {
+                return true;
+            }
+            return false;
         }
 
         return normalizedUserType === normalizedRequiredType;
