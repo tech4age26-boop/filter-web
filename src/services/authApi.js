@@ -39,6 +39,23 @@ export async function workshopLogin(email, password) {
     return data;
 }
 
+/** Invalidate workshop JWT on the server (call before clearing local session). */
+export async function workshopLogout(token) {
+    const res = await fetch(`${BASE_URL}/auth/workshop/logout`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            accept: '*/*',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({}),
+    });
+    if (!res.ok && res.status !== 401) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `Workshop logout failed: ${res.status}`);
+    }
+}
+
 export async function cashierLogin(email, password) {
     const res = await fetch(`${BASE_URL}/auth/cashier/login`, {
         method: 'POST',

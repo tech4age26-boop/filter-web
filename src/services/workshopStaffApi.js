@@ -19,6 +19,17 @@ export function branchScopeParams(selectedBranchId) {
     return { branchId: String(selectedBranchId) };
 }
 
+/**
+ * For GET /workshop-staff/products, /workshop-staff/commissions, etc.:
+ * one branch → `branchId`; all branches in the UI → `allBranches=true` (required by the API).
+ */
+export function workshopStaffListScopeQuery(selectedBranchId) {
+    if (selectedBranchId == null || selectedBranchId === '' || selectedBranchId === 'all') {
+        return { allBranches: true };
+    }
+    return { branchId: String(selectedBranchId) };
+}
+
 function unwrapList(res, keys = ['data', 'technicians', 'cashiers', 'users', 'items']) {
     if (Array.isArray(res)) return res;
     if (!res || typeof res !== 'object') return [];
@@ -206,6 +217,36 @@ export const getWorkshopStaffProducts = (params = {}) =>
  */
 export const getWorkshopStaffServices = (params = {}) =>
     apiFetch(`/workshop-staff/services${qs(params)}`);
+
+/**
+ * Query for GET /workshop-staff/reports-analytics (same branch rule as products: branchId or allBranches=true).
+ * Sends both snake_case and camelCase date / technician keys for DTO compatibility.
+ * @param {string|number|'all'|undefined} selectedBranchId
+ * @param {{ startDate?: string, endDate?: string, technicianId?: string }} opts — ISO YYYY-MM-DD (UTC calendar days on server)
+ */
+export function workshopReportsAnalyticsParams(selectedBranchId, opts = {}) {
+    const { startDate = '', endDate = '', technicianId = '' } = opts;
+    const q = { ...workshopStaffListScopeQuery(selectedBranchId) };
+    if (q.branchId != null && q.branchId !== '') q.branch_id = q.branchId;
+    if (startDate) {
+        q.start_date = startDate;
+        q.startDate = startDate;
+    }
+    if (endDate) {
+        q.end_date = endDate;
+        q.endDate = endDate;
+    }
+    if (technicianId != null && String(technicianId) !== '') {
+        const tid = String(technicianId);
+        q.technician_id = tid;
+        q.employee_id = tid;
+    }
+    return q;
+}
+
+/** Workshop JWT — bundled KPIs, daily revenue, by technician/customer/product/department/branch. */
+export const getWorkshopReportsAnalytics = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports-analytics${qs(params)}`, options);
 
 /**
  * Flat list from GET .../branches/:id/products|services (workshop-staff or workshop-catalog) and
