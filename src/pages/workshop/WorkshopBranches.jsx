@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, Key, Plus, MapPin, Phone, Mail, Users, Edit, RefreshCw } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
-import { loadWorkshopEmployeesCombined } from '../../services/workshopStaffApi';
+import { loadWorkshopEmployeesCombined, unwrapWorkshopBranchesResponse } from '../../services/workshopStaffApi';
 import {
     BRANCH_PERMISSIONS,
     MOCK_ROLE_PERMISSIONS,
@@ -59,9 +59,18 @@ function BranchFormModal({ branch, onClose, onSave, isSaving }) {
     );
 }
 
+function branchIsApprovedForAccess(branch) {
+    const s = String(branch?.approvalStatus ?? '').toLowerCase();
+    return s === '' || s === 'approved';
+}
+
 function AccessPermissionFormModal({ branches, onClose, onSave }) {
     const [form, setForm] = useState({ branch_id: '', admin_name: '', admin_email: '', permissions: [] });
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+    const selectableBranches = useMemo(
+        () => (branches || []).filter(branchIsApprovedForAccess),
+        [branches],
+    );
     const togglePerm = (key) => setForm(f => ({ ...f, permissions: f.permissions.includes(key) ? f.permissions.filter(p => p !== key) : [...f.permissions, key] }));
     const handleSave = () => {
         const branch = branches?.find(b => b.id === form.branch_id);
@@ -79,8 +88,13 @@ function AccessPermissionFormModal({ branches, onClose, onSave }) {
                     <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Branch *</label>
                     <select value={form.branch_id} onChange={e => set('branch_id', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}>
                         <option value="">Select branch</option>
-                        {branches?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        {selectableBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
+                    {selectableBranches.length === 0 && (branches || []).length > 0 && (
+                        <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: '#B45309' }}>
+                            No approved branches yet. Super admin must approve a branch before you can assign branch admin access here.
+                        </p>
+                    )}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Admin Name</label><input type="text" value={form.admin_name} onChange={e => set('admin_name', e.target.value)} placeholder="Full name" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
@@ -151,17 +165,24 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
         setLoadError('');
         try {
             const response = await apiFetch('/workshop-staff/branches');
-            if (!(response?.success && Array.isArray(response.branches))) {
-                throw new Error('Invalid branches response.');
+            const rawList = unwrapWorkshopBranchesResponse(response);
+            if (response?.success === false && rawList.length === 0) {
+                throw new Error(response.message || 'Invalid branches response.');
             }
             // Mirror the BE-canonical keys onto a few legacy aliases the rest
             // of the page already reads (status, code) so we don't have to
             // rewrite every consumer downstream.
-            setBranches(response.branches.map((branch) => ({
-                ...branch,
-                status: branch.status || (branch.isActive ? 'active' : 'inactive'),
-                code: branch.branchCode ?? branch.code ?? '',
-            })));
+            setBranches(
+                rawList.map((branch) => ({
+                    ...branch,
+                    id: branch.id ?? branch._id,
+                    name: branch.name ?? branch.branchName ?? 'Branch',
+                    status: branch.status || (branch.isActive ? 'active' : 'inactive'),
+                    code: branch.branchCode ?? branch.code ?? '',
+                    approvalStatus: branch.approvalStatus ?? branch.approval_status ?? null,
+                    approvalRequestedAt: branch.approvalRequestedAt ?? branch.approval_requested_at ?? null,
+                })),
+            );
         } catch (error) {
             setLoadError(error.message || 'Failed to load branches.');
         } finally {
@@ -245,6 +266,9 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                 });
             }
             await loadBranches();
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('workshop-branches-changed'));
+            }
             setShowBranchForm(false);
             setEditBranch(null);
         } catch (error) {
@@ -299,6 +323,8 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                         {visibleBranches.map(branch => {
                             const perm = getBranchPerm(branch.id);
                             const empCount = countEmployees(branch);
+                            const approvalSt = String(branch.approvalStatus ?? '').toLowerCase();
+                            const pendingSuperAdmin = approvalSt === 'pending';
                             return (
                                 <div key={branch.id} className="ws-branch-card">
                                     <div className="ws-branch-card-body">
@@ -310,8 +336,22 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                                                     {branch.code && <p className="ws-branch-code">{branch.code}</p>}
                                                 </div>
                                             </div>
-                                            <span className="ws-branch-badge-active">{branch.status}</span>
+                                            <span
+                                                className={
+                                                    pendingSuperAdmin
+                                                        ? 'ws-branch-badge-active ws-branch-badge--pending-approval'
+                                                        : 'ws-branch-badge-active'
+                                                }
+                                                title={pendingSuperAdmin ? 'Super admin must approve this branch before it is fully active.' : undefined}
+                                            >
+                                                {pendingSuperAdmin ? 'Pending approval' : branch.status}
+                                            </span>
                                         </div>
+                                        {pendingSuperAdmin && (
+                                            <p className="ws-branch-pending-note">
+                                                Awaiting super admin approval. Cashiers and technicians require an approved branch.
+                                            </p>
+                                        )}
                                         <div className="ws-branch-contact">
                                             {branch.address && <div className="ws-branch-contact-row"><MapPin size={14}/><span>{branch.address}</span></div>}
                                             {branch.phone && <div className="ws-branch-contact-row"><Phone size={14}/><span>{branch.phone}</span></div>}

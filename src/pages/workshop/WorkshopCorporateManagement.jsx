@@ -1,10 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Building2, FileText, Lock, Mail, Pencil, Phone, RefreshCw, Store, User, UserPlus, ToggleLeft,
+    Building2, FileText, Lock, Mail, Pencil, Phone, Plus, RefreshCw, Store, User, UserPlus, ToggleLeft,
 } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
-import { qs, branchScopeParams } from '../../services/workshopStaffApi';
+import {
+    getWorkshopCorporateCustomers,
+    postCorporateRegister,
+    workshopCorporateCustomersParams,
+} from '../../services/workshopStaffApi';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -254,6 +258,268 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
     );
 }
 
+function parseCorporateCustomersResponse(response) {
+    if (response == null || typeof response !== 'object') return { list: [], total: 0 };
+    const list =
+        response.corporateCustomers ??
+        response.corporate_customers ??
+        response.data?.corporateCustomers ??
+        response.data?.corporate_customers ??
+        (Array.isArray(response.data) ? response.data : null) ??
+        (Array.isArray(response.items) ? response.items : null) ??
+        [];
+    const arr = Array.isArray(list) ? list : [];
+    const total = toNumber(response.total ?? response.count ?? arr.length);
+    return { list: arr, total };
+}
+
+function RegisterCorporateModal({ branches, selectedBranchId, onClose, onSuccess }) {
+    const defaultBranches = useMemo(() => {
+        if (selectedBranchId && selectedBranchId !== 'all') return [String(selectedBranchId)];
+        return [];
+    }, [selectedBranchId]);
+
+    const [form, setForm] = useState({
+        companyName: '',
+        contactPerson: '',
+        mobile: '',
+        email: '',
+        password: '',
+        taxId: '',
+        address: '',
+        creditLimit: '',
+        selectedBranchIds: defaultBranches,
+    });
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState('');
+
+    useEffect(() => {
+        setForm({
+            companyName: '',
+            contactPerson: '',
+            mobile: '',
+            email: '',
+            password: '',
+            taxId: '',
+            address: '',
+            creditLimit: '',
+            selectedBranchIds: defaultBranches,
+        });
+        setSaveError('');
+    }, [defaultBranches]);
+
+    const toggleBranch = (branchId) => {
+        const sid = String(branchId);
+        setForm((f) => {
+            const has = f.selectedBranchIds.includes(sid);
+            return {
+                ...f,
+                selectedBranchIds: has ? f.selectedBranchIds.filter((x) => x !== sid) : [...f.selectedBranchIds, sid],
+            };
+        });
+    };
+
+    const handleSubmit = async () => {
+        const companyName = form.companyName.trim();
+        const contactPerson = form.contactPerson.trim();
+        const mobile = form.mobile.trim();
+        const email = form.email.trim();
+        const password = form.password;
+        if (!companyName || !contactPerson || !mobile || !email || !password) {
+            setSaveError('Company, contact, mobile, email, and password are required.');
+            return;
+        }
+        if (password.length < 8) {
+            setSaveError('Password must be at least 8 characters.');
+            return;
+        }
+        if (!form.selectedBranchIds.length) {
+            setSaveError('Select at least one branch to link this corporate account.');
+            return;
+        }
+        setSaving(true);
+        setSaveError('');
+        try {
+            const creditLimit = toNumber(form.creditLimit);
+            const payload = {
+                companyName,
+                contactPerson,
+                customerName: contactPerson,
+                address: form.address.trim(),
+                creditLimit: Number.isFinite(creditLimit) && creditLimit >= 0 ? creditLimit : 0,
+                mobile,
+                taxId: form.taxId.trim(),
+                vatNumber: form.taxId.trim(),
+                email,
+                password,
+                selectedBranchIds: form.selectedBranchIds.map(String),
+            };
+            await postCorporateRegister(payload);
+            onSuccess?.();
+            onClose();
+        } catch (e) {
+            setSaveError(e.message || 'Registration failed.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <Modal
+            title="Register corporate customer"
+            onClose={onClose}
+            width="560px"
+            footer={
+                <>
+                    <button type="button" className="btn-portal-outline" onClick={onClose} disabled={saving}>
+                        Cancel
+                    </button>
+                    <button type="button" className="btn-portal" onClick={handleSubmit} disabled={saving}>
+                        {saving ? 'Submitting...' : 'Create corporate account'}
+                    </button>
+                </>
+            }
+        >
+            <div style={{ fontSize: '0.875rem' }}>
+                <p style={{ margin: '0 0 16px', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
+                    Creates a corporate account linked to your workshop via the corporate register API. The first portal
+                    user uses the email and password below.
+                </p>
+                {saveError && (
+                    <p style={{ margin: '0 0 12px', color: '#B91C1C', fontSize: '0.8125rem' }}>{saveError}</p>
+                )}
+
+                <FieldRow icon={Building2} label="Company name *">
+                    <input
+                        type="text"
+                        value={form.companyName}
+                        onChange={(e) => setForm((f) => ({ ...f, companyName: e.target.value }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+                <FieldRow icon={User} label="Contact person *">
+                    <input
+                        type="text"
+                        value={form.contactPerson}
+                        onChange={(e) => setForm((f) => ({ ...f, contactPerson: e.target.value }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+                <FieldRow icon={Phone} label="Mobile *">
+                    <input
+                        type="text"
+                        value={form.mobile}
+                        onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+                <FieldRow icon={Mail} label="Portal email *">
+                    <input
+                        type="email"
+                        value={form.email}
+                        onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                        autoComplete="email"
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+                <FieldRow icon={Lock} label="Portal password *">
+                    <input
+                        type="password"
+                        value={form.password}
+                        onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                        autoComplete="new-password"
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+                <FieldRow icon={FileText} label="VAT / Tax ID">
+                    <input
+                        type="text"
+                        value={form.taxId}
+                        onChange={(e) => setForm((f) => ({ ...f, taxId: e.target.value }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+                <FieldRow icon={Building2} label="Address">
+                    <input
+                        type="text"
+                        value={form.address}
+                        onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+                <FieldRow icon={FileText} label="Credit limit (SAR)">
+                    <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={form.creditLimit}
+                        onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+
+                <div style={{ marginTop: 8, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: '0.875rem' }}>
+                        <Store size={18} style={{ color: 'var(--color-text-muted)' }} />
+                        Linked branches *
+                    </div>
+                    <span className="ws-nav-badge--yellow" style={{ fontSize: '0.6875rem' }}>
+                        {form.selectedBranchIds.length} selected
+                    </span>
+                </div>
+                <div
+                    style={{
+                        maxHeight: 220,
+                        overflowY: 'auto',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 10,
+                        padding: 8,
+                        background: '#fff',
+                    }}
+                >
+                    {branches.length === 0 ? (
+                        <p style={{ margin: 12, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
+                            No branches loaded. Refresh the page or open again after branches load.
+                        </p>
+                    ) : (
+                        branches.map((b) => {
+                            const idStr = String(b.id);
+                            const checked = form.selectedBranchIds.includes(idStr);
+                            return (
+                                <label
+                                    key={idStr}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        gap: 10,
+                                        padding: '10px 8px',
+                                        borderRadius: 8,
+                                        cursor: 'pointer',
+                                        background: checked ? 'rgba(255,214,0,0.12)' : 'transparent',
+                                    }}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => toggleBranch(b.id)}
+                                        style={{ marginTop: 3 }}
+                                    />
+                                    <div>
+                                        <div style={{ fontWeight: 600, fontSize: '0.8125rem' }}>{b.name || idStr}</div>
+                                        {b.address ? (
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 2 }}>{b.address}</div>
+                                        ) : null}
+                                    </div>
+                                </label>
+                            );
+                        })
+                    )}
+                </div>
+            </div>
+        </Modal>
+    );
+}
+
 function AddCorporateUserModal({ row, onClose, onSuccess }) {
     const [form, setForm] = useState({ name: '', email: '', password: '' });
     const [saving, setSaving] = useState(false);
@@ -370,15 +636,27 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
     const [branches, setBranches] = useState([]);
     const [editing, setEditing] = useState(null);
     const [addUserFor, setAddUserFor] = useState(null);
+    const [registerOpen, setRegisterOpen] = useState(false);
+
+    const mergedBranches = useMemo(
+        () => (branchesFromLayout.length > 0 ? branchesFromLayout : branches),
+        [branchesFromLayout, branches],
+    );
+
+    const branchNameById = useMemo(() => {
+        const m = new Map();
+        for (const b of mergedBranches) {
+            m.set(String(b.id), b.name || String(b.id));
+        }
+        return m;
+    }, [mergedBranches]);
 
     const branchLabel = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
         return (
-            branchesFromLayout.find((b) => String(b.id) === String(selectedBranchId))?.name ||
-            branches.find((b) => String(b.id) === String(selectedBranchId))?.name ||
-            'Branch'
+            mergedBranches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch'
         );
-    }, [branches, branchesFromLayout, selectedBranchId]);
+    }, [mergedBranches, selectedBranchId]);
 
     const visibleCustomers = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return customers;
@@ -405,14 +683,18 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
         setIsLoading(true);
         setError('');
         try {
-            const response = await apiFetch(`/workshop-staff/corporate-customers${qs(branchScopeParams(selectedBranchId))}`);
-            if (!(response?.success && Array.isArray(response.corporateCustomers))) {
-                throw new Error('Invalid corporate customers response.');
+            const params = workshopCorporateCustomersParams(selectedBranchId);
+            const response = await getWorkshopCorporateCustomers(params);
+            const { list, total: t } = parseCorporateCustomersResponse(response);
+            if (response?.success === false && list.length === 0) {
+                throw new Error(response.message || 'Failed to load corporate customers.');
             }
-            setCustomers(response.corporateCustomers);
-            setTotal(toNumber(response.total));
+            setCustomers(list);
+            setTotal(t > 0 ? t : list.length);
         } catch (err) {
             setError(err.message || 'Failed to load corporate customers.');
+            setCustomers([]);
+            setTotal(0);
         } finally {
             setIsLoading(false);
         }
@@ -435,9 +717,15 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                         Corporate customers linked to your workshop · <strong>{branchLabel}</strong>
                     </p>
                 </div>
-                <button className="btn-portal" onClick={loadCorporateCustomers} disabled={isLoading}>
-                    <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <button type="button" className="btn-portal-outline" onClick={() => setRegisterOpen(true)}>
+                        <Plus size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+                        Register corporate
+                    </button>
+                    <button type="button" className="btn-portal" onClick={loadCorporateCustomers} disabled={isLoading}>
+                        <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
+                    </button>
+                </div>
             </div>
 
             {error && (
@@ -481,7 +769,7 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                                 </tr>
                             ) : (
                                 visibleCustomers.map((row) => (
-                                    <tr key={row.id}>
+                                    <tr key={row.id ?? row.corporate_account_id ?? row.companyName}>
                                         <td><strong>{row.companyName || row.customer?.name || '—'}</strong></td>
                                         <td>{row.contactPerson || '—'}</td>
                                         <td>{row.customer?.mobile || '—'}</td>
@@ -490,7 +778,15 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                                         </td>
                                         <td>SAR {toNumber(row.creditLimit).toLocaleString()}</td>
                                         <td>SAR {toNumber(row.dueBalance).toLocaleString()}</td>
-                                        <td>{Array.isArray(row.selectedBranchIds) ? row.selectedBranchIds.length : 0}</td>
+                                        <td style={{ fontSize: '0.8125rem', maxWidth: 220 }}>
+                                            {(() => {
+                                                const ids = row.selectedBranchIds ?? row.selected_branch_ids ?? [];
+                                                if (!Array.isArray(ids) || ids.length === 0) return '—';
+                                                return ids
+                                                    .map((id) => branchNameById.get(String(id)) || String(id))
+                                                    .join(', ');
+                                            })()}
+                                        </td>
                                         <td>
                                             <span className={`ws-badge ${statusBadgeClass(row.status)}`}>
                                                 {row.status || 'unknown'}
@@ -526,11 +822,19 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                 </div>
             </div>
 
+            {registerOpen && (
+                <RegisterCorporateModal
+                    branches={mergedBranches}
+                    selectedBranchId={selectedBranchId}
+                    onClose={() => setRegisterOpen(false)}
+                    onSuccess={loadCorporateCustomers}
+                />
+            )}
             {editing && (
                 <EditCorporateAccountModal
                     key={editing.id}
                     row={editing}
-                    branches={branches}
+                    branches={mergedBranches}
                     onClose={() => setEditing(null)}
                     onSaved={loadCorporateCustomers}
                 />

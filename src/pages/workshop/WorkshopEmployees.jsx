@@ -7,6 +7,8 @@ import {
     loadWorkshopEmployeesCombined,
     createWorkshopTechnician,
     createWorkshopCashier,
+    createWorkshopPortalStaff,
+    updateWorkshopPortalStaff,
     updateWorkshopTechnician,
     updateWorkshopCashier,
     deleteWorkshopTechnician,
@@ -14,16 +16,37 @@ import {
     getWorkshopBranches,
     getWorkshopTechnicianById,
     getWorkshopCashierById,
+    getWorkshopPortalStaffById,
     unwrapWorkshopStaffDetail,
+    unwrapWorkshopPortalStaffDetail,
+    unwrapWorkshopBranchesResponse,
     normalizeWorkshopEmployee,
+    buildPortalStaffPatchPayload,
 } from '../../services/workshopStaffApi';
 import { getMyDepartments, getBranchDepartments } from '../../services/workshopCatalogApi';
 
-const isTechnicianRole = (r) =>
-    r === 'technician' ||
-    r === 'senior_technician' ||
-    r === 'junior_technician' ||
-    r === 'specialist';
+const isTechnicianRole = (r) => r === 'technician';
+
+const isPortalStaffRole = (r) => r === 'manager' || r === 'supervisor' || r === 'team_leader';
+
+/** Manager / supervisor / team leader rows (recordType portal_user or legacy role-only lists). */
+function isPortalEmployeeRow(emp) {
+    if (!emp) return false;
+    if (String(emp.recordType || '').toLowerCase() === 'portal_user') return true;
+    const r = String(emp.role || '')
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+    return isPortalStaffRole(r);
+}
+
+function mapBranchOption(branch) {
+    return {
+        ...branch,
+        id: branch.id ?? branch._id,
+        name: branch.name ?? branch.branchName ?? 'Branch',
+        approvalStatus: branch.approvalStatus ?? branch.approval_status ?? null,
+    };
+}
 
 function parseWorkshopDepartmentsResponse(res) {
     return (
@@ -42,6 +65,8 @@ const EMPTY_FORM = {
     iqama: '',
     branchId: '',
     departmentIds: [],
+    /** Single department for role `team_leader` (linked on the server). */
+    teamLeaderDepartmentId: '',
     role: 'cashier',
     is_technician: false,
     workshop_duty: false,
@@ -57,6 +82,8 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
     const [employees, setEmployees] = useState([]);
     const [branchList, setBranchList] = useState([]);
     const [workshopDepartments, setWorkshopDepartments] = useState([]);
+    /** Departments adopted on the branch selected in the modal (for team leader). */
+    const [teamLeaderDepartments, setTeamLeaderDepartments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [listError, setListError] = useState('');
@@ -77,20 +104,47 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
 
     useEffect(() => {
         if (branchesProp?.length) {
-            setBranchList(branchesProp);
+            setBranchList(branchesProp.map(mapBranchOption));
             return;
         }
         let cancelled = false;
         getWorkshopBranches()
             .then((r) => {
                 if (cancelled) return;
-                if (r?.success && Array.isArray(r.branches)) setBranchList(r.branches);
+                const raw = unwrapWorkshopBranchesResponse(r);
+                if (raw.length > 0) {
+                    setBranchList(raw.map(mapBranchOption));
+                    return;
+                }
+                if (r?.success && Array.isArray(r.branches)) setBranchList(r.branches.map(mapBranchOption));
             })
             .catch(() => {});
         return () => {
             cancelled = true;
         };
     }, [branchesProp]);
+
+    /** Cashiers / portal staff may only be assigned to super-admin–approved branches. */
+    const branchesForNonTechnicianSelect = useMemo(() => {
+        const approved = branchList.filter((b) => {
+            const s = String(b.approvalStatus ?? '').toLowerCase();
+            return s === '' || s === 'approved';
+        });
+        if (editing?.branchId) {
+            const cur = branchList.find((b) => String(b.id) === String(editing.branchId));
+            if (cur && !approved.some((b) => String(b.id) === String(cur.id))) {
+                return [...approved, mapBranchOption(cur)];
+            }
+        }
+        return approved;
+    }, [branchList, editing]);
+
+    const branchSelectOptions = useMemo(() => {
+        const asTechnician = form.is_technician || isTechnicianRole(form.role);
+        const cashierOrPortalEdit = editing && editing._source !== 'technician';
+        if (asTechnician && !cashierOrPortalEdit) return branchList;
+        return branchesForNonTechnicianSelect;
+    }, [form.is_technician, form.role, branchList, branchesForNonTechnicianSelect, editing]);
 
     const loadEmployees = useCallback(async () => {
         setListError('');
@@ -145,6 +199,26 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
         loadWorkshopDepartmentCatalog();
     }, [loadWorkshopDepartmentCatalog]);
 
+    // Team leader is tied to one workshop department on the selected branch.
+    useEffect(() => {
+        if (form.role !== 'team_leader' || !form.branchId) {
+            setTeamLeaderDepartments([]);
+            return undefined;
+        }
+        let cancelled = false;
+        getBranchDepartments(String(form.branchId))
+            .then((res) => {
+                if (cancelled) return;
+                setTeamLeaderDepartments(parseWorkshopDepartmentsResponse(res));
+            })
+            .catch(() => {
+                if (!cancelled) setTeamLeaderDepartments([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [form.role, form.branchId]);
+
     // New technician creation is fixed as dual-duty by policy.
     useEffect(() => {
         if (!isCreateTechnicianMode) return;
@@ -188,9 +262,17 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
         const gen = ++editDetailGenerationRef.current;
         const empId = emp.id;
         const source = emp._source;
+        const isPortal = isPortalEmployeeRow(emp);
+        const detailFetchId = isPortal ? String(emp.userId ?? emp.id) : empId;
         setEditing(emp);
         const roleVal = (emp.role || '').toLowerCase().replace(/\s+/g, '_');
         const hasRole = ROLE_OPTIONS.includes(roleVal);
+        const tlDept =
+            Array.isArray(emp.departmentIds) && emp.departmentIds.length > 0
+                ? String(emp.departmentIds[0])
+                : emp.departmentId != null
+                  ? String(emp.departmentId)
+                  : '';
         setForm({
             full_name: emp.name,
             mobile: emp.phone || '',
@@ -198,12 +280,12 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
             iqama: emp.iqama || '',
             branchId: emp.branchId || '',
             departmentIds: Array.isArray(emp.departmentIds) ? emp.departmentIds.map(String) : [],
+            teamLeaderDepartmentId: roleVal === 'team_leader' ? tlDept : '',
             role: hasRole ? roleVal : 'technician',
             is_technician:
                 !!emp.workshop_duty ||
                 !!emp.oncall_available ||
-                (emp.role || '').toLowerCase().includes('technician') ||
-                (emp.role || '').toLowerCase().includes('specialist'),
+                (emp.role || '').toLowerCase().includes('technician'),
             workshop_duty: !!emp.workshop_duty,
             oncall_available: !!emp.oncall_available,
             basic_salary: emp.basic_salary ?? '',
@@ -221,9 +303,16 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                 const res =
                     source === 'technician'
                         ? await getWorkshopTechnicianById(empId)
-                        : await getWorkshopCashierById(empId);
+                        : isPortal
+                          ? await getWorkshopPortalStaffById(detailFetchId)
+                          : await getWorkshopCashierById(empId);
                 if (gen !== editDetailGenerationRef.current) return;
-                const raw = unwrapWorkshopStaffDetail(res, source);
+                const raw =
+                    source === 'technician'
+                        ? unwrapWorkshopStaffDetail(res, source)
+                        : isPortal
+                          ? unwrapWorkshopPortalStaffDetail(res)
+                          : unwrapWorkshopStaffDetail(res, source);
                 if (!raw) return;
                 const n = normalizeWorkshopEmployee(raw, source);
                 if (gen !== editDetailGenerationRef.current) return;
@@ -241,6 +330,12 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                         Array.isArray(n.departmentIds) && n.departmentIds.length > 0
                             ? n.departmentIds.map(String)
                             : f.departmentIds,
+                    teamLeaderDepartmentId:
+                        f.role === 'team_leader' &&
+                        Array.isArray(n.departmentIds) &&
+                        n.departmentIds.length > 0
+                            ? String(n.departmentIds[0])
+                            : f.teamLeaderDepartmentId,
                     workshop_duty:
                         source === 'technician' ? !!n.workshop_duty : f.workshop_duty,
                     oncall_available:
@@ -289,6 +384,16 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
             isActive: form.status === 'active',
         };
 
+        // Backend DTOs may use camelCase or snake_case — send both so Nest pipes validation consistently.
+        if (body.basicSalary !== undefined) body.basic_salary = body.basicSalary;
+        if (body.commissionPercent !== undefined) body.commission_percent = body.commissionPercent;
+        if (body.commissionType !== undefined) body.commission_type = body.commissionType;
+        if (body.iqama !== undefined) {
+            body.nationalId = body.iqama;
+            body.national_id = body.iqama;
+            body.cnic = body.iqama;
+        }
+
         if (asTechnician) {
             if (!isEdit) {
                 // Create flow: always dual-duty, not user-selectable.
@@ -308,6 +413,19 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
             // Always send the array on technician requests so the BE can
             // diff/replace links cleanly. Empty array means "no departments".
             body.departmentIds = form.departmentIds.map(String);
+        } else {
+            // Cashier / manager / supervisor / team leader — backend may read `role` or `staffRole`.
+            body.role = form.role;
+            body.staffRole = form.role;
+            if (form.role === 'team_leader' && form.teamLeaderDepartmentId) {
+                const did = String(form.teamLeaderDepartmentId);
+                body.departmentId = did;
+                body.department_id = did;
+                body.departmentIds = [did];
+                body.department_ids = [did];
+                body.teamLeaderDepartmentId = did;
+                body.team_leader_department_id = did;
+            }
         }
 
         if (isEdit) {
@@ -327,16 +445,21 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
     const handleSave = async () => {
         if (!form.full_name?.trim() || !form.mobile?.trim()) return;
         const asTechnician = form.is_technician || isTechnicianRole(form.role);
-        // Cashiers must have a branch — backend enforces this with a 400, we
-        // surface the error early to avoid a confusing network round-trip.
-        const isCashierCreate = !editing && !asTechnician;
-        const isCashierEdit = editing && editing._source !== 'technician';
-        if ((isCashierCreate || isCashierEdit) && !form.branchId) {
-            alert('Cashiers must be assigned to a branch.');
+        const isPortal = isPortalStaffRole(form.role);
+        // Cashiers, generic staff rows, and portal staff need a branch on an approved portal.
+        const isCashierCreate = !editing && !asTechnician && (form.role === 'cashier' || form.role === 'staff');
+        const isPortalCreate = !editing && !asTechnician && isPortal;
+        const isNonTechEdit = editing && editing._source !== 'technician';
+        if ((isCashierCreate || isPortalCreate || isNonTechEdit) && !form.branchId) {
+            alert('Assign a super-admin–approved branch (required for cashiers, staff, and portal roles).');
             return;
         }
         if (asTechnician && !form.workshop_duty && !form.oncall_available) {
             alert('Select at least one technician type: Workshop and/or On-Call.');
+            return;
+        }
+        if (form.role === 'team_leader' && !form.teamLeaderDepartmentId?.trim()) {
+            alert('Select the department this team leader is responsible for.');
             return;
         }
         setSaving(true);
@@ -351,11 +474,28 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
             if (isEdit) {
                 if (isTech) {
                     await updateWorkshopTechnician(editing.id, body);
+                } else if (isPortalEmployeeRow(editing)) {
+                    const patch = buildPortalStaffPatchPayload(body, editing.role);
+                    const portalUserId = String(editing.userId ?? editing.id);
+                    await updateWorkshopPortalStaff(portalUserId, patch);
                 } else {
                     await updateWorkshopCashier(editing.id, body);
                 }
             } else if (isTech) {
                 await createWorkshopTechnician(body);
+            } else if (isPortalStaffRole(form.role)) {
+                const portalBody = { ...body };
+                delete portalBody.role;
+                portalBody.staffRole = form.role;
+                ['workshopDuty', 'oncallAvailable', 'technicianType'].forEach((k) => {
+                    if (portalBody[k] !== undefined) delete portalBody[k];
+                });
+                if (form.role !== 'team_leader') {
+                    ['departmentId', 'department_id', 'departmentIds', 'department_ids', 'teamLeaderDepartmentId', 'team_leader_department_id'].forEach((k) => {
+                        if (portalBody[k] !== undefined) delete portalBody[k];
+                    });
+                }
+                await createWorkshopPortalStaff(portalBody);
             } else {
                 await createWorkshopCashier(body);
             }
@@ -388,7 +528,11 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
             <div className="ws-page-header">
                 <div>
                     <h2 className="ws-page-title">Employees</h2>
-                    <p className="ws-page-sub">Manage workshop technicians and staff</p>
+                    <p className="ws-page-sub">
+                        One list from the workshop employees API (staff, technicians, and cashiers). Portal roles
+                        (manager / supervisor / team leader) show here when the server returns them; they sign in with
+                        the workshop portal after approval.
+                    </p>
                 </div>
                 <button className="btn-portal" onClick={openAdd} disabled={saving}>
                     <Plus size={15} /> Add New Employee
@@ -459,7 +603,7 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                         <td>
                                             <strong>{emp.name}</strong>
                                         </td>
-                                        <td>{emp.role}</td>
+                                        <td>{String(emp.role || '').replace(/_/g, ' ') || '—'}</td>
                                         <td>{formatEmployeeDepartments(emp) ?? '—'}</td>
                                         <td>{emp.branch || '—'}</td>
                                         <td>{emp.phone}</td>
@@ -470,8 +614,16 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                             </span>
                                         </td>
                                         <td>
-                                            <span className={`ws-badge ${emp.status === 'active' ? 'ws-badge--green' : 'ws-badge--red'}`}>
-                                                {emp.status}
+                                            <span
+                                                className={`ws-badge ${
+                                                    emp.status === 'active'
+                                                        ? 'ws-badge--green'
+                                                        : emp.status === 'pending'
+                                                          ? 'ws-badge--yellow'
+                                                          : 'ws-badge--red'
+                                                }`}
+                                            >
+                                                {emp.status === 'pending' ? 'pending approval' : emp.status}
                                             </span>
                                         </td>
                                         <td style={{ display: 'flex', gap: 6 }}>
@@ -575,26 +727,49 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                     <div className="ws-field">
                                         {(() => {
                                             const asTechnician = form.is_technician || isTechnicianRole(form.role);
-                                            const cashierEdit = editing && editing._source !== 'technician';
-                                            const branchRequired = !asTechnician || cashierEdit;
+                                            const nonTechEdit = editing && editing._source !== 'technician';
+                                            const branchRequired = !asTechnician || nonTechEdit;
                                             return (
                                                 <label>
                                                     Branch {branchRequired ? '*' : <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>(optional for technicians)</span>}
                                                 </label>
                                             );
                                         })()}
-                                        <select value={form.branchId} onChange={(e) => set('branchId', e.target.value)}>
+                                        <select
+                                            value={form.branchId}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                setForm((f) => ({
+                                                    ...f,
+                                                    branchId: v,
+                                                    ...(f.role === 'team_leader' ? { teamLeaderDepartmentId: '' } : {}),
+                                                }));
+                                            }}
+                                        >
                                             <option value="">Select Branch</option>
-                                            {branchList.map((b) => (
+                                            {branchSelectOptions.map((b) => (
                                                 <option key={b.id} value={String(b.id)}>
                                                     {b.name}
+                                                    {String(b.approvalStatus ?? '').toLowerCase() === 'pending'
+                                                        ? ' (pending approval)'
+                                                        : ''}
                                                 </option>
                                             ))}
                                         </select>
                                     </div>
                                     <div className="ws-field">
                                         <label>Role</label>
-                                        <select value={form.role} onChange={(e) => set('role', e.target.value)}>
+                                        <select
+                                            value={form.role}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                setForm((f) => ({
+                                                    ...f,
+                                                    role: v,
+                                                    ...(v !== 'team_leader' ? { teamLeaderDepartmentId: '' } : {}),
+                                                }));
+                                            }}
+                                        >
                                             {ROLE_OPTIONS.map((r) => (
                                                 <option key={r} value={r}>
                                                     {r.replace(/_/g, ' ')}
@@ -602,6 +777,39 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                             ))}
                                         </select>
                                     </div>
+                                    {form.role === 'team_leader' && (
+                                        <div className="ws-field" style={{ gridColumn: '1/-1' }}>
+                                            <label>
+                                                Department for team leader <span style={{ color: '#B91C1C' }}>*</span>
+                                            </label>
+                                            {!form.branchId ? (
+                                                <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: '6px 0 0' }}>
+                                                    Choose a branch first — departments are loaded for that branch.
+                                                </p>
+                                            ) : teamLeaderDepartments.length === 0 ? (
+                                                <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: '6px 0 0' }}>
+                                                    No departments adopted for this branch yet. Add departments from the
+                                                    Master Catalog, then try again.
+                                                </p>
+                                            ) : (
+                                                <select
+                                                    value={form.teamLeaderDepartmentId}
+                                                    onChange={(e) => set('teamLeaderDepartmentId', e.target.value)}
+                                                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
+                                                >
+                                                    <option value="">Select department</option>
+                                                    {teamLeaderDepartments.map((d) => {
+                                                        const id = String(d.id ?? d._id);
+                                                        return (
+                                                            <option key={id} value={id}>
+                                                                {d.name ?? d.departmentName ?? id}
+                                                            </option>
+                                                        );
+                                                    })}
+                                                </select>
+                                            )}
+                                        </div>
+                                    )}
                                     {(form.is_technician || isTechnicianRole(form.role)) && (
                                         <div className="ws-field" style={{ gridColumn: '1/-1' }}>
                                             <label>

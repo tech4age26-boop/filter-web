@@ -326,6 +326,15 @@ function WorkshopBody({ data }) {
 
     return (
         <>
+            <Section title="Approve outcome (backend)">
+                <p className="approval-empty-line" style={{ marginBottom: 0 }}>
+                    When you approve this request, the signup user stays active and is linked to the workshop’s{' '}
+                    <strong>workshop_admin</strong> role (created if missing; permissions copied from the workshop’s
+                    manager role when possible). They sign in with <code>POST /auth/workshop/login</code> like other
+                    workshop portal users — not a separate branch account. Branches remain data scope inside that
+                    session.
+                </p>
+            </Section>
             <Section title="Workshop Information">
                 <KVGrid>
                     <Field label="ID" kind="id" value={w.id} />
@@ -581,6 +590,240 @@ function CorporateBody({ data }) {
     );
 }
 
+function BranchCreationBody({ data }) {
+    const r = data || {};
+    const b = r.branch ?? r;
+    const w = r.workshop ?? b.workshop ?? null;
+    const reviewer = r.approvalReviewedBy ?? r.reviewedByUser ?? null;
+
+    return (
+        <>
+            <Section title="Branch">
+                <KVGrid>
+                    <Field label="ID" kind="id" value={b.id} />
+                    <Field label="Name" value={b.name} />
+                    <Field label="Branch Code" value={b.branchCode ?? b.code} />
+                    <Field label="Address" value={b.address} span2 />
+                    <Field label="Phone" value={b.phone} />
+                    <Field label="Email" value={b.email} />
+                    <Field label="Approval Status" value={b.approvalStatus ?? r.approvalStatus} />
+                    <Field label="Approval Requested At" kind="date" value={b.approvalRequestedAt ?? r.approvalRequestedAt} />
+                    <Field label="Active" kind="bool" value={b.isActive} />
+                    <Field label="Created At" kind="date" value={b.createdAt} />
+                </KVGrid>
+            </Section>
+
+            <Section title="Workshop" empty={!w ? 'No workshop linked.' : undefined}>
+                {w && (
+                    <KVGrid>
+                        <Field label="ID" kind="id" value={w.id} />
+                        <Field label="Name" value={w.name} />
+                        <Field label="Status" value={w.status} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section title="Review">
+                <KVGrid>
+                    <Field label="Rejection Reason" value={r.rejectionReason ?? r.approvalRejectedReason} span2 />
+                    <Field label="Reviewed At" kind="date" value={r.reviewedAt ?? r.approvalReviewedAt} />
+                </KVGrid>
+                <Subgroup title="Reviewed By User" empty={!reviewer ? 'Not yet reviewed.' : undefined}>
+                    {reviewer && (
+                        <KVGrid>
+                            <Field label="ID" kind="id" value={reviewer.id} />
+                            <Field label="Name" value={reviewer.name} />
+                            <Field label="Email" value={reviewer.email} />
+                            <Field label="Mobile" value={reviewer.mobile} />
+                        </KVGrid>
+                    )}
+                </Subgroup>
+            </Section>
+        </>
+    );
+}
+
+function CashierRegistrationBody({ data }) {
+    const r = data || {};
+    const u = r.user ?? r;
+    const workshop = r.workshop ?? u.workshop ?? null;
+    const branch = r.branch ?? u.branch ?? null;
+    const employees = Array.isArray(u.employees) ? u.employees : [];
+    const emp = employees[0] ?? r.employee ?? null;
+    const reviewer = r.approvalReviewedBy ?? r.reviewedByUser ?? null;
+
+    return (
+        <>
+            <Section title="User (cashier)">
+                <KVGrid>
+                    <Field label="ID" kind="id" value={u.id} />
+                    <Field label="Name" value={u.name} />
+                    <Field label="Email" value={u.email} />
+                    <Field label="Mobile" value={u.mobile} />
+                    <Field label="User Type" value={u.userType} />
+                    <Field label="Active" kind="bool" value={u.isActive} />
+                    <Field label="Approval Status" value={u.approvalStatus} />
+                    <Field label="Approval Requested At" kind="date" value={u.approvalRequestedAt} />
+                    <Field label="Approval Reviewed At" kind="date" value={u.approvalReviewedAt} />
+                    <Field label="Rejection Reason" value={u.approvalRejectedReason} span2 />
+                    <Field label="Created At" kind="date" value={u.createdAt} />
+                </KVGrid>
+            </Section>
+
+            <Section title="Workshop" empty={!workshop ? 'No workshop linked.' : undefined}>
+                {workshop && (
+                    <KVGrid>
+                        <Field label="ID" kind="id" value={workshop.id} />
+                        <Field label="Name" value={workshop.name} />
+                        <Field label="Status" value={workshop.status} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section title="Branch" empty={!branch ? 'No branch linked.' : undefined}>
+                {branch && (
+                    <KVGrid>
+                        <Field label="ID" kind="id" value={branch.id} />
+                        <Field label="Name" value={branch.name} />
+                        <Field label="Branch Code" value={branch.branchCode} />
+                        <Field label="Approval Status" value={branch.approvalStatus} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section title="Employee profile" empty={!emp ? 'No employee row attached.' : undefined}>
+                {emp && (
+                    <KVGrid>
+                        <Field label="ID" kind="id" value={emp.id} />
+                        <Field label="Employee Type" value={emp.employeeType} />
+                        <Field label="Active" kind="bool" value={emp.isActive} />
+                        <Field label="Branch ID" kind="id" value={emp.branchId} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section title="Reviewer" empty={!reviewer ? 'Not yet reviewed.' : undefined}>
+                {reviewer && (
+                    <KVGrid>
+                        <Field label="ID" kind="id" value={reviewer.id} />
+                        <Field label="Name" value={reviewer.name} />
+                        <Field label="Email" value={reviewer.email} />
+                        <Field label="Mobile" value={reviewer.mobile} />
+                    </KVGrid>
+                )}
+            </Section>
+        </>
+    );
+}
+
+function WorkshopPortalStaffRegistrationBody({ data }) {
+    const r = data || {};
+    const u = r.user ?? r;
+    const workshop = r.workshop ?? u.workshop ?? null;
+    const branch = r.branch ?? u.branch ?? null;
+    const employees = Array.isArray(u.employees) ? u.employees : [];
+    const emp = employees[0] ?? r.employee ?? null;
+    const reviewer = r.approvalReviewedBy ?? r.reviewedByUser ?? null;
+    const tlDept =
+        r.meta?.teamLeaderDepartment ??
+        r.meta?.team_leader_department ??
+        r.teamLeaderDepartment ??
+        r.team_leader_department ??
+        null;
+
+    return (
+        <>
+            <Section title="Overview">
+                <p className="approval-empty-line" style={{ marginBottom: 0 }}>
+                    After approval, this user signs in with the same workshop portal login as owners/admins{' '}
+                    (<code>POST /auth/workshop/login</code>), <code>userType: workshop_user</code>, with{' '}
+                    <code>workshopStaffRole</code> set for UI permissions.
+                </p>
+            </Section>
+            <Section title="User (portal staff)">
+                <KVGrid>
+                    <Field label="ID" kind="id" value={u.id} />
+                    <Field label="Workshop staff role" value={u.workshopStaffRole ?? u.workshop_staff_role} />
+                    <Field
+                        label="Team leader department ID"
+                        kind="id"
+                        value={u.teamLeaderDepartmentId ?? u.team_leader_department_id}
+                    />
+                    <Field label="Name" value={u.name} />
+                    <Field label="Email" value={u.email} />
+                    <Field label="Mobile" value={u.mobile} />
+                    <Field label="User Type" value={u.userType} />
+                    <Field label="Active" kind="bool" value={u.isActive} />
+                    <Field label="Approval Status" value={u.approvalStatus} />
+                    <Field label="Approval Requested At" kind="date" value={u.approvalRequestedAt} />
+                    <Field label="Approval Reviewed At" kind="date" value={u.approvalReviewedAt} />
+                    <Field label="Rejection Reason" value={u.approvalRejectedReason} span2 />
+                    <Field label="Created At" kind="date" value={u.createdAt} />
+                </KVGrid>
+            </Section>
+
+            <Section title="Workshop" empty={!workshop ? 'No workshop linked.' : undefined}>
+                {workshop && (
+                    <KVGrid>
+                        <Field label="ID" kind="id" value={workshop.id} />
+                        <Field label="Name" value={workshop.name} />
+                        <Field label="Status" value={workshop.status} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section title="Branch" empty={!branch ? 'No branch linked.' : undefined}>
+                {branch && (
+                    <KVGrid>
+                        <Field label="ID" kind="id" value={branch.id} />
+                        <Field label="Name" value={branch.name} />
+                        <Field label="Branch Code" value={branch.branchCode} />
+                        <Field label="Approval Status" value={branch.approvalStatus} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section
+                title="Team leader department"
+                empty={
+                    tlDept && (tlDept.id != null || tlDept.name)
+                        ? undefined
+                        : 'Not set (only team leaders have a linked department on the user row).'
+                }
+            >
+                {tlDept && (tlDept.id != null || tlDept.name) && (
+                    <KVGrid>
+                        <Field label="ID" kind="id" value={tlDept.id} />
+                        <Field label="Name" value={tlDept.name} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section title="Employee profile" empty={!emp ? 'No employee row attached.' : undefined}>
+                {emp && (
+                    <KVGrid>
+                        <Field label="ID" kind="id" value={emp.id} />
+                        <Field label="Employee Type" value={emp.employeeType} />
+                        <Field label="Active" kind="bool" value={emp.isActive} />
+                        <Field label="Branch ID" kind="id" value={emp.branchId} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section title="Reviewer" empty={!reviewer ? 'Not yet reviewed.' : undefined}>
+                {reviewer && (
+                    <KVGrid>
+                        <Field label="ID" kind="id" value={reviewer.id} />
+                        <Field label="Name" value={reviewer.name} />
+                        <Field label="Email" value={reviewer.email} />
+                        <Field label="Mobile" value={reviewer.mobile} />
+                    </KVGrid>
+                )}
+            </Section>
+        </>
+    );
+}
+
 function TechnicianBody({ data }) {
     const u = data || {};
     const employees = Array.isArray(u.employees) ? u.employees : [];
@@ -712,6 +955,10 @@ function renderBody(entityType, data) {
         case 'supplier_registration':  return <SupplierBody data={data} />;
         case 'corporate_registration': return <CorporateBody data={data} />;
         case 'technician_registration':return <TechnicianBody data={data} />;
+        case 'branch_creation':        return <BranchCreationBody data={data} />;
+        case 'cashier_registration':   return <CashierRegistrationBody data={data} />;
+        case 'workshop_portal_staff_registration':
+            return <WorkshopPortalStaffRegistrationBody data={data} />;
         default:                       return <RawObjectBody data={data} />;
     }
 }
@@ -755,6 +1002,9 @@ export default function ApprovalDetailsModal({
             ?? data.name
             ?? data.workshopCode
             ?? data?.corporateAccount?.companyName
+            ?? data?.branch?.name
+            ?? data?.user?.name
+            ?? data?.workshopStaffRole
             ?? ''
         : '';
 

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { Building2, ArrowLeft, LogOut, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Building2, LogOut, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     NAV_ITEMS,
@@ -22,7 +22,7 @@ import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
 import { apiFetch } from '../services/api';
 import { workshopLogout } from '../services/authApi';
-import { qs, branchScopeParams } from '../services/workshopStaffApi';
+import { qs, branchScopeParams, unwrapWorkshopBranchesResponse } from '../services/workshopStaffApi';
 import { useAuth } from '../context/AuthContext';
 import './workshop/Workshop.css';
 import '../styles/admin/AccountingPage.css';
@@ -115,9 +115,19 @@ export default function WorkshopLayout() {
     const loadBranches = useCallback(async () => {
         try {
             const response = await apiFetch('/workshop-staff/branches');
-            if (response?.success && Array.isArray(response.branches)) {
-                setBranches(response.branches);
+            const rawList = unwrapWorkshopBranchesResponse(response);
+            if (response?.success === false && rawList.length === 0) {
+                setBranches([]);
+                return;
             }
+            const normalized = rawList.map((branch) => ({
+                ...branch,
+                id: branch.id ?? branch._id,
+                name: branch.name ?? branch.branchName ?? 'Branch',
+                status: branch.status || (branch.isActive === false ? 'inactive' : 'active'),
+                code: branch.branchCode ?? branch.code ?? '',
+            }));
+            setBranches(normalized.filter((b) => b.id != null));
         } catch {
             setBranches([]);
         }
@@ -125,6 +135,14 @@ export default function WorkshopLayout() {
 
     useEffect(() => {
         loadBranches();
+    }, [loadBranches]);
+
+    useEffect(() => {
+        const onBranchesChanged = () => {
+            loadBranches();
+        };
+        window.addEventListener('workshop-branches-changed', onBranchesChanged);
+        return () => window.removeEventListener('workshop-branches-changed', onBranchesChanged);
     }, [loadBranches]);
 
     const loadPendingApprovalsCount = useCallback(async () => {
@@ -264,9 +282,6 @@ export default function WorkshopLayout() {
                     <div className="ws-logo-icon"><Building2 size={20}/></div>
                     <div><p className="ws-logo-title">Filter Admin Workshop</p><p className="ws-logo-sub">Portal</p></div>
                 </div>
-                <a className="ws-back-link" onClick={() => navigate('/admin/dashboard')} style={{cursor:'pointer'}}>
-                    <ArrowLeft size={14}/> Back to Super Admin
-                </a>
                 {activeTab !== 'catalog-new' && (
                 <div className="ws-branch-selector">
                     <select className="ws-branch-select" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}

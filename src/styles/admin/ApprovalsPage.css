@@ -181,6 +181,18 @@
     color: #a855f7;
 }
 
+.approval-type-badge.type-branch_creation {
+    color: #0d9488;
+}
+
+.approval-type-badge.type-cashier {
+    color: #c026d3;
+}
+
+.approval-type-badge.type-workshop_portal_staff {
+    color: #0369a1;
+}
+
 .approval-card-title {
     font-size: 1.125rem;
     font-weight: 800;

@@ -70,6 +70,36 @@ export const getWorkshopTechnicians = (params = {}) =>
 export const getWorkshopCashiers = (params = {}) =>
     apiFetch(`/workshop-staff/cashiers${qs(params)}`);
 
+/**
+ * Workshop JWT — unified list (staff + technicians + cashiers merged on the server).
+ * GET /workshop-staff/employees — optional: branchId, employeeType (staff | technician | cashier),
+ * isActive, limit, offset.
+ * POST /workshop-staff/employees — same filters in JSON body (GetEmployeesDto).
+ */
+export const getWorkshopEmployees = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/employees${qs(params)}`, options);
+
+export const postWorkshopEmployees = (body = {}, options = {}) =>
+    apiFetch('/workshop-staff/employees', {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+        signal: options.signal,
+        headers: options.headers,
+    });
+
+/** Unwrap GET/POST /workshop-staff/employees list payloads. */
+export function unwrapWorkshopEmployeesList(res) {
+    if (Array.isArray(res)) return res;
+    if (!res || typeof res !== 'object') return [];
+    const keys = ['employees', 'items', 'rows', 'results', 'list'];
+    for (const k of keys) {
+        if (Array.isArray(res[k])) return res[k];
+        if (Array.isArray(res?.data?.[k])) return res.data[k];
+    }
+    if (Array.isArray(res.data)) return res.data;
+    return [];
+}
+
 /** GET one technician (often includes user/email fields omitted from list responses). */
 export const getWorkshopTechnicianById = (id) =>
     apiFetch(`/workshop-staff/technicians/${encodeURIComponent(String(id))}`);
@@ -89,10 +119,26 @@ export function flattenWorkshopStaffRow(row, kind) {
         kind === 'technician'
             ? row.technician ?? row.technicianUser ?? row.tech ?? row.staff
             : row.cashier ?? row.cashierUser ?? row.staff;
+    let base;
     if (inner != null && typeof inner === 'object' && !Array.isArray(inner)) {
-        return { ...inner, ...row };
+        base = { ...inner, ...row };
+    } else {
+        base = row;
     }
-    return row;
+    const emp = base.employee && typeof base.employee === 'object' ? base.employee : null;
+    if (!emp) return base;
+    return {
+        ...base,
+        basicSalary: base.basicSalary ?? emp.basicSalary ?? emp.basic_salary,
+        commissionPercent: base.commissionPercent ?? emp.commissionPercent ?? emp.commission_percent,
+        commissionType: base.commissionType ?? emp.commissionType ?? emp.commission_type,
+        iqama:
+            base.iqama ??
+            emp.iqama ??
+            emp.nationalId ??
+            emp.national_id ??
+            emp.cnic,
+    };
 }
 
 /**
@@ -152,29 +198,227 @@ export const createWorkshopTechnician = async (body) => {
 };
 
 /**
- * Create a cashier.
- * Body: { name, branchId, mobile?, email?, password?, iqama? }.
- * `branchId` is required server-side (cashiers.branch_id is NOT NULL); the BE
- * returns 400 if missing.
+ * Create a cashier / non-technician staff (manager, supervisor, etc.).
+ * Same guards and body (CreateCashierDto) as either:
+ *   POST /workshop-staff/cashier/create (canonical) or
+ *   POST /workshop-staff/cashiers (plural alias — same handler).
+ * Tries singular first, then plural, so either route stays compatible.
  */
-export const createWorkshopCashier = (body) =>
-    apiFetch('/workshop-staff/cashiers', { method: 'POST', body: JSON.stringify(body) });
+export const createWorkshopCashier = async (body) => {
+    try {
+        return await apiFetch('/workshop-staff/cashier/create', {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+    } catch (primaryErr) {
+        try {
+            return await apiFetch('/workshop-staff/cashiers', {
+                method: 'POST',
+                body: JSON.stringify(body),
+            });
+        } catch {
+            throw primaryErr;
+        }
+    }
+};
+
+const PORTAL_STAFF_ROLE_ALIASES = {
+    manager: 'manager',
+    supervisor: 'supervisor',
+    team_leader: 'team-leader',
+};
+
+const DEPT_KEYS_PORTAL = [
+    'departmentId',
+    'department_id',
+    'departmentIds',
+    'department_ids',
+    'teamLeaderDepartmentId',
+    'team_leader_department_id',
+];
+
+export function stripPortalDepartmentFields(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    const out = { ...obj };
+    for (const k of DEPT_KEYS_PORTAL) delete out[k];
+    return out;
+}
+
+const PORTAL_PATCH_TECH_KEYS = ['workshopDuty', 'oncallAvailable', 'technicianType'];
+
+/**
+ * Shape a PATCH /workshop-staff/portal-staff/:id body from the shared staff payload.
+ * Omits `role` / `staffRole`; strips department keys for manager/supervisor; mirrors `password` → `newPassword`.
+ */
+export function buildPortalStaffPatchPayload(body, staffRole) {
+    if (!body || typeof body !== 'object') return body;
+    const roleKey = String(staffRole ?? '').toLowerCase().replace(/\s+/g, '_');
+    const patch = { ...body };
+    delete patch.role;
+    delete patch.staffRole;
+    delete patch.staff_role;
+    for (const k of PORTAL_PATCH_TECH_KEYS) {
+        if (patch[k] !== undefined) delete patch[k];
+    }
+    if (roleKey !== 'team_leader') {
+        stripPortalDepartmentFields(patch);
+    }
+    if (patch.password) {
+        patch.newPassword = patch.password;
+    }
+    if (patch.branchId != null && patch.branch === undefined) {
+        patch.branch = patch.branchId;
+    }
+    return patch;
+}
+
+/**
+ * Workshop portal staff (manager | supervisor | team_leader), same workshop JWT family as owner.
+ * POST /workshop-staff/portal-staff — team_leader requires departmentId (or department_id); manager/supervisor must not send department fields (400).
+ * Fallback: POST /workshop-staff/{manager|supervisor|team-leader}/create — body without staffRole (CreateTeamLeaderDto requires departmentId for team-leader).
+ */
+export const createWorkshopPortalStaff = async (body) => {
+    const staffRole = body?.staffRole ?? body?.staff_role;
+    if (!staffRole) {
+        throw new Error('staffRole is required (manager, supervisor, or team_leader).');
+    }
+    const roleKey = String(staffRole).toLowerCase();
+    const aliasSlug = PORTAL_STAFF_ROLE_ALIASES[roleKey];
+
+    if (roleKey === 'team_leader') {
+        const dept = body?.departmentId ?? body?.department_id;
+        if (dept == null || String(dept).trim() === '') {
+            throw new Error('departmentId is required for team_leader (must be in workshop + branch departments).');
+        }
+    }
+
+    const portalPayload =
+        roleKey === 'manager' || roleKey === 'supervisor' ? stripPortalDepartmentFields(body) : { ...body };
+
+    const { staffRole: _sr, staff_role: _sr2, role: _r, ...restForAlias } = portalPayload;
+    const aliasBody =
+        roleKey === 'manager' || roleKey === 'supervisor'
+            ? stripPortalDepartmentFields(restForAlias)
+            : { ...restForAlias };
+
+    try {
+        return await apiFetch('/workshop-staff/portal-staff', {
+            method: 'POST',
+            body: JSON.stringify(portalPayload),
+        });
+    } catch (primaryErr) {
+        if (!aliasSlug) throw primaryErr;
+        try {
+            return await apiFetch(`/workshop-staff/${aliasSlug}/create`, {
+                method: 'POST',
+                body: JSON.stringify(aliasBody),
+            });
+        } catch {
+            throw primaryErr;
+        }
+    }
+};
+
+/** GET one portal staff row by **users.id** (optional; hydrates edit modal). */
+export const getWorkshopPortalStaffById = (id) =>
+    apiFetch(`/workshop-staff/portal-staff/${encodeURIComponent(String(id))}`);
+
+/**
+ * Single-resource JSON from GET /workshop-staff/portal-staff/:id (shape may mirror cashier create).
+ * @param {object} res
+ */
+export function unwrapWorkshopPortalStaffDetail(res) {
+    if (res == null || typeof res !== 'object') return null;
+    const keys = ['portalStaff', 'data', 'user', 'employee', 'profile', 'result', 'payload'];
+    for (const k of keys) {
+        const v = res[k];
+        if (v != null && typeof v === 'object' && !Array.isArray(v)) {
+            return flattenWorkshopStaffRow(v, 'cashier');
+        }
+    }
+    if (
+        res.id != null ||
+        res.userId != null ||
+        res._id != null ||
+        res.name != null ||
+        res.mobile != null ||
+        res.phone != null
+    ) {
+        return flattenWorkshopStaffRow(res, 'cashier');
+    }
+    return null;
+}
+
+/**
+ * PATCH portal staff — **id is users.id** (employees list `recordType: "portal_user"`).
+ * UpdatePortalStaffDto: name, email, mobile, branch / branchId, isActive, password / newPassword,
+ * departmentId (team leaders), basicSalary, commissionPercent, commissionType, iqama (+ snake_case / nationalId aliases).
+ */
+export const updateWorkshopPortalStaff = (id, body) =>
+    apiFetch(`/workshop-staff/portal-staff/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
 
 /** Patch a technician. All fields optional: name, mobile, email, password, branchId, technicianType, workshopDuty, oncallAvailable, commissionPercent, basicSalary, iqama, departmentIds, isActive. */
 export const updateWorkshopTechnician = (id, body) =>
     apiFetch(`/workshop-staff/technicians/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
-/** Patch a cashier. All fields optional: name, mobile, email, password, branchId, iqama, isActive. */
-export const updateWorkshopCashier = (id, body) =>
-    apiFetch(`/workshop-staff/cashiers/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+/**
+ * Patch a cashier / non-technician staff row.
+ * Canonical: PATCH /workshop-staff/cashier/:id — plural PATCH /workshop-staff/cashiers/:id is an alias (same handler).
+ * Tries singular first, then plural, for older stacks that only exposed one route.
+ */
+export const updateWorkshopCashier = async (id, body) => {
+    const sid = encodeURIComponent(String(id));
+    try {
+        return await apiFetch(`/workshop-staff/cashier/${sid}`, {
+            method: 'PATCH',
+            body: JSON.stringify(body),
+        });
+    } catch (primaryErr) {
+        try {
+            return await apiFetch(`/workshop-staff/cashiers/${sid}`, {
+                method: 'PATCH',
+                body: JSON.stringify(body),
+            });
+        } catch {
+            throw primaryErr;
+        }
+    }
+};
 
 export const deleteWorkshopTechnician = (id) =>
     apiFetch(`/workshop-staff/technicians/${id}`, { method: 'DELETE' });
 
-export const deleteWorkshopCashier = (id) =>
-    apiFetch(`/workshop-staff/cashiers/${id}`, { method: 'DELETE' });
+/**
+ * DELETE /workshop-staff/cashier/:id — plural …/cashiers/:id is an alias. Singular first, then plural.
+ */
+export const deleteWorkshopCashier = async (id) => {
+    const sid = encodeURIComponent(String(id));
+    try {
+        return await apiFetch(`/workshop-staff/cashier/${sid}`, { method: 'DELETE' });
+    } catch (primaryErr) {
+        try {
+            return await apiFetch(`/workshop-staff/cashiers/${sid}`, { method: 'DELETE' });
+        } catch {
+            throw primaryErr;
+        }
+    }
+};
 
 export const getWorkshopBranches = () => apiFetch('/workshop-staff/branches');
+
+/** Normalize GET /workshop-staff/branches payloads (top-level or nested). */
+export function unwrapWorkshopBranchesResponse(res) {
+    if (!res || typeof res !== 'object') return [];
+    if (Array.isArray(res.branches)) return res.branches;
+    if (Array.isArray(res.data?.branches)) return res.data.branches;
+    if (Array.isArray(res.items)) return res.items;
+    if (Array.isArray(res.data)) return res.data;
+    if (Array.isArray(res)) return res;
+    return [];
+}
 
 /**
  * Workshop JWT — nested tree for one branch (departments → categories → items).
@@ -396,9 +640,52 @@ export function normalizeWorkshopEmployee(raw, role) {
             .join(', ');
     }
     const department = (fromDepartmentList || singleDeptName || '').trim();
-    const commission = Number(raw.commissionPercent ?? raw.commission_percent ?? 0);
-    const active = raw.isActive !== false && raw.status !== 'inactive';
-    const status = active ? 'active' : 'inactive';
+    const commission = Number(
+        raw.commissionPercent ??
+            raw.commission_percent ??
+            user?.commissionPercent ??
+            user?.commission_percent ??
+            employee?.commissionPercent ??
+            employee?.commission_percent ??
+            worker?.commissionPercent ??
+            worker?.commission_percent ??
+            0,
+    );
+    const commissionTypeNorm =
+        raw.commissionType ??
+        raw.commission_type ??
+        user?.commissionType ??
+        user?.commission_type ??
+        employee?.commissionType ??
+        employee?.commission_type ??
+        worker?.commissionType ??
+        worker?.commission_type ??
+        '';
+    const basicSalaryRaw =
+        employee?.basicSalary ??
+        employee?.basic_salary ??
+        raw.basicSalary ??
+        raw.basic_salary ??
+        user?.basicSalary ??
+        user?.basic_salary ??
+        worker?.basicSalary ??
+        worker?.basic_salary ??
+        '';
+    const approvalStatus = String(
+        raw.approvalStatus ??
+            raw.approval_status ??
+            user?.approvalStatus ??
+            user?.approval_status ??
+            '',
+    ).toLowerCase();
+    const pendingApproval = approvalStatus === 'pending';
+    const active =
+        !pendingApproval &&
+        raw.isActive !== false &&
+        raw.status !== 'inactive' &&
+        user?.isActive !== false &&
+        employee?.isActive !== false;
+    const status = pendingApproval ? 'pending' : active ? 'active' : 'inactive';
     const technicianType = String(raw.technicianType ?? raw.technician_type ?? '').toLowerCase();
     const dutyMode = String(raw.dutyMode ?? raw.duty_mode ?? '').toLowerCase();
     const dualTechnicianType =
@@ -456,10 +743,32 @@ export function normalizeWorkshopEmployee(raw, role) {
             raw.oncallAvailable === true ||
             raw.oncall_available === true;
     }
-    const displayRole = (raw.role ?? raw.userType ?? raw.user_type ?? role ?? '').toString().toLowerCase() || role;
+    const workshopStaffRole = (
+        raw.workshopStaffRole ??
+        raw.workshop_staff_role ??
+        user?.workshopStaffRole ??
+        user?.workshop_staff_role ??
+        ''
+    )
+        .toString()
+        .toLowerCase();
+    let displayRole = (raw.role ?? raw.userType ?? raw.user_type ?? role ?? '').toString().toLowerCase() || role;
+    if (workshopStaffRole) {
+        displayRole = workshopStaffRole;
+    }
+
+    const userIdStr =
+        raw.userId != null || raw.user_id != null
+            ? String(raw.userId ?? raw.user_id)
+            : user?.id != null
+              ? String(user.id)
+              : undefined;
 
     return {
         id,
+        /** users.id when the API sends it; use for PATCH /workshop-staff/portal-staff/:id */
+        userId: userIdStr,
+        recordType: raw.recordType ?? raw.record_type ?? undefined,
         name,
         role: displayRole,
         branch,
@@ -468,13 +777,23 @@ export function normalizeWorkshopEmployee(raw, role) {
         email,
         iqama:
             raw.iqama ??
+            employee?.iqama ??
             raw.iqamaNumber ??
             raw.iqama_no ??
             raw.iqamaNo ??
             profile?.iqama ??
             user?.iqama ??
-            employee?.iqama ??
+            user?.nationalId ??
+            user?.national_id ??
+            user?.cnic ??
+            profile?.nationalId ??
+            profile?.cnic ??
+            employee?.nationalId ??
+            employee?.national_id ??
+            employee?.cnic ??
             worker?.iqama ??
+            worker?.nationalId ??
+            worker?.cnic ??
             raw.cnic ??
             raw.nationalId ??
             raw.national_id ??
@@ -489,44 +808,149 @@ export function normalizeWorkshopEmployee(raw, role) {
         workshop_duty: role === 'technician' ? workshop_duty : false,
         oncall_available: role === 'technician' ? oncall_available : false,
         commission_percent: Number.isFinite(commission) ? commission : 0,
-        commission_type: raw.commissionType ?? raw.commission_type ?? '',
-        basic_salary: raw.basicSalary ?? raw.basic_salary ?? '',
+        commission_type: commissionTypeNorm,
+        basic_salary:
+            basicSalaryRaw === '' || basicSalaryRaw == null
+                ? ''
+                : String(basicSalaryRaw),
+        approvalStatus: approvalStatus || undefined,
         _source: role,
     };
 }
 
 /**
- * Load both technicians and cashiers in parallel, normalized for the UI.
- * Pass `{ branchId }` to scope the listing to one branch (the server will
- * filter via `?branchId=<id>` on each endpoint). Omit `branchId` for the
- * workshop-wide list.
+ * Map one row from GET /workshop-staff/employees through flatten + normalize.
+ * `_source` selects technician vs cashier PATCH/DELETE families; `staff` rows use cashier routes.
+ * Portal roles (recordType `portal_user`) use PATCH /workshop-staff/portal-staff/:userId for updates.
+ */
+export function normalizeUnifiedWorkshopEmployeeRow(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return normalizeWorkshopEmployee({}, 'cashier');
+    }
+    // Fill missing top-level fields from nested `user` (iqama, salary, commission) without overwriting row `id`.
+    const merged = (() => {
+        if (!raw.user || typeof raw.user !== 'object' || Array.isArray(raw.user)) return { ...raw };
+        const out = { ...raw };
+        for (const [k, v] of Object.entries(raw.user)) {
+            if (v === undefined || v === null) continue;
+            if (k === 'id' || k === '_id') continue;
+            const cur = out[k];
+            if (cur === undefined || cur === null || cur === '') {
+                out[k] = v;
+            }
+        }
+        return out;
+    })();
+    const empNested = merged.employee && typeof merged.employee === 'object' ? merged.employee : null;
+    const empType = String(
+        merged.employeeType ??
+            merged.employee_type ??
+            empNested?.employeeType ??
+            empNested?.employee_type ??
+            '',
+    ).toLowerCase();
+    const wsRole = String(
+        merged.workshopStaffRole ??
+            merged.workshop_staff_role ??
+            merged.user?.workshopStaffRole ??
+            merged.user?.workshop_staff_role ??
+            '',
+    ).toLowerCase();
+
+    let listKind = 'cashier';
+    if (empType === 'technician') {
+        listKind = 'technician';
+    } else if (
+        empType === 'cashier' ||
+        empType === 'staff' ||
+        wsRole === 'manager' ||
+        wsRole === 'supervisor' ||
+        wsRole === 'team_leader'
+    ) {
+        listKind = 'cashier';
+    }
+
+    const flat = flattenWorkshopStaffRow(merged, listKind === 'technician' ? 'technician' : 'cashier');
+    return normalizeWorkshopEmployee(flat, listKind);
+}
+
+/**
+ * Load workshop people for the Employees UI (staff + technicians + cashiers).
+ * Prefers GET /workshop-staff/employees; falls back to parallel technicians + cashiers if unavailable.
  *
  * @param {object} [params]
  * @param {string|number} [params.branchId]
+ * @param {string} [params.employeeType] staff | technician | cashier
  * @param {boolean|string} [params.isActive]
+ * @param {number|string} [params.limit]
+ * @param {number|string} [params.offset]
  */
 export async function loadWorkshopEmployeesCombined(params = {}) {
     const query = {};
     if (params.branchId != null && params.branchId !== '' && params.branchId !== 'all') {
         query.branchId = String(params.branchId);
     }
+    if (params.employeeType != null && params.employeeType !== '') {
+        query.employeeType = String(params.employeeType);
+    }
     if (params.isActive != null && params.isActive !== '') {
         query.isActive = String(params.isActive);
     }
-    const [techRes, cashRes] = await Promise.all([
-        getWorkshopTechnicians(query).catch(() => null),
-        getWorkshopCashiers(query).catch(() => null),
-    ]);
-    if (techRes == null && cashRes == null) {
-        throw new Error(
-            'Failed to load employees (GET /workshop-staff/technicians and /workshop-staff/cashiers unreachable).',
-        );
+    if (params.limit != null && params.limit !== '') {
+        query.limit = String(params.limit);
     }
-    const techList = unwrapWorkshopStaffList(techRes, 'technician').map((u) =>
-        normalizeWorkshopEmployee(flattenWorkshopStaffRow(u, 'technician'), 'technician'),
-    );
-    const cashList = unwrapWorkshopStaffList(cashRes, 'cashier').map((u) =>
-        normalizeWorkshopEmployee(flattenWorkshopStaffRow(u, 'cashier'), 'cashier'),
-    );
-    return { techList, cashList, employees: [...techList, ...cashList] };
+    if (params.offset != null && params.offset !== '') {
+        query.offset = String(params.offset);
+    }
+
+    try {
+        const res = await getWorkshopEmployees(query);
+        const list = unwrapWorkshopEmployeesList(res);
+        const employees = list.map((row) => normalizeUnifiedWorkshopEmployeeRow(row));
+        const techList = employees.filter((e) => e._source === 'technician');
+        const cashList = employees.filter((e) => e._source === 'cashier');
+        return { techList, cashList, employees };
+    } catch (primaryErr) {
+        const legacyQuery = { ...query };
+        delete legacyQuery.employeeType;
+        delete legacyQuery.limit;
+        delete legacyQuery.offset;
+        const [techRes, cashRes] = await Promise.all([
+            getWorkshopTechnicians(legacyQuery).catch(() => null),
+            getWorkshopCashiers(legacyQuery).catch(() => null),
+        ]);
+        if (techRes == null && cashRes == null) {
+            throw new Error(
+                primaryErr?.message
+                    || 'Failed to load employees (GET /workshop-staff/employees and legacy lists unreachable).',
+            );
+        }
+        const techList = unwrapWorkshopStaffList(techRes, 'technician').map((u) =>
+            normalizeWorkshopEmployee(flattenWorkshopStaffRow(u, 'technician'), 'technician'),
+        );
+        const cashList = unwrapWorkshopStaffList(cashRes, 'cashier').map((u) =>
+            normalizeWorkshopEmployee(flattenWorkshopStaffRow(u, 'cashier'), 'cashier'),
+        );
+        return { techList, cashList, employees: [...techList, ...cashList] };
+    }
 }
+
+/**
+ * Query for GET /workshop-staff/corporate-customers (branchId or allBranches=true; optional branch_id alias).
+ */
+export function workshopCorporateCustomersParams(selectedBranchId) {
+    const q = { ...workshopStaffListScopeQuery(selectedBranchId) };
+    if (q.branchId != null && q.branchId !== '') q.branch_id = q.branchId;
+    return q;
+}
+
+/** Workshop JWT — list corporate accounts linked to this workshop. */
+export const getWorkshopCorporateCustomers = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/corporate-customers${qs(params)}`, options);
+
+/**
+ * Register a corporate customer (workshop admin). Uses workshop Bearer from apiFetch.
+ * Typical backend: POST /auth/corporate/register. If your API uses POST /workshop-staff/corporate-register, swap the path here.
+ */
+export const postCorporateRegister = (body) =>
+    apiFetch('/auth/corporate/register', { method: 'POST', body: JSON.stringify(body) });
