@@ -7,15 +7,15 @@ import {
     getSupplierWorkshopPurchaseInvoice,
     listSupplierWorkshopPurchaseInvoices,
     rejectSupplierWorkshopPurchaseInvoice,
-    updateSupplierWorkshopPurchaseInvoice,
 } from '../../services/supplierApi';
 import {
     normalizeWorkshopSupplierPurchaseInvoiceRow,
     unwrapWorkshopSupplierPurchaseInvoiceList,
 } from '../../services/workshopSupplierPurchaseInvoices';
+import SupplierWorkshopPurchaseInvoiceEditModal from './SupplierWorkshopPurchaseInvoiceEditModal';
 
 /**
- * Workshop → supplier purchase invoices (list, view, edit header fields, approve, reject).
+ * Workshop → supplier purchase invoices (list, view, workshop-style PI edit via PATCH, approve, reject).
  * Used on the dedicated nav page and embedded on Sales Invoices (AR).
  */
 export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page' }) {
@@ -32,9 +32,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
     const [rejectReason, setRejectReason] = useState('');
     const [editOpen, setEditOpen] = useState(null);
     const [editLoading, setEditLoading] = useState(false);
-    const [editVendorRef, setEditVendorRef] = useState('');
-    const [editDescription, setEditDescription] = useState('');
-    const [editNotes, setEditNotes] = useState('');
+    const [editFetchPayload, setEditFetchPayload] = useState(null);
     const [editError, setEditError] = useState('');
 
     const load = useCallback(async () => {
@@ -66,7 +64,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
         setViewLoading(true);
         try {
             const d = await getSupplierWorkshopPurchaseInvoice(r.id);
-            setViewDetail(d?.invoice ?? d?.data ?? d);
+            setViewDetail(d?.purchaseInvoice ?? d?.invoice ?? d?.data ?? d);
         } catch {
             setViewDetail(r._raw || r);
         } finally {
@@ -77,51 +75,16 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
     const openEdit = async (r) => {
         setEditOpen(r);
         setEditError('');
+        setEditFetchPayload(null);
         setEditLoading(true);
-        setEditVendorRef('');
-        setEditDescription('');
-        setEditNotes('');
         try {
             const d = await getSupplierWorkshopPurchaseInvoice(r.id);
-            const inv = d?.invoice ?? d?.data ?? d ?? r._raw ?? r;
-            setEditVendorRef(
-                String(
-                    inv.vendorInvoiceRef ??
-                        inv.vendor_invoice_ref ??
-                        inv.refNumber ??
-                        inv.ref_number ??
-                        inv.vendorRef ??
-                        '',
-                ).trim(),
-            );
-            setEditDescription(String(inv.description ?? '').trim());
-            setEditNotes(String(inv.notes ?? '').trim());
+            setEditFetchPayload(d);
         } catch (e) {
+            setEditFetchPayload(null);
             setEditError(e.message || 'Could not load invoice for editing.');
         } finally {
             setEditLoading(false);
-        }
-    };
-
-    const handleSaveEdit = async () => {
-        if (!editOpen) return;
-        setActionId(`ed-${editOpen.id}`);
-        setEditError('');
-        try {
-            const ref = editVendorRef.trim();
-            await updateSupplierWorkshopPurchaseInvoice(editOpen.id, {
-                vendor_invoice_ref: ref || undefined,
-                vendorInvoiceRef: ref || undefined,
-                refNumber: ref || undefined,
-                description: editDescription.trim() || undefined,
-                notes: editNotes.trim() || undefined,
-            });
-            setEditOpen(null);
-            await load();
-        } catch (e) {
-            setEditError(e.message || 'Update failed.');
-        } finally {
-            setActionId(null);
         }
     };
 
@@ -144,7 +107,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
         setActionId(`rj-${id}`);
         setError('');
         try {
-            await rejectSupplierWorkshopPurchaseInvoice(id, { rejectionReason: rejectReason.trim() });
+            await rejectSupplierWorkshopPurchaseInvoice(id, { reason: rejectReason.trim() });
             setRejectOpen(null);
             setRejectReason('');
             await load();
@@ -237,6 +200,9 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                                 <th>Invoice #</th>
                                 <th>Vendor ref</th>
                                 <th>Issue date</th>
+                                <th>Product name</th>
+                                <th>Quantity</th>
+                                <th>Unit</th>
                                 <th>Total</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -245,13 +211,13 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                         <tbody>
                             {loading && rows.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} style={{ textAlign: 'center', padding: 32 }}>
+                                    <td colSpan={9} style={{ textAlign: 'center', padding: 32 }}>
                                         <Loader2 className="spin" size={22} style={{ verticalAlign: 'middle' }} /> Loading…
                                     </td>
                                 </tr>
                             ) : rows.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                    <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                         No workshop purchase invoices
                                     </td>
                                 </tr>
@@ -265,6 +231,21 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                                             {r.vendor_invoice_ref || '—'}
                                         </td>
                                         <td style={{ fontSize: '0.8125rem' }}>{r.date || '—'}</td>
+                                        <td
+                                            style={{
+                                                fontSize: '0.8125rem',
+                                                maxWidth: 240,
+                                                color: 'var(--color-text-muted)',
+                                                lineHeight: 1.35,
+                                            }}
+                                            title={r.product_label ?? '—'}
+                                        >
+                                            {r.product_label ?? '—'}
+                                        </td>
+                                        <td style={{ fontSize: '0.8125rem' }}>{r.quantity_label ?? '—'}</td>
+                                        <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                                            {r.unit_label ?? '—'}
+                                        </td>
                                         <td>
                                             <strong>SAR {(r.grand_total || 0).toLocaleString()}</strong>
                                         </td>
@@ -308,7 +289,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                                                                 cursor: actionId ? 'not-allowed' : 'pointer',
                                                                 opacity: actionId ? 0.6 : 1,
                                                             }}
-                                                            title="Edit ref / description / notes"
+                                                            title="Edit purchase invoice (lines, dates, totals)"
                                                         >
                                                             <Pencil size={14} />
                                                         </button>
@@ -433,68 +414,19 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                     </Modal>
                 )}
                 {editOpen && (
-                    <Modal
-                        title={`Edit invoice ${editOpen.invoice_number}`}
+                    <SupplierWorkshopPurchaseInvoiceEditModal
+                        open
+                        listRow={editOpen}
+                        fetchPayload={editFetchPayload}
+                        loadingFetch={editLoading}
+                        fetchErrorMessage={editError}
                         onClose={() => {
                             setEditOpen(null);
+                            setEditFetchPayload(null);
                             setEditError('');
                         }}
-                        footer={
-                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                                <button
-                                    type="button"
-                                    className="btn-secondary"
-                                    onClick={() => {
-                                        setEditOpen(null);
-                                        setEditError('');
-                                    }}
-                                    disabled={actionId !== null}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn-submit"
-                                    disabled={editLoading || actionId !== null}
-                                    onClick={handleSaveEdit}
-                                >
-                                    {actionId?.startsWith('ed-') ? 'Saving…' : 'Save'}
-                                </button>
-                            </div>
-                        }
-                    >
-                        {editLoading ? (
-                            <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>Loading…</p>
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                {editError ? (
-                                    <p style={{ margin: 0, fontSize: '0.8125rem', color: '#B91C1C' }}>{editError}</p>
-                                ) : null}
-                                <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Vendor ref #</label>
-                                <input
-                                    value={editVendorRef}
-                                    onChange={(e) => setEditVendorRef(e.target.value)}
-                                    style={{ padding: 10, borderRadius: 8, border: '1px solid var(--color-border)' }}
-                                />
-                                <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Description</label>
-                                <input
-                                    value={editDescription}
-                                    onChange={(e) => setEditDescription(e.target.value)}
-                                    style={{ padding: 10, borderRadius: 8, border: '1px solid var(--color-border)' }}
-                                />
-                                <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Notes</label>
-                                <textarea
-                                    value={editNotes}
-                                    onChange={(e) => setEditNotes(e.target.value)}
-                                    rows={3}
-                                    style={{ padding: 10, borderRadius: 8, border: '1px solid var(--color-border)', resize: 'vertical' }}
-                                />
-                                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                                    Line items and totals are controlled by the workshop; use Approve after review.
-                                </p>
-                            </div>
-                        )}
-                    </Modal>
+                        onSaved={load}
+                    />
                 )}
                 {rejectOpen && (
                     <Modal

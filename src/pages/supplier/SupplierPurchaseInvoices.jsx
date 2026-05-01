@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Plus, Calendar, ShoppingCart, Search, Zap, Eye, Download, Building2, History, Loader2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import SupplierSuperSupplierPurchasesPanel from './SupplierSuperSupplierPurchasesPanel';
 import '../../styles/admin/AccountingPage.css';
 import {
     createSupplierPayable,
@@ -11,7 +12,6 @@ import {
     listSupplierProducts,
     listSupplierSuperSuppliers,
     createSupplierSuperSupplier,
-    createSupplierSuperSupplierPurchase,
     listSupplierSuperSupplierAudit,
 } from '../../services/supplierApi';
 
@@ -109,16 +109,7 @@ export default function SupplierPurchaseInvoices() {
     });
     const [ssSaving, setSsSaving] = useState(false);
     const [ssErr, setSsErr] = useState('');
-    const [purchaseModal, setPurchaseModal] = useState(null);
-    const [purForm, setPurForm] = useState({
-        purchaseDate: new Date().toISOString().slice(0, 10),
-        referenceNo: '',
-        amount: '',
-        vatAmount: '0',
-        description: '',
-    });
-    const [purSaving, setPurSaving] = useState(false);
-    const [purErr, setPurErr] = useState('');
+    const [createSspPurchaseForId, setCreateSspPurchaseForId] = useState(null);
     const [auditOpen, setAuditOpen] = useState(false);
     const [auditSsFilter, setAuditSsFilter] = useState('');
     const [auditItems, setAuditItems] = useState([]);
@@ -209,33 +200,6 @@ export default function SupplierPurchaseInvoices() {
             setSsErr(e?.message || 'Could not save super supplier');
         } finally {
             setSsSaving(false);
-        }
-    };
-
-    const handleSaveSuperPurchase = async () => {
-        if (!purchaseModal?.id) return;
-        const amt = parseFloat(String(purForm.amount).replace(/,/g, ''));
-        if (!Number.isFinite(amt) || amt < 0) {
-            setPurErr('Enter a valid amount (SAR)');
-            return;
-        }
-        setPurSaving(true);
-        setPurErr('');
-        try {
-            await createSupplierSuperSupplierPurchase({
-                superSupplierId: String(purchaseModal.id),
-                purchaseDate: purForm.purchaseDate,
-                referenceNo: purForm.referenceNo?.trim() || undefined,
-                description: purForm.description?.trim() || undefined,
-                amount: amt,
-                vatAmount: parseFloat(String(purForm.vatAmount).replace(/,/g, '')) || 0,
-            });
-            setPurchaseModal(null);
-            await loadSuperSuppliers();
-        } catch (e) {
-            setPurErr(e?.message || 'Could not record purchase');
-        } finally {
-            setPurSaving(false);
         }
     };
 
@@ -696,17 +660,7 @@ export default function SupplierPurchaseInvoices() {
                                                     className="btn-pi-cancel"
                                                     style={{ padding: '6px 12px', fontSize: '0.8125rem' }}
                                                     disabled={!ss.isActive}
-                                                    onClick={() => {
-                                                        setPurErr('');
-                                                        setPurchaseModal(ss);
-                                                        setPurForm({
-                                                            purchaseDate: new Date().toISOString().slice(0, 10),
-                                                            referenceNo: '',
-                                                            amount: '',
-                                                            vatAmount: '0',
-                                                            description: '',
-                                                        });
-                                                    }}
+                                                    onClick={() => setCreateSspPurchaseForId(String(ss.id))}
                                                 >
                                                     <Plus size={14} /> Record purchase
                                                 </button>
@@ -727,6 +681,13 @@ export default function SupplierPurchaseInvoices() {
                     </table>
                 </div>
             </section>
+
+            <SupplierSuperSupplierPurchasesPanel
+                superSuppliers={superSuppliers}
+                createIntentSupplierId={createSspPurchaseForId}
+                onConsumeCreateIntent={() => setCreateSspPurchaseForId(null)}
+                onPurchasesMutated={loadSuperSuppliers}
+            />
 
             <AnimatePresence>
                 {addSsOpen && (
@@ -803,77 +764,6 @@ export default function SupplierPurchaseInvoices() {
                                 rows={3}
                                 value={ssForm.notes}
                                 onChange={(e) => setSsForm((s) => ({ ...s, notes: e.target.value }))}
-                            />
-                        </div>
-                    </Modal>
-                )}
-
-                {purchaseModal && (
-                    <Modal
-                        title={`Record purchase — ${purchaseModal.name}`}
-                        onClose={() => !purSaving && setPurchaseModal(null)}
-                        width="480px"
-                        footer={
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                                <button type="button" className="btn-portal-outline" disabled={purSaving} onClick={() => setPurchaseModal(null)}>
-                                    Cancel
-                                </button>
-                                <button type="button" className="btn-pi-create" disabled={purSaving} onClick={handleSaveSuperPurchase}>
-                                    {purSaving ? 'Saving…' : 'Save purchase'}
-                                </button>
-                            </div>
-                        }
-                    >
-                        {purErr ? (
-                            <p style={{ margin: '0 0 12px', padding: 10, background: '#FEF2F2', borderRadius: 8, color: '#B91C1C', fontSize: '0.8125rem' }}>
-                                {purErr}
-                            </p>
-                        ) : null}
-                        <div className="pi-field">
-                            <label>Date</label>
-                            <input
-                                type="date"
-                                value={purForm.purchaseDate}
-                                onChange={(e) => setPurForm((p) => ({ ...p, purchaseDate: e.target.value }))}
-                            />
-                        </div>
-                        <div className="pi-field">
-                            <label>Reference</label>
-                            <input
-                                type="text"
-                                value={purForm.referenceNo}
-                                onChange={(e) => setPurForm((p) => ({ ...p, referenceNo: e.target.value }))}
-                                placeholder="Vendor invoice #"
-                            />
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            <div className="pi-field">
-                                <label>Amount (SAR) *</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={purForm.amount}
-                                    onChange={(e) => setPurForm((p) => ({ ...p, amount: e.target.value }))}
-                                />
-                            </div>
-                            <div className="pi-field">
-                                <label>VAT (SAR)</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={purForm.vatAmount}
-                                    onChange={(e) => setPurForm((p) => ({ ...p, vatAmount: e.target.value }))}
-                                />
-                            </div>
-                        </div>
-                        <div className="pi-field pi-full-width">
-                            <label>Description</label>
-                            <textarea
-                                rows={2}
-                                value={purForm.description}
-                                onChange={(e) => setPurForm((p) => ({ ...p, description: e.target.value }))}
                             />
                         </div>
                     </Modal>
