@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { 
-    RefreshCw, ChevronRight
-} from 'lucide-react';
-import { 
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, 
-    Tooltip, ResponsiveContainer
-} from 'recharts';
-import { apiFetch } from '../../services/api';
-import { qs, branchScopeParams } from '../../services/workshopStaffApi';
+import { RefreshCw, ChevronRight } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+    getWorkshopReportsAnalytics,
+    getWorkshopTechnicians,
+    workshopReportsAnalyticsParams,
+    unwrapWorkshopStaffList,
+    flattenWorkshopStaffRow,
+} from '../../services/workshopStaffApi';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -16,9 +16,22 @@ const toNumber = (value) => {
 
 const formatCurrency = (value) => `SAR ${toNumber(value).toLocaleString()}`;
 
+/** Last N inclusive UTC calendar days through today UTC (matches typical “last 30 days” API default). */
+function defaultUtcDateRangeInclusive(days = 30) {
+    const end = new Date();
+    const endUtc = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+    const startUtc = new Date(endUtc);
+    startUtc.setUTCDate(startUtc.getUTCDate() - (days - 1));
+    return {
+        from: startUtc.toISOString().slice(0, 10),
+        to: endUtc.toISOString().slice(0, 10),
+    };
+}
+
 function TechDropdown({ value, options, onChange }) {
     const [isOpen, setIsOpen] = React.useState(false);
     const containerRef = React.useRef(null);
+    const label = options.find((o) => o.value === value)?.label ?? 'All Technicians';
 
     React.useEffect(() => {
         const handleClickOutside = (event) => {
@@ -32,20 +45,27 @@ function TechDropdown({ value, options, onChange }) {
 
     return (
         <div className="ws-custom-dropdown" ref={containerRef}>
-            <button className="ws-dropdown-trigger" onClick={() => setIsOpen(!isOpen)}>
-                {value}
-                <ChevronRight size={14} className={isOpen ? 'rotate-90' : ''} style={{ transition: 'transform 0.2s', transform: `rotate(${isOpen ? '90deg' : '0deg'})` }} />
+            <button type="button" className="ws-dropdown-trigger" onClick={() => setIsOpen(!isOpen)}>
+                {label}
+                <ChevronRight
+                    size={14}
+                    className={isOpen ? 'rotate-90' : ''}
+                    style={{ transition: 'transform 0.2s', transform: `rotate(${isOpen ? '90deg' : '0deg'})` }}
+                />
             </button>
             {isOpen && (
                 <div className="ws-dropdown-menu">
                     {options.map((opt) => (
-                        <div 
-                            key={opt} 
-                            className={`ws-dropdown-item ${value === opt ? 'active' : ''}`}
-                            onClick={() => { onChange(opt); setIsOpen(false); }}
+                        <div
+                            key={opt.value || '__all__'}
+                            className={`ws-dropdown-item ${value === opt.value ? 'active' : ''}`}
+                            onClick={() => {
+                                onChange(opt.value);
+                                setIsOpen(false);
+                            }}
                         >
-                            {opt}
-                            {value === opt && <span className="ws-check">✓</span>}
+                            {opt.label}
+                            {value === opt.value && <span className="ws-check">✓</span>}
                         </div>
                     ))}
                 </div>
@@ -54,71 +74,184 @@ function TechDropdown({ value, options, onChange }) {
     );
 }
 
+function parseArr(v) {
+    if (Array.isArray(v)) return v;
+    return [];
+}
+
+function technicianDropdownRow(raw) {
+    const row = flattenWorkshopStaffRow(raw, 'technician');
+    const id =
+        row.id ??
+        row.userId ??
+        row.employee_id ??
+        row.employeeId ??
+        row.user?.id ??
+        row.technician_id ??
+        row.technicianId;
+    const name =
+        row.name ??
+        row.fullName ??
+        row.full_name ??
+        row.user?.name ??
+        (row.user && `${row.user.firstName ?? ''} ${row.user.lastName ?? ''}`.trim()) ??
+        'Unknown';
+    if (id == null || String(id) === '') return null;
+    return { id: String(id), name: String(name).trim() || 'Unknown' };
+}
+
 export default function WorkshopReports({ selectedBranchId = 'all', branches = [] }) {
+    const defaults = useMemo(() => defaultUtcDateRangeInclusive(30), []);
+    const [dateFrom, setDateFrom] = useState(defaults.from);
+    const [dateTo, setDateTo] = useState(defaults.to);
+    const [activeTab, setActiveTab] = useState('daily_sales');
+    const [selectedTechId, setSelectedTechId] = useState('');
+    const [technicianOptions, setTechnicianOptions] = useState([]);
+    const [reportData, setReportData] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
+
     const branchLabel = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
         return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
     }, [branches, selectedBranchId]);
-    const [dateFrom, setDateFrom] = useState('2026-03-01');
-    const [dateTo, setDateTo] = useState('2026-03-27');
-    const [activeTab, setActiveTab] = useState('daily_sales');
-    const [techFilter, setTechFilter] = useState('All Technicians');
-    const [reportData, setReportData] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [loadError, setLoadError] = useState('');
+
+    const techSelectOptions = useMemo(() => {
+        const uniq = new Map();
+        for (const t of technicianOptions) {
+            if (t?.id) uniq.set(String(t.id), { value: String(t.id), label: t.name });
+        }
+        return [{ value: '', label: 'All Technicians' }, ...uniq.values()];
+    }, [technicianOptions]);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await getWorkshopTechnicians(workshopReportsAnalyticsParams(selectedBranchId, {}));
+                if (cancelled) return;
+                const rawList = unwrapWorkshopStaffList(res, 'technician');
+                const opts = [];
+                for (const raw of rawList) {
+                    const opt = technicianDropdownRow(raw);
+                    if (opt) opts.push(opt);
+                }
+                setTechnicianOptions(opts);
+            } catch {
+                if (!cancelled) setTechnicianOptions([]);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedBranchId]);
+
+    useEffect(() => {
+        setSelectedTechId('');
+    }, [selectedBranchId]);
 
     const loadReports = useCallback(async () => {
         setIsLoading(true);
         setLoadError('');
         try {
-            const response = await apiFetch(`/workshop-staff/reports-analytics${qs(branchScopeParams(selectedBranchId))}`);
+            const params = workshopReportsAnalyticsParams(selectedBranchId, {
+                startDate: dateFrom,
+                endDate: dateTo,
+                technicianId: selectedTechId || undefined,
+            });
+            const response = await getWorkshopReportsAnalytics(params);
             if (!response?.success) {
                 throw new Error('Invalid reports response.');
             }
             setReportData(response);
         } catch (error) {
             setLoadError(error.message || 'Failed to load reports analytics.');
+            setReportData(null);
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, dateFrom, dateTo, selectedTechId]);
 
     useEffect(() => {
         loadReports();
     }, [loadReports]);
 
-    const dailyRevenueData = useMemo(() => {
-        return (reportData?.financialOverview?.dailyRevenue || []).map((entry) => ({
-            day: entry.day,
-            date: entry.date,
-            amount: toNumber(entry.amount),
+    const norm = useMemo(() => {
+        if (!reportData || typeof reportData !== 'object') return null;
+        const r = reportData;
+        const fo = r.financialOverview ?? {};
+        const inv = r.inventoryValuation ?? {};
+
+        const totalRevenue = toNumber(r.total_revenue ?? fo.totalRevenue);
+        const revenueChangePercent = toNumber(r.revenue_change_percent ?? fo.revenueChangePercent);
+        const stockValueCost = toNumber(r.stock_value_cost ?? inv.stockValueCost);
+        const potentialProfit = toNumber(r.potential_profit ?? inv.potentialProfit);
+        const activeSkus = toNumber(r.active_skus ?? inv.activeSkus);
+
+        const dailyRaw = parseArr(r.daily_revenue).length ? r.daily_revenue : fo.dailyRevenue;
+        const dailyRevenue = parseArr(dailyRaw).map((e) => ({
+            day: e.day_label ?? e.day ?? '',
+            date: e.date ?? '',
+            amount: toNumber(e.revenue ?? e.amount),
         }));
+
+        const techRaw = parseArr(r.by_technician).length ? r.by_technician : r.operationalPerformance;
+        const byTechnician = parseArr(techRaw).map((e) => ({
+            id: String(e.technician_id ?? e.employeeId ?? e.id ?? ''),
+            name: e.name || 'Unknown',
+            completedJobs: toNumber(e.completed_jobs ?? e.totalJobs ?? e.orders),
+            commission: toNumber(e.commission_sar ?? e.commission),
+            revenue: toNumber(e.revenue_sar ?? e.revenue),
+        }));
+
+        return {
+            completedOrdersCount: toNumber(r.completed_orders_count),
+            totalRevenue,
+            revenueChangePercent,
+            stockValueCost,
+            potentialProfit,
+            activeSkus,
+            dailyRevenue,
+            byTechnician,
+            byCustomer: parseArr(r.by_customer),
+            byProduct: parseArr(r.by_product),
+            byDepartment: parseArr(r.by_department),
+            byBranch: parseArr(r.by_branch),
+            period: r.period ?? null,
+            previousPeriod: r.previous_period ?? null,
+            definitions: typeof r.definitions === 'string' ? r.definitions : '',
+        };
     }, [reportData]);
 
-    const technicianData = useMemo(() => {
-        return (reportData?.operationalPerformance || []).map((entry) => ({
-            id: entry.employeeId,
-            name: entry.name || 'Unknown',
-            orders: toNumber(entry.totalJobs),
-            commission: toNumber(entry.commission),
-        }));
-    }, [reportData]);
+    const kpis = useMemo(() => {
+        if (!norm) {
+            return [
+                { label: 'Total Revenue', value: formatCurrency(0), color: 'text-green' },
+                { label: 'Revenue Change', value: '0.0%', sub: 'vs previous period', color: 'text-blue' },
+                { label: 'Stock Value (Cost)', value: formatCurrency(0), color: 'text-orange' },
+                { label: 'Potential Profit', value: formatCurrency(0), sub: '0 active SKUs', color: 'text-purple' },
+            ];
+        }
+        const sign = norm.revenueChangePercent > 0 ? '+' : '';
+        return [
+            { label: 'Total Revenue', value: formatCurrency(norm.totalRevenue), color: 'text-green' },
+            {
+                label: 'Revenue Change',
+                value: `${sign}${norm.revenueChangePercent.toFixed(1)}%`,
+                sub: 'vs previous period',
+                color: 'text-blue',
+            },
+            { label: 'Stock Value (Cost)', value: formatCurrency(norm.stockValueCost), color: 'text-orange' },
+            {
+                label: 'Potential Profit',
+                value: formatCurrency(norm.potentialProfit),
+                sub: `${norm.activeSkus} active SKUs`,
+                color: 'text-purple',
+            },
+        ];
+    }, [norm]);
 
-    const filteredTechnicians = useMemo(() => {
-        if (techFilter === 'All Technicians') return technicianData;
-        return technicianData.filter((entry) => entry.name === techFilter);
-    }, [technicianData, techFilter]);
-
-    const totalOrders = useMemo(() => {
-        return technicianData.reduce((sum, entry) => sum + entry.orders, 0);
-    }, [technicianData]);
-
-    const kpis = [
-        { label: 'Total Revenue', value: formatCurrency(reportData?.financialOverview?.totalRevenue), color: 'text-green' },
-        { label: 'Revenue Change', value: `${toNumber(reportData?.financialOverview?.revenueChangePercent).toFixed(1)}%`, sub: 'vs previous period', color: 'text-blue' },
-        { label: 'Stock Value (Cost)', value: formatCurrency(reportData?.inventoryValuation?.stockValueCost), color: 'text-orange' },
-        { label: 'Potential Profit', value: formatCurrency(reportData?.inventoryValuation?.potentialProfit), sub: `${toNumber(reportData?.inventoryValuation?.activeSkus)} active SKUs`, color: 'text-purple' },
-    ];
+    const completedOrdersDisplay = norm?.completedOrdersCount ?? 0;
 
     const tabs = [
         { id: 'daily_sales', label: 'Daily Sales' },
@@ -129,38 +262,55 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         { id: 'by_branch', label: 'By Branch' },
     ];
 
+    const periodLine = useMemo(() => {
+        if (!norm?.period?.start_date && !norm?.period?.startDate) return null;
+        const p = norm.period;
+        const curStart = p.start_date ?? p.startDate;
+        const curEnd = p.end_date ?? p.endDate;
+        const pp = norm.previousPeriod;
+        const prevStart = pp?.start_date ?? pp?.startDate;
+        const prevEnd = pp?.end_date ?? pp?.endDate;
+        if (!curStart || !curEnd) return null;
+        const prev =
+            prevStart && prevEnd
+                ? ` · Previous: ${prevStart} → ${prevEnd}`
+                : '';
+        return `Period: ${curStart} → ${curEnd}${prev}`;
+    }, [norm]);
+
     return (
         <div className="ws-reports-page">
             <div className="ws-reports-header">
                 <div>
                     <h2 className="ws-page-title">Reports & Analytics</h2>
-                    <p className="ws-page-sub">Scope · <strong>{branchLabel}</strong></p>
+                    <p className="ws-page-sub">
+                        Scope · <strong>{branchLabel}</strong>
+                    </p>
+                    {periodLine && (
+                        <p className="ws-text-dim" style={{ margin: '4px 0 0', fontSize: '0.8125rem' }}>
+                            {periodLine}
+                        </p>
+                    )}
                 </div>
                 <div className="ws-online-badge">
                     <div className="ws-online-dot" /> Online
                 </div>
             </div>
 
-            {/* Filter Bar */}
             <div className="ws-reports-filters">
                 <div className="ws-filter-group">
                     <div className="ws-date-input-group">
-                        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+                        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
                         <span className="ws-text-dim">to</span>
-                        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+                        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                     </div>
-                    {/* Custom Technician Dropdown */}
-                    <TechDropdown 
-                        value={techFilter} 
-                        options={['All Technicians', ...technicianData.map(t => t.name)]} 
-                        onChange={setTechFilter} 
-                    />
-                    <button className="ws-btn-refresh" onClick={loadReports} disabled={isLoading}>
+                    <TechDropdown value={selectedTechId} options={techSelectOptions} onChange={setSelectedTechId} />
+                    <button type="button" className="ws-btn-refresh" onClick={loadReports} disabled={isLoading}>
                         <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
                     </button>
                 </div>
                 <div className="ws-order-count">
-                    <span>{totalOrders} completed orders</span>
+                    <span>{completedOrdersDisplay} completed orders</span>
                 </div>
             </div>
             {loadError && (
@@ -169,9 +319,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 </div>
             )}
 
-            {/* KPI Grid */}
             <div className="ws-reports-kpi-grid">
-                {kpis.map(k => (
+                {kpis.map((k) => (
                     <div key={k.label} className="ws-kpi-card">
                         <p className="ws-kpi-label">{k.label}</p>
                         <h3 className={`ws-kpi-value ${k.color}`}>{k.value}</h3>
@@ -180,11 +329,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 ))}
             </div>
 
-            {/* Tab Navigation */}
             <div className="ws-reports-tabs">
-                {tabs.map(tab => (
-                    <button 
-                        key={tab.id} 
+                {tabs.map((tab) => (
+                    <button
+                        key={tab.id}
+                        type="button"
                         className={`ws-tab-btn ${activeTab === tab.id ? 'active' : ''}`}
                         onClick={() => setActiveTab(tab.id)}
                     >
@@ -193,7 +342,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 ))}
             </div>
 
-            {/* Tab Content */}
             <div className="ws-tab-content">
                 {activeTab === 'daily_sales' && (
                     <div className="ws-report-view">
@@ -201,11 +349,23 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <h4 className="ws-chart-title">Daily Revenue</h4>
                             <div style={{ width: '100%', height: 300 }}>
                                 <ResponsiveContainer>
-                                    <BarChart data={dailyRevenueData}>
+                                    <BarChart data={norm?.dailyRevenue ?? []}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} />
+                                        <XAxis
+                                            dataKey="day"
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fontSize: 12, fill: '#6B7280' }}
+                                        />
                                         <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} />
-                                        <Tooltip cursor={{ fill: '#F9FAFB' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                                        <Tooltip
+                                            cursor={{ fill: '#F9FAFB' }}
+                                            contentStyle={{
+                                                borderRadius: '8px',
+                                                border: 'none',
+                                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                            }}
+                                        />
                                         <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={40} />
                                     </BarChart>
                                 </ResponsiveContainer>
@@ -221,15 +381,21 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {dailyRevenueData.length === 0 ? (
-                                        <tr><td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>No daily revenue data</td></tr>
-                                    ) : dailyRevenueData.map((d, i) => (
-                                        <tr key={i}>
-                                            <td>{d.day}</td>
-                                            <td>{d.date}</td>
-                                            <td className="ws-font-bold">SAR {d.amount.toLocaleString()}</td>
+                                    {(norm?.dailyRevenue ?? []).length === 0 ? (
+                                        <tr>
+                                            <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                                No daily revenue data
+                                            </td>
                                         </tr>
-                                    ))}
+                                    ) : (
+                                        (norm?.dailyRevenue ?? []).map((d, i) => (
+                                            <tr key={`${d.date}-${i}`}>
+                                                <td>{d.day}</td>
+                                                <td>{d.date}</td>
+                                                <td className="ws-font-bold">SAR {d.amount.toLocaleString()}</td>
+                                            </tr>
+                                        ))
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -242,12 +408,30 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <h4 className="ws-chart-title">Revenue by Technician</h4>
                             <div style={{ width: '100%', height: 300 }}>
                                 <ResponsiveContainer>
-                                    <BarChart data={filteredTechnicians} layout="vertical" margin={{ left: 40, right: 20 }}>
+                                    <BarChart
+                                        data={norm?.byTechnician ?? []}
+                                        layout="vertical"
+                                        margin={{ left: 40, right: 20 }}
+                                    >
                                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F3F4F6" />
                                         <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} />
-                                        <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#6B7280' }} width={120} />
-                                        <Tooltip cursor={{ fill: '#F9FAFB' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                                        <Bar dataKey="orders" fill="#F59E0B" radius={[0, 4, 4, 0]} barSize={24} />
+                                        <YAxis
+                                            dataKey="name"
+                                            type="category"
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fontSize: 10, fill: '#6B7280' }}
+                                            width={120}
+                                        />
+                                        <Tooltip
+                                            cursor={{ fill: '#F9FAFB' }}
+                                            contentStyle={{
+                                                borderRadius: '8px',
+                                                border: 'none',
+                                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                            }}
+                                        />
+                                        <Bar dataKey="revenue" fill="#F59E0B" radius={[0, 4, 4, 0]} barSize={24} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
@@ -257,20 +441,30 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 <thead>
                                     <tr>
                                         <th>TECHNICIAN</th>
-                                        <th>TOTAL JOBS</th>
+                                        <th>COMPLETED JOBS</th>
+                                        <th>REVENUE (SAR)</th>
                                         <th>COMMISSION (SAR)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredTechnicians.length === 0 ? (
-                                        <tr><td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>No technician performance data</td></tr>
-                                    ) : filteredTechnicians.map((t, i) => (
-                                        <tr key={i}>
-                                            <td><strong>{t.name}</strong></td>
-                                            <td>{t.orders}</td>
-                                            <td className="ws-font-bold">SAR {t.commission.toLocaleString()}</td>
+                                    {(norm?.byTechnician ?? []).length === 0 ? (
+                                        <tr>
+                                            <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                                No technician performance data
+                                            </td>
                                         </tr>
-                                    ))}
+                                    ) : (
+                                        (norm?.byTechnician ?? []).map((t) => (
+                                            <tr key={t.id || t.name}>
+                                                <td>
+                                                    <strong>{t.name}</strong>
+                                                </td>
+                                                <td>{t.completedJobs}</td>
+                                                <td className="ws-font-bold">SAR {t.revenue.toLocaleString()}</td>
+                                                <td className="ws-font-bold">SAR {t.commission.toLocaleString()}</td>
+                                            </tr>
+                                        ))
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -278,25 +472,165 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 )}
 
                 {activeTab === 'by_customer' && (
-                    <div className="ws-section">
-                        <div style={{ padding: 24, color: 'var(--color-text-muted)' }}>Customer-wise report is not available in current API response.</div>
+                    <div className="ws-report-table-wrapper">
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>CUSTOMER</th>
+                                    <th>ORDERS</th>
+                                    <th>REVENUE (SAR)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(norm?.byCustomer ?? []).length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No customer breakdown for this scope.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    norm.byCustomer.map((row, i) => (
+                                        <tr key={row.customer_id ?? row.customerId ?? i}>
+                                            <td>
+                                                <strong>{row.customer_name ?? row.customerName ?? '—'}</strong>
+                                            </td>
+                                            <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
+                                            <td className="ws-font-bold">
+                                                SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 )}
 
                 {activeTab === 'by_product' && (
-                    <div className="ws-section"><div style={{ padding: 24, color: 'var(--color-text-muted)' }}>Product-wise report is not available in current API response.</div></div>
+                    <div className="ws-report-table-wrapper">
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>PRODUCT / SERVICE</th>
+                                    <th>TYPE</th>
+                                    <th>QTY</th>
+                                    <th>REVENUE (SAR)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(norm?.byProduct ?? []).length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No product breakdown for this scope.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    norm.byProduct.map((row, i) => (
+                                        <tr key={row.product_id ?? row.productId ?? i}>
+                                            <td>
+                                                <strong>{row.product_name ?? row.productName ?? row.product_id ?? row.productId ?? '—'}</strong>
+                                            </td>
+                                            <td>{row.item_type ?? row.itemType ?? '—'}</td>
+                                            <td>{toNumber(row.qty_sold ?? row.qtySold)}</td>
+                                            <td className="ws-font-bold">
+                                                SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 )}
 
                 {activeTab === 'by_department' && (
-                    <div className="ws-section"><div style={{ padding: 24, color: 'var(--color-text-muted)' }}>Department-wise report is not available in current API response.</div></div>
+                    <div className="ws-report-table-wrapper">
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>DEPARTMENT</th>
+                                    <th>ORDERS</th>
+                                    <th>REVENUE (SAR)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(norm?.byDepartment ?? []).length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No department breakdown for this scope.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    norm.byDepartment.map((row, i) => (
+                                        <tr key={row.department_id ?? row.departmentId ?? i}>
+                                            <td>
+                                                <strong>{row.department_name ?? row.departmentName ?? '—'}</strong>
+                                            </td>
+                                            <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
+                                            <td className="ws-font-bold">
+                                                SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 )}
 
                 {activeTab === 'by_branch' && (
-                    <div className="ws-section">
-                        <div style={{ padding: 24, color: 'var(--color-text-muted)' }}>Branch-wise report is not available in current API response.</div>
+                    <div className="ws-report-table-wrapper">
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>BRANCH</th>
+                                    <th>COMPLETED ORDERS</th>
+                                    <th>REVENUE (SAR)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(norm?.byBranch ?? []).length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No branch breakdown (try “All branches”).
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    norm.byBranch.map((row, i) => (
+                                        <tr key={row.branch_id ?? row.branchId ?? i}>
+                                            <td>
+                                                <strong>{row.branch_name ?? row.branchName ?? '—'}</strong>
+                                            </td>
+                                            <td>{toNumber(row.completed_orders ?? row.completedOrders)}</td>
+                                            <td className="ws-font-bold">
+                                                SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 )}
             </div>
+
+            {norm?.definitions ? (
+                <details className="ws-section" style={{ marginTop: 20 }}>
+                    <summary className="ws-text-dim" style={{ cursor: 'pointer', fontWeight: 600 }}>
+                        Metric definitions (from API)
+                    </summary>
+                    <pre
+                        style={{
+                            marginTop: 12,
+                            fontSize: '0.8125rem',
+                            whiteSpace: 'pre-wrap',
+                            color: 'var(--color-text-muted)',
+                        }}
+                    >
+                        {norm.definitions}
+                    </pre>
+                </details>
+            ) : null}
         </div>
     );
 }

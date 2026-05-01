@@ -21,7 +21,9 @@ import WorkshopCommissions from './workshop/WorkshopCommissions';
 import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
 import { apiFetch } from '../services/api';
+import { workshopLogout } from '../services/authApi';
 import { qs, branchScopeParams } from '../services/workshopStaffApi';
+import { useAuth } from '../context/AuthContext';
 import './workshop/Workshop.css';
 import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
@@ -29,6 +31,18 @@ import '../styles/admin/ApprovalsPage.css';
 export default function WorkshopLayout() {
     const navigate = useNavigate();
     const location = useLocation();
+    const { logout } = useAuth();
+
+    const handleLogout = async () => {
+        const t = localStorage.getItem('filter_auth_token');
+        try {
+            if (t) await workshopLogout(t);
+        } catch (e) {
+            console.warn('[workshop] logout API failed (session cleared locally anyway)', e);
+        }
+        logout();
+        navigate('/workshop/login', { replace: true });
+    };
 
     const getActiveTabFromUrl = () => {
         const parts = location.pathname.split('/').filter(Boolean);
@@ -334,7 +348,9 @@ export default function WorkshopLayout() {
                         <div className="ws-user-avatar">WA</div>
                         <div><p className="ws-user-name">Workshop Admin</p><p className="ws-user-role">Portal Manager</p></div>
                     </div>
-                    <button className="ws-logout-btn" onClick={() => navigate('/')}><LogOut size={16}/></button>
+                    <button type="button" className="ws-logout-btn" onClick={handleLogout} title="Log out">
+                        <LogOut size={16} />
+                    </button>
                 </div>
             </aside>
             <div className="ws-main">
