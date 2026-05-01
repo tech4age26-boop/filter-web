@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
     Check, X, Tag, User, Calendar, DollarSign, Package, ShoppingCart,
     RefreshCcw, ArrowRightLeft, FileText, Eye, Users, Settings, CreditCard,
-    Loader, AlertCircle,
+    Loader, AlertCircle, Building2,
 } from 'lucide-react';
 import '../../styles/admin/ApprovalsPage.css';
 import {
@@ -15,7 +15,10 @@ import ApprovalDetailsModal from './ApprovalDetailsModal';
 
 const ENTITY_TYPES = [
     { value: '', label: 'All Types' },
-    { value: 'workshop_registration', label: 'Workshop' },
+    { value: 'workshop_registration', label: 'Workshop (public signup)' },
+    { value: 'branch_creation', label: 'Branch (workshop)' },
+    { value: 'cashier_registration', label: 'Cashier' },
+    { value: 'workshop_portal_staff_registration', label: 'Portal staff (workshop)' },
     { value: 'supplier_registration', label: 'Supplier' },
     { value: 'corporate_registration', label: 'Corporate' },
     { value: 'technician_registration', label: 'Technician' },
@@ -55,16 +58,27 @@ function normalizeItem(raw) {
 
     const title = raw.title
         ?? meta.companyName
+        ?? meta.branchName
+        ?? (meta.name && meta.workshopStaffRole
+            ? `${meta.name} (${String(meta.workshopStaffRole).replace(/_/g, ' ')})`
+            : null)
         ?? meta.name
         ?? meta.workshopCode
+        ?? meta.cashierName
+        ?? meta.fullName
         ?? raw.businessName
         ?? raw.business_name
         ?? `${entityType || 'Request'} #${id}`;
 
+    const type = entityType.replace('_registration', '') || 'registration';
+    const typeLabel = ENTITY_TYPES.find((e) => e.value === entityType)?.label
+        ?? entityType.replace(/_/g, ' ');
+
     return {
         id,
         entityType,
-        type: entityType.replace('_registration', '') || 'registration',
+        type,
+        typeLabel,
         status: raw.status ?? 'pending',
         title,
         meta,
@@ -150,6 +164,32 @@ function buildMetaChips(item) {
             if (Array.isArray(m.departments) && m.departments.length > 0) {
                 push('Depts', m.departments.map((d) => d?.name).filter(Boolean).join(', '));
             }
+            break;
+        case 'branch_creation':
+            push('Branch', m.name ?? m.branchName);
+            push('Workshop', m.workshop?.name);
+            push('Code', m.branchCode ?? m.code);
+            push('Address', m.address);
+            push('Requested', m.approvalRequestedAt ?? m.approval_requested_at);
+            break;
+        case 'cashier_registration':
+            push('Name', m.name ?? m.cashierName);
+            push('Email', m.email);
+            push('Mobile', m.mobile);
+            push('Workshop', m.workshop?.name);
+            push('Branch', m.branch?.name);
+            break;
+        case 'workshop_portal_staff_registration':
+            push('Role', m.workshopStaffRole ?? m.workshop_staff_role);
+            push('Name', m.name ?? m.fullName);
+            push('Email', m.email);
+            push('Mobile', m.mobile);
+            push('Workshop', m.workshop?.name);
+            push('Branch', m.branch?.name);
+            push(
+                'Team leader dept',
+                m.teamLeaderDepartment?.name ?? m.team_leader_department?.name,
+            );
             break;
         default:
             break;
@@ -403,6 +443,12 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             case 'supplier':
             case 'corporate':
             case 'technician':
+            case 'branch_creation':
+                return <Building2 size={14} />;
+            case 'cashier':
+                return <CreditCard size={14} />;
+            case 'workshop_portal_staff':
+                return <Users size={14} />;
             default:
                 return <FileText size={14} />;
         }
@@ -525,7 +571,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                             <div key={item.id} className="approval-card">
                                 <div className="approval-card-header">
                                     <span className={`approval-type-badge type-${item.type}`}>
-                                        {getTypeIcon(item.type)} {item.type}
+                                        {getTypeIcon(item.type)} {item.typeLabel}
                                     </span>
                                     <div className="header-right">
                                         <span className={`approval-status-badge status-${item.status}`}>{item.status}</span>
@@ -592,7 +638,11 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             {currentTab !== 'Settings' && !loading && !error && items.length === 0 && (
                 <div className="empty-state-card">
                     <p className="empty-status">0 {currentTab.toLowerCase()} items</p>
-                    <p className="empty-desc">Everything is reviewed. Powering up precision for your automotive network.</p>
+                    <p className="empty-desc">
+                        {currentTab === 'Pending'
+                            ? 'Nothing is waiting for review right now.'
+                            : 'Nothing to show in this tab.'}
+                    </p>
                 </div>
             )}
 

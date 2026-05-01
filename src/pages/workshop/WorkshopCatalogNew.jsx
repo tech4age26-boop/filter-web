@@ -77,14 +77,29 @@ function pickPagination(res, fallbackPageSize = PAGE_SIZE) {
     else if (typeof nested.pageSize === 'number') resolvedSize = nested.pageSize;
     else if (pageBlock != null && pageBlock.size != null) resolvedSize = Number(pageBlock.size);
 
-    const hasNext =
+    /** true | false if server said so; null = unknown (do not treat as "no next page"). */
+    let hasNext = null;
+    if (
         r.hasNext === true ||
         r.has_next === true ||
         r.hasMore === true ||
         r.has_more === true ||
         nested.hasNext === true ||
         nested.hasMore === true ||
-        (pageBlock && pageBlock.last === false);
+        (pageBlock && pageBlock.last === false)
+    ) {
+        hasNext = true;
+    } else if (
+        r.hasNext === false ||
+        r.has_next === false ||
+        r.hasMore === false ||
+        r.has_more === false ||
+        nested.hasNext === false ||
+        nested.hasMore === false ||
+        (pageBlock && pageBlock.last === true)
+    ) {
+        hasNext = false;
+    }
 
     return {
         total,
@@ -305,7 +320,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
     const [prodQInput, setProdQInput] = useState('');
     const [prodPage, setProdPage] = useState(1);
     const [prodTotal, setProdTotal] = useState(0);
-    const [prodHasNext, setProdHasNext] = useState(false);
+    const [prodHasNext, setProdHasNext] = useState(null);
 
     const loadProducts = useCallback((signal) => {
         setProdLoading(true);
@@ -342,7 +357,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
     const [svcQInput, setSvcQInput] = useState('');
     const [svcPage, setSvcPage] = useState(1);
     const [svcTotal, setSvcTotal] = useState(0);
-    const [svcHasNext, setSvcHasNext] = useState(false);
+    const [svcHasNext, setSvcHasNext] = useState(null);
 
     const loadServices = useCallback((signal) => {
         setSvcLoading(true);
@@ -813,12 +828,16 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
         kind,
     }) => {
         const totalPagesKnown = total > 0 ? Math.max(1, Math.ceil(total / PAGE_SIZE)) : null;
+        // Next: honor explicit hasNext; else known total pages; else if this page is full, allow probing
+        // (APIs often omit hasNext / misreport total when it equals page size).
         const canGoNext =
-            serverHasNext === true
-                ? true
-                : totalPagesKnown != null
-                  ? page < totalPagesKnown
-                  : rows.length === PAGE_SIZE;
+            serverHasNext === false
+                ? false
+                : serverHasNext === true
+                  ? true
+                  : totalPagesKnown != null && page < totalPagesKnown
+                    ? true
+                    : rows.length === PAGE_SIZE;
         const canGoPrev = page > 1;
         const Icon = kind === 'product' ? Package : Wrench;
         const subtitleFn = (row) => {

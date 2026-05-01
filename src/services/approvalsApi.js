@@ -1,7 +1,20 @@
 import { apiFetch } from './api';
 
-// entityType: workshop_registration | supplier_registration | corporate_registration | technician_registration
-// status:     pending | approved | rejected
+// entityType (GET /super-admin/approvals/pending — same values in Swagger):
+//   workshop_registration | branch_creation | cashier_registration | technician_registration
+//   | workshop_portal_staff_registration | supplier_registration | corporate_registration
+// status: pending | approved | rejected
+//
+// Pending list (high level):
+//   - workshop_registration: workshops with status pending (public signup); approve links the signup user to
+//     workshop_admin (role created if needed; permissions copied from manager when possible). They still use
+//     POST /auth/workshop/login — same workshop JWT portal as owners; there is no separate “branch login”.
+//   - branch_creation: workshop-created branches until super-admin approve (branch is scope for POS/staff, not a login).
+//   - cashier_registration: pending cashier_user rows (requestId = users.id).
+//   - technician_registration: pending workshop_user + technician employee (requestId = users.id).
+//   - workshop_portal_staff_registration: manager | supervisor | team_leader portal staff (requestId = users.id).
+//   - supplier_registration | corporate_registration: registration queues as documented on the API.
+// Approve/reject: PATCH /super-admin/approvals/:entityType/:id/approve|reject
 //
 // Backend returns each list item enriched:
 //   { requestId, entityType, status, title, submittedBy, reviewer, submittedAt, reviewedAt, meta: {...} }

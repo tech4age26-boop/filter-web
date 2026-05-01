@@ -140,7 +140,14 @@ export const WORKFLOW_CONFIG = {
 
 export const BORDER_MAP = { assigned_pending_acceptance: 'ws-border-yellow', accepted_by_technician: 'ws-border-blue', task_in_progress: 'ws-border-purple', task_completed_by_technician: 'ws-border-green', invoice_generated: 'ws-border-gray' };
 
-export const ROLE_OPTIONS = ['cashier', 'technician', 'senior_technician', 'junior_technician', 'supervisor', 'manager', 'specialist'];
+export const ROLE_OPTIONS = [
+    'cashier',
+    'staff',
+    'technician',
+    'supervisor',
+    'manager',
+    'team_leader',
+];
 
 // commissionType is a free-form string on the BE, but the FE sends a fixed
 // vocabulary. Each option carries a `label` for display and a `value` for the

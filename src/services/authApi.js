@@ -26,6 +26,12 @@ export async function corporateLogin(email, password) {
     return data;
 }
 
+/**
+ * Workshop portal — same JWT family for workshop_owner, workshop_user (incl. portal staff), and the
+ * public-signup user after approval. The API rejects login when the user’s approvalStatus is set and
+ * not approved (including workshop_owner, aligned with workshop_user). Branches are not separate logins;
+ * approved branches are used inside this session (e.g. POS branch, staff assignment).
+ */
 export async function workshopLogin(email, password) {
     const res = await fetch(`${BASE_URL}/auth/workshop/login`, {
         method: 'POST',
@@ -39,7 +45,10 @@ export async function workshopLogin(email, password) {
     return data;
 }
 
-/** Invalidate workshop JWT on the server (call before clearing local session). */
+/**
+ * POST /auth/workshop/logout — workshop JWT; backend uses JwtAuthGuard (workshop_user | workshop_owner).
+ * Tokens remain stateless (no server revoke list); callers must still clear localStorage / auth context after success.
+ */
 export async function workshopLogout(token) {
     const res = await fetch(`${BASE_URL}/auth/workshop/logout`, {
         method: 'POST',
