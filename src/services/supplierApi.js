@@ -159,6 +159,13 @@ export const createSupplierSuperSupplierPurchase = (body) =>
         method: 'POST',
         body: JSON.stringify(body),
     });
+export const getSupplierSuperSupplierPurchase = (id) =>
+    apiFetch(`/supplier/super-supplier-purchases/${encodeURIComponent(String(id))}`);
+export const updateSupplierSuperSupplierPurchase = (id, body) =>
+    apiFetch(`/supplier/super-supplier-purchases/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
 export const listSupplierSuperSupplierAudit = (params = {}) =>
     apiFetch(withQuery('/supplier/super-supplier-audit', params));
 

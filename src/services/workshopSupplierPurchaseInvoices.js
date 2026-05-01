@@ -124,6 +124,101 @@ export function unwrapWorkshopSupplierPurchaseInvoiceList(res) {
     return [];
 }
 
+function formatInvoiceQtyDisplay(n) {
+    if (n == null || !Number.isFinite(n)) return null;
+    if (Number.isInteger(n)) return n.toLocaleString();
+    return n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+}
+
+function invoiceLineQty(line) {
+    if (!line || typeof line !== 'object') return null;
+    const raw = line.qty ?? line.quantity;
+    if (raw == null || raw === '') return null;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : null;
+}
+
+/** Non-empty trimmed UOM/unit string, or null if absent. */
+function invoiceLineUomRaw(line) {
+    if (!line || typeof line !== 'object') return null;
+    const u = line.uom ?? line.unit ?? line.unitOfMeasure ?? line.unit_of_measure;
+    const s = u != null ? String(u).trim() : '';
+    return s === '' ? null : s;
+}
+
+/** Best-effort display name for a catalog / free-text invoice line */
+function invoiceLineDisplayName(line) {
+    if (!line || typeof line !== 'object') return '';
+    const nested = line.product != null && typeof line.product === 'object' ? line.product : null;
+    const candidates = [
+        line.itemName,
+        line.item_name,
+        line.productName,
+        line.product_name,
+        nested?.name,
+        line.description,
+    ];
+    for (const v of candidates) {
+        if (v == null) continue;
+        const s = String(v).trim();
+        if (s !== '') return s;
+    }
+    return '';
+}
+
+/**
+ * Compact product column: first distinct line label; “(+N more)” when several products.
+ */
+export function workshopInvoiceProductNameSummary(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return { product_label: '—' };
+    }
+    const distinct = [];
+    for (const it of items) {
+        const n = invoiceLineDisplayName(it);
+        if (!n) continue;
+        if (!distinct.includes(n)) distinct.push(n);
+    }
+    if (distinct.length === 0) return { product_label: '—' };
+    if (distinct.length === 1) return { product_label: distinct[0] };
+    return { product_label: `${distinct[0]} (+${distinct.length - 1} more)` };
+}
+
+/**
+ * Labels for workshop purchase invoice list rows: aggregates qty when every line shares the same UOM;
+ * otherwise shows first line qty with (+N).
+ */
+export function workshopInvoiceQtyUnitSummary(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return { quantity_label: '—', unit_label: '—' };
+    }
+    const parsed = items.map((it) => ({
+        qty: invoiceLineQty(it),
+        uom: invoiceLineUomRaw(it),
+    }));
+    if (parsed.length === 1) {
+        const p = parsed[0];
+        return {
+            quantity_label: p.qty != null ? formatInvoiceQtyDisplay(p.qty) : '—',
+            unit_label: p.uom ?? '—',
+        };
+    }
+    const distinctUoms = [...new Set(parsed.map((p) => p.uom).filter(Boolean))];
+    const allSameUnit = distinctUoms.length <= 1;
+    if (allSameUnit) {
+        const sum = parsed.reduce((s, p) => s + (p.qty ?? 0), 0);
+        const uomLabel = distinctUoms[0] ?? '—';
+        return { quantity_label: formatInvoiceQtyDisplay(sum), unit_label: uomLabel };
+    }
+    const first = parsed[0];
+    const extra = parsed.length - 1;
+    return {
+        quantity_label:
+            first.qty != null ? `${formatInvoiceQtyDisplay(first.qty)} (+${extra})` : '—',
+        unit_label: 'mixed',
+    };
+}
+
 /** Map API invoice → WorkshopPurchases table row shape */
 export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
     if (!inv || typeof inv !== 'object') return null;
@@ -151,6 +246,8 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
     const stockUpdated =
         Boolean(inv.stockUpdated ?? inv.stock_updated ?? inv.stockReceived ?? inv.stock_received) ||
         status === 'approved';
+    const { quantity_label, unit_label } = workshopInvoiceQtyUnitSummary(items);
+    const { product_label } = workshopInvoiceProductNameSummary(items);
     return {
         id: String(id),
         invoice_number:
@@ -172,6 +269,9 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
             .toLowerCase(),
         status,
         stock_updated: stockUpdated,
+        quantity_label,
+        unit_label,
+        product_label,
         items,
         _raw: inv,
     };
