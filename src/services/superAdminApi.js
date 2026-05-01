@@ -113,6 +113,81 @@ export const createBranch = (body) =>
 export const updateBranch = (id, body) =>
     apiFetch(`/super-admin/branches/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
+// ─── Inventory (super-admin): adopted products & stock movements ─────────────
+
+/** Adopted products + stock for a workshop branch. Query: workshopId, branchId (required); optional search (same as catalog filter); limit default 50, max 200; offset. */
+export const getSuperAdminInventoryProducts = ({ workshopId, branchId, search, limit, offset } = {}) =>
+    apiFetch(`/super-admin/inventory/products${qs({ workshopId, branchId, search, limit, offset })}`);
+
+/** Dedicated search — matches name/sku/brand case-insensitive. Same paginated envelope as list. workshopId & branchId required. */
+export const searchSuperAdminInventoryProducts = ({ workshopId, branchId, q, limit, offset } = {}) =>
+    apiFetch(`/super-admin/inventory/products/search${qs({ workshopId, branchId, q, limit, offset })}`);
+
+/** Movement timeline for one product (workshop + branch). summary.* is global; entries are paginated. */
+export const getSuperAdminInventoryProductMovements = (productId, { workshopId, branchId, from, to, limit, offset } = {}) =>
+    apiFetch(
+        `/super-admin/inventory/products/${encodeURIComponent(String(productId))}/movements${qs({
+            workshopId,
+            branchId,
+            from,
+            to,
+            limit,
+            offset,
+        })}`,
+    );
+
+/**
+ * Universal inventory ledger — global movement rows (workshop + branch on each row).
+ * All query params optional. `from` / `to`: YYYY-MM-DD inclusive. `search`: name/sku/brand contains.
+ * Backend default limit 50, max 200; `offset` default 0.
+ * Response data: { entries[], total, limit, offset } — rows use kind, inQty, outQty, balanceAfter (per workshop+branch+product).
+ */
+export const getSuperAdminInventoryLedger = ({
+    workshopId,
+    branchId,
+    productId,
+    from,
+    to,
+    search,
+    limit,
+    offset,
+} = {}) =>
+    apiFetch(
+        `/super-admin/inventory/ledger${qs({
+            workshopId,
+            branchId,
+            productId,
+            from,
+            to,
+            search,
+            limit,
+            offset,
+        })}`,
+    );
+
+/** Branch starting stock (opening qty). Query: workshopId, branchId (required). Body: openingQty (required), previousOpeningQty (optional), syncCurrentQty (optional), note (optional). */
+export const patchSuperAdminInventoryProductStartingStock = (
+    productId,
+    { workshopId, branchId, openingQty, previousOpeningQty, syncCurrentQty = false, note } = {},
+) =>
+    apiFetch(
+        `/super-admin/inventory/products/${encodeURIComponent(String(productId))}/starting-stock${qs({
+            workshopId,
+            branchId,
+        })}`,
+        {
+            method: 'PATCH',
+            body: JSON.stringify({
+                openingQty,
+                ...(previousOpeningQty != null && !Number.isNaN(Number(previousOpeningQty))
+                    ? { previousOpeningQty: Number(previousOpeningQty) }
+                    : {}),
+                syncCurrentQty: !!syncCurrentQty,
+                ...(note != null && String(note).trim() !== '' ? { note: String(note).trim() } : {}),
+            }),
+        },
+    );
+
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 export const getUsers = ({ userType, workshopId, limit, offset } = {}) =>
