@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpen } from 'lucide-react';
 import { getSupplierAccountingScreen } from '../../services/supplierApi';
+import { ShimmerKpiGrid, ShimmerTable } from '../../components/supplier/Shimmer';
 
 export default function SupplierAccounting() {
     const [activeTab, setActiveTab] = useState('ar');
@@ -9,10 +10,10 @@ export default function SupplierAccounting() {
     const [currency, setCurrency] = useState('SAR');
     const [arRows, setArRows] = useState([]);
     const [apRows, setApRows] = useState([]);
-    const [trialRows, setTrialRows] = useState([]);XPathResult
+    const [trialRows, setTrialRows] = useState([]);
     const [cashInBank, setCashInBank] = useState(0);
     const [expensesTotal, setExpensesTotal] = useState(0);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [apiError, setApiError] = useState('');
 
     const totalAR = useMemo(() => arRows.reduce((s, r) => s + Number(r.balance || 0), 0), [arRows]);
@@ -97,7 +98,7 @@ export default function SupplierAccounting() {
             <div className="ws-page-header">
                 <div>
                     <h2 className="ws-page-title">Accounting</h2>
-                    <p className="ws-page-sub">Receivables, payables & basic reports {loading ? '(syncing...)' : ''}</p>
+                    <p className="ws-page-sub">Receivables, payables & basic reports</p>
                 </div>
             </div>
 
@@ -118,6 +119,13 @@ export default function SupplierAccounting() {
                 </div>
             ) : null}
 
+            {loading && !apiError ? (
+                <>
+                    <ShimmerKpiGrid cards={4} />
+                    <ShimmerTable rows={12} columns={9} />
+                </>
+            ) : (
+            <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 16 }}>
                 <div style={{ background: '#EFF6FF', borderRadius: 14, padding: 14 }}>
                     <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563EB', margin: 0 }}>ACCOUNTS RECEIVABLE</p>
@@ -362,6 +370,8 @@ export default function SupplierAccounting() {
                     <BookOpen size={40} style={{ opacity: 0.3, margin: '0 auto 12px', display: 'block' }} />
                     <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Select a tab above to view details.</p>
                 </div>
+            )}
+            </>
             )}
         </div>
     );

@@ -9,7 +9,6 @@ import {
     ShoppingCart,
     ChevronDown,
     ChevronRight,
-    Loader2,
 } from 'lucide-react';
 import { NAV_GROUPS } from './supplier/constants';
 import SupplierDashboard from './supplier/SupplierDashboard';
@@ -28,6 +27,7 @@ import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { getSupplierProfile, getSupplierReceivables } from '../services/supplierApi';
 import './workshop/Workshop.css';
+import { ShimmerLine } from '../components/supplier/Shimmer';
 
 export default function SupplierLayout() {
     const navigate = useNavigate();
@@ -174,9 +174,9 @@ export default function SupplierLayout() {
                         {arSummaryError ? (
                             <>AR: Error</>
                         ) : arSummary === null ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                <Loader2 size={14} className="spin" aria-hidden />
-                                AR: Loading…
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontWeight: 700 }}>AR:</span>
+                                <ShimmerLine height={14} width={72} rounded className="sp-shimmer-inline-block" />
                             </span>
                         ) : (
                             <>AR: SAR {Number(arSummary).toLocaleString()}</>

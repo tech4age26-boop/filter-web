@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { getSupplierDashboard } from '../../services/supplierApi';
+import { ShimmerListRows } from '../../components/supplier/Shimmer';
 
 export default function SupplierWorkshopAlerts() {
     const [alerts, setAlerts] = useState([]);
@@ -53,7 +54,9 @@ export default function SupplierWorkshopAlerts() {
                 </div>
             ) : null}
             {loading ? (
-                <div className="ws-empty"><AlertTriangle size={56} className="ws-empty-icon" style={{ opacity: 0.35 }} /><p className="ws-empty-text">Loading alerts…</p></div>
+                <div className="ws-section" style={{ padding: 0, overflow: 'hidden' }}>
+                    <ShimmerListRows rows={6} />
+                </div>
             ) : alerts.length === 0 ? <div className="ws-empty"><AlertTriangle size={56} className="ws-empty-icon"/><p className="ws-empty-text">No active alerts</p></div>
             : alerts.map(a => (
                 <div key={a.id} className="ws-approval-card" style={{borderLeft:`4px solid ${a.severity==='critical'?'#DC2626':'#F59E0B'}`}}>

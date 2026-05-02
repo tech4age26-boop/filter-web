@@ -55,6 +55,7 @@ import ReferrerSettings from './pages/referrer-portal/ReferrerSettings';
 
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import PublicWpiVerifyPage from './pages/PublicWpiVerifyPage';
 
 function App() {
   return (
@@ -63,6 +64,7 @@ function App() {
         <Router>
           <Routes>
             <Route path="/" element={<PortalHubPage />} />
+            <Route path="/verify/wpi/:id" element={<PublicWpiVerifyPage />} />
             <Route path="/admin/login" element={<SignInPage />} />
             <Route path="/:portalId/login" element={<PortalLoginPage />} />
             <Route 

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Warehouse, AlertTriangle, Package, TrendingUp, Pencil, Loader2 } from 'lucide-react';
+import { Warehouse, AlertTriangle, Package, TrendingUp, Pencil } from 'lucide-react';
+import { ShimmerStatStrip, ShimmerTable } from '../../components/supplier/Shimmer';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import {
@@ -137,24 +138,28 @@ export default function SupplierStockInventory() {
             ) : null}
 
             {/* Summary cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-                <div className="ws-section" style={{ marginBottom: 0, padding: 16, textAlign: 'center' }}>
-                    <p style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--color-text-muted)', margin: 0, textTransform: 'uppercase' }}>Total SKUs</p>
-                    <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-text-dark)', margin: '4px 0 0 0' }}>{totalSKUs}</p>
+            {loading ? (
+                <ShimmerStatStrip cards={4} />
+            ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                    <div className="ws-section" style={{ marginBottom: 0, padding: 16, textAlign: 'center' }}>
+                        <p style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--color-text-muted)', margin: 0, textTransform: 'uppercase' }}>Total SKUs</p>
+                        <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-text-dark)', margin: '4px 0 0 0' }}>{totalSKUs}</p>
+                    </div>
+                    <div className="ws-section" style={{ marginBottom: 0, padding: 16, textAlign: 'center', borderLeft: '4px solid #DC2626' }}>
+                        <p style={{ fontSize: '0.7rem', fontWeight: 600, color: '#B91C1C', margin: 0, textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><AlertTriangle size={14} /> Critical</p>
+                        <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#DC2626', margin: '4px 0 0 0' }}>{criticalCount}</p>
+                    </div>
+                    <div className="ws-section" style={{ marginBottom: 0, padding: 16, textAlign: 'center', background: '#FEF3C7', border: '1px solid #FDE68A' }}>
+                        <p style={{ fontSize: '0.7rem', fontWeight: 600, color: '#B45309', margin: 0, textTransform: 'uppercase' }}>Reorder Needed</p>
+                        <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#B45309', margin: '4px 0 0 0' }}>{reorderNeededCount}</p>
+                    </div>
+                    <div className="ws-section" style={{ marginBottom: 0, padding: 16, textAlign: 'center', background: '#EFF6FF', border: '1px solid #BFDBFE' }}>
+                        <p style={{ fontSize: '0.7rem', fontWeight: 600, color: '#1D4ED8', margin: 0, textTransform: 'uppercase' }}>Inventory Value</p>
+                        <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1D4ED8', margin: '4px 0 0 0' }}>SAR {inventoryValue.toLocaleString()}</p>
+                    </div>
                 </div>
-                <div className="ws-section" style={{ marginBottom: 0, padding: 16, textAlign: 'center', borderLeft: '4px solid #DC2626' }}>
-                    <p style={{ fontSize: '0.7rem', fontWeight: 600, color: '#B91C1C', margin: 0, textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><AlertTriangle size={14} /> Critical</p>
-                    <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#DC2626', margin: '4px 0 0 0' }}>{criticalCount}</p>
-                </div>
-                <div className="ws-section" style={{ marginBottom: 0, padding: 16, textAlign: 'center', background: '#FEF3C7', border: '1px solid #FDE68A' }}>
-                    <p style={{ fontSize: '0.7rem', fontWeight: 600, color: '#B45309', margin: 0, textTransform: 'uppercase' }}>Reorder Needed</p>
-                    <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#B45309', margin: '4px 0 0 0' }}>{reorderNeededCount}</p>
-                </div>
-                <div className="ws-section" style={{ marginBottom: 0, padding: 16, textAlign: 'center', background: '#EFF6FF', border: '1px solid #BFDBFE' }}>
-                    <p style={{ fontSize: '0.7rem', fontWeight: 600, color: '#1D4ED8', margin: 0, textTransform: 'uppercase' }}>Inventory Value</p>
-                    <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1D4ED8', margin: '4px 0 0 0' }}>SAR {inventoryValue.toLocaleString()}</p>
-                </div>
-            </div>
+            )}
 
             {/* Tabs */}
             <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid var(--color-border)', marginBottom: 16 }}>
@@ -183,31 +188,8 @@ export default function SupplierStockInventory() {
 
                     {/* Table / loading */}
                     {loading ? (
-                        <div
-                            className="ws-section"
-                            role="status"
-                            aria-live="polite"
-                            aria-busy="true"
-                            style={{
-                                textAlign: 'center',
-                                padding: '56px 24px',
-                                minHeight: 220,
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 12,
-                            }}
-                        >
-                            <Loader2
-                                size={36}
-                                className="spin"
-                                style={{ color: 'var(--color-primary-dark, #E0A800)' }}
-                                aria-hidden
-                            />
-                            <p style={{ margin: 0, fontWeight: 700, color: 'var(--color-text-dark)' }}>
-                                Loading inventory…
-                            </p>
+                        <div className="ws-section">
+                            <ShimmerTable rows={10} columns={10} />
                         </div>
                     ) : (
                     <div className="ws-section">
@@ -267,31 +249,8 @@ export default function SupplierStockInventory() {
 
             {activeTab === 'movements' && (
                 loading ? (
-                    <div
-                        className="ws-section"
-                        role="status"
-                        aria-live="polite"
-                        aria-busy="true"
-                        style={{
-                            textAlign: 'center',
-                            padding: '56px 24px',
-                            minHeight: 220,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 12,
-                        }}
-                    >
-                        <Loader2
-                            size={36}
-                            className="spin"
-                            style={{ color: 'var(--color-primary-dark, #E0A800)' }}
-                            aria-hidden
-                        />
-                        <p style={{ margin: 0, fontWeight: 700, color: 'var(--color-text-dark)' }}>
-                            Loading movements…
-                        </p>
+                    <div className="ws-section">
+                        <ShimmerTable rows={10} columns={9} />
                     </div>
                 ) : (
                 <div className="ws-section">

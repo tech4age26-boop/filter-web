@@ -5,6 +5,7 @@ import {
     getSupplierInventoryStockBalances,
     getSupplierReceivables,
 } from '../../services/supplierApi';
+import { ShimmerTable } from '../../components/supplier/Shimmer';
 
 const REPORT_CATEGORIES = [
     { id: 'ar', label: 'AR Summary', icon: FileText, color: '#DBEAFE', textColor: '#1D4ED8' },
@@ -120,8 +121,8 @@ export default function SupplierReports() {
                 </button>
 
                 {loading ? (
-                    <div className="ws-section" style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                        Loading report…
+                    <div className="ws-section" style={{ padding: 16 }}>
+                        <ShimmerTable rows={12} columns={6} />
                     </div>
                 ) : apiError ? (
                     <div className="ws-section" style={{ padding: 16, background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, color: '#B91C1C', fontSize: '0.875rem' }}>

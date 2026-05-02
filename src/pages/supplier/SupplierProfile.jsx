@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Building2, Warehouse } from 'lucide-react';
 import { getSupplierLocations, getSupplierProfile, getSupplierReceivables } from '../../services/supplierApi';
+import { ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
 export default function SupplierProfile({ onTabChange }) {
     const [loading, setLoading] = useState(true);
@@ -71,8 +72,8 @@ export default function SupplierProfile({ onTabChange }) {
                         <p className="ws-page-sub">Supplier & warehouse profile</p>
                     </div>
                 </div>
-                <div className="ws-section" style={{ textAlign: 'center', padding: 48, color: 'var(--color-text-muted)' }}>
-                    Loading profile…
+                <div className="ws-section" style={{ padding: '28px 24px', maxWidth: 560 }}>
+                    <ShimmerTextBlock lines={10} />
                 </div>
             </div>
         );

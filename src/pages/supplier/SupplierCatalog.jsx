@@ -3,7 +3,6 @@ import {
     CheckCircle2,
     Circle,
     Globe2,
-    Loader2,
     Package,
     Plus,
     Search,
@@ -23,6 +22,7 @@ import {
     listSupplierProducts,
     setSupplierStock,
 } from '../../services/supplierApi';
+import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 
 // ─── Previously: supplier-owned CRUD listing — replaced by Super Admin master list ─────
 
@@ -577,35 +577,8 @@ export default function SupplierCatalog() {
             </div>
 
             {loading ? (
-                <div
-                    className="ws-section"
-                    role="status"
-                    aria-live="polite"
-                    aria-busy="true"
-                    style={{
-                        textAlign: 'center',
-                        padding: '56px 24px',
-                        minHeight: 280,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 16,
-                    }}
-                >
-                    <Loader2
-                        size={44}
-                        className="spin"
-                        strokeWidth={2.25}
-                        style={{ color: 'var(--color-primary-dark, #E0A800)' }}
-                        aria-hidden
-                    />
-                    <p style={{ margin: 0, fontWeight: 700, color: 'var(--color-text-dark)' }}>
-                        Loading products…
-                    </p>
-                    <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                        Fetching master catalog from server
-                    </p>
+                <div className="ws-section" style={{ padding: 20 }}>
+                    <ShimmerCatalogGrid cards={8} />
                 </div>
             ) : apiError ? (
                 <div
