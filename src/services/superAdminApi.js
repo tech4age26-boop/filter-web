@@ -96,8 +96,66 @@ export const getWorkshop = (id) =>
 export const createWorkshop = (body) =>
     apiFetch('/super-admin/workshops', { method: 'POST', body: JSON.stringify(body) });
 
+/** Partial update — body fields optional (e.g. status, name, ownerName, mobile, email, address, taxId, crNumber, workshopCode, gpsLat, gpsLng). */
 export const updateWorkshop = (id, body) =>
     apiFetch(`/super-admin/workshops/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Shared DTO for workshop credential WhatsApp endpoints (Meta template + wa.me link). */
+function buildWorkshopCredentialsWhatsappBody({
+    workshopId,
+    password,
+    login_url,
+    to,
+    name,
+    email,
+    userId,
+    templateName,
+    languageCode,
+} = {}) {
+    const body = {
+        workshopId: String(workshopId ?? '').trim(),
+    };
+    const pwd = password != null ? String(password) : '';
+    if (pwd !== '') body.password = pwd;
+    const addStr = (key, val) => {
+        if (val == null) return;
+        const s = String(val).trim();
+        if (s === '') return;
+        body[key] = key === 'to' ? s.replace(/\D/g, '') : s;
+    };
+    addStr('login_url', login_url);
+    addStr('to', to);
+    addStr('name', name);
+    addStr('email', email);
+    if (userId != null && String(userId).trim() !== '') body.userId = String(userId).trim();
+    const tn = templateName != null && String(templateName).trim() !== '' ? String(templateName).trim() : '';
+    const lc = languageCode != null && String(languageCode).trim() !== '' ? String(languageCode).trim() : '';
+    if (tn) body.templateName = tn;
+    if (lc) body.languageCode = lc;
+    return body;
+}
+
+/**
+ * Meta WhatsApp template — workshop portal credentials.
+ * Recommended body: { workshopId, password } — backend fills to, name, email, login_url from workshop / owner (and env).
+ * Omit password to let backend generate and persist (when supported). Optional overrides (omit when empty): login_url, to, name, email, userId, templateName, languageCode.
+ */
+export const postSuperAdminWhatsappWorkshopCredentials = (params = {}) =>
+    apiFetch('/super-admin/whatsapp/templates/workshop-credentials', {
+        method: 'POST',
+        body: JSON.stringify(buildWorkshopCredentialsWhatsappBody(params)),
+    });
+
+/**
+ * WhatsApp Web/App prefilled message (wa.me) — no Meta Cloud API env required.
+ * Same body shape as Meta template call; response includes waMeUrl to open in a new tab.
+ * Backend must register POST /super-admin/whatsapp/workshop-credentials-wa-me-link (otherwise Workshop page falls back to client-built wa.me from saved template + row phone on 404).
+ */
+export const postSuperAdminWhatsappWorkshopCredentialsWaMeLink = (params = {}) =>
+    apiFetch('/super-admin/whatsapp/workshop-credentials-wa-me-link', {
+        method: 'POST',
+        body: JSON.stringify(buildWorkshopCredentialsWhatsappBody(params)),
+    });
 
 // ─── Branches ─────────────────────────────────────────────────────────────────
 
