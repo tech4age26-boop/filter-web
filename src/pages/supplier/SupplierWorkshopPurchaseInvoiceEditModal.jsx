@@ -17,6 +17,7 @@ import {
     masterCatalogRowToPurchaseOption,
     unwrapPurchaseInvoiceFromSupplierGet,
 } from './supplierWorkshopPurchaseInvoiceHelpers';
+import { ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
 /** Full purchase-invoice style editor for pending workshop→supplier invoices (PATCH). */
 
@@ -354,7 +355,9 @@ export default function SupplierWorkshopPurchaseInvoiceEditModal({
                 {fetchErrorMessage ? (
                     <p style={{ margin: 0, color: '#B91C1C' }}>{fetchErrorMessage}</p>
                 ) : loadingFetch && lineItems.length === 0 ? (
-                    <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>Loading invoice…</p>
+                    <div style={{ padding: '8px 0' }}>
+                        <ShimmerTextBlock lines={6} />
+                    </div>
                 ) : (
                     <>
                         <div className="pi-header-grid">

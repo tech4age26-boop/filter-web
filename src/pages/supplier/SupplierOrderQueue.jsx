@@ -2,13 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { Package, Eye, Truck, CheckCircle, XCircle, PackageCheck } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import { Shimmer, ShimmerOrderQueueCards, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import {
     acceptSupplierPurchaseOrder,
     getSupplierPurchaseOrder,
     getSupplierPurchaseOrders,
+    listSupplierWorkshopPurchaseInvoices,
     rejectSupplierPurchaseOrder,
     updateSupplierPurchaseOrderStatus,
 } from '../../services/supplierApi';
+import WorkshopPurchaseInvoicesSupplierPanel from './WorkshopPurchaseInvoicesSupplierPanel';
 
 const PIPELINE_STAGES = [
     { id: 'pending_acceptance', label: 'Pending Acceptance', bg: '#FEF3C7', color: '#B45309' },
@@ -24,6 +27,10 @@ const ORDER_STATUS_STYLES = Object.fromEntries(PIPELINE_STAGES.map(s => [s.id, {
 const STATUS_LABEL = Object.fromEntries(PIPELINE_STAGES.map(s => [s.id, s.label]));
 
 export default function SupplierOrderQueue() {
+    /** Purchase-order queue vs full workshop purchase invoice list (same APIs as Finance → Workshop purchases). */
+    const [segment, setSegment] = useState('wpi_all');
+    const [wpiTotal, setWpiTotal] = useState(null);
+
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [apiError, setApiError] = useState('');
@@ -75,6 +82,22 @@ export default function SupplierOrderQueue() {
 
     useEffect(() => {
         reloadOrders();
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await listSupplierWorkshopPurchaseInvoices({ limit: 1, offset: 0 });
+                const t = res?.total ?? res?.data?.total;
+                if (!cancelled) setWpiTotal(t != null ? Number(t) : null);
+            } catch {
+                if (!cancelled) setWpiTotal(null);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     const setStatus = (id, status) => setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
@@ -177,7 +200,7 @@ export default function SupplierOrderQueue() {
     return (
         <div>
             <div className="ws-page-header">
-                <div><h2 className="ws-page-title">Order Queue</h2><p className="ws-page-sub">Workshop branch stock requests {loading ? '(syncing...)' : ''}</p></div>
+                <div><h2 className="ws-page-title">Order Queue</h2><p className="ws-page-sub">Workshop branch stock requests</p></div>
             </div>
 
             {apiError ? (
@@ -186,27 +209,90 @@ export default function SupplierOrderQueue() {
                 </div>
             ) : null}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, marginBottom: 20 }}>
-                {PIPELINE_STAGES.map(s => (
-                    <div key={s.id} style={{ padding: 12, borderRadius: 12, background: s.bg, color: s.color, textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+            <div
+                style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                    gap: 10,
+                    marginBottom: 20,
+                }}
+            >
+                <button
+                    type="button"
+                    onClick={() => setSegment('wpi_all')}
+                    style={{
+                        padding: 12,
+                        borderRadius: 12,
+                        background: segment === 'wpi_all' ? '#FEF9C3' : '#F8FAFC',
+                        color: segment === 'wpi_all' ? '#854D0E' : '#475569',
+                        textAlign: 'center',
+                        boxShadow: segment === 'wpi_all' ? '0 0 0 2px #EAB308' : '0 1px 3px rgba(0,0,0,0.04)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        font: 'inherit',
+                    }}
+                >
+                    <p style={{ fontSize: '0.65rem', fontWeight: 600, margin: 0, lineHeight: 1.2 }}>All</p>
+                    <p style={{ fontSize: '0.55rem', fontWeight: 600, margin: '4px 0 0 0', opacity: 0.85, lineHeight: 1.2 }}>
+                        Workshop purchases
+                    </p>
+                    <p style={{ fontSize: '1.35rem', fontWeight: 800, margin: '6px 0 0 0', minHeight: 28 }}>
+                        {wpiTotal != null ? (
+                            wpiTotal
+                        ) : (
+                            <Shimmer style={{ display: 'inline-block', verticalAlign: 'middle', height: 22, width: 36, borderRadius: 6 }} />
+                        )}
+                    </p>
+                </button>
+                {PIPELINE_STAGES.map((s) => (
+                    <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setSegment('po')}
+                        style={{
+                            padding: 12,
+                            borderRadius: 12,
+                            background: s.bg,
+                            color: s.color,
+                            textAlign: 'center',
+                            boxShadow:
+                                segment === 'po' ? '0 0 0 2px rgba(15, 23, 42, 0.14)' : '0 1px 3px rgba(0,0,0,0.04)',
+                            border: 'none',
+                            cursor: 'pointer',
+                            font: 'inherit',
+                            opacity: segment === 'po' ? 1 : 0.92,
+                        }}
+                    >
                         <p style={{ fontSize: '0.65rem', fontWeight: 600, margin: 0, lineHeight: 1.2 }}>{s.label}</p>
-                        <p style={{ fontSize: '1.35rem', fontWeight: 800, margin: '6px 0 0 0' }}>{pipelineCounts[s.id]}</p>
-                    </div>
+                        <p style={{ fontSize: '1.35rem', fontWeight: 800, margin: '6px 0 0 0', minHeight: 28 }}>
+                            {loading ? (
+                                <Shimmer style={{ display: 'inline-block', verticalAlign: 'middle', height: 22, width: 32, borderRadius: 6 }} />
+                            ) : (
+                                pipelineCounts[s.id]
+                            )}
+                        </p>
+                    </button>
                 ))}
             </div>
 
-            {loading && orders.length === 0 ? (
-                <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
-                    <Package size={48} style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }} />
-                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>Loading orders…</p>
+            {segment === 'wpi_all' ? (
+                <div style={{ marginTop: 8 }}>
+                    <p style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                        All statuses · same list as <strong>Finance → Workshop purchases</strong>. Use filters below to narrow.
+                    </p>
+                    <WorkshopPurchaseInvoicesSupplierPanel variant="embedded" />
                 </div>
-            ) : orders.length === 0 ? (
+            ) : null}
+
+            {segment === 'po' && loading && orders.length === 0 ? (
+                <ShimmerOrderQueueCards count={5} />
+            ) : segment === 'po' && orders.length === 0 ? (
                 <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
                     <Package size={48} style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }} />
                     <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>No orders in queue</p>
                     <p style={{ margin: '4px 0 0 0', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Workshop requests will appear here when the backend returns purchase orders.</p>
                 </div>
-            ) : (
+            ) : segment === 'po' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {orders.map(o => {
                         const st = ORDER_STATUS_STYLES[o.status] || ORDER_STATUS_STYLES.pending_acceptance;
@@ -246,7 +332,7 @@ export default function SupplierOrderQueue() {
                         );
                     })}
                 </div>
-            )}
+            ) : null}
             <AnimatePresence>
                 {viewModalOpen && selectedOrder && (
                     <Modal
@@ -265,9 +351,9 @@ export default function SupplierOrderQueue() {
                         }
                     >
                         {viewLoading ? (
-                            <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                                Loading order details...
-                            </p>
+                            <div style={{ padding: '8px 0' }}>
+                                <ShimmerTextBlock lines={6} />
+                            </div>
                         ) : (
                             <div style={{ display: 'grid', gap: 12 }}>
                                 <div className="ws-section" style={{ marginBottom: 0, padding: 12 }}>

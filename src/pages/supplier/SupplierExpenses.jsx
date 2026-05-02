@@ -11,6 +11,7 @@ import {
     listSupplierExpenses,
     updateSupplierExpense,
 } from '../../services/supplierApi';
+import { ShimmerTable } from '../../components/supplier/Shimmer';
 const STATUS_STYLES = {
     approved: { bg: '#DBEAFE', color: '#1D4ED8' },
     paid: { bg: '#D1FAE5', color: '#047857' },
@@ -255,8 +256,8 @@ export default function SupplierExpenses() {
                 <StatCard label="Pending Approval" value={stats.pendingApproval || 0} />
             </div>
             {loading ? (
-                <div className="ws-section" style={{ marginBottom: 12, padding: 12, fontSize: '0.8125rem' }}>
-                    Loading expenses from `/supplier/expenses`...
+                <div className="ws-section" style={{ marginBottom: 12, padding: 16 }}>
+                    <ShimmerTable rows={8} columns={6} />
                 </div>
             ) : null}
             {apiError ? (
@@ -264,7 +265,7 @@ export default function SupplierExpenses() {
                     API error: {apiError}
                 </div>
             ) : null}
-            {list.length === 0 ? (
+            {!loading && list.length === 0 ? (
                 <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
                     <DollarSign size={48} style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }}/>
                     <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>No expenses yet</p>

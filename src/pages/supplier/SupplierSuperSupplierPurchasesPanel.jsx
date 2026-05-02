@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Eye, Pencil, Plus, Loader2, ShoppingCart, Building2 } from 'lucide-react';
+import { RefreshCw, Eye, Pencil, Plus, ShoppingCart, Building2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import '../../styles/admin/AccountingPage.css';
@@ -10,6 +10,7 @@ import {
     updateSupplierSuperSupplierPurchase,
     listSupplierProducts,
 } from '../../services/supplierApi';
+import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
 function unwrapProducts(res) {
     if (!res || typeof res !== 'object') return [];
@@ -356,9 +357,8 @@ export default function SupplierSuperSupplierPurchasesPanel({
                     <tbody>
                         {loading && rows.length === 0 ? (
                             <tr>
-                                <td colSpan={10} style={{ textAlign: 'center', padding: 36 }}>
-                                    <Loader2 size={22} className="spin" style={{ verticalAlign: 'middle', marginRight: 10 }} />{' '}
-                                    Loading…
+                                <td colSpan={10} style={{ padding: 16, verticalAlign: 'top' }}>
+                                    <ShimmerTable rows={8} columns={10} />
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
@@ -478,9 +478,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                         }
                     >
                         {viewLoading ? (
-                            <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>
-                                <Loader2 className="spin" size={18} /> Loading…
-                            </p>
+                            <ShimmerTextBlock lines={6} />
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>

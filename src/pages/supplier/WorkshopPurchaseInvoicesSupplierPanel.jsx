@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, CheckCircle, X, Eye, Loader2, Pencil } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { RefreshCw, CheckCircle, X, Eye, Pencil } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import {
@@ -13,6 +13,8 @@ import {
     unwrapWorkshopSupplierPurchaseInvoiceList,
 } from '../../services/workshopSupplierPurchaseInvoices';
 import SupplierWorkshopPurchaseInvoiceEditModal from './SupplierWorkshopPurchaseInvoiceEditModal';
+import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
+import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 
 /**
  * Workshop → supplier purchase invoices (list, view, workshop-style PI edit via PATCH, approve, reject).
@@ -118,12 +120,6 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
         }
     };
 
-    const itemsForView = useMemo(() => {
-        const inv = viewDetail;
-        if (!inv) return [];
-        return Array.isArray(inv.items) ? inv.items : Array.isArray(inv.lines) ? inv.lines : [];
-    }, [viewDetail]);
-
     return (
         <div style={embedded ? { marginBottom: 24 } : undefined}>
             {error && (
@@ -194,6 +190,9 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
             </div>
             <div className="ws-section">
                 <div style={{ overflowX: 'auto' }}>
+                    {loading && rows.length === 0 ? (
+                        <ShimmerTable rows={10} columns={9} />
+                    ) : (
                     <table className="ws-table">
                         <thead>
                             <tr>
@@ -209,13 +208,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                             </tr>
                         </thead>
                         <tbody>
-                            {loading && rows.length === 0 ? (
-                                <tr>
-                                    <td colSpan={9} style={{ textAlign: 'center', padding: 32 }}>
-                                        <Loader2 className="spin" size={22} style={{ verticalAlign: 'middle' }} /> Loading…
-                                    </td>
-                                </tr>
-                            ) : rows.length === 0 ? (
+                            {rows.length === 0 ? (
                                 <tr>
                                     <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                         No workshop purchase invoices
@@ -339,77 +332,24 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                             )}
                         </tbody>
                     </table>
+                    )}
                 </div>
             </div>
 
             <AnimatePresence>
                 {viewRow && (
                     <Modal
-                        title={`Invoice ${viewRow.invoice_number}`}
+                        title="Workshop purchase invoice"
+                        width="min(800px, 96vw)"
                         onClose={() => {
                             setViewRow(null);
                             setViewDetail(null);
                         }}
                     >
                         {viewLoading ? (
-                            <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>Loading details…</p>
+                            <ShimmerTextBlock lines={8} />
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Status</span>
-                                    <span>{viewDetail?.status ?? viewRow.status}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Grand total</span>
-                                    <strong>
-                                        SAR{' '}
-                                        {(viewDetail?.grandTotal ?? viewDetail?.grand_total ?? viewRow.grand_total ?? 0).toLocaleString()}
-                                    </strong>
-                                </div>
-                                <p style={{ fontSize: '0.75rem', fontWeight: 700, margin: '12px 0 4px' }}>Lines</p>
-                                <table className="ws-table" style={{ fontSize: '0.8125rem' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>Product</th>
-                                            <th>Qty</th>
-                                            <th>Unit (ex VAT)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {itemsForView.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={3} style={{ textAlign: 'center', padding: 16 }}>
-                                                    No line items
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            itemsForView.map((line, i) => (
-                                                <tr key={line.id ?? i}>
-                                                    <td>
-                                                        {line.product?.name ??
-                                                            line.productName ??
-                                                            line.itemName ??
-                                                            line.item_name ??
-                                                            line.description ??
-                                                            line.productId ??
-                                                            '—'}
-                                                    </td>
-                                                    <td>{line.quantity ?? line.qty ?? '—'}</td>
-                                                    <td>
-                                                        SAR{' '}
-                                                        {Number(
-                                                            line.unitPriceExVat ??
-                                                                line.unit_price_ex_vat ??
-                                                                line.unitPrice ??
-                                                                0,
-                                                        ).toLocaleString()}
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
+                            <WorkshopPurchaseInvoiceView detail={viewDetail} listRow={viewRow} />
                         )}
                     </Modal>
                 )}

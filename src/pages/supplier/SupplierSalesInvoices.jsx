@@ -13,6 +13,7 @@ import {
     updateSupplierInvoice,
 } from '../../services/supplierApi';
 import WorkshopPurchaseInvoicesSupplierPanel from './WorkshopPurchaseInvoicesSupplierPanel';
+import { ShimmerOrderQueueCards, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
 const INVENTORY_ITEMS = [
     { id: 1, name: 'Engine Oil — Full Synthetic 5W40', price: 45, unit: 'liter', lastPrice: 42 },
@@ -552,11 +553,7 @@ export default function SupplierSalesInvoices() {
                     <Plus size={15} /> New Invoice
                 </button>
             </div>
-            {listLoading ? (
-                <div className="ws-section" style={{ marginBottom: 12, padding: 12, fontSize: '0.8125rem' }}>
-                    Loading invoices…
-                </div>
-            ) : null}
+            {listLoading ? <ShimmerOrderQueueCards count={4} /> : null}
             {listError ? (
                 <div
                     className="ws-section"
@@ -572,7 +569,7 @@ export default function SupplierSalesInvoices() {
                     {listError}
                 </div>
             ) : null}
-            {list.length === 0 ? (
+            {!listLoading && list.length === 0 ? (
                 <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
                     <FileText
                         size={48}
@@ -1315,7 +1312,7 @@ export default function SupplierSalesInvoices() {
                         }
                     >
                         {viewLoading ? (
-                            <p style={{ margin: 0 }}>Loading…</p>
+                            <ShimmerTextBlock lines={6} />
                         ) : viewPayload?.error ? (
                             <p style={{ margin: 0, color: '#B91C1C' }}>{viewPayload.error}</p>
                         ) : (

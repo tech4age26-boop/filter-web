@@ -8,6 +8,7 @@ import {
     listSupplierStaff,
     updateSupplierStaff,
 } from '../../services/supplierApi';
+import { ShimmerTable } from '../../components/supplier/Shimmer';
 
 const emptyForm = {
     name: '',
@@ -328,9 +329,8 @@ export default function SupplierStaff() {
                 </div>
             ) : null}
             {loading ? (
-                <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
-                    <Users size={48} style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }} />
-                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>Loading staff…</p>
+                <div className="ws-section">
+                    <ShimmerTable rows={8} columns={6} />
                 </div>
             ) : apiError ? null : list.length === 0 ? (
                 <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Plus, Calendar, ShoppingCart, Search, Zap, Eye, Download, Building2, History, Loader2 } from 'lucide-react';
+import { Plus, Calendar, ShoppingCart, Search, Zap, Eye, Download, Building2, History } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import SupplierSuperSupplierPurchasesPanel from './SupplierSuperSupplierPurchasesPanel';
@@ -14,6 +14,7 @@ import {
     createSupplierSuperSupplier,
     listSupplierSuperSupplierAudit,
 } from '../../services/supplierApi';
+import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
 const ACCOUNT_OPTIONS = [
     { code: '5100', name: 'Cost of Goods Sold' },
@@ -532,8 +533,10 @@ export default function SupplierPurchaseInvoices() {
                     <tbody>
                         {listLoading ? (
                             <tr>
-                                <td colSpan={6} className="table-cell table-empty">
-                                    Loading purchase invoices…
+                                <td colSpan={6} style={{ padding: 0, verticalAlign: 'top' }}>
+                                    <div style={{ padding: 16 }}>
+                                        <ShimmerTable rows={8} columns={6} />
+                                    </div>
                                 </td>
                             </tr>
                         ) : invoices.length === 0 ? (
@@ -619,9 +622,10 @@ export default function SupplierPurchaseInvoices() {
                         <tbody>
                             {ssLoading ? (
                                 <tr>
-                                    <td colSpan={5} className="table-cell table-empty">
-                                        <Loader2 size={16} className="spin" style={{ verticalAlign: 'middle', marginRight: 8 }} />
-                                        Loading super suppliers…
+                                    <td colSpan={5} style={{ padding: 0, verticalAlign: 'top' }}>
+                                        <div style={{ padding: 16 }}>
+                                            <ShimmerTable rows={6} columns={5} />
+                                        </div>
                                     </td>
                                 </tr>
                             ) : superSuppliers.length === 0 ? (
@@ -785,10 +789,7 @@ export default function SupplierPurchaseInvoices() {
                         }
                     >
                         {auditLoading ? (
-                            <p style={{ margin: 0 }}>
-                                <Loader2 size={18} className="spin" style={{ verticalAlign: 'middle', marginRight: 8 }} />
-                                Loading…
-                            </p>
+                            <ShimmerTextBlock lines={6} />
                         ) : (
                             <div style={{ maxHeight: 420, overflow: 'auto' }}>
                                 <table className="ws-table" style={{ width: '100%', fontSize: '0.8125rem' }}>
@@ -844,7 +845,7 @@ export default function SupplierPurchaseInvoices() {
                         }
                     >
                         {viewLoading ? (
-                            <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>Loading…</p>
+                            <ShimmerTextBlock lines={6} />
                         ) : viewError ? (
                             <p style={{ margin: 0, color: '#B91C1C', fontSize: '0.875rem' }}>{viewError}</p>
                         ) : (

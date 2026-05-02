@@ -9,6 +9,7 @@ import {
     listSupplierCashBankLedger,
     listSupplierPayments,
 } from '../../services/supplierApi';
+import { Shimmer, ShimmerListRows, ShimmerTable } from '../../components/supplier/Shimmer';
 
 /** Backend may nest lists under different keys or return an array directly. */
 function extractArray(res, keys) {
@@ -347,20 +348,32 @@ export default function SupplierCashBank() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, marginBottom: 16 }}>
                 <div style={{ background: '#ECFDF3', border: '1px solid #BBF7D0', borderRadius: 14, padding: 14 }}>
                     <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#16A34A', margin: 0 }}>Total Cash</p>
-                    <p style={{ fontSize: '1.25rem', fontWeight: 900, margin: '6px 0 0 0', color: '#14532D' }}>
-                        SAR {bootstrapLoading ? '…' : totalCash.toLocaleString()}
+                    <p style={{ fontSize: '1.25rem', fontWeight: 900, margin: '6px 0 0 0', color: '#14532D', minHeight: 28 }}>
+                        {bootstrapLoading ? (
+                            <Shimmer style={{ display: 'inline-block', height: 22, width: 100, borderRadius: 6 }} />
+                        ) : (
+                            <>SAR {totalCash.toLocaleString()}</>
+                        )}
                     </p>
                 </div>
                 <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 14, padding: 14 }}>
                     <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563EB', margin: 0 }}>Total Bank</p>
-                    <p style={{ fontSize: '1.25rem', fontWeight: 900, margin: '6px 0 0 0', color: '#1D4ED8' }}>
-                        SAR {bootstrapLoading ? '…' : totalBank.toLocaleString()}
+                    <p style={{ fontSize: '1.25rem', fontWeight: 900, margin: '6px 0 0 0', color: '#1D4ED8', minHeight: 28 }}>
+                        {bootstrapLoading ? (
+                            <Shimmer style={{ display: 'inline-block', height: 22, width: 100, borderRadius: 6 }} />
+                        ) : (
+                            <>SAR {totalBank.toLocaleString()}</>
+                        )}
                     </p>
                 </div>
                 <div style={{ background: '#F1F5F9', border: '1px solid #E2E8F0', borderRadius: 14, padding: 14 }}>
                     <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A', margin: 0 }}>Total Balance</p>
-                    <p style={{ fontSize: '1.25rem', fontWeight: 900, margin: '6px 0 0 0', color: '#0F172A' }}>
-                        SAR {bootstrapLoading ? '…' : totalBalance.toLocaleString()}
+                    <p style={{ fontSize: '1.25rem', fontWeight: 900, margin: '6px 0 0 0', color: '#0F172A', minHeight: 28 }}>
+                        {bootstrapLoading ? (
+                            <Shimmer style={{ display: 'inline-block', height: 22, width: 100, borderRadius: 6 }} />
+                        ) : (
+                            <>SAR {totalBalance.toLocaleString()}</>
+                        )}
                     </p>
                 </div>
             </div>
@@ -429,9 +442,8 @@ export default function SupplierCashBank() {
             </div>
             {activeTab === 'accounts' &&
                 (bootstrapLoading && list.length === 0 ? (
-                    <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
-                        <Wallet size={48} style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }} />
-                        <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>Loading accounts…</p>
+                    <div className="ws-section" style={{ padding: '12px 0' }}>
+                        <ShimmerListRows rows={5} />
                     </div>
                 ) : list.length === 0 ? (
                     <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
@@ -499,8 +511,8 @@ export default function SupplierCashBank() {
                         <tbody>
                             {bootstrapLoading && ledger.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} style={{ textAlign: 'center', padding: 32, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                                        Loading ledger…
+                                    <td colSpan={7} style={{ padding: 16, verticalAlign: 'top' }}>
+                                        <ShimmerTable rows={10} columns={7} />
                                     </td>
                                 </tr>
                             ) : ledger.length === 0 ? (
