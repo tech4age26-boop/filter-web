@@ -5,13 +5,14 @@ import './Workshop.css';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { MOCK_SUPPLIERS_CATALOG } from './constants';
-import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
+import { getMyProducts, getBranchProducts, patchBranchProduct } from '../../services/workshopCatalogApi';
 import {
     getWorkshopStaffBranchProducts,
     getWorkshopStaffProducts,
     unwrapWorkshopBranchListResponse,
 } from '../../services/workshopStaffApi';
 import { postBranchProductInventoryAdjustment, getBranchProductInventoryAdjustments } from '../../services/workshopInventoryApi';
+import { useAuth } from '../../context/AuthContext';
 
 /** Match WorkshopDashboard / WorkshopDepartments response shapes. */
 function extractProducts(res) {
@@ -166,13 +167,44 @@ function buildInventorySearchText(row) {
 }
 
 /**
+ * Same merge as Dept & Products `buildBranchProductRow`: branch link fields win over nested
+ * `product` snapshot so on-hand qty does not fall back to catalog/stale `currentQty` on the master.
+ */
+function mergeBranchProductRowForInventory(row) {
+    const master = row?.product && typeof row.product === 'object' ? row.product : {};
+    return {
+        ...row,
+        ...master,
+        id: master.id ?? row?.productId ?? row?.product_id ?? row?.id,
+        openingQty: row?.openingQty ?? master?.openingQty,
+        opening_qty: row?.opening_qty ?? master?.opening_qty,
+        currentQty: row?.currentQty ?? master?.currentQty,
+        current_qty: row?.current_qty ?? master?.current_qty,
+        qtyOnHand: row?.qtyOnHand ?? master?.qtyOnHand,
+        qty_on_hand: row?.qty_on_hand ?? master?.qty_on_hand,
+        stockQty: row?.stockQty ?? master?.stockQty,
+        stock_qty: row?.stock_qty ?? master?.stock_qty,
+        criticalStockPoint: row?.criticalStockPoint ?? master?.criticalStockPoint,
+        critical_stock_point: row?.critical_stock_point ?? master?.critical_stock_point,
+        salePriceOverride: row?.salePriceOverride ?? master?.salePriceOverride,
+        salePriceBeforeVat: row?.salePriceBeforeVat ?? master?.salePriceBeforeVat,
+        sellingPriceBeforeVat: row?.sellingPriceBeforeVat ?? master?.sellingPriceBeforeVat,
+        salePrice: row?.salePrice ?? master?.salePrice,
+        sellingPrice: row?.sellingPrice ?? master?.sellingPrice,
+        purchasePrice: row?.purchasePriceOverride ?? master?.purchasePrice ?? row?.purchasePrice,
+    };
+}
+
+/**
  * Map a catalog row to a flat inventory row (products only).
  * Merges link row + nested `product` like Dept & Products branch lists.
  */
 function mapApiRowToInventory(row) {
+    const merged = mergeBranchProductRowForInventory(row);
     const nested = row?.product && typeof row.product === 'object' ? row.product : null;
     const master = nested || row;
     const id =
+        merged.id ??
         master?.id ??
         row?.id ??
         row?.productId ??
@@ -181,44 +213,37 @@ function mapApiRowToInventory(row) {
         row?.service_id;
     if (id == null || String(id).trim() === '') return null;
 
-    const openingQty = pickNumber(
-        row?.openingQty,
-        master?.openingQty,
-        row?.opening_qty,
-        master?.opening_qty,
-    );
+    const openingQty = pickNumber(merged.openingQty, merged.opening_qty);
     const onHand = firstFiniteNumber([
-        row?.currentQty,
-        row?.current_qty,
-        master?.currentQty,
-        row?.qtyOnHand,
-        row?.qty_on_hand,
-        master?.qtyOnHand,
-        master?.qty_on_hand,
+        merged.currentQty,
+        merged.current_qty,
+        merged.qtyOnHand,
+        merged.qty_on_hand,
+        merged.stockQty,
+        merged.stock_qty,
+        merged.inventory?.currentQty,
+        merged.inventory?.current_qty,
+        merged.inventory?.qtyOnHand,
+        merged.inventory?.qty_on_hand,
+        merged.branchInventory?.qtyOnHand,
+        merged.branchInventory?.qty_on_hand,
     ]);
     const qty = onHand !== null ? onHand : openingQty;
 
     const critical_level = pickNumber(
-        row?.criticalStockPoint,
-        master?.criticalStockPoint,
-        row?.critical_stock_point,
-        master?.critical_stock_point,
+        merged.criticalStockPoint,
+        merged.critical_stock_point,
     );
     const basePrice = pickNumber(
-        row?.salePriceOverride,
-        row?.sellingPriceOverride,
-        row?.salePriceBeforeVat,
-        row?.sellingPriceBeforeVat,
-        master?.salePriceBeforeVat,
-        master?.sellingPriceBeforeVat,
-        master?.salePrice,
-        master?.sellingPrice,
-        row?.sale_price,
-        master?.sale_price,
-        row?.purchasePrice,
-        master?.purchasePrice,
-        row?.purchase_price,
-        master?.purchase_price,
+        merged.salePriceOverride,
+        merged.sellingPriceOverride,
+        merged.salePriceBeforeVat,
+        merged.sellingPriceBeforeVat,
+        merged.salePrice,
+        merged.sellingPrice,
+        merged.sale_price,
+        merged.purchasePrice,
+        merged.purchase_price,
     );
 
     return {
@@ -291,6 +316,12 @@ function saveAdjustmentLogsToStorage(storageKey, map) {
     }
 }
 
+function workshopIdFromSession(workshop) {
+    if (!workshop || typeof workshop !== 'object') return undefined;
+    const id = workshop.id ?? workshop._id ?? workshop.workshopId;
+    return id != null && String(id).trim() !== '' ? String(id) : undefined;
+}
+
 export default function WorkshopInventory({
     selectedBranchId = 'all',
     branches = [],
@@ -298,6 +329,9 @@ export default function WorkshopInventory({
     onTabChange,
     updateProductStatus,
 }) {
+    const { workshop } = useAuth();
+    const workshopIdQuery = useMemo(() => workshopIdFromSession(workshop), [workshop]);
+
     const [searchQuery, setSearchQuery] = useState('');
     const [productRows, setProductRows] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -341,6 +375,7 @@ export default function WorkshopInventory({
             try {
                 const res = await getBranchProductInventoryAdjustments(String(selectedBranchId), String(logProduct.id), {
                     signal: ctrl.signal,
+                    workshopId: workshopIdQuery,
                 });
                 if (!ctrl.signal.aborted) {
                     setFetchedLogEntries(extractAdjustmentEntries(res));
@@ -356,7 +391,7 @@ export default function WorkshopInventory({
             }
         })();
         return () => ctrl.abort();
-    }, [logProduct, isAllBranches, selectedBranchId]);
+    }, [logProduct, isAllBranches, selectedBranchId, workshopIdQuery]);
 
     useEffect(() => {
         setAdjustmentLogs(loadAdjustmentLogsFromStorage(logStorageKey));
@@ -432,6 +467,12 @@ export default function WorkshopInventory({
     const [adjustSubmitError, setAdjustSubmitError] = useState('');
     const [adjustSaving, setAdjustSaving] = useState(false);
 
+    const [isCriticalModalOpen, setIsCriticalModalOpen] = useState(false);
+    const [criticalItem, setCriticalItem] = useState(null);
+    const [criticalInput, setCriticalInput] = useState('');
+    const [criticalSubmitError, setCriticalSubmitError] = useState('');
+    const [criticalSaving, setCriticalSaving] = useState(false);
+
     const stats = useMemo(() => {
         const totalProducts = productRows.length;
         let lowStock = 0;
@@ -500,6 +541,60 @@ export default function WorkshopInventory({
         setIsAdjustModalOpen(true);
     };
 
+    const closeCriticalModal = () => {
+        setIsCriticalModalOpen(false);
+        setCriticalItem(null);
+        setCriticalInput('');
+        setCriticalSubmitError('');
+        setCriticalSaving(false);
+    };
+
+    const handleOpenCritical = (item) => {
+        setCriticalItem(item);
+        setCriticalInput(item.critical_level != null && item.critical_level !== '' ? String(item.critical_level) : '0');
+        setCriticalSubmitError('');
+        setIsCriticalModalOpen(true);
+    };
+
+    const handleCriticalSubmit = async () => {
+        if (!criticalItem || isAllBranches) return;
+        const parsed = Number.parseFloat(String(criticalInput).trim().replace(/,/g, ''));
+        if (!Number.isFinite(parsed) || parsed < 0) {
+            setCriticalSubmitError('Enter a number ≥ 0.');
+            return;
+        }
+        const nextCrit = Math.round(parsed * 1000) / 1000;
+        const prevCrit = Number(criticalItem.critical_level) || 0;
+        if (nextCrit === prevCrit) {
+            closeCriticalModal();
+            return;
+        }
+        const pid = String(criticalItem.id);
+        const bid = String(selectedBranchId);
+        setCriticalSaving(true);
+        setCriticalSubmitError('');
+        try {
+            const res = await patchBranchProduct(bid, pid, { criticalStockPoint: nextCrit }, { workshopId: workshopIdQuery });
+            if (res && typeof res === 'object' && res.success === false) {
+                throw new Error(res.message || 'Update failed.');
+            }
+            const payload = res?.data && typeof res.data === 'object' ? res.data : res || {};
+            const serverCrit = pickNumber(
+                payload.criticalStockPoint,
+                payload.critical_stock_point,
+                nextCrit,
+            );
+            setProductRows((prev) =>
+                prev.map((p) => (p.id === pid ? { ...p, critical_level: serverCrit } : p)),
+            );
+            closeCriticalModal();
+        } catch (err) {
+            setCriticalSubmitError(err.message || 'Could not update critical level.');
+        } finally {
+            setCriticalSaving(false);
+        }
+    };
+
     const handleAdjustSubmit = async () => {
         if (!adjustItem || !adjustReason.trim()) return;
         const prevQty = Number(adjustItem.qty) || 0;
@@ -515,11 +610,16 @@ export default function WorkshopInventory({
             setAdjustSaving(true);
             setAdjustSubmitError('');
             try {
-                const res = await postBranchProductInventoryAdjustment(String(selectedBranchId), pid, {
-                    previousQty: prevQty,
-                    newQty: qtyNum,
-                    reason: reasonTrim,
-                });
+                const res = await postBranchProductInventoryAdjustment(
+                    String(selectedBranchId),
+                    pid,
+                    {
+                        previousQty: prevQty,
+                        newQty: qtyNum,
+                        reason: reasonTrim,
+                    },
+                    { workshopId: workshopIdQuery },
+                );
                 if (!res?.success) {
                     throw new Error(res?.message || 'Adjustment failed.');
                 }
@@ -854,6 +954,19 @@ export default function WorkshopInventory({
                                                 color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase',
                                             }}
+                                            title="Low-stock threshold for this branch (branch_products.criticalStockPoint). When current stock ≤ this value (and &gt; 0), the row is treated as low stock."
+                                        >
+                                            Critical
+                                        </th>
+                                        <th
+                                            style={{
+                                                padding: '16px 24px',
+                                                textAlign: 'center',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 800,
+                                                color: 'var(--color-text-muted)',
+                                                textTransform: 'uppercase',
+                                            }}
                                         >
                                             Price
                                         </th>
@@ -886,13 +999,13 @@ export default function WorkshopInventory({
                                 <tbody>
                                     {isLoading ? (
                                         <tr>
-                                            <td colSpan={9} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                            <td colSpan={10} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <p style={{ fontWeight: 600 }}>Loading inventory…</p>
                                             </td>
                                         </tr>
                                     ) : filteredProducts.length === 0 ? (
                                         <tr>
-                                            <td colSpan={9} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                            <td colSpan={10} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <div style={{ marginBottom: '16px', opacity: 0.3 }}>
                                                     <Package size={48} style={{ margin: '0 auto' }} />
                                                 </div>
@@ -992,6 +1105,9 @@ export default function WorkshopInventory({
                                                             {item.qty}
                                                         </span>
                                                     </td>
+                                                    <td style={{ padding: '16px 24px', textAlign: 'center', fontSize: '0.875rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                                                        {Number(item.critical_level) > 0 ? item.critical_level : '—'}
+                                                    </td>
                                                     <td style={{ padding: '16px 24px', textAlign: 'center', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-text-dark)' }}>
                                                         SAR {item.basePrice?.toLocaleString() || '0'}
                                                     </td>
@@ -1014,7 +1130,7 @@ export default function WorkshopInventory({
                                                         </span>
                                                     </td>
                                                     <td style={{ padding: '16px 24px', textAlign: 'right' }}>
-                                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                                                             <button
                                                                 type="button"
                                                                 className="mc-btn-primary"
@@ -1036,6 +1152,23 @@ export default function WorkshopInventory({
                                                                 }}
                                                             >
                                                                 Manual Adjust
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="mc-btn-ghost"
+                                                                style={{ padding: '6px 12px', fontSize: '0.75rem', border: '1px solid var(--color-border)' }}
+                                                                title={
+                                                                    isAllBranches
+                                                                        ? 'Select a single branch to edit critical stock level.'
+                                                                        : 'Set low-stock threshold for this branch'
+                                                                }
+                                                                disabled={isAllBranches}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleOpenCritical(item);
+                                                                }}
+                                                            >
+                                                                Critical level
                                                             </button>
                                                         </div>
                                                     </td>
@@ -1276,6 +1409,82 @@ export default function WorkshopInventory({
                                     })()}
                                 >
                                     {adjustSaving ? 'Saving…' : 'Apply Adjustment'}
+                                </button>
+                            </div>
+                        </div>
+                    </Modal>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {isCriticalModalOpen && (
+                    <Modal onClose={closeCriticalModal} title="Critical stock level" width="500px">
+                        <div className="mc-modal-form" style={{ padding: '24px' }}>
+                            <div style={{ marginBottom: '20px', padding: '16px', background: '#F9FAFB', borderRadius: '12px', border: '1px solid var(--color-border-light)' }}>
+                                <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>Product</p>
+                                <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{criticalItem?.name}</h4>
+                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                                    Current stock: <strong>{criticalItem?.qty ?? 0}</strong>
+                                    {criticalItem?.openingQty != null ? (
+                                        <> · Opening (adoption): <strong>{criticalItem.openingQty}</strong></>
+                                    ) : null}
+                                </p>
+                            </div>
+
+                            {isAllBranches ? (
+                                <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#92400E', background: '#FFFBEB', padding: 12, borderRadius: 8 }}>
+                                    Select a <strong>single branch</strong> in the workshop header to update critical levels on the server.
+                                </p>
+                            ) : (
+                                <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+                                    When <strong>current stock</strong> is at or below this number (and the value is greater than 0), the product is flagged as <strong>low stock</strong>. Use <strong>0</strong> to turn off the threshold for this branch.
+                                </p>
+                            )}
+
+                            <div className="mc-form-group" style={{ marginBottom: '24px' }}>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>
+                                    CRITICAL STOCK POINT (THIS BRANCH)
+                                </label>
+                                <input
+                                    type="number"
+                                    className="mc-filter-select"
+                                    style={{ width: '100%', height: '45px' }}
+                                    min={0}
+                                    step="any"
+                                    placeholder="0"
+                                    value={criticalInput}
+                                    onChange={(e) => setCriticalInput(e.target.value)}
+                                    disabled={criticalSaving || isAllBranches}
+                                />
+                            </div>
+
+                            {criticalSubmitError && (
+                                <p style={{ margin: '0 0 16px', padding: '12px', background: '#FEE2E2', borderRadius: 8, color: '#991B1B', fontSize: '0.8125rem' }}>
+                                    {criticalSubmitError}
+                                </p>
+                            )}
+
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <button type="button" className="mc-btn-ghost" style={{ flex: 1, padding: '12px' }} onClick={closeCriticalModal} disabled={criticalSaving}>
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="mc-btn-primary"
+                                    style={{ flex: 2, padding: '12px' }}
+                                    onClick={handleCriticalSubmit}
+                                    disabled={
+                                        criticalSaving ||
+                                        isAllBranches ||
+                                        (() => {
+                                            const parsed = Number.parseFloat(String(criticalInput).trim().replace(/,/g, ''));
+                                            if (!Number.isFinite(parsed) || parsed < 0) return true;
+                                            const nextCrit = Math.round(parsed * 1000) / 1000;
+                                            return nextCrit === (Number(criticalItem?.critical_level) || 0);
+                                        })()
+                                    }
+                                >
+                                    {criticalSaving ? 'Saving…' : 'Save'}
                                 </button>
                             </div>
                         </div>

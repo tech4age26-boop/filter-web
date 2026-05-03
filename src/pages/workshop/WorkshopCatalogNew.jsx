@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Package, Layers, Tags, Wrench, RefreshCw, ShieldCheck, Search, Plus,
-    ChevronLeft, ChevronRight, X, AlertCircle, CheckCircle2, Filter,
+    ChevronLeft, ChevronRight, X, AlertCircle, CheckCircle2, Filter, Gauge, Calendar, Percent,
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -19,6 +19,20 @@ import {
 } from '../../services/workshopCatalogApi';
 
 const PAGE_SIZE = 50;
+
+/** ISO-8601 from catalog list APIs → short local label for card meta. */
+function formatCatalogListCreatedAt(iso) {
+    if (iso == null || iso === '') return '';
+    const d = new Date(typeof iso === 'string' || typeof iso === 'number' ? iso : String(iso));
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
 
 const TABS = [
     { id: 'departments', label: 'Departments', Icon: Layers },
@@ -107,6 +121,119 @@ function pickPagination(res, fallbackPageSize = PAGE_SIZE) {
         pageSize: Number(resolvedSize) || fallbackPageSize,
         hasNext,
     };
+}
+
+/**
+ * Walks catalog list pages with the same filters until the server has no more rows,
+ * then returns every row `id` (for “select all” across pagination).
+ */
+async function fetchAllCatalogRowIds({
+    fetchPage,
+    pickKeys,
+    filter,
+    branchId,
+    pageSize = PAGE_SIZE,
+    signal,
+}) {
+    const idSet = new Set();
+    let page = 1;
+    for (;;) {
+        const params = {
+            departmentId: filter.departmentId === 'all' ? undefined : filter.departmentId,
+            categoryId: filter.categoryId === 'all' ? undefined : filter.categoryId,
+            q: filter.q || undefined,
+            page,
+            pageSize,
+            branchId,
+            signal,
+        };
+        const res = await fetchPage(params);
+        if (signal?.aborted) {
+            const err = new Error('Aborted');
+            err.name = 'AbortError';
+            throw err;
+        }
+        const rows = pickArray(res, pickKeys);
+        const meta = pickPagination(res, pageSize);
+        for (const r of rows) {
+            if (r?.id != null) idSet.add(String(r.id));
+        }
+
+        if (rows.length === 0) break;
+        if (meta.hasNext === false) break;
+        if (meta.hasNext === true) {
+            page += 1;
+            continue;
+        }
+        const totalPagesKnown =
+            meta.total > 0 ? Math.max(1, Math.ceil(meta.total / meta.pageSize)) : null;
+        if (totalPagesKnown != null && page >= totalPagesKnown) break;
+        if (rows.length < pageSize) break;
+        page += 1;
+        if (page > 5000) break;
+    }
+    return idSet;
+}
+
+/**
+ * Loads catalog pages until every `selectedIds` row is found (same filters as the list).
+ * Used when opening adopt modals: selection can span pages but `prodRows` / `svcRows` only hold one page.
+ */
+async function resolveCatalogRowsForSelectedIds({
+    selectedIds,
+    seedRows,
+    fetchPage,
+    pickKeys,
+    filter,
+    branchId,
+    pageSize = PAGE_SIZE,
+    signal,
+}) {
+    const idOrder = [...selectedIds].map(String);
+    const want = new Set(idOrder);
+    const byId = new Map();
+    for (const r of seedRows || []) {
+        const id = String(r?.id ?? r?._id ?? '');
+        if (id && want.has(id)) byId.set(id, r);
+    }
+    let page = 1;
+    while (byId.size < want.size) {
+        const params = {
+            departmentId: filter.departmentId === 'all' ? undefined : filter.departmentId,
+            categoryId: filter.categoryId === 'all' ? undefined : filter.categoryId,
+            q: filter.q || undefined,
+            page,
+            pageSize,
+            branchId,
+            signal,
+        };
+        const res = await fetchPage(params);
+        if (signal?.aborted) {
+            const err = new Error('Aborted');
+            err.name = 'AbortError';
+            throw err;
+        }
+        const rows = pickArray(res, pickKeys);
+        const meta = pickPagination(res, pageSize);
+        for (const r of rows) {
+            const id = String(r?.id ?? r?._id ?? '');
+            if (id && want.has(id) && !byId.has(id)) byId.set(id, r);
+        }
+        if (rows.length === 0) break;
+        if (byId.size >= want.size) break;
+        if (meta.hasNext === false) break;
+        if (meta.hasNext === true) {
+            page += 1;
+            continue;
+        }
+        const totalPagesKnown =
+            meta.total > 0 ? Math.max(1, Math.ceil(meta.total / meta.pageSize)) : null;
+        if (totalPagesKnown != null && page >= totalPagesKnown) break;
+        if (rows.length < pageSize) break;
+        page += 1;
+        if (page > 5000) break;
+    }
+    return idOrder.map((id) => byId.get(id)).filter(Boolean);
 }
 
 /** Group an array of `{ branchName, itemName }` adoption rows by branch. */
@@ -321,6 +448,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
     const [prodPage, setProdPage] = useState(1);
     const [prodTotal, setProdTotal] = useState(0);
     const [prodHasNext, setProdHasNext] = useState(null);
+    const [prodSelectAllBusy, setProdSelectAllBusy] = useState(false);
 
     const loadProducts = useCallback((signal) => {
         setProdLoading(true);
@@ -358,6 +486,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
     const [svcPage, setSvcPage] = useState(1);
     const [svcTotal, setSvcTotal] = useState(0);
     const [svcHasNext, setSvcHasNext] = useState(null);
+    const [svcSelectAllBusy, setSvcSelectAllBusy] = useState(false);
 
     const loadServices = useCallback((signal) => {
         setSvcLoading(true);
@@ -384,6 +513,48 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
             })
             .finally(() => setSvcLoading(false));
     }, [svcFilter.departmentId, svcFilter.categoryId, svcFilter.q, svcPage, catalogBranchId]);
+
+    const handleSelectAllProducts = useCallback(async () => {
+        setProdSelectAllBusy(true);
+        setProdError('');
+        try {
+            const idSet = await fetchAllCatalogRowIds({
+                fetchPage: getCatalogProducts,
+                pickKeys: ['products', 'items'],
+                filter: prodFilter,
+                branchId: catalogBranchId,
+                pageSize: PAGE_SIZE,
+            });
+            setProdSelected(idSet);
+        } catch (e) {
+            if (e.name !== 'AbortError') {
+                setProdError(e?.message || 'Failed to load all matching products.');
+            }
+        } finally {
+            setProdSelectAllBusy(false);
+        }
+    }, [prodFilter, catalogBranchId]);
+
+    const handleSelectAllServices = useCallback(async () => {
+        setSvcSelectAllBusy(true);
+        setSvcError('');
+        try {
+            const idSet = await fetchAllCatalogRowIds({
+                fetchPage: getCatalogServices,
+                pickKeys: ['services', 'items'],
+                filter: svcFilter,
+                branchId: catalogBranchId,
+                pageSize: PAGE_SIZE,
+            });
+            setSvcSelected(idSet);
+        } catch (e) {
+            if (e.name !== 'AbortError') {
+                setSvcError(e?.message || 'Failed to load all matching services.');
+            }
+        } finally {
+            setSvcSelectAllBusy(false);
+        }
+    }, [svcFilter, catalogBranchId]);
 
     // ─── Effects: load when tab/filters change ──────────────────────────────
     useEffect(() => {
@@ -544,11 +715,37 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
 
     // ─── Adopt: Products ────────────────────────────────────────────────────
     const openProductAdopt = useCallback(async () => {
-        const selectedRows = idsToRows(prodSelected, prodRows);
-        if (selectedRows.length === 0) return;
+        if (prodSelected.size === 0) return;
+        let selectedRows;
+        try {
+            selectedRows = await resolveCatalogRowsForSelectedIds({
+                selectedIds: prodSelected,
+                seedRows: prodRows,
+                fetchPage: getCatalogProducts,
+                pickKeys: ['products', 'items'],
+                filter: prodFilter,
+                branchId: catalogBranchId,
+                pageSize: PAGE_SIZE,
+            });
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                setProdError(err?.message || 'Failed to load selected products for adoption.');
+            }
+            return;
+        }
+        if (selectedRows.length === 0) {
+            setProdError('Could not load details for the selected products. Try refreshing the list.');
+            return;
+        }
+        setProdError('');
+        const resolveNote =
+            selectedRows.length < prodSelected.size
+                ? `Showing ${selectedRows.length} of ${prodSelected.size} selected products. The rest were not found with the current filters (or were removed from the catalog).`
+                : '';
         setProductAdopt({
             rows: selectedRows,
             missing: { departments: [], categories: [] },
+            resolveNote,
             // Per-row stock entry. Empty strings show as placeholders so it's
             // obvious that 0 isn't the silent default — you'll get 0 only if
             // you explicitly type 0 (or leave blank and the FE coerces it).
@@ -579,7 +776,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
         } catch (err) {
             setProductAdopt((prev) => prev && { ...prev, loading: false, error: err.message || 'Could not check dependencies.' });
         }
-    }, [prodSelected, prodRows]);
+    }, [prodSelected, prodRows, prodFilter, catalogBranchId]);
 
     const submitProductsAdopt = async () => {
         if (!productAdopt) return;
@@ -607,11 +804,37 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
 
     // ─── Adopt: Services ────────────────────────────────────────────────────
     const openServiceAdopt = useCallback(async () => {
-        const selectedRows = idsToRows(svcSelected, svcRows);
-        if (selectedRows.length === 0) return;
+        if (svcSelected.size === 0) return;
+        let selectedRows;
+        try {
+            selectedRows = await resolveCatalogRowsForSelectedIds({
+                selectedIds: svcSelected,
+                seedRows: svcRows,
+                fetchPage: getCatalogServices,
+                pickKeys: ['services', 'items'],
+                filter: svcFilter,
+                branchId: catalogBranchId,
+                pageSize: PAGE_SIZE,
+            });
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                setSvcError(err?.message || 'Failed to load selected services for adoption.');
+            }
+            return;
+        }
+        if (selectedRows.length === 0) {
+            setSvcError('Could not load details for the selected services. Try refreshing the list.');
+            return;
+        }
+        setSvcError('');
+        const resolveNote =
+            selectedRows.length < svcSelected.size
+                ? `Showing ${selectedRows.length} of ${svcSelected.size} selected services. The rest were not found with the current filters (or were removed from the catalog).`
+                : '';
         setServiceAdopt({
             rows: selectedRows,
             missing: { departments: [], categories: [] },
+            resolveNote,
             targetBranchIds: [],
             loading: true,
             error: '',
@@ -631,7 +854,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
         } catch (err) {
             setServiceAdopt((prev) => prev && { ...prev, loading: false, error: err.message || 'Could not check dependencies.' });
         }
-    }, [svcSelected, svcRows]);
+    }, [svcSelected, svcRows, svcFilter, catalogBranchId]);
 
     const submitServicesAdopt = async () => {
         if (!serviceAdopt) return;
@@ -676,7 +899,9 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
     };
 
     // ─── Render helpers ─────────────────────────────────────────────────────
-    const renderToolbar = (count, onAdd, addLabel, onClear) => (
+    const renderToolbar = (count, onAdd, addLabel, onClear, listToolbarOpts) => {
+        const { onSelectAll, selectAllDisabled, selectAllBusy } = listToolbarOpts || {};
+        return (
         <div
             style={{
                 display: 'flex',
@@ -695,6 +920,17 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                 Selected: <span style={{ color: count > 0 ? '#2563EB' : 'inherit' }}>{count}</span>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {typeof onSelectAll === 'function' && (
+                    <button
+                        type="button"
+                        className="mc-btn-ghost"
+                        disabled={selectAllDisabled || selectAllBusy}
+                        onClick={onSelectAll}
+                        title="Select every row matching the current filters (all pages). Replaces the current selection for this tab."
+                    >
+                        {selectAllBusy ? 'Selecting…' : 'Select all'}
+                    </button>
+                )}
                 <button type="button" className="mc-btn-ghost" disabled={count === 0} onClick={onClear}>
                     Clear
                 </button>
@@ -703,7 +939,8 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                 </button>
             </div>
         </div>
-    );
+        );
+    };
 
     const renderEmpty = (Icon, message) => (
         <div className="mc-grid-empty">
@@ -826,6 +1063,8 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
         page, setPage, total,
         serverHasNext,
         kind,
+        onSelectAllAllPages,
+        selectAllBusy,
     }) => {
         const totalPagesKnown = total > 0 ? Math.max(1, Math.ceil(total / PAGE_SIZE)) : null;
         // Next: honor explicit hasNext; else known total pages; else if this page is full, allow probing
@@ -849,6 +1088,15 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
             const list = [];
             if (row.sku) list.push({ Icon: Tags, text: row.sku });
             if (kind === 'product' && row.brandName) list.push({ Icon: Layers, text: row.brandName });
+            if (kind === 'product') {
+                const kmRaw = row.kmTypeValue ?? row.km_type_value;
+                if (kmRaw != null && String(kmRaw).trim() !== '') {
+                    const kmNum = Number(kmRaw);
+                    if (Number.isFinite(kmNum)) {
+                        list.push({ Icon: Gauge, text: `KM type: ${kmNum}` });
+                    }
+                }
+            }
             const exRaw =
                 kind === 'product'
                     ? row.salePriceBeforeVat ?? row.sale_price_before_vat
@@ -865,6 +1113,13 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                       ? `SAR ${fallback.toLocaleString()}`
                       : null;
             if (priceLabel) list.push({ Icon: undefined, text: priceLabel });
+            const createdRaw = row.createdAt ?? row.created_at;
+            const createdFmt = formatCatalogListCreatedAt(createdRaw);
+            if (createdFmt) list.push({ Icon: Calendar, text: `Created ${createdFmt}` });
+            const vatRaw = row.vatMode ?? row.vat_mode;
+            if (vatRaw != null && String(vatRaw).trim() !== '') {
+                list.push({ Icon: Percent, text: `VAT mode: ${vatRaw}` });
+            }
             return list;
         };
         return (
@@ -896,6 +1151,13 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                     kind === 'product' ? openProductAdopt : openServiceAdopt,
                     'Add Selected to branches…',
                     () => setSelected(new Set()),
+                    typeof onSelectAllAllPages === 'function'
+                        ? {
+                              onSelectAll: onSelectAllAllPages,
+                              selectAllBusy: !!selectAllBusy,
+                              selectAllDisabled: loading || !!error || rows.length === 0,
+                          }
+                        : undefined,
                 )}
                 <div className="mc-product-grid">
                     {error ? renderError(error)
@@ -994,6 +1256,8 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                     page: prodPage, setPage: setProdPage, total: prodTotal,
                     serverHasNext: prodHasNext,
                     kind: 'product',
+                    onSelectAllAllPages: handleSelectAllProducts,
+                    selectAllBusy: prodSelectAllBusy,
                 })}
                 {activeTab === 'services' && renderListTab({
                     rows: svcRows, loading: svcLoading, error: svcError,
@@ -1003,6 +1267,8 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                     page: svcPage, setPage: setSvcPage, total: svcTotal,
                     serverHasNext: svcHasNext,
                     kind: 'service',
+                    onSelectAllAllPages: handleSelectAllServices,
+                    selectAllBusy: svcSelectAllBusy,
                 })}
             </div>
 
@@ -1299,6 +1565,12 @@ function ProductAdoptModal({ state, onChange, onClose, onSubmit, branches }) {
                         </div>
                     )}
 
+                    {state.resolveNote ? (
+                        <div style={{ padding: 10, background: '#FFFBEB', color: '#92400E', borderRadius: 8, fontSize: '0.875rem', marginBottom: 12 }}>
+                            {state.resolveNote}
+                        </div>
+                    ) : null}
+
                     {state.loading && (state.missing.departments.length === 0 && state.missing.categories.length === 0) ? (
                         <div className="mc-grid-loading"><RefreshCw className="spin" size={24} /> <p>Checking dependencies…</p></div>
                     ) : (
@@ -1438,6 +1710,12 @@ function ServiceAdoptModal({ state, onChange, onClose, onSubmit, branches }) {
                             {state.error}
                         </div>
                     )}
+
+                    {state.resolveNote ? (
+                        <div style={{ padding: 10, background: '#FFFBEB', color: '#92400E', borderRadius: 8, fontSize: '0.875rem', marginBottom: 12 }}>
+                            {state.resolveNote}
+                        </div>
+                    ) : null}
 
                     {state.loading && (state.missing.departments.length === 0 && state.missing.categories.length === 0) ? (
                         <div className="mc-grid-loading"><RefreshCw className="spin" size={24} /> <p>Checking dependencies…</p></div>
