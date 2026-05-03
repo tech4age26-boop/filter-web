@@ -1,4 +1,4 @@
-// export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 
 
 // export const BASE_URL = 'http://192.168.100.8:3000';
