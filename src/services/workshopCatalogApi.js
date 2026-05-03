@@ -58,6 +58,7 @@ export const getCatalogUnitsOfMeasure = ({ branchId, listScope = DEFAULT_CATALOG
 export const submitCatalogProductRequest = (body) =>
     apiFetch('/workshop-catalog/catalog/product-requests', { method: 'POST', body: JSON.stringify(body) });
 
+/** Each row includes `createdAt` (ISO-8601); backend lists newest first (`createdAt` desc). */
 export const getCatalogProducts = ({ departmentId, categoryId, q, page, pageSize, branchId, listScope = DEFAULT_CATALOG_LIST_SCOPE, signal } = {}) =>
     apiFetch(
         `/workshop-catalog/catalog/products${qs({
@@ -71,6 +72,7 @@ export const getCatalogProducts = ({ departmentId, categoryId, q, page, pageSize
         { signal },
     );
 
+/** Each row includes `createdAt` (ISO-8601); backend lists newest first (`createdAt` desc). */
 export const getCatalogServices = ({ departmentId, categoryId, q, page, pageSize, branchId, listScope = DEFAULT_CATALOG_LIST_SCOPE, signal } = {}) =>
     apiFetch(
         `/workshop-catalog/catalog/services${qs({
@@ -195,6 +197,22 @@ export const removeBranchCategory = (branchId, categoryId) =>
 
 export const removeBranchProduct = (branchId, productId) =>
     apiFetch(`/workshop-catalog/branches/${branchId}/products/${productId}`, { method: 'DELETE' });
+
+/**
+ * Patch fields on the workshop branch product link (`WorkshopProduct`: @@unique(workshopId, branchId, productId)).
+ *
+ * `PATCH /workshop-catalog/branches/:branchId/products/:productId`
+ * - JwtAuthGuard (same as other workshop-catalog/branches routes).
+ * - Optional query: `?workshopId=` (same as list / inventory-adjustments) when JWT workshop scope needs override.
+ * - Body: `criticalStockPoint` (finite, ≥ 0; 0 = no threshold). Alias `critical_stock_point` if camelCase omitted.
+ * - 200: `{ success: true, data: { branchId, productId, criticalStockPoint } }` (global interceptor leaves it unchanged).
+ * - 404: product not adopted on branch (e.g. Prisma P2025) — message e.g. "Product is not adopted by this branch".
+ */
+export const patchBranchProduct = (branchId, productId, body, { workshopId, signal } = {}) =>
+    apiFetch(
+        `/workshop-catalog/branches/${encodeURIComponent(branchId)}/products/${encodeURIComponent(productId)}${qs({ workshopId })}`,
+        { method: 'PATCH', body: JSON.stringify(body), signal },
+    );
 
 export const removeBranchService = (branchId, serviceId) =>
     apiFetch(`/workshop-catalog/branches/${branchId}/services/${serviceId}`, { method: 'DELETE' });

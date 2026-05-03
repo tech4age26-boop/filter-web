@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, ShoppingCart, BarChart3, AlertTriangle, Calendar, Zap } from 'lucide-react';
+import { Plus, ShoppingCart, BarChart3, AlertTriangle, Calendar, Zap, Eye } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import {
@@ -8,6 +8,7 @@ import {
     getRegisteredWorkshopSuppliers,
     branchScopeParams,
     createWorkshopSupplierPurchaseInvoice,
+    getWorkshopSupplierPurchaseInvoice,
     listWorkshopSupplierPurchaseInvoices,
     unwrapWorkshopBranchListResponse,
 } from '../../services/workshopStaffApi';
@@ -15,6 +16,7 @@ import { getBranchProducts } from '../../services/workshopCatalogApi';
 import {
     buildCreateWorkshopSupplierPurchaseInvoiceBody,
     normalizeWorkshopSupplierPurchaseInvoiceRow,
+    unwrapWorkshopStaffSupplierPurchaseInvoiceGet,
     unwrapWorkshopSupplierPurchaseInvoiceList,
 } from '../../services/workshopSupplierPurchaseInvoices';
 import { PI_ACCOUNT_OPTIONS } from './constants';
@@ -221,6 +223,143 @@ function createEmptyLine() {
     };
 }
 
+function mapPurchaseInvoiceLineForView(line, idx) {
+    if (!line || typeof line !== 'object') {
+        return {
+            key: `line-${idx}`,
+            item: '—',
+            account: '—',
+            desc: '',
+            uom: 'piece',
+            qty: 0,
+            unitEx: 0,
+            lineDisc: 0,
+            taxAmt: 0,
+            totalIncl: 0,
+            taxCode: TAX_LABEL,
+            taxableFromApi: null,
+        };
+    }
+    const nested = line.product && typeof line.product === 'object' ? line.product : null;
+    const item =
+        line.itemName ??
+        line.item_name ??
+        line.productName ??
+        line.product_name ??
+        nested?.name ??
+        line.description ??
+        '—';
+    const acct =
+        [
+            line.accountName,
+            line.account_name,
+            line.accountCode,
+            line.account_code,
+            nested?.accountName,
+            nested?.account_name,
+            line.account?.name,
+            line.account?.code,
+        ]
+            .map((x) => (x != null ? String(x).trim() : ''))
+            .find((s) => s !== '') ?? '—';
+    const desc = String(
+        line.lineDescription ?? line.line_description ?? line.description ?? line.notes ?? '',
+    ).trim();
+    const uom = String(line.uom ?? line.unit ?? 'piece').trim() || 'piece';
+    const qty = Number(line.quantity ?? line.qty ?? 0);
+    let unitEx = roundMoney2(
+        line.unitPriceExVat ??
+            line.unit_price_ex_vat ??
+            line.unitPrice ??
+            line.unit_price ??
+            line.priceExVat ??
+            line.price_ex_vat ??
+            0,
+    );
+    const lineDisc = roundMoney2(
+        line.discount ?? line.lineDiscountAmount ?? line.line_discount_amount ?? line.lineDiscountRaw ?? 0,
+    );
+    const taxAmt = roundMoney2(line.taxAmount ?? line.tax_amount ?? 0);
+    /** Workshop GET formatter: `total` = incl. VAT; `lineTotal` = ex-VAT line base (taxable), not incl. total. */
+    const totalIncl = roundMoney2(line.total ?? line.lineTotalInclVat ?? line.line_total_incl_vat ?? 0);
+    const taxCode = String(line.taxCode ?? line.tax_code ?? TAX_LABEL).trim() || TAX_LABEL;
+    const ltRaw = line.lineTotal ?? line.line_total;
+    const taxableFromLineTotal =
+        ltRaw != null && ltRaw !== '' && Number.isFinite(Number(ltRaw)) ? roundMoney2(ltRaw) : null;
+    const taxableRaw = line.taxableExVat ?? line.taxable_ex_vat ?? line.grossExVat ?? line.gross_ex_vat;
+    const taxableFromNamed =
+        taxableRaw != null && taxableRaw !== '' && Number.isFinite(Number(taxableRaw))
+            ? roundMoney2(taxableRaw)
+            : null;
+    const taxableFromApi = taxableFromLineTotal ?? taxableFromNamed;
+    if (unitEx === 0 && qty > 0 && totalIncl > 0) {
+        const impliedEx = roundMoney2(totalIncl - taxAmt);
+        if (impliedEx > 0) unitEx = roundMoney2(impliedEx / qty);
+    }
+    return {
+        key: String(line.id ?? line._id ?? `line-${idx}`),
+        item,
+        account: acct,
+        desc,
+        uom,
+        qty: Number.isFinite(qty) ? qty : 0,
+        unitEx,
+        lineDisc,
+        taxAmt,
+        totalIncl,
+        taxCode,
+        taxableFromApi,
+    };
+}
+
+function pickViewInvoiceUi(raw, items = []) {
+    const ui = raw?.ui && typeof raw.ui === 'object' ? raw.ui : {};
+    const list = Array.isArray(items) ? items : [];
+    const lineHasDisc = list.some((it) => {
+        const d = Number(it?.discount ?? it?.lineDiscountAmount ?? it?.line_discount_amount ?? 0);
+        return Number.isFinite(d) && d !== 0;
+    });
+    const headerDiscAmt = Number(raw?.discountAmount ?? raw?.discount_amount ?? 0);
+    const headerHasDisc = Number.isFinite(headerDiscAmt) && headerDiscAmt !== 0;
+    const rawDiscType = String(raw?.discountType ?? raw?.discount_type ?? '').toLowerCase();
+    const line0DiscType = list.length
+        ? String(list[0]?.discountType ?? list[0]?.discount_type ?? '').toLowerCase()
+        : '';
+    const anyLineDesc = list.some((it) => String(it?.description ?? '').trim().length > 0);
+    return {
+        showDesc:
+            Boolean(ui.showLineDescriptionColumn ?? ui.show_line_description_column ?? true) || anyLineDesc,
+        showDiscount:
+            Boolean(ui.showLineDiscountColumn ?? ui.show_line_discount_column) ||
+            lineHasDisc ||
+            headerHasDisc,
+        discountIsPercent:
+            Boolean(ui.lineDiscountIsPercent ?? ui.line_discount_is_percent) ||
+            rawDiscType === 'percent' ||
+            (lineHasDisc && line0DiscType === 'percent'),
+    };
+}
+
+function formatViewInvoiceDiscount(raw) {
+    if (!raw || typeof raw !== 'object') return '—';
+    const disc = raw.invoiceDiscount ?? raw.invoice_discount;
+    if (disc && typeof disc === 'object') {
+        const mode = String(disc.mode ?? disc.type ?? 'fixed_sar');
+        const val = Number(disc.value ?? disc.amount ?? 0);
+        if (Number.isFinite(val) && val !== 0) {
+            if (/percent/i.test(mode)) return `${val}%`;
+            return `SAR ${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+    }
+    const flatAmt = Number(raw.discountAmount ?? raw.discount_amount ?? 0);
+    if (Number.isFinite(flatAmt) && flatAmt !== 0) {
+        const dt = String(raw.discountType ?? raw.discount_type ?? 'fixed');
+        if (/percent/i.test(dt)) return `${flatAmt}%`;
+        return `SAR ${flatAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    return '—';
+}
+
 export default function WorkshopPurchases({ tabState, clearTabState, selectedBranchId, branches = [] }) {
     const [activeTab, setActiveTab] = useState('invoices');
     const [filterSupplier, setFilterSupplier] = useState('all');
@@ -250,6 +389,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [invoicesError, setInvoicesError] = useState('');
     const [submitInvoiceError, setSubmitInvoiceError] = useState('');
     const [submittingInvoice, setSubmittingInvoice] = useState(false);
+    const [viewModalOpen, setViewModalOpen] = useState(false);
+    const [viewInvoiceRow, setViewInvoiceRow] = useState(null);
+    const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
+    const [viewInvoiceError, setViewInvoiceError] = useState('');
 
     const effectiveBranchId = useMemo(() => {
         if (selectedBranchId && selectedBranchId !== 'all') return selectedBranchId;
@@ -372,6 +515,47 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setInvoicesLoading(false);
         }
     }, [effectiveBranchId]);
+
+    const closeViewInvoiceModal = useCallback(() => {
+        setViewModalOpen(false);
+        setViewInvoiceRow(null);
+        setViewInvoiceError('');
+        setViewInvoiceLoading(false);
+    }, []);
+
+    const openViewInvoiceModal = useCallback(async (listRow) => {
+        if (!listRow?.id) return;
+        setViewModalOpen(true);
+        setViewInvoiceLoading(true);
+        setViewInvoiceError('');
+        setViewInvoiceRow(listRow);
+        try {
+            const res = await getWorkshopSupplierPurchaseInvoice(listRow.id);
+            const inv = unwrapWorkshopStaffSupplierPurchaseInvoiceGet(res) ?? (res && typeof res === 'object' ? res : null);
+            const normalized = normalizeWorkshopSupplierPurchaseInvoiceRow(inv);
+            if (normalized) {
+                setViewInvoiceRow(normalized);
+            } else {
+                setViewInvoiceError('Invoice response was empty.');
+            }
+        } catch (e) {
+            setViewInvoiceError(e.message || 'Could not load invoice details.');
+        } finally {
+            setViewInvoiceLoading(false);
+        }
+    }, []);
+
+    const viewLineRows = useMemo(() => {
+        if (!viewInvoiceRow?.items?.length) return [];
+        return viewInvoiceRow.items.map((line, idx) => mapPurchaseInvoiceLineForView(line, idx));
+    }, [viewInvoiceRow]);
+
+    const viewUi = useMemo(
+        () => pickViewInvoiceUi(viewInvoiceRow?._raw, viewInvoiceRow?.items),
+        [viewInvoiceRow],
+    );
+
+    const viewDiscountLabel = useMemo(() => formatViewInvoiceDiscount(viewInvoiceRow?._raw), [viewInvoiceRow]);
 
     useEffect(() => {
         loadPurchaseInvoices();
@@ -928,7 +1112,16 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             </span>
                                         </td>
                                         <td>
-                                            <button type="button" className="btn-portal" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+                                            <button
+                                                type="button"
+                                                className="btn-portal"
+                                                style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    void openViewInvoiceModal(inv);
+                                                }}
+                                            >
                                                 View
                                             </button>
                                         </td>
@@ -1485,6 +1678,344 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         />
                                         <span>Update last purchase price for all products on save</span>
                                     </label>
+                                </div>
+                            </div>
+                        </div>
+                    </Modal>
+                )}
+                {viewModalOpen && viewInvoiceRow && (
+                    <Modal
+                        title={
+                            <div className="pi-modal-title">
+                                <span className="pi-breadcrumb">
+                                    Purchase Invoices › <span className="pi-b-active">View</span>
+                                </span>
+                                <div className="pi-title-main">
+                                    <Eye className="pi-icon-orange" size={24} />
+                                    <span>Purchase Invoice</span>
+                                </div>
+                            </div>
+                        }
+                        onClose={closeViewInvoiceModal}
+                        width="1350px"
+                        contentClassName="modal-content-purchase"
+                        footer={
+                            <div className="pi-modal-footer">
+                                <div className="pi-footer-left">
+                                    <button type="button" className="btn-pi-cancel" onClick={closeViewInvoiceModal}>
+                                        Close
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    >
+                        <div className="pi-form-container">
+                            {viewInvoiceError && (
+                                <p
+                                    style={{
+                                        marginBottom: 12,
+                                        padding: '10px 14px',
+                                        borderRadius: 8,
+                                        background: '#FEF2F2',
+                                        border: '1px solid #FECACA',
+                                        color: '#B91C1C',
+                                        fontSize: '0.875rem',
+                                    }}
+                                >
+                                    {viewInvoiceError}
+                                </p>
+                            )}
+                            {viewInvoiceLoading && (
+                                <p style={{ marginBottom: 12, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                                    Loading full invoice…
+                                </p>
+                            )}
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    gap: 12,
+                                    marginBottom: 16,
+                                    alignItems: 'center',
+                                }}
+                            >
+                                <span className={`ws-badge ws-badge--${viewInvoiceRow.status === 'approved' ? 'green' : viewInvoiceRow.status === 'rejected' ? 'red' : 'yellow'}`}>
+                                    {viewInvoiceRow.status || '—'}
+                                </span>
+                                <span
+                                    className={`ws-badge ${viewInvoiceRow.payment_status === 'paid' ? 'ws-badge--green' : 'ws-badge--yellow'}`}
+                                >
+                                    {viewInvoiceRow.payment_status}
+                                </span>
+                                <span className={`ws-badge ${viewInvoiceRow.stock_updated ? 'ws-badge--green' : 'ws-badge--yellow'}`}>
+                                    Stock: {viewInvoiceRow.stock_updated ? 'Updated' : 'Pending'}
+                                </span>
+                            </div>
+                            <div className="pi-header-grid">
+                                <div className="pi-field">
+                                    <label>Invoice #</label>
+                                    <div
+                                        style={{
+                                            padding: '10px 14px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: 10,
+                                            background: '#f8fafc',
+                                            fontWeight: 700,
+                                            color: '#EA580C',
+                                        }}
+                                    >
+                                        {viewInvoiceRow.invoice_number || viewInvoiceRow.id}
+                                    </div>
+                                </div>
+                                <div className="pi-field">
+                                    <label>Issue date</label>
+                                    <div
+                                        style={{
+                                            padding: '10px 14px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: 10,
+                                            background: '#f8fafc',
+                                        }}
+                                    >
+                                        {viewInvoiceRow.date || '—'}
+                                    </div>
+                                </div>
+                                <div className="pi-field">
+                                    <label>Due date</label>
+                                    <div
+                                        style={{
+                                            padding: '10px 14px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: 10,
+                                            background: '#f8fafc',
+                                        }}
+                                    >
+                                        {viewInvoiceRow.due_date || '—'}
+                                    </div>
+                                </div>
+                                <div className="pi-field">
+                                    <label>Vendor ref</label>
+                                    <div
+                                        style={{
+                                            padding: '10px 14px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: 10,
+                                            background: '#f8fafc',
+                                        }}
+                                    >
+                                        {viewInvoiceRow.vendor_invoice_ref || '—'}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="pi-field pi-full-width">
+                                <label>Vendor</label>
+                                <div
+                                    style={{
+                                        padding: '10px 14px',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: 10,
+                                        background: '#f8fafc',
+                                    }}
+                                >
+                                    {viewInvoiceRow.vendor_name || viewInvoiceRow.supplier || '—'}
+                                </div>
+                            </div>
+                            <div className="pi-field pi-full-width">
+                                <label>Description</label>
+                                <div
+                                    style={{
+                                        padding: '10px 14px',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: 10,
+                                        background: '#f8fafc',
+                                        minHeight: 44,
+                                    }}
+                                >
+                                    {viewInvoiceRow.description || '—'}
+                                </div>
+                            </div>
+                            <div className="pi-lines-section ws-pi-lines-section">
+                                <div className="ws-pi-lines-scroll">
+                                    <table className="ws-pi-lines-table">
+                                        <colgroup>
+                                            <col style={{ width: 44 }} />
+                                            <col style={{ width: viewUi.showDesc ? '20%' : '28%' }} />
+                                            <col style={{ width: viewUi.showDesc ? '16%' : '22%' }} />
+                                            {viewUi.showDesc ? <col style={{ width: '14%' }} /> : null}
+                                            <col style={{ width: 72 }} />
+                                            <col style={{ width: 72 }} />
+                                            <col style={{ width: 96 }} />
+                                            {viewUi.showDiscount ? <col style={{ width: 88 }} /> : null}
+                                            <col style={{ width: viewUi.showDiscount ? '9%' : '11%' }} />
+                                            <col style={{ width: 88 }} />
+                                            <col style={{ width: 88 }} />
+                                            <col style={{ width: viewUi.showDiscount ? '9%' : '11%' }} />
+                                        </colgroup>
+                                        <thead>
+                                            <tr>
+                                                <th scope="col" className="ws-pi-th-hash">
+                                                    #
+                                                </th>
+                                                <th scope="col">Item</th>
+                                                <th scope="col">Account</th>
+                                                {viewUi.showDesc ? <th scope="col">Description</th> : null}
+                                                <th scope="col">UOM</th>
+                                                <th scope="col" className="ws-pi-th-num">
+                                                    Qty
+                                                </th>
+                                                <th scope="col" className="ws-pi-th-num">
+                                                    Unit price (ex VAT)
+                                                </th>
+                                                {viewUi.showDiscount ? (
+                                                    <th scope="col" className="ws-pi-th-num">
+                                                        Discount{viewUi.discountIsPercent ? ' %' : ' (SAR)'}
+                                                    </th>
+                                                ) : null}
+                                                <th scope="col" className="ws-pi-th-num">
+                                                    Taxable (ex VAT)
+                                                </th>
+                                                <th scope="col">Tax</th>
+                                                <th scope="col" className="ws-pi-th-num">
+                                                    Tax Amt
+                                                </th>
+                                                <th scope="col" className="ws-pi-th-num">
+                                                    Line total (incl VAT)
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {viewLineRows.length === 0 ? (
+                                                <tr>
+                                                    <td
+                                                        colSpan={
+                                                            10 +
+                                                            (viewUi.showDesc ? 1 : 0) +
+                                                            (viewUi.showDiscount ? 1 : 0)
+                                                        }
+                                                        style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-muted)' }}
+                                                    >
+                                                        No line items on this invoice
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                viewLineRows.map((row, idx) => {
+                                                    const fallbackTaxable = roundMoney2(
+                                                        row.unitEx * row.qty - (viewUi.showDiscount ? row.lineDisc : 0),
+                                                    );
+                                                    const displayTaxable =
+                                                        row.taxableFromApi != null ? row.taxableFromApi : Math.max(0, fallbackTaxable);
+                                                    return (
+                                                        <tr key={row.key}>
+                                                            <td className="ws-pi-td-hash">{idx + 1}</td>
+                                                            <td className="ws-pi-td-strong">{row.item}</td>
+                                                            <td style={{ fontSize: '0.8125rem' }}>{row.account}</td>
+                                                            {viewUi.showDesc ? (
+                                                                <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                                                                    {row.desc || '—'}
+                                                                </td>
+                                                            ) : null}
+                                                            <td className="ws-pi-td-muted">{row.uom}</td>
+                                                            <td className="ws-pi-td-num">{row.qty}</td>
+                                                            <td className="ws-pi-td-num">SAR {row.unitEx.toFixed(2)}</td>
+                                                            {viewUi.showDiscount ? (
+                                                                <td className="ws-pi-td-num">SAR {row.lineDisc.toFixed(2)}</td>
+                                                            ) : null}
+                                                            <td className="ws-pi-td-num">SAR {displayTaxable.toFixed(2)}</td>
+                                                            <td className="ws-pi-td-tax">{row.taxCode}</td>
+                                                            <td className="ws-pi-td-num">SAR {row.taxAmt.toFixed(2)}</td>
+                                                            <td className="ws-pi-td-num ws-pi-td-strong">SAR {row.totalIncl.toFixed(2)}</td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="pi-footer-grid" style={{ marginTop: 16 }}>
+                                <div className="pi-footer-column">
+                                    <div className="pi-field-inline">
+                                        <label>Invoice discount</label>
+                                        <div
+                                            style={{
+                                                padding: '10px 14px',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: 10,
+                                                background: '#f8fafc',
+                                            }}
+                                        >
+                                            {viewDiscountLabel}
+                                        </div>
+                                    </div>
+                                    <div className="pi-field pi-full-width">
+                                        <label>Notes</label>
+                                        <div
+                                            style={{
+                                                padding: '10px 14px',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: 10,
+                                                background: '#f8fafc',
+                                                whiteSpace: 'pre-wrap',
+                                                minHeight: 80,
+                                            }}
+                                        >
+                                            {viewInvoiceRow.notes || '—'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="pi-footer-column pi-summary-column">
+                                    <div className="pi-summary-card">
+                                        <div className="pi-summary-row">
+                                            <span>Subtotal (ex VAT):</span>
+                                            <span>
+                                                SAR{' '}
+                                                {viewInvoiceRow.subtotal.toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}
+                                            </span>
+                                        </div>
+                                        <div className="pi-summary-row">
+                                            <span>Total tax ({TAX_LABEL}):</span>
+                                            <span>
+                                                SAR{' '}
+                                                {viewInvoiceRow.vat_amount.toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}
+                                            </span>
+                                        </div>
+                                        <div className="pi-summary-row pi-grand-total">
+                                            <span>Grand total:</span>
+                                            <span>
+                                                SAR{' '}
+                                                {viewInvoiceRow.grand_total.toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}
+                                            </span>
+                                        </div>
+                                        <div className="pi-summary-row">
+                                            <span>Paid:</span>
+                                            <span style={{ color: '#059669' }}>
+                                                SAR{' '}
+                                                {viewInvoiceRow.amount_paid.toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}
+                                            </span>
+                                        </div>
+                                        <div className="pi-summary-row">
+                                            <span>Balance due:</span>
+                                            <span style={{ color: '#DC2626', fontWeight: 700 }}>
+                                                SAR{' '}
+                                                {viewInvoiceRow.balance_due.toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
