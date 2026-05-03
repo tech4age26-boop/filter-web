@@ -147,6 +147,20 @@ const toBoolAllowDecimal = (obj) => {
     return false;
 };
 
+/** ISO-8601 from catalog APIs → short local display; empty string if missing/invalid. */
+const formatCatalogCreatedAt = (iso) => {
+    if (iso == null || iso === '') return '';
+    const d = new Date(typeof iso === 'string' || typeof iso === 'number' ? iso : String(iso));
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
 const PRODUCT_CSV_COLUMNS = [
     'Product',
     'Arabic Name',
@@ -318,7 +332,8 @@ export default function MasterCatalog() {
         description: '',
         barcode: '',
         imageUrl: '',
-        conversionRules: []
+        conversionRules: [],
+        kmTypeValue: '',
     });
 
     const [newDept, setNewDept] = useState({ name: '' });
@@ -345,19 +360,30 @@ export default function MasterCatalog() {
         (c) => String(c.departmentId) === String(prApproveForm.departmentId),
     );
     const filteredProducts = products.filter((p) => {
+        const kmStr =
+            p.kmTypeValue != null && p.kmTypeValue !== ''
+                ? String(p.kmTypeValue)
+                : '';
         const matchesSearch =
             !searchQuery ||
-            [p.name, p.arabicName, p.sku, p.brandName].some((v) =>
+            [p.name, p.arabicName, p.sku, p.brandName, kmStr].some((v) =>
                 (v || '').toLowerCase().includes(searchQuery.toLowerCase()),
             );
         const status = p.isActive === false ? 'Rejected' : 'Approved';
         const matchesStatus = statusFilter === 'All' || statusFilter === status;
         return matchesSearch && matchesStatus;
     });
-    const filteredServices = services.filter((s) =>
-        !searchQuery ||
-        [s.name, s.arabicName, s.sku, s.categoryName].some((v) => (v || '').toLowerCase().includes(searchQuery.toLowerCase())),
-    );
+    const filteredServices = services.filter((s) => {
+        if (!searchQuery) return true;
+        const q = searchQuery.toLowerCase();
+        const createdFmt = formatCatalogCreatedAt(s.createdAt ?? s.created_at).toLowerCase();
+        const createdRaw = String(s.createdAt ?? s.created_at ?? '').toLowerCase();
+        const vatStr = String(s.vatMode ?? s.vat_mode ?? '').toLowerCase();
+        const catIdStr = s.categoryId != null ? String(s.categoryId).toLowerCase() : '';
+        return [s.name, s.arabicName, s.sku, s.categoryName, vatStr, catIdStr, createdFmt, createdRaw].some((v) =>
+            (v || '').includes(q),
+        );
+    });
     const _q = searchQuery.trim().toLowerCase();
     const filteredDepartments = !_q
         ? departments
@@ -370,9 +396,15 @@ export default function MasterCatalog() {
         });
     const filteredAvailability = !_q
         ? products
-        : products.filter((p) =>
-            [p.name, p.sku, p.brandName, p.categoryName, p.unit].some((v) => (v || '').toLowerCase().includes(_q)),
-        );
+        : products.filter((p) => {
+              const kmStr =
+                  p.kmTypeValue != null && p.kmTypeValue !== ''
+                      ? String(p.kmTypeValue)
+                      : '';
+              return [p.name, p.sku, p.brandName, p.categoryName, p.unit, kmStr].some((v) =>
+                  (v || '').toLowerCase().includes(_q),
+              );
+          });
     const isDepartmentFormValid = !!newDept.name.trim();
     const isCategoryFormValid = !!newCat.name.trim() && !!newCat.departmentId;
     const isProductFormValid = !!newProduct.name.trim() && !!newProduct.departmentId && !!newProduct.categoryId;
@@ -587,6 +619,10 @@ export default function MasterCatalog() {
                 '',
             allowDecimalQty: toBoolAllowDecimal(product),
             conversionRules: [],
+            kmTypeValue:
+                product.kmTypeValue != null && product.kmTypeValue !== ''
+                    ? String(product.kmTypeValue)
+                    : '',
         });
         setIsEditModalOpen(true);
     };
@@ -594,6 +630,13 @@ export default function MasterCatalog() {
     const handleCreateProduct = async () => {
         setSaving(true);
         try {
+            const kmRaw = newProduct.kmTypeValue;
+            const kmTrimmed =
+                kmRaw === '' || kmRaw == null ? '' : String(kmRaw).trim();
+            const kmParsed = kmTrimmed === '' ? NaN : Number(kmTrimmed);
+            const kmPayload =
+                kmTrimmed !== '' && Number.isFinite(kmParsed) ? { kmTypeValue: kmParsed } : {};
+
             await createProduct({
                 departmentId: newProduct.departmentId || undefined,
                 categoryId: newProduct.categoryId || undefined,
@@ -608,6 +651,7 @@ export default function MasterCatalog() {
                 allowDecimalQty: false,
                 minPriceCorporate: parseNumberOr(newProduct.minCorpPrice, 0),
                 maxPriceCorporate: parseNumberOr(newProduct.maxCorpPrice, 0),
+                ...kmPayload,
             });
             setIsAddModalOpen(false);
             setNewProduct({
@@ -625,6 +669,7 @@ export default function MasterCatalog() {
                 barcode: '',
                 imageUrl: '',
                 conversionRules: [],
+                kmTypeValue: '',
             });
             await refreshCatalog();
         } catch (e) {
@@ -640,6 +685,13 @@ export default function MasterCatalog() {
         try {
             // PATCH /super-admin/products/:id — never send departmentId (not supported; department fixed after create).
             // 200 returns a flat product (same fields as list/get). Example: { "allowDecimalQty": true } only is valid.
+            const kmRaw = editingProduct.kmTypeValue;
+            const kmTrimmed =
+                kmRaw === '' || kmRaw == null ? '' : String(kmRaw).trim();
+            const kmParsed = kmTrimmed === '' ? null : Number(kmTrimmed);
+            const kmTypeValue =
+                kmTrimmed === '' || !Number.isFinite(kmParsed) ? null : kmParsed;
+
             await updateProduct(editingProduct.id, {
                 name: editingProduct.name?.trim() || undefined,
                 arabicName: editingProduct.arabicName?.trim() || undefined,
@@ -662,6 +714,7 @@ export default function MasterCatalog() {
                         : parseNumberOr(editingProduct.maxCorpPrice, 0),
                 isActive: editingProduct.isActive ?? true,
                 allowDecimalQty: !!editingProduct.allowDecimalQty,
+                kmTypeValue,
             });
             setIsEditModalOpen(false);
             setEditingProduct(null);
@@ -721,6 +774,10 @@ export default function MasterCatalog() {
             sellingPrice: service.sellingPrice == null ? '' : String(service.sellingPrice),
             isPriceEditable: !!service.isPriceEditable,
             isActive: service.isActive !== false,
+            categoryId: service.categoryId != null ? String(service.categoryId) : '',
+            categoryName: service.categoryName ?? service.category?.name ?? '',
+            vatMode: service.vatMode ?? service.vat_mode ?? '',
+            createdAt: service.createdAt ?? service.created_at ?? '',
         });
         setIsEditServiceModalOpen(true);
     };
@@ -997,7 +1054,7 @@ export default function MasterCatalog() {
                     <Search size={18} className="mc-search-icon" />
                     <input 
                         type="text" 
-                        placeholder="Search name, SKU, brand..." 
+                        placeholder="Search name, SKU, brand, KM type value…"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -1034,7 +1091,10 @@ export default function MasterCatalog() {
                 </div>
             ) : (
                 <div className="mc-products-grid">
-                    {filteredProducts.map(p => (
+                    {filteredProducts.map((p) => {
+                        const createdRaw = p.createdAt ?? p.created_at;
+                        const createdLabel = formatCatalogCreatedAt(createdRaw);
+                        return (
                         <div key={p.id} className="mc-product-card" onClick={() => handleEditClick(p)}>
                             <div className="mc-pc-header">
                                 <div className="mc-pc-icon"><Edit3 size={18} /></div>
@@ -1045,10 +1105,20 @@ export default function MasterCatalog() {
                             <div className="mc-pc-body">
                                 <h3 className="mc-pc-name">{p.name}</h3>
                                 <p className="mc-pc-sku">{p.sku || 'No SKU'}</p>
+                                {createdLabel ? (
+                                    <p className="mc-pc-created" title={String(createdRaw)}>
+                                        Created {createdLabel}
+                                    </p>
+                                ) : null}
                                 <div className="mc-pc-tags">
                                     <span className="mc-pc-tag">Product</span>
                                     <span className="mc-pc-tag">{p.unit || 'pcs'}</span>
                                     <span className="mc-pc-tag">{p.categoryName || '—'}</span>
+                                    {p.kmTypeValue != null && String(p.kmTypeValue).trim() !== '' && (
+                                        <span className="mc-pc-tag" title="KM type value">
+                                            KM {p.kmTypeValue}
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="mc-pc-footer">
                                     <span className="mc-pc-price">SAR {p.salePrice ?? 0}</span>
@@ -1058,7 +1128,8 @@ export default function MasterCatalog() {
                                 </div>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -1420,6 +1491,9 @@ export default function MasterCatalog() {
                                                 <tr>
                                                     <th>NAME</th>
                                                     <th>SKU</th>
+                                                    <th>KM TYPE</th>
+                                                    <th>VAT MODE</th>
+                                                    <th>CREATED</th>
                                                     <th>DEPARTMENT</th>
                                                     <th>CATEGORY</th>
                                                     <th>STATUS</th>
@@ -1431,6 +1505,23 @@ export default function MasterCatalog() {
                                                     <tr key={item.id}>
                                                         <td>{item.name || '—'}</td>
                                                         <td className="mono">{item.sku || '—'}</td>
+                                                        <td className="mono">
+                                                            {group.entityType === 'product' &&
+                                                            item.kmTypeValue != null &&
+                                                            String(item.kmTypeValue).trim() !== ''
+                                                                ? item.kmTypeValue
+                                                                : '—'}
+                                                        </td>
+                                                        <td className="mono">
+                                                            {group.entityType === 'service' &&
+                                                            (item.vatMode != null || item.vat_mode != null) &&
+                                                            String(item.vatMode ?? item.vat_mode).trim() !== ''
+                                                                ? String(item.vatMode ?? item.vat_mode)
+                                                                : '—'}
+                                                        </td>
+                                                        <td className="mono" style={{ whiteSpace: 'nowrap', fontSize: '0.8125rem' }}>
+                                                            {formatCatalogCreatedAt(item.createdAt ?? item.created_at) || '—'}
+                                                        </td>
                                                         <td>{item.department?.name || '—'}</td>
                                                         <td>{item.category?.name || '—'}</td>
                                                         <td>
@@ -1496,6 +1587,7 @@ export default function MasterCatalog() {
                             <th>PRODUCT</th>
                             <th>CATEGORY</th>
                             <th>UNIT</th>
+                            <th>KM TYPE</th>
                             <th>SUPPLIERS</th>
                             <th>AVAILABILITY</th>
                         </tr>
@@ -1511,13 +1603,18 @@ export default function MasterCatalog() {
                                 </td>
                                 <td>{p.categoryName || '—'}</td>
                                 <td>{p.unit || 'pcs'}</td>
+                                <td className="mono">
+                                    {p.kmTypeValue != null && String(p.kmTypeValue).trim() !== ''
+                                        ? p.kmTypeValue
+                                        : '—'}
+                                </td>
                                 <td className="mc-muted">No suppliers</td>
                                 <td><span className="mc-av-status red">No Stock</span></td>
                             </tr>
                         ))}
                         {!loading && filteredAvailability.length === 0 && (
                             <tr>
-                                <td colSpan={5} className="mc-muted" style={{ textAlign: 'center', padding: '24px' }}>
+                                <td colSpan={6} className="mc-muted" style={{ textAlign: 'center', padding: '24px' }}>
                                     {searchQuery ? `No products matching "${searchQuery}"` : 'No products yet'}
                                 </td>
                             </tr>
@@ -1565,7 +1662,10 @@ export default function MasterCatalog() {
             </div>
 
             <div className="mc-services-grid">
-                {(loading ? [] : filteredServices).map(p => (
+                {(loading ? [] : filteredServices).map((p) => {
+                    const createdRaw = p.createdAt ?? p.created_at;
+                    const createdLabel = formatCatalogCreatedAt(createdRaw);
+                    return (
                     <div key={p.id} className="mc-service-card">
                         <div className="mc-sc-header">
                             <div className="mc-sc-icon"><Edit3 size={16} /></div>
@@ -1574,7 +1674,20 @@ export default function MasterCatalog() {
                         <div className="mc-sc-body">
                             <h4 className="mc-sc-name">{p.name}</h4>
                             <p className="mc-sc-sub">{p.sku || 'No SKU'}</p>
-                            <span className="mc-pc-tag">{p.categoryName || '—'}</span>
+                            {createdLabel ? (
+                                <p className="mc-pc-created" title={String(createdRaw)}>
+                                    Created {createdLabel}
+                                </p>
+                            ) : null}
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                                <span className="mc-pc-tag">{p.categoryName || '—'}</span>
+                                {(p.vatMode != null && String(p.vatMode).trim() !== '') ||
+                                (p.vat_mode != null && String(p.vat_mode).trim() !== '') ? (
+                                    <span className="mc-pc-tag" title="VAT mode">
+                                        {String(p.vatMode ?? p.vat_mode)}
+                                    </span>
+                                ) : null}
+                            </div>
                             <div className="mc-sc-price">Sale: SAR {p.sellingPrice ?? 0}</div>
                         </div>
                         <div className="mc-sc-footer">
@@ -1588,7 +1701,8 @@ export default function MasterCatalog() {
                             <Edit3 size={14} className="mc-sc-edit-icon" onClick={() => openEditService(p)} />
                         </div>
                     </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );
@@ -2105,6 +2219,47 @@ export default function MasterCatalog() {
                                 />
                             </div>
 
+                            <div className="mc-form-group">
+                                <label>Category</label>
+                                <input
+                                    type="text"
+                                    readOnly
+                                    disabled
+                                    value={
+                                        editingService.categoryName?.trim()
+                                            ? editingService.categoryName
+                                            : editingService.categoryId
+                                              ? `Category ID ${editingService.categoryId}`
+                                              : '—'
+                                    }
+                                />
+                            </div>
+
+                            <div className="mc-form-row">
+                                <div className="mc-form-group">
+                                    <label>VAT mode</label>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        disabled
+                                        value={String(editingService.vatMode ?? editingService.vat_mode ?? '') || '—'}
+                                    />
+                                </div>
+                                <div className="mc-form-group">
+                                    <label>Created</label>
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        disabled
+                                        value={
+                                            formatCatalogCreatedAt(
+                                                editingService.createdAt ?? editingService.created_at,
+                                            ) || '—'
+                                        }
+                                    />
+                                </div>
+                            </div>
+
                             <div className="mc-form-row">
                                 <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                     <input
@@ -2288,6 +2443,18 @@ export default function MasterCatalog() {
                                         onChange={(e) => setEditingProduct({...editingProduct, maxCorpPrice: e.target.value})}
                                     />
                                 </div>
+                            </div>
+
+                            <div className="mc-form-group">
+                                <label>KM type value (optional)</label>
+                                <input
+                                    type="number"
+                                    placeholder="Leave empty if not used"
+                                    value={editingProduct.kmTypeValue ?? ''}
+                                    onChange={(e) =>
+                                        setEditingProduct({ ...editingProduct, kmTypeValue: e.target.value })
+                                    }
+                                />
                             </div>
 
                             <div className="mc-form-group">
@@ -2508,6 +2675,16 @@ export default function MasterCatalog() {
                                         onChange={(e) => setNewProduct({...newProduct, maxCorpPrice: e.target.value})}
                                     />
                                 </div>
+                            </div>
+
+                            <div className="mc-form-group">
+                                <label>KM type value (optional)</label>
+                                <input
+                                    type="number"
+                                    placeholder="Leave empty if not used"
+                                    value={newProduct.kmTypeValue ?? ''}
+                                    onChange={(e) => setNewProduct({ ...newProduct, kmTypeValue: e.target.value })}
+                                />
                             </div>
 
                             <div className="mc-form-group">

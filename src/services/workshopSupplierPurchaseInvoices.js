@@ -112,10 +112,34 @@ function resolveFlatDueDateIso(p, duePayload, issueNorm) {
     return `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, '0')}-${String(due.getDate()).padStart(2, '0')}`;
 }
 
+/**
+ * GET /workshop-staff/supplier-purchase-invoices/:id — unwrap nested invoice object from various API envelopes.
+ * Workshop Nest handler returns `{ success: true, purchaseInvoice: formatWorkshopSupplierPurchaseInvoice(...) }`.
+ */
+export function unwrapWorkshopStaffSupplierPurchaseInvoiceGet(res) {
+    if (!res || typeof res !== 'object') return null;
+    if (res.purchaseInvoice != null && typeof res.purchaseInvoice === 'object') {
+        return res.purchaseInvoice;
+    }
+    const inner =
+        res.invoice ??
+        res.purchaseInvoice ??
+        res.purchase_invoice ??
+        res.data?.invoice ??
+        res.data?.purchaseInvoice ??
+        res.data?.purchase_invoice ??
+        (res.data && typeof res.data === 'object' && !Array.isArray(res.data) && (res.data.id ?? res.data._id) != null
+            ? res.data
+            : null);
+    if (inner && typeof inner === 'object') return inner;
+    if (res.id != null || res._id != null) return res;
+    return null;
+}
+
 export function unwrapWorkshopSupplierPurchaseInvoiceList(res) {
     if (!res || typeof res !== 'object') return [];
-    /** Primary: `invoices`. Legacy: `purchaseInvoices`. */
-    const keys = ['invoices', 'purchaseInvoices', 'data', 'items', 'rows', 'results'];
+    /** Primary: `invoices`. Legacy: `purchaseInvoices` / workshop `purchaseInvoices`. */
+    const keys = ['invoices', 'purchaseInvoices', 'purchase_invoices', 'data', 'items', 'rows', 'results'];
     for (const k of keys) {
         if (Array.isArray(res[k])) return res[k];
         if (Array.isArray(res?.data?.[k])) return res.data[k];
@@ -236,16 +260,49 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
     const sub = money2(
         inv.subtotalExVat ?? inv.subtotal_ex_vat ?? inv.subtotalExcludingVat ?? inv.subtotal ?? 0,
     );
-    const vat = money2(inv.totalVat ?? inv.total_vat ?? inv.vatAmount ?? inv.vat_amount ?? 0);
-    const grand = money2(inv.grandTotal ?? inv.grand_total ?? inv.totalInclVat ?? inv.total ?? 0);
-    const paid = money2(inv.amountPaid ?? inv.amount_paid ?? 0);
-    const balance = money2(
-        inv.balanceDue ?? inv.balance_due ?? Math.max(0, grand - paid),
-    );
     const items = Array.isArray(inv.items) ? inv.items : Array.isArray(inv.lines) ? inv.lines : [];
+    let vat = money2(
+        inv.taxAmount ??
+            inv.tax_amount ??
+            inv.totalVat ??
+            inv.total_vat ??
+            inv.taxTotal ??
+            inv.tax_total ??
+            inv.vatAmount ??
+            inv.vat_amount ??
+            0,
+    );
+    if (vat === 0 && items.length > 0) {
+        const sumLineTax = items.reduce(
+            (s, line) =>
+                s +
+                money2(
+                    line?.taxAmount ??
+                        line?.tax_amount ??
+                        line?.vatAmount ??
+                        line?.vat_amount ??
+                        line?.lineVat ??
+                        line?.line_vat ??
+                        0,
+                ),
+            0,
+        );
+        if (sumLineTax > 0) vat = sumLineTax;
+    }
+    const grand = money2(inv.grandTotal ?? inv.grand_total ?? inv.totalInclVat ?? inv.total ?? 0);
+    const paid = money2(inv.paidAmount ?? inv.amountPaid ?? inv.amount_paid ?? 0);
+    const balance = money2(
+        inv.balance ?? inv.balanceDue ?? inv.balance_due ?? Math.max(0, grand - paid),
+    );
     const stockUpdated =
-        Boolean(inv.stockUpdated ?? inv.stock_updated ?? inv.stockReceived ?? inv.stock_received) ||
-        status === 'approved';
+        Boolean(
+            inv.stockAppliedAt ??
+                inv.stock_applied_at ??
+                inv.stockUpdated ??
+                inv.stock_updated ??
+                inv.stockReceived ??
+                inv.stock_received,
+        ) || status === 'approved';
     const { quantity_label, unit_label } = workshopInvoiceQtyUnitSummary(items);
     const { product_label } = workshopInvoiceProductNameSummary(items);
     return {
@@ -256,9 +313,15 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         vendor_name: vendorName,
         date: (inv.issueDate ?? inv.issue_date ?? inv.createdAt ?? inv.created_at ?? '').toString().slice(0, 10),
         due_date: (inv.dueDate ?? inv.due_date ?? '').toString().slice(0, 10) || null,
-        vendor_invoice_ref: inv.vendorInvoiceRef ?? inv.vendor_invoice_ref ?? inv.vendorRef ?? inv.ref_number ?? '',
-        description: inv.description ?? '',
-        notes: inv.notes ?? '',
+        vendor_invoice_ref:
+            inv.vendorInvoiceRef ??
+            inv.vendor_invoice_ref ??
+            inv.vendorRef ??
+            inv.refNumber ??
+            inv.ref_number ??
+            '',
+        description: inv.description ?? inv.title ?? '',
+        notes: inv.notes ?? inv.internalNotes ?? inv.internal_notes ?? '',
         subtotal: sub,
         vat_amount: vat,
         grand_total: grand,

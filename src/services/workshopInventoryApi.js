@@ -16,6 +16,7 @@ function qs(params) {
  * previousQty is optional; when sent it must match resolved on-hand (inventory row or else opening) for optimistic locking.
  *
  * ── POST /workshop-catalog/branches/:branchId/products/:productId/inventory-adjustments ──
+ *   Optional query: `workshopId` (same as PATCH critical / branch lists when impersonating).
  *   Body:
  *     {
  *       previousQty?: number,
@@ -58,16 +59,16 @@ function qs(params) {
  *   FE currently only POSTs when a single branch is selected.
  */
 
-export function postBranchProductInventoryAdjustment(branchId, productId, body) {
+export function postBranchProductInventoryAdjustment(branchId, productId, body, { workshopId, signal } = {}) {
     return apiFetch(
-        `/workshop-catalog/branches/${encodeURIComponent(branchId)}/products/${encodeURIComponent(productId)}/inventory-adjustments`,
-        { method: 'POST', body: JSON.stringify(body) },
+        `/workshop-catalog/branches/${encodeURIComponent(branchId)}/products/${encodeURIComponent(productId)}/inventory-adjustments${qs({ workshopId })}`,
+        { method: 'POST', body: JSON.stringify(body), signal },
     );
 }
 
-export function getBranchProductInventoryAdjustments(branchId, productId, { limit = 50, offset = 0, signal } = {}) {
+export function getBranchProductInventoryAdjustments(branchId, productId, { limit = 50, offset = 0, workshopId, signal } = {}) {
     return apiFetch(
-        `/workshop-catalog/branches/${encodeURIComponent(branchId)}/products/${encodeURIComponent(productId)}/inventory-adjustments${qs({ limit, offset })}`,
+        `/workshop-catalog/branches/${encodeURIComponent(branchId)}/products/${encodeURIComponent(productId)}/inventory-adjustments${qs({ limit, offset, workshopId })}`,
         { signal },
     );
 }

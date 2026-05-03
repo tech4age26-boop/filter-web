@@ -398,6 +398,7 @@ export const getInvoices = ({ workshopId, limit, offset } = {}) =>
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 
+/** Newest first (`createdAt` desc). Rows include `categoryId`, `categoryName`, `isPriceEditable`, `vatMode`, `createdAt` (ISO-8601), etc. */
 export const getServices = () =>
     apiFetch('/super-admin/services');
 
