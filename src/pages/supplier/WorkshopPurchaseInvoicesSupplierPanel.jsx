@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, CheckCircle, X, Eye, Pencil } from 'lucide-react';
+import { RefreshCw, CheckCircle, X, Eye, Pencil, Truck, PackageCheck } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import {
     approveSupplierWorkshopPurchaseInvoice,
     getSupplierWorkshopPurchaseInvoice,
     listSupplierWorkshopPurchaseInvoices,
+    patchSupplierWorkshopPurchaseInvoiceStatus,
     rejectSupplierWorkshopPurchaseInvoice,
 } from '../../services/supplierApi';
 import {
@@ -19,9 +20,15 @@ import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurch
 /**
  * Workshop → supplier purchase invoices (list, view, workshop-style PI edit via PATCH, approve, reject).
  * Used on the dedicated nav page and embedded on Sales Invoices (AR).
+ * @param {string|undefined} pipelineStatusFilter When set (including ""), list filter is controlled by parent (Order Queue pills). Omit on Finance pages.
  */
-export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page' }) {
+export default function WorkshopPurchaseInvoicesSupplierPanel({
+    variant = 'page',
+    pipelineStatusFilter,
+    onListMutated,
+}) {
     const embedded = variant === 'embedded';
+    const parentControlsFilter = pipelineStatusFilter !== undefined;
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -37,6 +44,8 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
     const [editFetchPayload, setEditFetchPayload] = useState(null);
     const [editError, setEditError] = useState('');
 
+    const effectiveListStatus = parentControlsFilter ? pipelineStatusFilter : statusFilter;
+
     const load = useCallback(async () => {
         setLoading(true);
         setError('');
@@ -44,7 +53,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
             const res = await listSupplierWorkshopPurchaseInvoices({
                 limit: 100,
                 offset: 0,
-                ...(statusFilter ? { status: statusFilter } : {}),
+                ...(effectiveListStatus ? { status: effectiveListStatus } : {}),
             });
             const list = unwrapWorkshopSupplierPurchaseInvoiceList(res);
             setRows(list.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean));
@@ -54,7 +63,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
         } finally {
             setLoading(false);
         }
-    }, [statusFilter]);
+    }, [effectiveListStatus, parentControlsFilter]);
 
     useEffect(() => {
         load();
@@ -96,8 +105,41 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
         try {
             await approveSupplierWorkshopPurchaseInvoice(id);
             await load();
+            onListMutated?.();
         } catch (e) {
             setError(e.message || 'Approve failed.');
+        } finally {
+            setActionId(null);
+        }
+    };
+
+    const nextFulfillmentStatus = (current) => {
+        const s = String(current || '').toLowerCase();
+        if (s === 'approved') return 'processing';
+        if (s === 'processing') return 'ready_to_dispatch';
+        if (s === 'ready_to_dispatch') return 'on_the_way';
+        if (s === 'on_the_way') return 'delivered';
+        return null;
+    };
+
+    const fulfillmentButtonLabel = (current) => {
+        const n = nextFulfillmentStatus(current);
+        if (n === 'processing') return 'Start processing';
+        if (n === 'ready_to_dispatch') return 'Ready to dispatch';
+        if (n === 'on_the_way') return 'Dispatched / On way';
+        if (n === 'delivered') return 'Mark delivered';
+        return null;
+    };
+
+    const handleAdvanceFulfillment = async (id, nextStatus) => {
+        setActionId(`adv-${id}`);
+        setError('');
+        try {
+            await patchSupplierWorkshopPurchaseInvoiceStatus(id, { status: nextStatus });
+            await load();
+            onListMutated?.();
+        } catch (e) {
+            setError(e.message || 'Status update failed.');
         } finally {
             setActionId(null);
         }
@@ -113,6 +155,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
             setRejectOpen(null);
             setRejectReason('');
             await load();
+            onListMutated?.();
         } catch (e) {
             setError(e.message || 'Reject failed.');
         } finally {
@@ -161,11 +204,13 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                         </h3>
                         {embedded ? (
                             <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                Workshops send these to you. Edit details while pending, then approve or reject.
+                                Workshops send these to you. Approve applies stock; then advance processing → dispatch →
+                                delivered.
                             </p>
                         ) : null}
                     </div>
                     <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {!parentControlsFilter ? (
                         <select
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value)}
@@ -180,8 +225,17 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                             <option value="">All statuses</option>
                             <option value="pending">Pending</option>
                             <option value="approved">Approved</option>
+                            <option value="processing">Processing</option>
+                            <option value="ready_to_dispatch">Ready to dispatch</option>
+                            <option value="on_the_way">On the way</option>
+                            <option value="delivered">Delivered</option>
                             <option value="rejected">Rejected</option>
                         </select>
+                        ) : (
+                            <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                                Filter: {effectiveListStatus ? effectiveListStatus.replace(/_/g, ' ') : 'All'}
+                            </span>
+                        )}
                         <button type="button" className="btn-portal" onClick={load} disabled={loading}>
                             <RefreshCw size={14} /> {loading ? 'Loading…' : 'Refresh'}
                         </button>
@@ -215,7 +269,9 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                                     </td>
                                 </tr>
                             ) : (
-                                rows.map((r) => (
+                                rows.map((r) => {
+                                    const nextSt = nextFulfillmentStatus(r.status);
+                                    return (
                                     <tr key={r.id}>
                                         <td>
                                             <strong style={{ color: '#EA580C' }}>{r.invoice_number}</strong>
@@ -245,10 +301,16 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                                         <td>
                                             <span
                                                 className={`ws-badge ws-badge--${
-                                                    r.status === 'approved' ? 'green' : r.status === 'rejected' ? 'red' : 'yellow'
+                                                    r.status === 'rejected'
+                                                        ? 'red'
+                                                        : r.status === 'pending'
+                                                          ? 'yellow'
+                                                          : r.status === 'delivered' || r.status === 'approved'
+                                                            ? 'green'
+                                                            : 'blue'
                                                 }`}
                                             >
-                                                {r.status}
+                                                {r.status === 'on_the_way' ? 'On the way' : (r.status || '').replace(/_/g, ' ')}
                                             </span>
                                         </td>
                                         <td>
@@ -299,7 +361,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                                                                 cursor: actionId ? 'not-allowed' : 'pointer',
                                                                 opacity: actionId ? 0.6 : 1,
                                                             }}
-                                                            title="Approve (apply stock for product lines)"
+                                                            title="Approve — applies branch stock, then you can run fulfillment steps"
                                                         >
                                                             <CheckCircle size={14} />
                                                         </button>
@@ -325,10 +387,44 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({ variant = 'page'
                                                         </button>
                                                     </>
                                                 )}
+                                                {nextSt && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleAdvanceFulfillment(r.id, nextSt)}
+                                                        disabled={actionId !== null}
+                                                        style={{
+                                                            padding: '6px 8px',
+                                                            borderRadius: 6,
+                                                            border: 'none',
+                                                            background: '#0F172A',
+                                                            color: '#fff',
+                                                            cursor: actionId ? 'not-allowed' : 'pointer',
+                                                            opacity: actionId ? 0.6 : 1,
+                                                            fontSize: '0.65rem',
+                                                            fontWeight: 700,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: 4,
+                                                            maxWidth: 140,
+                                                            lineHeight: 1.1,
+                                                        }}
+                                                        title={fulfillmentButtonLabel(r.status)}
+                                                    >
+                                                        {nextSt === 'delivered' ? (
+                                                            <PackageCheck size={12} />
+                                                        ) : nextSt === 'on_the_way' ? (
+                                                            <Truck size={12} />
+                                                        ) : (
+                                                            <CheckCircle size={12} />
+                                                        )}
+                                                        {fulfillmentButtonLabel(r.status)}
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
-                                ))
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>

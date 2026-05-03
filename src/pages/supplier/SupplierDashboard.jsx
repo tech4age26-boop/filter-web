@@ -1,5 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Package, FileText, BarChart3, DollarSign, Warehouse, AlertTriangle, Eye, ShoppingCart, ChevronRight } from 'lucide-react';
+import {
+    Package,
+    FileText,
+    BarChart3,
+    DollarSign,
+    Warehouse,
+    AlertTriangle,
+    Eye,
+    ShoppingCart,
+    ChevronRight,
+    Users,
+    LayoutGrid,
+    MapPin,
+    ClipboardList,
+} from 'lucide-react';
 import {
     getSupplierDashboard,
     getSupplierReportsQuickSummary,
@@ -21,6 +35,18 @@ const ORDER_SUMMARY_STAGES = [
     { id: 'delivered', label: 'Delivered', c: 'ws-badge--green' },
 ];
 
+/** Workshop PI `status` → same pipeline bucket as branch POs (Order Queue). */
+function wpiStatusToPipelineId(status) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'pending') return 'pending_acceptance';
+    if (s === 'approved') return 'accepted';
+    if (s === 'processing') return 'processing';
+    if (s === 'ready_to_dispatch') return 'ready_to_dispatch';
+    if (s === 'on_the_way') return 'dispatched';
+    if (s === 'delivered') return 'delivered';
+    return null;
+}
+
 function workshopInvoiceStatusBadge(status) {
     const s = String(status || '').toLowerCase();
     if (s === 'approved') return 'ws-badge--green';
@@ -33,6 +59,10 @@ export default function SupplierDashboard({ onTabChange }) {
     const [apiError, setApiError] = useState('');
     const [dashboardData, setDashboardData] = useState(null);
     const [recentWorkshopInvoices, setRecentWorkshopInvoices] = useState([]);
+    /** Server `total` from WPI list — used when dashboard JSON omits WPI counts (older APIs). */
+    const [supplierWpiListTotal, setSupplierWpiListTotal] = useState(null);
+    /** Normalized WPI rows for pipeline counts (up to API limit). */
+    const [wpiRowsForPipeline, setWpiRowsForPipeline] = useState([]);
     const [cashTotal, setCashTotal] = useState(null);
     const [reportsPartialError, setReportsPartialError] = useState('');
 
@@ -48,14 +78,26 @@ export default function SupplierDashboard({ onTabChange }) {
     /** POs (Order Queue) + workshop purchase invoices (Finance → Workshop purchases). */
     const totalOrdersCount = dataReady
         ? (() => {
-              if (dashboardData.totalInboundOrderDocuments != null && dashboardData.totalInboundOrderDocuments !== '') {
-                  return Number(dashboardData.totalInboundOrderDocuments);
-              }
               const po = Number(dashboardData.totalPurchaseOrders ?? 0);
               const wpi = Number(dashboardData.totalWorkshopPurchaseInvoices ?? 0);
               const combined = po + wpi;
-              if (combined > 0) return combined;
-              return Number(dashboardData.reports?.summary?.totalOrders ?? 0);
+              const inboundRaw = dashboardData.totalInboundOrderDocuments;
+              const inbound =
+                  inboundRaw != null && inboundRaw !== ''
+                      ? Number(inboundRaw)
+                      : null;
+              const fromReports = Number(dashboardData.reports?.summary?.totalOrders ?? 0);
+              let fromDashboard = Number.isFinite(combined) ? combined : 0;
+              if (inbound != null && Number.isFinite(inbound)) {
+                  fromDashboard = Math.max(fromDashboard, inbound);
+              }
+              if (fromDashboard === 0 && Number.isFinite(fromReports) && fromReports > 0) {
+                  fromDashboard = fromReports;
+              }
+              if (supplierWpiListTotal != null && Number.isFinite(supplierWpiListTotal)) {
+                  return Math.max(fromDashboard, supplierWpiListTotal);
+              }
+              return fromDashboard;
           })()
         : null;
 
@@ -70,19 +112,35 @@ export default function SupplierDashboard({ onTabChange }) {
         dataReady && cashTotal != null ? Number(cashTotal) : dataReady ? 0 : null;
 
     const orderSummary = ORDER_SUMMARY_STAGES.map((s) => {
-        if (!dataReady || !dashboardData?.orderStatusSummary) {
-            return { ...s, count: loading ? '…' : apiError ? '—' : 0 };
+        if (loading && !apiError) {
+            return { ...s, count: '…' };
         }
-        const source = dashboardData.orderStatusSummary;
-        const countMap = {
-            pending_acceptance: source.pending ?? 0,
-            accepted: source.accepted ?? 0,
-            processing: source.processing ?? 0,
-            ready_to_dispatch: source.readyToDeliver ?? 0,
-            dispatched: source.onTheWay ?? 0,
-            delivered: source.delivered ?? 0,
-        };
-        return { ...s, count: countMap[s.id] ?? 0 };
+        if (apiError) {
+            return { ...s, count: '—' };
+        }
+        const source = dashboardData?.orderStatusSummary;
+        const countMap = source
+            ? {
+                  pending_acceptance: Number(source.pending ?? 0),
+                  accepted: Number(source.accepted ?? 0),
+                  processing: Number(source.processing ?? 0),
+                  ready_to_dispatch: Number(source.readyToDeliver ?? 0),
+                  dispatched: Number(source.onTheWay ?? 0),
+                  delivered: Number(source.delivered ?? 0),
+              }
+            : {
+                  pending_acceptance: 0,
+                  accepted: 0,
+                  processing: 0,
+                  ready_to_dispatch: 0,
+                  dispatched: 0,
+                  delivered: 0,
+              };
+        const po = countMap[s.id] ?? 0;
+        const wpi = Array.isArray(wpiRowsForPipeline)
+            ? wpiRowsForPipeline.filter((r) => wpiStatusToPipelineId(r?.status) === s.id).length
+            : 0;
+        return { ...s, count: po + wpi };
     });
 
     const criticalStock =
@@ -103,9 +161,24 @@ export default function SupplierDashboard({ onTabChange }) {
         return typeof val === 'number' ? formatCurrency(val, currency) : String(val);
     };
 
+    const formatCount = (n) => {
+        if (loading) return '…';
+        if (apiError) return '—';
+        if (n == null || !Number.isFinite(Number(n))) return '—';
+        return String(Number(n));
+    };
+
+    const totalProducts = dataReady ? Number(dashboardData.totalSupplierProducts ?? 0) : null;
+    const totalStaff = dataReady ? Number(dashboardData.totalSupplierStaff ?? 0) : null;
+    const totalLocations = dataReady ? Number(dashboardData.totalSupplierLocations ?? 0) : null;
+    const openInvoicesCount = dataReady ? Number(dashboardData.openSalesInvoicesCount ?? 0) : null;
+    const stockMatrixRows = dataReady ? Number(dashboardData.totalSupplierStockRows ?? 0) : null;
+    const criticalAlertCount = dataReady ? Number(dashboardData.criticalStockAlerts?.count ?? 0) : null;
+
     const kpis = [
         {
-            label: 'Total orders',
+            key: 'wpi',
+            label: 'Total workshop purchases',
             value: loading ? '…' : apiError ? '—' : String(totalOrdersCount ?? 0),
             sub: 'POs + workshop purchase invoices',
             subAction: () => onTabChange('order_queue'),
@@ -113,6 +186,7 @@ export default function SupplierDashboard({ onTabChange }) {
             c: 'ws-kpi-icon--blue',
         },
         {
+            key: 'ar',
             label: 'Accounts receivable',
             value: formatKpiValue(totalAR),
             sub: 'Unpaid sales invoices',
@@ -121,6 +195,7 @@ export default function SupplierDashboard({ onTabChange }) {
             c: 'ws-kpi-icon--yellow',
         },
         {
+            key: 'ap',
             label: 'Outstanding invoices',
             value: formatKpiValue(totalAP),
             sub: 'Open balance owed to you',
@@ -129,12 +204,67 @@ export default function SupplierDashboard({ onTabChange }) {
             c: 'ws-kpi-icon--purple',
         },
         {
+            key: 'cash',
             label: 'Cash & Bank',
             value: formatKpiValue(totalCash),
             sub: 'Ledger cash + bank',
             subAction: () => onTabChange('cash_bank'),
             icon: DollarSign,
             c: 'ws-kpi-icon--green',
+        },
+        {
+            key: 'catalog',
+            label: 'Product catalog',
+            value: formatCount(totalProducts),
+            sub: 'Your supplier products',
+            subAction: () => onTabChange('catalog'),
+            icon: LayoutGrid,
+            c: 'ws-kpi-icon--blue',
+        },
+        {
+            key: 'staff',
+            label: 'Staff',
+            value: formatCount(totalStaff),
+            sub: 'Staff & roles (linked workshop)',
+            subAction: () => onTabChange('employees'),
+            icon: Users,
+            c: 'ws-kpi-icon--purple',
+        },
+        {
+            key: 'locations',
+            label: 'Warehouse locations',
+            value: formatCount(totalLocations),
+            sub: 'Stock inventory locations',
+            subAction: () => onTabChange('stock'),
+            icon: MapPin,
+            c: 'ws-kpi-icon--yellow',
+        },
+        {
+            key: 'stockrows',
+            label: 'Stock lines',
+            value: formatCount(stockMatrixRows),
+            sub: 'Product × location rows',
+            subAction: () => onTabChange('stock'),
+            icon: Warehouse,
+            c: 'ws-kpi-icon--green',
+        },
+        {
+            key: 'openinv',
+            label: 'Open sales invoices',
+            value: formatCount(openInvoicesCount),
+            sub: 'Count of unpaid / partial AR',
+            subAction: () => onTabChange('sales_invoices'),
+            icon: ClipboardList,
+            c: 'ws-kpi-icon--blue',
+        },
+        {
+            key: 'crit',
+            label: 'Critical stock alerts',
+            value: formatCount(criticalAlertCount),
+            sub: 'Workshop alerts — low stock',
+            subAction: () => onTabChange('stock_alerts'),
+            icon: AlertTriangle,
+            c: 'ws-kpi-icon--purple',
         },
     ];
 
@@ -147,7 +277,7 @@ export default function SupplierDashboard({ onTabChange }) {
             try {
                 const [dashResult, wpiResult, reportsResult, cashResult] = await Promise.allSettled([
                     getSupplierDashboard(),
-                    listSupplierWorkshopPurchaseInvoices({ limit: 10, offset: 0 }),
+                    listSupplierWorkshopPurchaseInvoices({ limit: 500, offset: 0 }),
                     getSupplierReportsQuickSummary(),
                     listSupplierCashBankAccounts(),
                 ]);
@@ -159,6 +289,8 @@ export default function SupplierDashboard({ onTabChange }) {
                     setApiError(dashResult.reason?.message || 'Failed to load dashboard.');
                     setDashboardData(null);
                     setRecentWorkshopInvoices([]);
+                    setWpiRowsForPipeline([]);
+                    setSupplierWpiListTotal(null);
                     setCashTotal(null);
                     return;
                 }
@@ -183,15 +315,22 @@ export default function SupplierDashboard({ onTabChange }) {
                     reports: reportsRes,
                 });
                 const wpiList = unwrapWorkshopSupplierPurchaseInvoiceList(wpiRes ?? {});
-                setRecentWorkshopInvoices(
-                    wpiList.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean),
-                );
+                const wpiNorm = wpiList.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean);
+                setWpiRowsForPipeline(wpiNorm);
+                setRecentWorkshopInvoices(wpiNorm.slice(0, 10));
+                if (wpiRes && typeof wpiRes === 'object' && wpiRes.total != null) {
+                    setSupplierWpiListTotal(Number(wpiRes.total));
+                } else {
+                    setSupplierWpiListTotal(null);
+                }
             } catch (err) {
                 if (!cancelled) {
                     console.error('Supplier dashboard load failed:', err);
                     setApiError(err?.message || 'Failed to load dashboard.');
                     setDashboardData(null);
                     setRecentWorkshopInvoices([]);
+                    setWpiRowsForPipeline([]);
+                    setSupplierWpiListTotal(null);
                     setCashTotal(null);
                 }
             } finally {
@@ -245,7 +384,7 @@ export default function SupplierDashboard({ onTabChange }) {
             ) : null}
             {loading && !apiError ? (
                 <>
-                    <ShimmerKpiGrid cards={4} />
+                    <ShimmerKpiGrid cards={10} />
                     <ShimmerOrderStatusBar pillCount={ORDER_SUMMARY_STAGES.length} />
                 </>
             ) : (
@@ -255,7 +394,7 @@ export default function SupplierDashboard({ onTabChange }) {
                         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 20 }}
                     >
                         {kpis.map((k) => (
-                            <div key={k.label} className="ws-kpi-card">
+                            <div key={k.key} className="ws-kpi-card">
                                 <div>
                                     <p className="ws-kpi-label">{k.label}</p>
                                     <p className="ws-kpi-value">{k.value}</p>
@@ -311,7 +450,7 @@ export default function SupplierDashboard({ onTabChange }) {
                                     whiteSpace: 'nowrap',
                                 }}
                             >
-                                Order status summary (purchase orders)
+                                Order status (branch POs + workshop purchases)
                             </p>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                                 {orderSummary.map((s) => (
