@@ -949,6 +949,52 @@ function RawObjectBody({ data }) {
     );
 }
 
+/** Super-admin approval queue: corporate master-catalog price quotation line (unified approvals detail). */
+function CorporatePriceQuotationBody({ data }) {
+    const row = data?.quotation && typeof data.quotation === 'object' ? { ...data, ...data.quotation } : data;
+    const ca = row?.corporateAccount ?? data?.corporateAccount ?? {};
+    return (
+        <>
+            <Section title="Quotation line">
+                <KVGrid>
+                    <Field label="ID" kind="id" value={row.id} />
+                    <Field label="Status" value={row.status} />
+                    <Field label="Item type" value={row.itemType} />
+                    <Field label="Name" value={row.name} />
+                    <Field label="SKU" value={row.sku} />
+                    <Field label="Unit" value={row.unit} />
+                    <Field label="Department" value={row.departmentName ?? row.department_name} />
+                    <Field label="Qty" kind="decimal" value={row.qty} />
+                    <Field label="Quotation price" kind="money" value={row.quotationPrice} />
+                    <Field label="Price ex VAT" kind="money" value={row.priceExcludingVat ?? row.price_excluding_vat} />
+                    <Field label="Price inc VAT" kind="money" value={row.priceIncludingVat ?? row.price_including_vat} />
+                    <Field label="Product ID" kind="id" value={row.productId ?? row.product_id} />
+                    <Field label="Service ID" kind="id" value={row.serviceId ?? row.service_id} />
+                    <Field label="Submission batch" kind="id" value={row.submissionBatchId ?? row.submission_batch_id} />
+                    <Field label="Submitted" kind="date" value={row.submittedAt ?? row.submitted_at} />
+                    <Field label="Reviewed" kind="date" value={row.reviewedAt ?? row.reviewed_at} />
+                    <Field label="Notes" value={row.notes} span2 />
+                    <Field label="Rejection reason" value={row.rejectionReason ?? row.rejection_reason} span2 />
+                </KVGrid>
+            </Section>
+
+            <Section title="Corporate account" empty={!ca || Object.keys(ca).length === 0 ? 'No corporate account block on this payload.' : undefined}>
+                {ca && Object.keys(ca).length > 0 && (
+                    <KVGrid>
+                        <Field label="Company" value={ca.companyName ?? ca.company_name} />
+                        <Field label="Contact person" value={ca.contactPerson ?? ca.contact_person} />
+                        <Field label="Credit limit" kind="money" value={ca.creditLimit ?? ca.credit_limit} />
+                        <Field label="Due balance" kind="money" value={ca.dueBalance ?? ca.due_balance} />
+                        <Field label="Corporate account ID" kind="id" value={row.corporateAccountId ?? row.corporate_account_id ?? ca.id} />
+                        <Field label="Workshop ID" kind="id" value={row.workshopId ?? row.workshop_id} />
+                        <Field label="Submitted by (user)" kind="id" value={row.submittedByUserId ?? row.submitted_by_user_id} />
+                    </KVGrid>
+                )}
+            </Section>
+        </>
+    );
+}
+
 function renderBody(entityType, data) {
     switch (entityType) {
         case 'workshop_registration':  return <WorkshopBody data={data} />;
@@ -959,6 +1005,9 @@ function renderBody(entityType, data) {
         case 'cashier_registration':   return <CashierRegistrationBody data={data} />;
         case 'workshop_portal_staff_registration':
             return <WorkshopPortalStaffRegistrationBody data={data} />;
+        case 'corporate_price_quotation':
+        case 'corporate_price_quotations':
+            return <CorporatePriceQuotationBody data={data} />;
         default:                       return <RawObjectBody data={data} />;
     }
 }

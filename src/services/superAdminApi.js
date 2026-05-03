@@ -157,6 +157,21 @@ export const postSuperAdminWhatsappWorkshopCredentialsWaMeLink = (params = {}) =
         body: JSON.stringify(buildWorkshopCredentialsWhatsappBody(params)),
     });
 
+// ─── Corporate price quotations (Super Admin token) ─────────────────────────
+
+/** List corporate price quotation lines (super-admin). */
+export const getSuperAdminCorporatePriceQuotations = (params = {}) =>
+    apiFetch(`/super-admin/corporate-price-quotations${qs(params)}`);
+
+export const approveSuperAdminCorporatePriceQuotation = (id) =>
+    apiFetch(`/super-admin/corporate-price-quotations/${encodeURIComponent(String(id))}/approve`, { method: 'POST' });
+
+export const rejectSuperAdminCorporatePriceQuotation = (id, body) =>
+    apiFetch(`/super-admin/corporate-price-quotations/${encodeURIComponent(String(id))}/reject`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+    });
+
 // ─── Branches ─────────────────────────────────────────────────────────────────
 
 export const getBranches = ({ workshopId } = {}) =>

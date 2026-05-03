@@ -258,7 +258,6 @@ export default function CorporateLayout() {
                 })()}
                 {quoteOpen && (
                     <QuotationModal
-                        branches={branches}
                         walletBalance={walletBalance}
                         onClose={() => setQuoteOpen(false)}
                         onSave={() => setQuoteOpen(false)}

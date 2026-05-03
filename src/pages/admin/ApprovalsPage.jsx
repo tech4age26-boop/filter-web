@@ -10,6 +10,10 @@ import {
     approve as approveApi,
     reject as rejectApi,
 } from '../../services/approvalsApi';
+import {
+    approveSuperAdminCorporatePriceQuotation,
+    rejectSuperAdminCorporatePriceQuotation,
+} from '../../services/superAdminApi';
 import Modal from '../../components/Modal';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
 
@@ -21,6 +25,7 @@ const ENTITY_TYPES = [
     { value: 'workshop_portal_staff_registration', label: 'Portal staff (workshop)' },
     { value: 'supplier_registration', label: 'Supplier' },
     { value: 'corporate_registration', label: 'Corporate' },
+    { value: 'corporate_price_quotation', label: 'Corporate price quotation' },
     { value: 'technician_registration', label: 'Technician' },
 ];
 
@@ -190,6 +195,13 @@ function buildMetaChips(item) {
                 'Team leader dept',
                 m.teamLeaderDepartment?.name ?? m.team_leader_department?.name,
             );
+            break;
+        case 'corporate_price_quotation':
+        case 'corporate_price_quotations':
+            push('Item', m.name);
+            push('SKU', m.sku);
+            push('Quote', m.quotationPrice != null ? `SAR ${m.quotationPrice}` : null);
+            push('Status', m.status ?? item.status);
             break;
         default:
             break;
@@ -386,10 +398,17 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         setItems((prev) => prev.filter((i) => i.id !== id));
     }, []);
 
+    const isCorporatePriceQuotation = (et) =>
+        et === 'corporate_price_quotation' || et === 'corporate_price_quotations';
+
     const handleApproveConfirm = async (item, remarks) => {
         setActionLoading(item.id);
         try {
-            await approveApi(item.entityType, item.id, remarks);
+            if (isCorporatePriceQuotation(item.entityType)) {
+                await approveSuperAdminCorporatePriceQuotation(item.id);
+            } else {
+                await approveApi(item.entityType, item.id, remarks);
+            }
             removeFromList(item.id);
             setApproveTarget(null);
             setDetailsTarget(null);
@@ -404,7 +423,11 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const handleRejectConfirm = async (item, reason) => {
         setActionLoading(item.id);
         try {
-            await rejectApi(item.entityType, item.id, reason);
+            if (isCorporatePriceQuotation(item.entityType)) {
+                await rejectSuperAdminCorporatePriceQuotation(item.id, { reason });
+            } else {
+                await rejectApi(item.entityType, item.id, reason);
+            }
             removeFromList(item.id);
             setRejectTarget(null);
             setDetailsTarget(null);
@@ -442,6 +465,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             case 'workshop':
             case 'supplier':
             case 'corporate':
+            case 'corporate_price_quotation':
+            case 'corporate_price_quotations':
             case 'technician':
             case 'branch_creation':
                 return <Building2 size={14} />;
