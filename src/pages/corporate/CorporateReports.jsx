@@ -120,8 +120,8 @@ function BookingHistoryView() {
         if (status) qs.set('status', status);
         if (startDate) qs.set('startDate', startDate);
         if (endDate) qs.set('endDate', endDate);
-        apiFetch(`/corporate/orders?${qs}`)
-            .then(d => setOrders(d.orders || d.data || d.bookings || []))
+        apiFetch(`/corporate/bookings?${qs}`)
+            .then((d) => setOrders(d.bookings || d.orders || d.data?.bookings || d.data || []))
             .catch(() => setOrders([]))
             .finally(() => setLoading(false));
     };

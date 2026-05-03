@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Building2, Wallet, Calendar, Tag, LogOut } from 'lucide-react';
+import { Building2, Wallet, Calendar, Tag, LogOut, Loader2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../components/Modal';
 import {
@@ -17,7 +17,20 @@ import MonthlyBilling from './corporate/MonthlyBilling';
 import CorporateWallet from './corporate/CorporateWallet';
 import CorporateReports from './corporate/CorporateReports';
 import { apiFetch } from '../services/api';
+import { fetchCorporateBranchCatalogPickerRows } from '../services/corporateBranchCatalog';
+import { fetchCorporateBranches } from '../services/corporateBookingsApi';
 import './workshop/Workshop.css';
+
+/** Map branch-catalog row → `departmentId` for order / booking lines. */
+function resolveDepartmentIdForCatalogRow(row, selectedDeptIds, defaultDeptId) {
+    const ids = (selectedDeptIds || []).map(String).filter(Boolean);
+    if (!ids.length) return '';
+    const rowDept = row?.departmentId != null && String(row.departmentId).trim() !== '' ? String(row.departmentId).trim() : '';
+    if (rowDept && ids.includes(rowDept)) return rowDept;
+    const d = defaultDeptId != null && String(defaultDeptId).trim() !== '' ? String(defaultDeptId).trim() : '';
+    if (d && ids.includes(d)) return d;
+    return ids[0];
+}
 
 export default function CorporateLayout() {
     const navigate = useNavigate();
@@ -55,7 +68,18 @@ export default function CorporateLayout() {
             .then(data => setWalletBalance(data.balance ?? data.walletBalance ?? data.wallet_balance ?? data.amount ?? 0))
             .catch(() => {});
     }, []);
-    const [bookingForm, setBookingForm] = useState({ vehicle_id: '', branch_id: '', department_ids: [], booking_date: '', notes: '', pay_from_wallet: false });
+    const [bookingForm, setBookingForm] = useState({
+        vehicle_id: '',
+        branch_id: '',
+        department_ids: [],
+        booking_date: '',
+        notes: '',
+        pay_from_wallet: false,
+        /** UI + API (MakePayment): { serviceId, departmentId, name } */
+        services: [],
+        /** UI + API: { productId, departmentId, qty, name } */
+        products: [],
+    });
     const [departments, setDepartments] = useState([]);
     const [depsLoading, setDepsLoading] = useState(false);
     const setBook = (k, v) => setBookingForm(f => ({ ...f, [k]: v }));
@@ -74,30 +98,174 @@ export default function CorporateLayout() {
     const [bookingLoading, setBookingLoading] = useState(false);
     const [bookingError, setBookingError] = useState('');
     const [validateResult, setValidateResult] = useState(null);
+    const [defaultItemDepartmentId, setDefaultItemDepartmentId] = useState('');
+    const [branchCatalogRows, setBranchCatalogRows] = useState([]);
+    const [branchCatalogLoading, setBranchCatalogLoading] = useState(false);
+    /** `null` = not loaded yet (use profile `branches`); `[]` = API returned no branches (still fallback to profile). */
+    const [bookingBranchOptions, setBookingBranchOptions] = useState(null);
 
-    const EMPTY_BOOKING = { vehicle_id: '', branch_id: '', department_ids: [], booking_date: '', notes: '', pay_from_wallet: false };
-    const resetBooking = () => { setBookingStep(1); setBookingError(''); setBookingForm(EMPTY_BOOKING); setValidateResult(null); };
-    const fmtDate = (dt) => dt ? dt.replace('T', ' ') + ':00' : '';
+    const EMPTY_BOOKING = {
+        vehicle_id: '',
+        branch_id: '',
+        department_ids: [],
+        booking_date: '',
+        notes: '',
+        pay_from_wallet: false,
+        services: [],
+        products: [],
+    };
+    const resetBooking = () => {
+        setBookingStep(1);
+        setBookingError('');
+        setBookingForm(EMPTY_BOOKING);
+        setValidateResult(null);
+        setDefaultItemDepartmentId('');
+        setBranchCatalogRows([]);
+        setBranchCatalogLoading(false);
+        setBookingBranchOptions(null);
+    };
+    const fmtDate = (dt) => (dt ? String(dt).replace('T', ' ') + ':00' : '');
+
+    useEffect(() => {
+        if (!bookingOpen) return undefined;
+        const ac = new AbortController();
+        fetchCorporateBranches({ signal: ac.signal })
+            .then((list) => {
+                if (!ac.signal.aborted && Array.isArray(list)) setBookingBranchOptions(list);
+            })
+            .catch(() => {
+                if (!ac.signal.aborted) setBookingBranchOptions([]);
+            });
+        return () => ac.abort();
+    }, [bookingOpen]);
+
+    useEffect(() => {
+        const ids = bookingForm.department_ids.map(String);
+        const idSet = new Set(ids);
+        setDefaultItemDepartmentId((prev) => {
+            if (ids.length === 0) return '';
+            if (prev && idSet.has(String(prev))) return String(prev);
+            return ids[0];
+        });
+        setBookingForm((f) => ({
+            ...f,
+            services: f.services.filter((s) => idSet.has(String(s.departmentId))),
+            products: f.products.filter((p) => idSet.has(String(p.departmentId))),
+        }));
+    }, [bookingForm.department_ids]);
+
+    useEffect(() => {
+        if (!bookingOpen || bookingStep !== 1 || !bookingForm.branch_id || bookingForm.department_ids.length === 0) {
+            setBranchCatalogRows([]);
+            setBranchCatalogLoading(false);
+            return undefined;
+        }
+        const ac = new AbortController();
+        (async () => {
+            setBranchCatalogLoading(true);
+            try {
+                const rows = await fetchCorporateBranchCatalogPickerRows(bookingForm.branch_id, {
+                    departmentIds: bookingForm.department_ids.map(String),
+                    signal: ac.signal,
+                });
+                if (!ac.signal.aborted) setBranchCatalogRows(rows);
+            } catch (e) {
+                if (e?.name === 'AbortError') return;
+                if (!ac.signal.aborted) setBranchCatalogRows([]);
+            } finally {
+                if (!ac.signal.aborted) setBranchCatalogLoading(false);
+            }
+        })();
+        return () => ac.abort();
+    }, [bookingOpen, bookingStep, bookingForm.branch_id, bookingForm.department_ids]);
+
+    const makePaymentServicesPayload = () =>
+        bookingForm.services.map(({ serviceId, departmentId }) => ({
+            serviceId: String(serviceId),
+            departmentId: String(departmentId),
+        }));
+
+    const makePaymentProductsPayload = () =>
+        bookingForm.products.map(({ productId, departmentId, qty }) => ({
+            productId: String(productId),
+            departmentId: String(departmentId),
+            qty: Math.max(1, Math.floor(Number(qty) || 1)),
+        }));
+
+    const handleAddCatalogRow = (row) => {
+        const deptId = resolveDepartmentIdForCatalogRow(row, bookingForm.department_ids, defaultItemDepartmentId);
+        if (!deptId) return;
+        if (row.itemType === 'service') {
+            const serviceId = String(row.id);
+            setBookingForm((f) => {
+                if (f.services.some((s) => s.serviceId === serviceId && s.departmentId === deptId)) return f;
+                return { ...f, services: [...f.services, { serviceId, departmentId: deptId, name: row.name }] };
+            });
+        } else {
+            const productId = String(row.id);
+            setBookingForm((f) => {
+                const idx = f.products.findIndex((p) => p.productId === productId && p.departmentId === deptId);
+                if (idx >= 0) {
+                    const next = f.products.map((p, i) =>
+                        i === idx ? { ...p, qty: Math.max(1, (Number(p.qty) || 1) + 1) } : p,
+                    );
+                    return { ...f, products: next };
+                }
+                return { ...f, products: [...f.products, { productId, departmentId: deptId, qty: 1, name: row.name }] };
+            });
+        }
+    };
 
     const handleValidate = async () => {
         if (!bookingForm.vehicle_id || !bookingForm.branch_id || !bookingForm.booking_date || bookingForm.department_ids.length === 0) return;
         setBookingLoading(true); setBookingError('');
         try {
             await apiFetch(`/corporate/branches/${bookingForm.branch_id}`, { method: 'POST' }).catch(() => {});
-            const result = await apiFetch('/corporate/order', { method: 'POST', body: JSON.stringify({ branchId: bookingForm.branch_id, vehicleId: bookingForm.vehicle_id, departmentIds: bookingForm.department_ids, bookedFor: fmtDate(bookingForm.booking_date), payFromWallet: bookingForm.pay_from_wallet, notes: bookingForm.notes }) });
+            /** PlaceOrderDto — validate only; services/products belong on `make_payment`. */
+            const result = await apiFetch('/corporate/order', {
+                method: 'POST',
+                body: JSON.stringify({
+                    branchId: String(bookingForm.branch_id),
+                    vehicleId: String(bookingForm.vehicle_id),
+                    departmentIds: bookingForm.department_ids.map(String),
+                    bookedFor: fmtDate(bookingForm.booking_date),
+                    payFromWallet: bookingForm.pay_from_wallet,
+                    notes: bookingForm.notes?.trim() ? bookingForm.notes.trim() : undefined,
+                }),
+            });
             setValidateResult(result);
             setBookingStep(2);
-        } catch (err) { setBookingError(err.message || 'Validation failed'); }
-        finally { setBookingLoading(false); }
+        } catch (err) {
+            setBookingError(err.message || 'Validation failed');
+        } finally {
+            setBookingLoading(false);
+        }
     };
 
     const handleConfirmBooking = async () => {
         setBookingLoading(true); setBookingError('');
         try {
-            await apiFetch('/corporate/make_payment', { method: 'POST', body: JSON.stringify({ branchId: bookingForm.branch_id, vehicleId: bookingForm.vehicle_id, departmentIds: bookingForm.department_ids, bookedFor: fmtDate(bookingForm.booking_date), payFromWallet: bookingForm.pay_from_wallet, notes: bookingForm.notes, paymentMethod: bookingForm.pay_from_wallet ? 'Wallet balance' : 'Cash', partialWalletPayment: false, saveAsDraft: false, services: [], products: [] }) });
-            setBookingOpen(false); resetBooking();
-        } catch (err) { setBookingError(err.message || 'Booking failed'); }
-        finally { setBookingLoading(false); }
+            const body = {
+                branchId: String(bookingForm.branch_id),
+                departmentIds: bookingForm.department_ids.map(String),
+                bookedFor: fmtDate(bookingForm.booking_date),
+                payFromWallet: bookingForm.pay_from_wallet,
+                notes: bookingForm.notes?.trim() ? bookingForm.notes.trim() : undefined,
+                paymentMethod: bookingForm.pay_from_wallet ? 'Wallet balance' : 'Cash at Branch',
+                partialWalletPayment: false,
+                saveAsDraft: false,
+                services: makePaymentServicesPayload(),
+                products: makePaymentProductsPayload(),
+            };
+            if (bookingForm.vehicle_id) body.vehicleId = String(bookingForm.vehicle_id);
+            await apiFetch('/corporate/bookings', { method: 'POST', body: JSON.stringify(body) });
+            setBookingOpen(false);
+            resetBooking();
+        } catch (err) {
+            setBookingError(err.message || 'Booking failed');
+        } finally {
+            setBookingLoading(false);
+        }
     };
 
     const renderContent = () => {
@@ -162,9 +330,15 @@ export default function CorporateLayout() {
             <AnimatePresence>
                 {bookingOpen && (() => {
                     const selV = vehicles.find(x => String(x.id) === String(bookingForm.vehicle_id));
-                    const selB = branches.find(x => x.id === bookingForm.branch_id);
+                    const branchChoicesForBooking =
+                        bookingBranchOptions != null && bookingBranchOptions.length > 0 ? bookingBranchOptions : branches;
+                    const selB = branchChoicesForBooking.find((x) => String(x.id) === String(bookingForm.branch_id));
                     const selDepts = bookingForm.department_ids.map(did => departments.find(d => d.id === did)?.name).filter(Boolean).join(', ');
                     const step1Valid = bookingForm.vehicle_id && bookingForm.branch_id && bookingForm.booking_date && bookingForm.department_ids.length > 0;
+                    const branchDeptFilter = new Set(bookingForm.department_ids.map(String));
+                    const visibleBranchCatalogRows = branchCatalogRows.filter(
+                        (r) => !r.departmentId || branchDeptFilter.has(String(r.departmentId)),
+                    );
                     return (
                         <Modal
                             title={bookingStep === 1 ? 'Book Service Appointment' : 'Review & Confirm'}
@@ -184,12 +358,12 @@ export default function CorporateLayout() {
                                     )}
                                 </div>
                             }
-                            width="420px"
+                            width="500px"
                         >
                             {bookingStep === 1 ? (
                                 <div style={{display:'flex',flexDirection:'column',gap:14}}>
                                     <div className="ws-field"><label>Vehicle *</label><select value={bookingForm.vehicle_id} onChange={e=>setBook('vehicle_id',e.target.value)} style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)'}}><option value="">Select vehicle</option>{vehicles.map(v=><option key={v.id} value={v.id}>{v.plateNo} – {v.make} {v.model}</option>)}</select></div>
-                                    <div className="ws-field"><label>Branch *</label><select value={bookingForm.branch_id} onChange={e=>setBookingForm(f=>({...f,branch_id:e.target.value,department_ids:[]}))} style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)'}}><option value="">Select branch</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
+                                    <div className="ws-field"><label>Branch *</label><select value={bookingForm.branch_id} onChange={e=>setBookingForm(f=>({...f,branch_id:e.target.value,department_ids:[],services:[],products:[]}))} style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)'}}><option value="">Select branch</option>{branchChoicesForBooking.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
                                     <div><label style={{display:'block',marginBottom:6,fontWeight:600}}>Departments (Services) * <span style={{fontWeight:400,color:'var(--color-text-muted)',fontSize:'0.75rem'}}>— select one or more</span></label>
                                         <div style={{border:'1px solid var(--color-border)',borderRadius:10,maxHeight:140,overflowY:'auto'}}>
                                             {!bookingForm.branch_id ? <p style={{margin:0,padding:'12px 14px',fontSize:'0.8rem',color:'var(--color-text-muted)'}}>Select a branch first</p>
@@ -204,6 +378,161 @@ export default function CorporateLayout() {
                                         </div>
                                         {bookingForm.department_ids.length > 0 && <p style={{fontSize:'0.75rem',color:'#059669',marginTop:4}}>{bookingForm.department_ids.length} department(s) selected</p>}
                                     </div>
+                                    {bookingForm.department_ids.length > 0 && (
+                                        <div style={{ border: '1px solid var(--color-border)', borderRadius: 12, padding: 12, background: 'var(--color-bg-muted)' }}>
+                                            <label style={{ display: 'block', marginBottom: 8, fontWeight: 600, fontSize: '0.875rem' }}>Products &amp; services (optional)</label>
+                                            <p style={{ margin: '0 0 10px 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                                Only items available on this branch for the departments you selected (from the workshop catalog — not the global master list). Click a row to add. Each service is qty 1; set product qty below. Included when you confirm.
+                                            </p>
+                                            {bookingForm.department_ids.length > 1 && (
+                                                <div className="ws-field" style={{ marginBottom: 10 }}>
+                                                    <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Assign new lines to department</label>
+                                                    <select
+                                                        value={defaultItemDepartmentId}
+                                                        onChange={(e) => setDefaultItemDepartmentId(e.target.value)}
+                                                        style={{ width: '100%', padding: '8px 10px', borderRadius: 9, border: '1px solid var(--color-border)', fontSize: '0.875rem' }}
+                                                    >
+                                                        {bookingForm.department_ids.map((did) => (
+                                                            <option key={did} value={String(did)}>
+                                                                {departments.find((d) => String(d.id) === String(did))?.name || `Department ${did}`}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
+                                            <div style={{ marginBottom: 4 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-dark)' }}>On this branch</span>
+                                                    {branchCatalogLoading && (
+                                                        <Loader2 size={16} className="spin" style={{ color: 'var(--color-text-muted)' }} />
+                                                    )}
+                                                </div>
+                                                <div
+                                                    style={{
+                                                        maxHeight: 200,
+                                                        overflowY: 'auto',
+                                                        border: '1px solid var(--color-border)',
+                                                        borderRadius: 10,
+                                                        background: '#fff',
+                                                    }}
+                                                >
+                                                    {branchCatalogLoading ? (
+                                                        <p style={{ margin: 0, padding: '10px 12px', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                                            Loading branch catalog…
+                                                        </p>
+                                                    ) : visibleBranchCatalogRows.length === 0 ? (
+                                                        <p style={{ margin: 0, padding: '10px 12px', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                                            No products or services for this branch and departments (with stock for products). The workshop can add items to this branch catalog.
+                                                        </p>
+                                                    ) : (
+                                                        visibleBranchCatalogRows.map((row) => (
+                                                            <button
+                                                                key={`br-${row.itemType}-${row.id}-${row.departmentId || 'na'}`}
+                                                                type="button"
+                                                                onClick={() => handleAddCatalogRow(row)}
+                                                                style={{
+                                                                    width: '100%',
+                                                                    textAlign: 'left',
+                                                                    padding: '8px 12px',
+                                                                    border: 'none',
+                                                                    borderBottom: '1px solid var(--color-border-light)',
+                                                                    background: 'none',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: '0.8125rem',
+                                                                    display: 'flex',
+                                                                    justifyContent: 'space-between',
+                                                                    gap: 8,
+                                                                    alignItems: 'center',
+                                                                }}
+                                                            >
+                                                                <span style={{ minWidth: 0 }}>
+                                                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase' }}>
+                                                                        {row.itemType}
+                                                                    </span>{' '}
+                                                                    {row.name}
+                                                                    {row.departmentName ? (
+                                                                        <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}> · {row.departmentName}</span>
+                                                                    ) : null}
+                                                                </span>
+                                                                <span style={{ flexShrink: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                                                    SAR {Number(row.salePrice || 0).toFixed(2)}
+                                                                </span>
+                                                            </button>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {(bookingForm.services.length > 0 || bookingForm.products.length > 0) && (
+                                                <div style={{ marginTop: 12 }}>
+                                                    <p style={{ margin: '0 0 6px 0', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-dark)' }}>Selected</p>
+                                                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.8125rem' }}>
+                                                        {bookingForm.services.map((s, i) => (
+                                                            <li key={`svc-${s.serviceId}-${s.departmentId}-${i}`} style={{ marginBottom: 6 }}>
+                                                                <span>
+                                                                    Service: {s.name}{' '}
+                                                                    <span style={{ color: 'var(--color-text-muted)' }}>
+                                                                        (dept {departments.find((d) => String(d.id) === String(s.departmentId))?.name || s.departmentId})
+                                                                    </span>
+                                                                </span>{' '}
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn-portal-outline"
+                                                                    style={{ padding: '2px 8px', fontSize: '0.7rem', marginLeft: 6 }}
+                                                                    onClick={() =>
+                                                                        setBookingForm((f) => ({
+                                                                            ...f,
+                                                                            services: f.services.filter((_, j) => j !== i),
+                                                                        }))
+                                                                    }
+                                                                >
+                                                                    Remove
+                                                                </button>
+                                                            </li>
+                                                        ))}
+                                                        {bookingForm.products.map((p, i) => (
+                                                            <li key={`prd-${p.productId}-${p.departmentId}-${i}`} style={{ marginBottom: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                                                                <span>
+                                                                    Product: {p.name}{' '}
+                                                                    <span style={{ color: 'var(--color-text-muted)' }}>
+                                                                        (dept {departments.find((d) => String(d.id) === String(p.departmentId))?.name || p.departmentId})
+                                                                    </span>
+                                                                </span>
+                                                                <label style={{ fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                                                    Qty
+                                                                    <input
+                                                                        type="number"
+                                                                        min={1}
+                                                                        value={p.qty}
+                                                                        onChange={(e) => {
+                                                                            const q = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                                                                            setBookingForm((f) => ({
+                                                                                ...f,
+                                                                                products: f.products.map((x, j) => (j === i ? { ...x, qty: q } : x)),
+                                                                            }));
+                                                                        }}
+                                                                        style={{ width: 52, padding: '4px 6px', borderRadius: 6, border: '1px solid var(--color-border)' }}
+                                                                    />
+                                                                </label>
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn-portal-outline"
+                                                                    style={{ padding: '2px 8px', fontSize: '0.7rem' }}
+                                                                    onClick={() =>
+                                                                        setBookingForm((f) => ({
+                                                                            ...f,
+                                                                            products: f.products.filter((_, j) => j !== i),
+                                                                        }))
+                                                                    }
+                                                                >
+                                                                    Remove
+                                                                </button>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                     <div className="ws-field"><label>Date & Time *</label><input type="datetime-local" value={bookingForm.booking_date} onChange={e=>setBook('booking_date',e.target.value)} style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)'}}/></div>
                                     <div className="ws-field"><label>Notes</label><textarea value={bookingForm.notes} onChange={e=>setBook('notes',e.target.value)} rows={2} placeholder="Any special requirements…" style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)',resize:'vertical'}}/></div>
                                     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:14,borderRadius:14,background:'#FAF5FF',border:'1px solid #EDE9FE'}}>
@@ -222,9 +551,31 @@ export default function CorporateLayout() {
                                         {[
                                             ['Vehicle', selV ? `${selV.plateNo} — ${selV.make} ${selV.model}` : '—'],
                                             ['Branch', selB?.name || '—'],
-                                            ['Services', selDepts || '—'],
+                                            ['Departments', selDepts || '—'],
+                                            [
+                                                'Line services',
+                                                bookingForm.services.length
+                                                    ? bookingForm.services
+                                                          .map(
+                                                              (s) =>
+                                                                  `${s.name} (${departments.find((d) => String(d.id) === String(s.departmentId))?.name || s.departmentId})`,
+                                                          )
+                                                          .join(' · ')
+                                                    : '—',
+                                            ],
+                                            [
+                                                'Line products',
+                                                bookingForm.products.length
+                                                    ? bookingForm.products
+                                                          .map(
+                                                              (p) =>
+                                                                  `${p.name} ×${p.qty} (${departments.find((d) => String(d.id) === String(p.departmentId))?.name || p.departmentId})`,
+                                                          )
+                                                          .join(' · ')
+                                                    : '—',
+                                            ],
                                             ['Date', bookingForm.booking_date?.replace('T', ' ') || '—'],
-                                            ['Payment', bookingForm.pay_from_wallet ? 'Wallet balance' : 'Cash'],
+                                            ['Payment', bookingForm.pay_from_wallet ? 'Wallet balance' : 'Cash at Branch'],
                                         ].map(([k, val]) => (
                                             <div key={k} style={{display:'flex',gap:8,fontSize:'0.8rem'}}><span style={{color:'var(--color-text-muted)',minWidth:70}}>{k}:</span><span style={{fontWeight:600}}>{val}</span></div>
                                         ))}

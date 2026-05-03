@@ -323,7 +323,7 @@ export const getProduct = (id) =>
 export const createProduct = (body) =>
     apiFetch('/super-admin/products', { method: 'POST', body: JSON.stringify(body) });
 
-/** PATCH body: flat fields only. `departmentId` is not supported (department fixed after create). 200 = flat product (same shape as list/get), not `{ product }`. */
+/** PATCH body: flat fields only. `departmentId` is not supported (department fixed after create). `categoryId` is supported to move the product to another category. 200 = flat product (same shape as list/get), not `{ product }`. */
 export const updateProduct = (id, body) =>
     apiFetch(`/super-admin/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
