@@ -123,9 +123,15 @@ export async function apiFetch(path, options = {}) {
             }
             // Keep a full object log to make backend debugging easier.
             console.error('[apiFetch] Request failed', detail);
+            const msgRaw = err.message;
+            const msgStr = Array.isArray(msgRaw)
+                ? msgRaw.filter(Boolean).map(String).join(' ')
+                : typeof msgRaw === 'string'
+                  ? msgRaw.trim()
+                  : '';
             throw new Error(
-                err.message ||
-                    err.error ||
+                msgStr ||
+                    (typeof err.error === 'string' ? err.error : '') ||
                     `Request failed: ${res.status} ${res.statusText} (${options.method || 'GET'} ${path})`,
             );
         }
