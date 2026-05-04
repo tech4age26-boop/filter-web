@@ -243,7 +243,34 @@ export function workshopInvoiceQtyUnitSummary(items) {
     };
 }
 
-/** Map API invoice → WorkshopPurchases table row shape */
+/**
+ * Merge workshop purchase-invoice `ui` flags for list/detail (GET).
+ * Backend `formatWorkshopSupplierPurchaseInvoice` includes top-level `ui` when present (from stored create payload).
+ * Legacy rows: read `payload.ui` when `payload` is JSON string or object.
+ */
+export function extractWorkshopPurchaseInvoiceUiFromPayload(raw) {
+    if (!raw || typeof raw !== 'object') return {};
+    if (raw.ui && typeof raw.ui === 'object') {
+        return { ...raw.ui };
+    }
+    let p = raw.payload;
+    if (typeof p === 'string') {
+        try {
+            p = JSON.parse(p);
+        } catch {
+            p = null;
+        }
+    }
+    if (p && typeof p === 'object' && p.ui && typeof p.ui === 'object') {
+        return { ...p.ui };
+    }
+    return {};
+}
+
+/**
+ * Map API invoice → WorkshopPurchases table row shape.
+ * Branch (GET): `branch` { id, name }, `branchId`, `branch_id`, `branchName`, `branch_name` (per formatWorkshopSupplierPurchaseInvoice).
+ */
 export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
     if (!inv || typeof inv !== 'object') return null;
     const id = inv.id ?? inv._id;
@@ -305,6 +332,17 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         ) || status === 'approved';
     const { quantity_label, unit_label } = workshopInvoiceQtyUnitSummary(items);
     const { product_label } = workshopInvoiceProductNameSummary(items);
+    const totalsObj = inv.totals && typeof inv.totals === 'object' ? inv.totals : null;
+    const freightIn = money2(
+        inv.freightIn ?? inv.freight_in ?? totalsObj?.freight_in ?? totalsObj?.freightIn ?? 0,
+    );
+    const br = inv.branch && typeof inv.branch === 'object' ? inv.branch : null;
+    const branchIdVal = inv.branchId ?? inv.branch_id ?? br?.id ?? '';
+    const branch_id = branchIdVal != null && String(branchIdVal).trim() !== '' ? String(branchIdVal).trim() : '';
+    const branchNameRaw = [br?.name, inv.branchName, inv.branch_name]
+        .map((v) => (v == null ? '' : String(v).trim()))
+        .find((s) => s !== '') ?? '';
+    const branch_name = branchNameRaw || (branch_id ? `Branch ${branch_id}` : '');
     return {
         id: String(id),
         invoice_number:
@@ -324,6 +362,9 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         notes: inv.notes ?? inv.internalNotes ?? inv.internal_notes ?? '',
         subtotal: sub,
         vat_amount: vat,
+        freight_in: freightIn,
+        branch_id,
+        branch_name,
         grand_total: grand,
         amount_paid: paid,
         balance_due: balance,
@@ -343,9 +384,20 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
 /**
  * POST /workshop-staff/supplier-purchase-invoices — CreateWorkshopSupplierPurchaseInvoiceDto (nested, camelCase).
  *
+ * **Branch (backend):** sends both `branch_id` and `branchId` (same trimmed id). If both were ever sent,
+ * `branch_id` wins on the server — keep them identical.
+ *
+ * **Freight (backend):** server reads, in order: `body.freightIn` → `body.freight_in` →
+ * `body.totals?.freight_in` → `body.totals?.freightIn` (finite number ≥ 0). This builder sets all of them
+ * consistently. If `totals.grandTotal` / `grand_total` is sent, it must already include freight when freight > 0
+ * (client `computePurchaseInvoiceTotals` includes freight in `grand_total`).
+ *
+ * **UI flags:** `ui.amounts_tax_inclusive` / `ui.amountsTaxInclusive` are stored in payload; server does not
+ * re-split lines — line `unit_price_ex_vat`, `tax_amount`, etc. must remain correct (FE handles inclusive unit UX).
+ *
  * @param {object} p
  * @param {string|number} p.supplierId — linked supplier (numeric preferred)
- * @param {string|number} p.branchId — branch PK
+ * @param {string|number} p.branchId — branch PK (mirrored as `branch_id` on the wire)
  * @param {string} p.issueDate — YYYY-MM-DD
  * @param {'Net'|'Custom'|'EOM'} p.dueDateType
  * @param {number|string} p.netDays
@@ -362,6 +414,8 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
  * @param {boolean} p.lineDiscountIsPercent — ui.line_discount_is_percent
  * @param {'fixed_sar'|'percent'|string} p.invoiceDiscountMode
  * @param {number} p.invoiceDiscountValue
+ * @param {number} [p.freightIn] — added to grand total (SAR), no extra VAT on freight in this client model
+ * @param {boolean} [p.showAmountsTaxInclusive] — persisted in `ui` when backend supports it
  * @param {Array<object>} p.lines — from buildEnrichedLineItems
  * @param {object} p.totals — from computePurchaseInvoiceTotals (snake_case keys)
  */
@@ -453,10 +507,14 @@ export function buildCreateWorkshopSupplierPurchaseInvoiceBody(p) {
         currency: p.currency || 'SAR',
         status: p.status ?? 'draft',
         updateLastPurchasePriceOnSave: Boolean(p.updateLastPurchasePriceOnSave),
+        freightIn: money2(p.freightIn ?? 0),
+        freight_in: money2(p.freightIn ?? 0),
         ui: {
             showLineDescriptionColumn: Boolean(p.showLineDescriptionColumn),
             showLineDiscountColumn: Boolean(p.showLineDiscountColumn),
             lineDiscountIsPercent: Boolean(p.lineDiscountIsPercent),
+            amountsTaxInclusive: Boolean(p.showAmountsTaxInclusive),
+            amounts_tax_inclusive: Boolean(p.showAmountsTaxInclusive),
         },
         invoiceDiscount: {
             mode: invMode,
@@ -473,6 +531,8 @@ export function buildCreateWorkshopSupplierPurchaseInvoiceBody(p) {
             invoiceDiscountAppliedExVat: money2(t.invoice_discount_applied_ex_vat),
             subtotalExVat: money2(t.subtotal_ex_vat),
             totalVat: money2(t.total_vat),
+            freightIn: money2(t.freight_in ?? 0),
+            freight_in: money2(t.freight_in ?? 0),
             grandTotal: money2(t.grand_total),
         },
     };
