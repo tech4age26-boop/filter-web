@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Plus, ShoppingCart, BarChart3, AlertTriangle, Calendar, Zap, Eye } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -15,6 +15,7 @@ import {
 import { getBranchProducts } from '../../services/workshopCatalogApi';
 import {
     buildCreateWorkshopSupplierPurchaseInvoiceBody,
+    extractWorkshopPurchaseInvoiceUiFromPayload,
     normalizeWorkshopSupplierPurchaseInvoiceRow,
     unwrapWorkshopStaffSupplierPurchaseInvoiceGet,
     unwrapWorkshopSupplierPurchaseInvoiceList,
@@ -188,6 +189,27 @@ function pickPriceExclusiveUnit(row) {
     return 0;
 }
 
+/** VAT-inclusive purchase unit (branch/catalog purchase price when set). */
+function pickPriceInclusivePurchaseUnit(row) {
+    const nested = row?.product ?? row?.service;
+    const snap = nested != null && typeof nested === 'object' ? nested : null;
+    const purchaseInclusiveCandidates = [
+        snap?.purchasePrice,
+        snap?.purchase_price,
+        row?.purchasePrice,
+        row?.purchase_price,
+    ];
+    for (const v of purchaseInclusiveCandidates) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n > 0) {
+            return roundMoney2(n);
+        }
+    }
+    const ex = pickPriceExclusiveUnit(row);
+    if (ex > 0) return roundMoney2(ex * (1 + VAT_RATE));
+    return 0;
+}
+
 function normalizeBranchProductOption(row) {
     if (!row || typeof row !== 'object') return null;
     const nested = row?.product ?? row?.service;
@@ -203,7 +225,8 @@ function normalizeBranchProductOption(row) {
         String(nested?.type || row?.type || '').toLowerCase() === 'service';
     const type = isService ? 'service' : 'Stock';
     const priceExcl = pickPriceExclusiveUnit(row);
-    return { id, name, unit, type, priceExcl };
+    const priceIncl = pickPriceInclusivePurchaseUnit(row);
+    return { id, name, unit, type, priceExcl, priceIncl };
 }
 
 function createEmptyLine() {
@@ -313,7 +336,7 @@ function mapPurchaseInvoiceLineForView(line, idx) {
 }
 
 function pickViewInvoiceUi(raw, items = []) {
-    const ui = raw?.ui && typeof raw.ui === 'object' ? raw.ui : {};
+    const ui = extractWorkshopPurchaseInvoiceUiFromPayload(raw);
     const list = Array.isArray(items) ? items : [];
     const lineHasDisc = list.some((it) => {
         const d = Number(it?.discount ?? it?.lineDiscountAmount ?? it?.line_discount_amount ?? 0);
@@ -337,6 +360,7 @@ function pickViewInvoiceUi(raw, items = []) {
             Boolean(ui.lineDiscountIsPercent ?? ui.line_discount_is_percent) ||
             rawDiscType === 'percent' ||
             (lineHasDisc && line0DiscType === 'percent'),
+        amountsTaxInclusive: Boolean(ui.amountsTaxInclusive ?? ui.amounts_tax_inclusive),
     };
 }
 
@@ -378,7 +402,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [invoiceNotes, setInvoiceNotes] = useState('');
     const [invoiceDiscountValue, setInvoiceDiscountValue] = useState('0');
     const [invoiceDiscountMode, setInvoiceDiscountMode] = useState('fixed_sar');
+    const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(false);
+    const [freightSar, setFreightSar] = useState('0');
     const [updateLastPurchasePrice, setUpdateLastPurchasePrice] = useState(true);
+    const amountsInclusivePrevRef = useRef(false);
+    const amountsInclusiveInitRef = useRef(false);
     const [linkedSuppliers, setLinkedSuppliers] = useState([]);
     const [linkedSuppliersLoading, setLinkedSuppliersLoading] = useState(false);
     const [linkedSuppliersError, setLinkedSuppliersError] = useState('');
@@ -393,6 +421,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [viewInvoiceRow, setViewInvoiceRow] = useState(null);
     const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
     const [viewInvoiceError, setViewInvoiceError] = useState('');
+    /** Branch that receives stock for this invoice (modal); independent of sidebar when user picks another branch. */
+    const [invoiceBranchId, setInvoiceBranchId] = useState('');
 
     const effectiveBranchId = useMemo(() => {
         if (selectedBranchId && selectedBranchId !== 'all') return selectedBranchId;
@@ -404,19 +434,19 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [branchProductsError, setBranchProductsError] = useState('');
 
     const loadBranchProducts = useCallback(async () => {
-        if (!effectiveBranchId) {
+        if (!invoiceBranchId) {
             setBranchProductOptions([]);
             return;
         }
         setBranchProductsLoading(true);
         setBranchProductsError('');
         try {
-            const prodRes = await getWorkshopStaffBranchProducts(effectiveBranchId);
+            const prodRes = await getWorkshopStaffBranchProducts(invoiceBranchId);
             let prodRows = unwrapWorkshopBranchListResponse(prodRes, 'products');
             if (prodRows.length === 0) {
                 try {
                     prodRows = unwrapWorkshopBranchListResponse(
-                        await getBranchProducts(effectiveBranchId),
+                        await getBranchProducts(invoiceBranchId),
                         'products',
                     );
                 } catch {
@@ -432,7 +462,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         } finally {
             setBranchProductsLoading(false);
         }
-    }, [effectiveBranchId]);
+    }, [invoiceBranchId]);
 
     const loadLinkedSuppliers = useCallback(async () => {
         setLinkedSuppliersLoading(true);
@@ -443,8 +473,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             const merged = [];
             let hardCap = 60;
             while (hardCap-- > 0) {
+                const scopeBranch = modalOpen && invoiceBranchId ? invoiceBranchId : effectiveBranchId;
                 const res = await getWorkshopSuppliers({
-                    ...branchScopeParams(effectiveBranchId ?? 'all'),
+                    ...branchScopeParams(scopeBranch ?? 'all'),
                     limit: SUPPLIERS_PAGE_LIMIT,
                     offset,
                 });
@@ -491,7 +522,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         } finally {
             setLinkedSuppliersLoading(false);
         }
-    }, [effectiveBranchId]);
+    }, [effectiveBranchId, modalOpen, invoiceBranchId]);
 
     const loadPurchaseInvoices = useCallback(async () => {
         if (!effectiveBranchId) {
@@ -561,11 +592,32 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         loadPurchaseInvoices();
     }, [loadPurchaseInvoices]);
 
-    useEffect(() => {
+    /** When opening the composer, default invoice branch from sidebar / first branch (before paint). */
+    useLayoutEffect(() => {
         if (!modalOpen) return;
+        if (branches.length === 0) {
+            setInvoiceBranchId('');
+            return;
+        }
+        const next =
+            selectedBranchId && selectedBranchId !== 'all'
+                ? String(selectedBranchId)
+                : String(branches[0].id);
+        setInvoiceBranchId((prev) => (prev === next ? prev : next));
+    }, [modalOpen, selectedBranchId, branches]);
+
+    useEffect(() => {
+        if (!modalOpen || !invoiceBranchId) return;
         loadBranchProducts();
         loadLinkedSuppliers();
-    }, [modalOpen, effectiveBranchId, loadBranchProducts, loadLinkedSuppliers]);
+    }, [modalOpen, invoiceBranchId, loadBranchProducts, loadLinkedSuppliers]);
+
+    const handleInvoiceBranchChange = (branchId) => {
+        const id = String(branchId ?? '');
+        if (!id || id === invoiceBranchId) return;
+        setInvoiceBranchId(id);
+        setLineItems([createEmptyLine()]);
+    };
 
     useEffect(() => {
         if (activeTab !== 'price_report') return;
@@ -580,9 +632,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         }
         if (tabState.selectedItem) {
             const item = tabState.selectedItem;
-            const priceExcl = pickPriceExclusiveUnit(item);
-            const taxAmt = priceExcl * VAT_RATE;
-            const totalFinal = priceExcl * (1 + VAT_RATE);
+            const unit = amountsTaxInclusive ? pickPriceInclusivePurchaseUnit(item) : pickPriceExclusiveUnit(item);
+            const priceExclForTax = amountsTaxInclusive ? roundMoney2(unit / (1 + VAT_RATE)) : unit;
+            const taxAmt = priceExclForTax * VAT_RATE;
+            const totalFinal = priceExclForTax * (1 + VAT_RATE);
             const newLine = {
                 id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
                 productId: String(item.id ?? ''),
@@ -591,7 +644,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 description: '',
                 uom: item.unit || 'piece',
                 qty: 1,
-                price: priceExcl,
+                price: unit,
                 discount: 0,
                 taxCode: TAX_LABEL,
                 taxAmt: taxAmt.toFixed(2),
@@ -600,12 +653,23 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setLineItems([newLine]);
         }
         if (clearTabState) clearTabState();
-    }, [tabState, clearTabState]);
+    }, [tabState, clearTabState, amountsTaxInclusive]);
 
     const applyDiscountForCalc = showDiscount;
 
+    const lineAmountOpts = useMemo(
+        () => ({ unitPriceTaxInclusive: amountsTaxInclusive }),
+        [amountsTaxInclusive],
+    );
+
     const recalcStoredLineTotals = (line) => {
-        const { taxAmt, totalIncl } = computeLineAmounts(line, applyDiscountForCalc, discountIsPercent);
+        const { taxAmt, totalIncl } = computeLineAmounts(
+            line,
+            applyDiscountForCalc,
+            discountIsPercent,
+            VAT_RATE,
+            lineAmountOpts,
+        );
         return {
             ...line,
             taxCode: TAX_LABEL,
@@ -627,7 +691,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     useEffect(() => {
         setLineItems((prev) =>
             prev.map((line) => {
-                const { taxAmt, totalIncl } = computeLineAmounts(line, showDiscount, discountIsPercent);
+                const { taxAmt, totalIncl } = computeLineAmounts(
+                    line,
+                    showDiscount,
+                    discountIsPercent,
+                    VAT_RATE,
+                    lineAmountOpts,
+                );
                 return {
                     ...line,
                     taxCode: TAX_LABEL,
@@ -636,7 +706,32 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 };
             }),
         );
-    }, [showDiscount, discountIsPercent]);
+    }, [showDiscount, discountIsPercent, lineAmountOpts]);
+
+    /** When toggling tax-inclusive mode, convert stored unit prices between ex-VAT and VAT-inclusive. */
+    useEffect(() => {
+        if (!amountsInclusiveInitRef.current) {
+            amountsInclusiveInitRef.current = true;
+            amountsInclusivePrevRef.current = amountsTaxInclusive;
+            return;
+        }
+        const prev = amountsInclusivePrevRef.current;
+        amountsInclusivePrevRef.current = amountsTaxInclusive;
+        if (prev === amountsTaxInclusive) return;
+        setLineItems((prevLines) =>
+            prevLines.map((line) => {
+                const p = parseFloat(line.price) || 0;
+                if (p === 0) return line;
+                if (amountsTaxInclusive && !prev) {
+                    return { ...line, price: roundMoney2(p * (1 + VAT_RATE)) };
+                }
+                if (!amountsTaxInclusive && prev) {
+                    return { ...line, price: roundMoney2(p / (1 + VAT_RATE)) };
+                }
+                return line;
+            }),
+        );
+    }, [amountsTaxInclusive]);
 
     const handleLineProductChange = (lineId, productId) => {
         if (!productId) {
@@ -670,12 +765,17 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         opt.type === 'Stock'
                             ? '1410 - Inventory Asset'
                             : '5100 - Cost of Goods Sold',
-                    price: opt.priceExcl,
+                    price: amountsTaxInclusive ? opt.priceIncl || opt.priceExcl : opt.priceExcl,
                 };
                 return recalcStoredLineTotals(next);
             }),
         );
     };
+
+    const freightNum = useMemo(
+        () => parseFloat(String(freightSar).replace(',', '.')) || 0,
+        [freightSar],
+    );
 
     const invoiceTotals = useMemo(
         () =>
@@ -686,6 +786,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 invoiceDiscountMode,
                 invoiceDiscountValue,
                 vatRate: VAT_RATE,
+                unitPriceTaxInclusive: amountsTaxInclusive,
+                freightIn: freightNum,
             }),
         [
             lineItems,
@@ -693,6 +795,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             discountIsPercent,
             invoiceDiscountMode,
             invoiceDiscountValue,
+            amountsTaxInclusive,
+            freightNum,
         ],
     );
 
@@ -702,6 +806,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             maximumFractionDigits: 2,
         }),
         totalTax: invoiceTotals.total_vat.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }),
+        freight: (invoiceTotals.freight_in ?? 0).toLocaleString(undefined, {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
         }),
@@ -867,7 +975,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     }, [modalOpen, linkedSuppliersLoading, invoiceSupplierOptions, selectedVendor]);
 
     const canSubmitPurchaseInvoice =
-        Boolean(effectiveBranchId) &&
+        Boolean(invoiceBranchId) &&
         !linkedSuppliersLoading &&
         !submittingInvoice &&
         invoiceSupplierOptions.length > 0 &&
@@ -880,25 +988,19 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const handleCreateInvoice = async () => {
         if (!canSubmitPurchaseInvoice) return;
         setSubmitInvoiceError('');
-        const totals = computePurchaseInvoiceTotals({
-            lineItems,
-            applyLineDiscount: applyDiscountForCalc,
-            lineDiscountIsPercent: discountIsPercent,
-            invoiceDiscountMode,
-            invoiceDiscountValue,
-            vatRate: VAT_RATE,
-        });
+        const totals = invoiceTotals;
         const enrichedLines = buildEnrichedLineItems(
             lineItems,
             applyDiscountForCalc,
             discountIsPercent,
             VAT_RATE,
             TAX_LABEL,
+            { unitPriceTaxInclusive: amountsTaxInclusive },
         );
         const dueComputed = calculateDueDate();
         const purchaseInvoicePayload = buildPurchaseInvoicePayload({
             status: 'pending',
-            branch_id: effectiveBranchId,
+            branch_id: invoiceBranchId,
             selected_branch_filter: selectedBranchId ?? null,
             issue_date: issueDate,
             due_date_type: dueDateType,
@@ -916,6 +1018,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 show_line_description_column: showDesc,
                 show_line_discount_column: showDiscount,
                 line_discount_is_percent: discountIsPercent,
+                amounts_tax_inclusive: amountsTaxInclusive,
             },
             invoice_discount: {
                 mode: invoiceDiscountMode,
@@ -927,7 +1030,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         });
         const createBody = buildCreateWorkshopSupplierPurchaseInvoiceBody({
             supplierId: selectedSupplierRow.id,
-            branchId: effectiveBranchId,
+            branchId: invoiceBranchId,
             issueDate,
             dueDateType,
             netDays,
@@ -944,6 +1047,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             invoiceDiscountMode,
             invoiceDiscountValue: parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
             updateLastPurchasePriceOnSave: updateLastPurchasePrice,
+            freightIn: freightNum,
+            showAmountsTaxInclusive: amountsTaxInclusive,
             lines: enrichedLines,
             totals,
         });
@@ -962,6 +1067,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setInvoiceNotes('');
             setInvoiceDiscountValue('0');
             setInvoiceDiscountMode('fixed_sar');
+            setFreightSar('0');
+            setAmountsTaxInclusive(false);
+            setInvoiceBranchId('');
+            amountsInclusiveInitRef.current = false;
+            amountsInclusivePrevRef.current = false;
             setUpdateLastPurchasePrice(true);
         } catch (e) {
             setSubmitInvoiceError(e.message || 'Could not create purchase invoice.');
@@ -1242,6 +1352,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         onClose={() => {
                             setModalOpen(false);
                             setSubmitInvoiceError('');
+                            setFreightSar('0');
+                            setAmountsTaxInclusive(false);
+                            setInvoiceBranchId('');
+                            amountsInclusiveInitRef.current = false;
+                            amountsInclusivePrevRef.current = false;
                         }}
                         width="1350px"
                         contentClassName="modal-content-purchase"
@@ -1254,6 +1369,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         onClick={() => {
                                             setModalOpen(false);
                                             setSubmitInvoiceError('');
+                                            setFreightSar('0');
+                                            setAmountsTaxInclusive(false);
+                                            setInvoiceBranchId('');
+                                            amountsInclusiveInitRef.current = false;
+                                            amountsInclusivePrevRef.current = false;
                                         }}
                                     >
                                         Cancel
@@ -1276,7 +1396,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         disabled={!canSubmitPurchaseInvoice}
                                         title={
                                             !canSubmitPurchaseInvoice
-                                                ? 'Need branch, linked supplier with ID, at least one line with a branch product, and loaded suppliers.'
+                                                ? 'Need invoice branch, linked supplier with ID, at least one line with a branch product, and loaded suppliers.'
                                                 : undefined
                                         }
                                     >
@@ -1288,7 +1408,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         }
                     >
                         <div className="pi-form-container">
-                            {!effectiveBranchId && (
+                            {branches.length === 0 && (
                                 <p
                                     style={{
                                         padding: '10px 14px',
@@ -1299,14 +1419,55 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         fontSize: '0.875rem',
                                     }}
                                 >
-                                    Select a branch in the workshop header (or add a branch) to load products for line items.
+                                    Add a workshop branch before creating purchase invoices.
+                                </p>
+                            )}
+                            {branches.length > 0 && (
+                                <div className="pi-field pi-full-width" style={{ marginBottom: 16 }}>
+                                    <label>Branch for this invoice *</label>
+                                    <select
+                                        value={invoiceBranchId}
+                                        onChange={(e) => handleInvoiceBranchChange(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 14px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: 10,
+                                            fontSize: '0.9375rem',
+                                            background: '#f8fafc',
+                                        }}
+                                    >
+                                        {branches.map((b) => (
+                                            <option key={b.id} value={String(b.id)}>
+                                                {b.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className="pi-sub-label" style={{ marginTop: 6 }}>
+                                        Products and quantities apply to this branch only. When the supplier approves and
+                                        stock is updated, inventory changes on this branch.
+                                    </p>
+                                </div>
+                            )}
+                            {!invoiceBranchId && branches.length > 0 && (
+                                <p
+                                    style={{
+                                        padding: '10px 14px',
+                                        marginBottom: 12,
+                                        borderRadius: 8,
+                                        background: '#FFF7ED',
+                                        border: '1px solid #FED7AA',
+                                        fontSize: '0.875rem',
+                                    }}
+                                >
+                                    Choose a branch above to load branch products for line items.
                                 </p>
                             )}
                             {branchProductsError && (
                                 <p style={{ color: '#B45309', fontSize: '0.875rem', marginBottom: 8 }}>{branchProductsError}</p>
                             )}
                             {!branchProductsLoading &&
-                                effectiveBranchId &&
+                                invoiceBranchId &&
                                 branchProductOptions.length === 0 &&
                                 !branchProductsError && (
                                     <p
@@ -1444,7 +1605,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                     Qty
                                                 </th>
                                                 <th scope="col" className="ws-pi-th-num">
-                                                    Unit price
+                                                    Unit price {amountsTaxInclusive ? '(incl. VAT)' : '(ex VAT)'}
                                                 </th>
                                                 {showDiscount ? (
                                                     <th scope="col" className="ws-pi-th-num">
@@ -1454,7 +1615,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                 <th scope="col" className="ws-pi-th-num">
                                                     Total
                                                 </th>
-                                                <th scope="col">Tax Code</th>
+                                                <th scope="col" title="Fixed VAT 15% for workshop supplier purchase invoices">
+                                                    Tax code
+                                                </th>
                                                 <th scope="col" className="ws-pi-th-num">
                                                     Tax Amt
                                                 </th>
@@ -1469,8 +1632,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                     line,
                                                     applyDiscountForCalc,
                                                     discountIsPercent,
+                                                    VAT_RATE,
+                                                    lineAmountOpts,
                                                 );
-                                                const priceExcl = parseFloat(line.price) || 0;
                                                 return (
                                                     <tr key={line.id}>
                                                         <td className="ws-pi-td-hash">{idx + 1}</td>
@@ -1478,7 +1642,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             <select
                                                                 className="pi-row-input ws-pi-select"
                                                                 value={line.productId}
-                                                                disabled={!effectiveBranchId || branchProductsLoading}
+                                                                disabled={!invoiceBranchId || branchProductsLoading}
                                                                 onChange={(e) => handleLineProductChange(line.id, e.target.value)}
                                                             >
                                                                 <option value="">
@@ -1528,7 +1692,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         </td>
                                                         <td
                                                             className="ws-pi-td-num ws-pi-price-cell"
-                                                            title="Prefilled from purchase price ÷ 1.15. You can edit this value."
+                                                            title={
+                                                                amountsTaxInclusive
+                                                                    ? 'Prefilled from catalog purchase price (VAT-inclusive). Editable.'
+                                                                    : 'Prefilled from purchase price ÷ 1.15 (ex VAT). Editable.'
+                                                            }
                                                         >
                                                             <input
                                                                 type="text"
@@ -1555,7 +1723,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             </td>
                                                         ) : null}
                                                         <td className="ws-pi-td-num">SAR {amounts.taxableExcl.toFixed(2)}</td>
-                                                        <td className="ws-pi-td-tax">{TAX_LABEL}</td>
+                                                        <td className="ws-pi-td-tax" title="Tax code is fixed at VAT 15% for this flow.">
+                                                            {TAX_LABEL}
+                                                        </td>
                                                         <td className="ws-pi-td-num">SAR {amounts.taxAmt.toFixed(2)}</td>
                                                         <td className="ws-pi-td-num ws-pi-td-strong">SAR {amounts.totalIncl.toFixed(2)}</td>
                                                     </tr>
@@ -1571,10 +1741,12 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     </button>
                                 </div>
                                 <div className="pi-hint">
-                                    <Zap size={14} /> Tip: Choose a branch product to prefill unit price from purchase
-                                    price ÷ 1.15 (editable). VAT is 15% after discount. Qty, unit price, and discount
-                                    support math (e.g. 12*5). At least one line must include a product so your supplier
-                                    can approve and receive stock.
+                                    <Zap size={14} /> Tip: Choose a branch product to prefill unit price from the
+                                    catalog purchase price ({amountsTaxInclusive ? 'VAT-inclusive amount' : 'ex VAT, i.e. purchase price ÷ 1.15'}).
+                                    VAT is 15% after discount (unless you use tax-inclusive unit prices — amounts still
+                                    split for tax in the grid). Qty, unit price, and discount support math (e.g. 12*5).
+                                    At least one line must include a product so your supplier can approve and receive
+                                    stock.
                                 </div>
                             </div>
 
@@ -1594,6 +1766,14 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         onChange={(e) => setShowDiscount(e.target.checked)}
                                     />
                                     <span>Column — Discount</span>
+                                </label>
+                                <label className="pi-checkbox">
+                                    <input
+                                        type="checkbox"
+                                        checked={amountsTaxInclusive}
+                                        onChange={(e) => setAmountsTaxInclusive(e.target.checked)}
+                                    />
+                                    <span>Unit prices include VAT ({TAX_LABEL})</span>
                                 </label>
                                 {showDiscount && (
                                     <span className="pi-discount-kind" style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginLeft: 8 }}>
@@ -1639,6 +1819,16 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             </select>
                                         </div>
                                     </div>
+                                    <div className="pi-field-inline">
+                                        <label>Freight (SAR)</label>
+                                        <input
+                                            type="text"
+                                            value={freightSar}
+                                            onChange={(e) => setFreightSar(e.target.value)}
+                                            placeholder="0"
+                                            style={{ maxWidth: 140 }}
+                                        />
+                                    </div>
                                     <div className="pi-field pi-full-width">
                                         <label>Notes</label>
                                         <textarea
@@ -1658,6 +1848,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         <div className="pi-summary-row">
                                             <span>Total Tax (VAT):</span>
                                             <span>SAR {summary.totalTax}</span>
+                                        </div>
+                                        <div className="pi-summary-row">
+                                            <span>Freight:</span>
+                                            <span>SAR {summary.freight}</span>
                                         </div>
                                         <div className="pi-summary-row pi-grand-total">
                                             <span>Grand Total:</span>
@@ -1750,6 +1944,53 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 <span className={`ws-badge ${viewInvoiceRow.stock_updated ? 'ws-badge--green' : 'ws-badge--yellow'}`}>
                                     Stock: {viewInvoiceRow.stock_updated ? 'Updated' : 'Pending'}
                                 </span>
+                                {viewUi.amountsTaxInclusive ? (
+                                    <span className="ws-badge ws-badge--yellow" title="Unit prices were entered VAT-inclusive on create">
+                                        Unit prices: VAT-inclusive
+                                    </span>
+                                ) : null}
+                            </div>
+                            <div className="pi-field pi-full-width" style={{ marginBottom: 16 }}>
+                                <label>Receiving branch</label>
+                                <div
+                                    style={{
+                                        padding: '10px 14px',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: 10,
+                                        background: '#f8fafc',
+                                    }}
+                                >
+                                    {viewInvoiceRow.branch_name || viewInvoiceRow.branch_id ? (
+                                        <>
+                                            <strong>{viewInvoiceRow.branch_name || '—'}</strong>
+                                            {viewInvoiceRow.branch_id ? (
+                                                <span
+                                                    style={{
+                                                        marginLeft: 10,
+                                                        fontSize: '0.8125rem',
+                                                        color: 'var(--color-text-muted)',
+                                                        fontWeight: 600,
+                                                    }}
+                                                >
+                                                    ID: {viewInvoiceRow.branch_id}
+                                                </span>
+                                            ) : null}
+                                        </>
+                                    ) : (
+                                        <span style={{ color: 'var(--color-text-muted)' }}>—</span>
+                                    )}
+                                </div>
+                                {!(viewInvoiceRow.branch_id || viewInvoiceRow.branch_name) ? (
+                                    <p className="pi-sub-label" style={{ marginTop: 6, color: '#B45309' }}>
+                                        Branch not returned on this invoice yet. Ask backend to include branch (id +
+                                        name) on GET workshop purchase invoice detail so receiving location shows
+                                        here.
+                                    </p>
+                                ) : (
+                                    <p className="pi-sub-label" style={{ marginTop: 6 }}>
+                                        Inventory updates on supplier approval apply to this branch.
+                                    </p>
+                                )}
                             </div>
                             <div className="pi-header-grid">
                                 <div className="pi-field">
@@ -1980,6 +2221,16 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             <span>
                                                 SAR{' '}
                                                 {viewInvoiceRow.vat_amount.toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}
+                                            </span>
+                                        </div>
+                                        <div className="pi-summary-row">
+                                            <span>Freight:</span>
+                                            <span>
+                                                SAR{' '}
+                                                {(viewInvoiceRow.freight_in ?? 0).toLocaleString(undefined, {
                                                     minimumFractionDigits: 2,
                                                     maximumFractionDigits: 2,
                                                 })}

@@ -10,10 +10,20 @@ export function money2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-/** Same rules as the purchase invoice line grid (ex-VAT unit, line discount, then VAT on remainder). */
-export function computeLineAmounts(line, applyDiscount, discountIsPercent, vatRate = PURCHASE_INVOICE_VAT_RATE) {
+/**
+ * Line math: ex-VAT unit in `line.price`, unless `opts.unitPriceTaxInclusive` — then `line.price` is VAT-inclusive per unit (÷ (1+vat) for ex-VAT math).
+ */
+export function computeLineAmounts(
+    line,
+    applyDiscount,
+    discountIsPercent,
+    vatRate = PURCHASE_INVOICE_VAT_RATE,
+    opts = {},
+) {
     const qty = parseFloat(line.qty) || 0;
-    const priceExcl = parseFloat(line.price) || 0;
+    const rawUnit = parseFloat(line.price) || 0;
+    const priceExcl =
+        opts.unitPriceTaxInclusive === true ? money2(rawUnit / (1 + vatRate)) : rawUnit;
     const discRaw = parseFloat(line.discount) || 0;
     const grossExcl = qty * priceExcl;
     let discountAmount = 0;
@@ -41,7 +51,11 @@ export function computePurchaseInvoiceTotals({
     invoiceDiscountMode,
     invoiceDiscountValue,
     vatRate = PURCHASE_INVOICE_VAT_RATE,
+    unitPriceTaxInclusive = false,
+    freightIn = 0,
 }) {
+    const lineOpts = { unitPriceTaxInclusive };
+    const freight = money2(freightIn);
     let lineGross = 0;
     let lineDiscountSum = 0;
     let linesTaxable = 0;
@@ -49,7 +63,7 @@ export function computePurchaseInvoiceTotals({
     let linesGrand = 0;
 
     for (const line of lineItems) {
-        const a = computeLineAmounts(line, applyLineDiscount, lineDiscountIsPercent, vatRate);
+        const a = computeLineAmounts(line, applyLineDiscount, lineDiscountIsPercent, vatRate, lineOpts);
         lineGross += a.grossExcl;
         lineDiscountSum += a.discountAmount;
         linesTaxable += a.taxableExcl;
@@ -73,7 +87,8 @@ export function computePurchaseInvoiceTotals({
 
     const netTaxable = money2(Math.max(0, linesTaxable - invoiceDiscountApplied));
     const totalVat = money2(netTaxable * vatRate);
-    const grandTotal = money2(netTaxable * (1 + vatRate));
+    const goodsGrandInclVat = money2(netTaxable * (1 + vatRate));
+    const grandTotal = money2(goodsGrandInclVat + freight);
 
     return {
         line_gross_ex_vat: lineGross,
@@ -84,13 +99,23 @@ export function computePurchaseInvoiceTotals({
         invoice_discount_applied_ex_vat: invoiceDiscountApplied,
         subtotal_ex_vat: netTaxable,
         total_vat: totalVat,
+        freight_in: freight,
+        goods_grand_incl_vat: goodsGrandInclVat,
         grand_total: grandTotal,
     };
 }
 
-export function buildEnrichedLineItems(lineItems, applyLineDiscount, lineDiscountIsPercent, vatRate, vatLabel) {
+export function buildEnrichedLineItems(
+    lineItems,
+    applyLineDiscount,
+    lineDiscountIsPercent,
+    vatRate,
+    vatLabel,
+    opts = {},
+) {
+    const lineOpts = { unitPriceTaxInclusive: opts.unitPriceTaxInclusive === true };
     return lineItems.map((line, idx) => {
-        const a = computeLineAmounts(line, applyLineDiscount, lineDiscountIsPercent, vatRate);
+        const a = computeLineAmounts(line, applyLineDiscount, lineDiscountIsPercent, vatRate, lineOpts);
         const { code, name } = parseAccountDisplay(line.account);
         const qty = parseFloat(line.qty) || 0;
         const unitPriceExVat = money2(parseFloat(line.price) || 0);
@@ -189,6 +214,7 @@ export function buildPurchaseInvoicePayload(p) {
             show_line_description_column: Boolean(p.ui?.show_line_description_column),
             show_line_discount_column: Boolean(p.ui?.show_line_discount_column),
             line_discount_is_percent: Boolean(p.ui?.line_discount_is_percent),
+            amounts_tax_inclusive: Boolean(p.ui?.amounts_tax_inclusive),
         },
 
         invoice_discount: {
@@ -216,6 +242,7 @@ export function buildPurchaseInvoicePayload(p) {
             subtotal_ex_vat: money2(p.totals?.subtotal_ex_vat ?? 0),
             total_vat: money2(p.totals?.total_vat ?? 0),
             grand_total: money2(p.totals?.grand_total ?? 0),
+            freight_in: money2(p.totals?.freight_in ?? 0),
         },
     };
 }
