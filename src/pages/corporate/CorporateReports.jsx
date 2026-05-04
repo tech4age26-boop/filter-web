@@ -120,8 +120,8 @@ function BookingHistoryView() {
         if (status) qs.set('status', status);
         if (startDate) qs.set('startDate', startDate);
         if (endDate) qs.set('endDate', endDate);
-        apiFetch(`/corporate/orders?${qs}`)
-            .then(d => setOrders(d.orders || d.data || d.bookings || []))
+        apiFetch(`/corporate/bookings?${qs}`)
+            .then((d) => setOrders(d.bookings || d.orders || d.data?.bookings || d.data || []))
             .catch(() => setOrders([]))
             .finally(() => setLoading(false));
     };
@@ -178,34 +178,47 @@ function BookingHistoryView() {
 }
 
 // ─── QUOTATIONS ──────────────────────────────────────────────────────────────
+function normalizePriceQuotationsReportList(data) {
+    if (!data || typeof data !== 'object') return [];
+    if (Array.isArray(data.quotations)) return data.quotations;
+    if (Array.isArray(data.items)) return data.items;
+    return [];
+}
+
 function QuotationsReportView() {
-    const { data: sumData, loading: sl } = useApi('/corporate/quotations/summary');
-    const { data: listData, loading: ll } = useApi('/corporate/quotations?limit=50');
-    const s = sumData?.summary || sumData || {};
-    const quotes = listData?.quotations || listData?.data || listData?.quotes || [];
-    const STATUS_STYLE = { approved: 'ws-badge--green', accepted: 'ws-badge--green', rejected: 'ws-badge--red', pending: 'ws-badge--yellow', sent: 'ws-badge--blue', draft: 'ws-badge--gray' };
+    const { data: sumData, loading: sl } = useApi('/corporate/price-quotations/summary');
+    const { data: listData, loading: ll } = useApi('/corporate/price-quotations?limit=50&offset=0');
+    const s = sumData && typeof sumData === 'object' ? sumData : {};
+    const quotes = normalizePriceQuotationsReportList(listData);
+    const STATUS_STYLE = {
+        approved: 'ws-badge--green',
+        rejected: 'ws-badge--red',
+        pending: 'ws-badge--yellow',
+        sent: 'ws-badge--blue',
+        draft: 'ws-badge--gray',
+    };
 
     if (sl || ll) return <Spinner/>;
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <SectionHeader title="Quotation History"/>
+            <SectionHeader title="Price quotation history"/>
             <KpiRow items={[
-                { label: 'Total',    value: s.total    ?? s.totalQuotations ?? quotes.length },
-                { label: 'Approved', value: s.approved ?? s.acceptedCount   ?? quotes.filter(q => ['approved','accepted'].includes(q.status)).length, color: '#047857' },
-                { label: 'Rejected', value: s.rejected ?? s.rejectedCount   ?? quotes.filter(q => q.status === 'rejected').length, color: '#DC2626' },
-                { label: 'Pending',  value: s.pending  ?? s.pendingCount    ?? quotes.filter(q => q.status === 'pending').length, color: '#D97706' },
+                { label: 'Total', value: s.total ?? quotes.length },
+                { label: 'Pending', value: s.pending ?? quotes.filter((q) => q.status === 'pending').length, color: '#D97706' },
+                { label: 'Approved', value: s.approved ?? quotes.filter((q) => q.status === 'approved').length, color: '#047857' },
+                { label: 'Rejected', value: s.rejected ?? quotes.filter((q) => q.status === 'rejected').length, color: '#DC2626' },
             ]}/>
-            {quotes.length === 0 ? <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 32 }}>No quotations found</p> : (
+            {quotes.length === 0 ? <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 32 }}>No quotation lines found</p> : (
                 <div className="ws-section" style={{ marginBottom: 0, padding: 0, overflow: 'auto' }}>
-                    <table className="ws-table"><thead><tr><th>Quotation #</th><th>Date</th><th>Service</th><th>Amount</th><th>Status</th></tr></thead>
+                    <table className="ws-table"><thead><tr><th>ID</th><th>Submitted</th><th>Name</th><th>Quote</th><th>Status</th></tr></thead>
                     <tbody>
                         {quotes.map((q, i) => (
                             <tr key={q.id || i}>
-                                <td style={{ fontWeight: 600, color: '#7C3AED' }}>#{q.quotationNumber || q.id}</td>
-                                <td>{q.createdAt ? new Date(q.createdAt).toLocaleDateString('en-SA') : '—'}</td>
-                                <td>{q.service || q.description || q.items?.map(it => it.name).join(', ') || '—'}</td>
-                                <td>SAR {Number(q.amount || q.totalAmount || q.total || 0).toLocaleString()}</td>
-                                <td><span className={`ws-badge ${STATUS_STYLE[q.status] || 'ws-badge--gray'}`}>{q.status || '—'}</span></td>
+                                <td style={{ fontWeight: 600, color: '#7C3AED' }}>#{q.id}</td>
+                                <td>{q.submittedAt ? new Date(q.submittedAt).toLocaleDateString('en-SA') : '—'}</td>
+                                <td>{q.name || '—'}</td>
+                                <td>SAR {Number(q.quotationPrice ?? q.priceIncludingVat ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td><span className={`ws-badge ${STATUS_STYLE[String(q.status || '').toLowerCase()] || 'ws-badge--gray'}`}>{q.status || '—'}</span></td>
                             </tr>
                         ))}
                     </tbody></table>

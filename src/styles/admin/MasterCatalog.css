@@ -1065,6 +1065,19 @@
     padding: 16px;
     display: flex;
     flex-direction: column;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+
+.mc-service-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
+    border-color: #D1D5DB;
+}
+
+.mc-service-card:focus-visible {
+    outline: 2px solid #7C3AED;
+    outline-offset: 2px;
 }
 
 .mc-sc-header {

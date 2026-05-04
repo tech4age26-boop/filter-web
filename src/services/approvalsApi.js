@@ -3,6 +3,7 @@ import { apiFetch } from './api';
 // entityType (GET /super-admin/approvals/pending — same values in Swagger):
 //   workshop_registration | branch_creation | cashier_registration | technician_registration
 //   | workshop_portal_staff_registration | supplier_registration | corporate_registration
+//   | corporate_price_quotation (approve/reject via POST …/corporate-price-quotations/:id/… — see ApprovalsPage)
 // status: pending | approved | rejected
 //
 // Pending list (high level):

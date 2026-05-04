@@ -157,6 +157,21 @@ export const postSuperAdminWhatsappWorkshopCredentialsWaMeLink = (params = {}) =
         body: JSON.stringify(buildWorkshopCredentialsWhatsappBody(params)),
     });
 
+// ─── Corporate price quotations (Super Admin token) ─────────────────────────
+
+/** List corporate price quotation lines (super-admin). */
+export const getSuperAdminCorporatePriceQuotations = (params = {}) =>
+    apiFetch(`/super-admin/corporate-price-quotations${qs(params)}`);
+
+export const approveSuperAdminCorporatePriceQuotation = (id) =>
+    apiFetch(`/super-admin/corporate-price-quotations/${encodeURIComponent(String(id))}/approve`, { method: 'POST' });
+
+export const rejectSuperAdminCorporatePriceQuotation = (id, body) =>
+    apiFetch(`/super-admin/corporate-price-quotations/${encodeURIComponent(String(id))}/reject`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+    });
+
 // ─── Branches ─────────────────────────────────────────────────────────────────
 
 export const getBranches = ({ workshopId } = {}) =>
@@ -308,7 +323,7 @@ export const getProduct = (id) =>
 export const createProduct = (body) =>
     apiFetch('/super-admin/products', { method: 'POST', body: JSON.stringify(body) });
 
-/** PATCH body: flat fields only. `departmentId` is not supported (department fixed after create). 200 = flat product (same shape as list/get), not `{ product }`. */
+/** PATCH body: flat fields only. `departmentId` is not supported (department fixed after create). `categoryId` is supported to move the product to another category. 200 = flat product (same shape as list/get), not `{ product }`. */
 export const updateProduct = (id, body) =>
     apiFetch(`/super-admin/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 

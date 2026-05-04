@@ -15,12 +15,13 @@ export default function CorporateDashboard({ onTabChange, setBookingOpen, setQuo
         Promise.all([
             apiFetch('/corporate/dashboard').catch(() => null),
             apiFetch('/corporate/banners').catch(() => null),
-            apiFetch('/corporate/orders?limit=5').catch(() => null),
+            apiFetch('/corporate/bookings?limit=5&offset=0').catch(() => null),
         ]).then(([dash, bannersData, ordersData]) => {
             if (dash) setDashboard(dash);
             const b = bannersData?.banners || bannersData?.data;
             if (b?.length) setBanners(b);
-            if (ordersData?.orders) setRecentOrders(ordersData.orders);
+            const list = ordersData?.bookings || ordersData?.orders || ordersData?.data?.bookings;
+            if (Array.isArray(list)) setRecentOrders(list);
             setLoading(false);
         });
     }, []);
@@ -128,7 +129,9 @@ export default function CorporateDashboard({ onTabChange, setBookingOpen, setQuo
                         return (
                             <div key={o.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: i < Math.min(5, recentOrders.length) - 1 ? '1px solid var(--color-border-light)' : 'none' }}>
                                 <div>
-                                    <p style={{ fontWeight: 600, fontSize: '0.875rem', margin: 0 }}>#{o.orderNumber || o.order_number || o.id}</p>
+                                    <p style={{ fontWeight: 600, fontSize: '0.875rem', margin: 0 }}>
+                                        {o.bookingCode || o.booking_code || o.orderNumber || o.order_number || `#${o.id}`}
+                                    </p>
                                     <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>
                                         {o.bookedFor || o.booked_for || o.createdAt ? new Date(o.bookedFor || o.booked_for || o.createdAt).toLocaleDateString('en-SA') : '—'}
                                     </p>

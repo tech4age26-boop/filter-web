@@ -161,6 +161,13 @@ const formatCatalogCreatedAt = (iso) => {
     });
 };
 
+/** For sorting: newest first. Invalid / missing dates sort last. */
+const catalogCreatedAtSortMs = (iso) => {
+    if (iso == null || iso === '') return 0;
+    const t = new Date(typeof iso === 'string' || typeof iso === 'number' ? iso : String(iso)).getTime();
+    return Number.isFinite(t) ? t : 0;
+};
+
 const PRODUCT_CSV_COLUMNS = [
     'Product',
     'Arabic Name',
@@ -312,6 +319,9 @@ export default function MasterCatalog() {
     });
     const [prRejectReason, setPrRejectReason] = useState('');
     const [prActionBusy, setPrActionBusy] = useState(false);
+    /** Services tab status chips (separate from master product `statusFilter`). */
+    const [serviceStatusFilter, setServiceStatusFilter] = useState('Approved');
+
     const [toast, setToast] = useState(null);
     const showToast = (message, kind = 'success') => {
         setToast({ message, kind, id: Date.now() });
@@ -359,6 +369,13 @@ export default function MasterCatalog() {
     const approveProductCategories = productCategories.filter(
         (c) => String(c.departmentId) === String(prApproveForm.departmentId),
     );
+    const editModalProductCategories = editingProduct
+        ? productCategories.filter(
+              (c) =>
+                  !editingProduct.departmentId ||
+                  String(c.departmentId) === String(editingProduct.departmentId),
+          )
+        : [];
     const filteredProducts = products.filter((p) => {
         const kmStr =
             p.kmTypeValue != null && p.kmTypeValue !== ''
@@ -374,6 +391,13 @@ export default function MasterCatalog() {
         return matchesSearch && matchesStatus;
     });
     const filteredServices = services.filter((s) => {
+        const matchesSvcStatus =
+            serviceStatusFilter === 'All' || serviceStatusFilter === 'Pending'
+                ? true
+                : serviceStatusFilter === 'Rejected'
+                  ? s.isActive === false
+                  : s.isActive !== false;
+        if (!matchesSvcStatus) return false;
         if (!searchQuery) return true;
         const q = searchQuery.toLowerCase();
         const createdFmt = formatCatalogCreatedAt(s.createdAt ?? s.created_at).toLowerCase();
@@ -383,6 +407,17 @@ export default function MasterCatalog() {
         return [s.name, s.arabicName, s.sku, s.categoryName, vatStr, catIdStr, createdFmt, createdRaw].some((v) =>
             (v || '').includes(q),
         );
+    });
+    /** Newest created first (descending by `createdAt`); rows with no date sort last. */
+    const sortedFilteredServices = [...filteredServices].sort((a, b) => {
+        const ta = catalogCreatedAtSortMs(a.createdAt ?? a.created_at);
+        const tb = catalogCreatedAtSortMs(b.createdAt ?? b.created_at);
+        const aMissing = !(ta > 0);
+        const bMissing = !(tb > 0);
+        if (aMissing && bMissing) return 0;
+        if (aMissing) return 1;
+        if (bMissing) return -1;
+        return tb - ta;
     });
     const _q = searchQuery.trim().toLowerCase();
     const filteredDepartments = !_q
@@ -600,13 +635,45 @@ export default function MasterCatalog() {
 
     const handleEditClick = (product) => {
         if (!product?.id) return;
+        let departmentId =
+            product.departmentId != null && product.departmentId !== ''
+                ? String(product.departmentId)
+                : product.department_id != null && product.department_id !== ''
+                  ? String(product.department_id)
+                  : '';
+        let categoryId =
+            product.categoryId != null && product.categoryId !== ''
+                ? String(product.categoryId)
+                : product.category_id != null && product.category_id !== ''
+                  ? String(product.category_id)
+                  : '';
+        if (!departmentId && categoryId) {
+            const byCat = productCategories.find((c) => String(c.id) === String(categoryId));
+            if (byCat?.departmentId != null) departmentId = String(byCat.departmentId);
+        }
+        if (!categoryId) {
+            const name = product.categoryName ?? product.category;
+            if (name) {
+                const candidates = productCategories.filter(
+                    (c) =>
+                        String(c.name || '').trim() === String(name).trim() &&
+                        (!departmentId || String(c.departmentId) === String(departmentId)),
+                );
+                if (candidates.length === 1) categoryId = String(candidates[0].id);
+                else if (candidates.length > 1 && departmentId) {
+                    const exact = candidates.find((c) => String(c.departmentId) === String(departmentId));
+                    if (exact) categoryId = String(exact.id);
+                }
+            }
+        }
         setEditingProduct({
             ...product,
+            departmentId,
+            categoryId,
             arabicName: product.arabicName ?? product.arabic_name ?? '',
             salePrice: product.salePrice ?? '',
             purchasePrice: product.purchasePrice ?? '',
             brand: product.brandName ?? product.brand ?? '',
-            category: product.categoryName ?? product.category ?? '',
             minCorpPrice:
                 product.minCorpPrice ??
                 product.minPriceCorporate ??
@@ -681,10 +748,14 @@ export default function MasterCatalog() {
 
     const handleUpdateCatalogProduct = async () => {
         if (!editingProduct?.id) return;
+        if (!String(editingProduct.categoryId || '').trim()) {
+            alert('Please select a category.');
+            return;
+        }
         setSaving(true);
         try {
             // PATCH /super-admin/products/:id — never send departmentId (not supported; department fixed after create).
-            // 200 returns a flat product (same fields as list/get). Example: { "allowDecimalQty": true } only is valid.
+            // Send categoryId so category changes persist. 200 returns a flat product (same fields as list/get).
             const kmRaw = editingProduct.kmTypeValue;
             const kmTrimmed =
                 kmRaw === '' || kmRaw == null ? '' : String(kmRaw).trim();
@@ -697,6 +768,7 @@ export default function MasterCatalog() {
                 arabicName: editingProduct.arabicName?.trim() || undefined,
                 sku: editingProduct.sku?.trim() || undefined,
                 brandName: editingProduct.brand?.trim() || undefined,
+                categoryId: String(editingProduct.categoryId).trim(),
                 description: editingProduct.description?.trim() || undefined,
                 unit: editingProduct.unit || undefined,
                 purchasePrice:
@@ -1629,8 +1701,15 @@ export default function MasterCatalog() {
         <div className="mc-content-area">
             <div className="mc-services-header">
                 <div className="mc-services-tabs">
-                    {['Approved', 'Pending', 'Rejected', 'All'].map(s => (
-                        <button key={s} className={`mc-service-tab ${s === 'Approved' ? 'active' : ''}`}>{s}</button>
+                    {['Approved', 'Pending', 'Rejected', 'All'].map((s) => (
+                        <button
+                            key={s}
+                            type="button"
+                            className={`mc-service-tab ${s === serviceStatusFilter ? 'active' : ''}`}
+                            onClick={() => setServiceStatusFilter(s)}
+                        >
+                            {s}
+                        </button>
                     ))}
                 </div>
                 <div className="mc-services-actions">
@@ -1661,49 +1740,94 @@ export default function MasterCatalog() {
                 </div>
             </div>
 
-            <div className="mc-services-grid">
-                {(loading ? [] : filteredServices).map((p) => {
-                    const createdRaw = p.createdAt ?? p.created_at;
-                    const createdLabel = formatCatalogCreatedAt(createdRaw);
-                    return (
-                    <div key={p.id} className="mc-service-card">
-                        <div className="mc-sc-header">
-                            <div className="mc-sc-icon"><Edit3 size={16} /></div>
-                            <span className="mc-pc-status approved">Approved</span>
-                        </div>
-                        <div className="mc-sc-body">
-                            <h4 className="mc-sc-name">{p.name}</h4>
-                            <p className="mc-sc-sub">{p.sku || 'No SKU'}</p>
-                            {createdLabel ? (
-                                <p className="mc-pc-created" title={String(createdRaw)}>
-                                    Created {createdLabel}
-                                </p>
-                            ) : null}
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                                <span className="mc-pc-tag">{p.categoryName || '—'}</span>
-                                {(p.vatMode != null && String(p.vatMode).trim() !== '') ||
-                                (p.vat_mode != null && String(p.vat_mode).trim() !== '') ? (
-                                    <span className="mc-pc-tag" title="VAT mode">
-                                        {String(p.vatMode ?? p.vat_mode)}
-                                    </span>
-                                ) : null}
-                            </div>
-                            <div className="mc-sc-price">Sale: SAR {p.sellingPrice ?? 0}</div>
-                        </div>
-                        <div className="mc-sc-footer">
-                            <div className="mc-sc-toggle-group">
-                                <div className="mc-toggle-label">
-                                    <strong>Cashier Price Edit</strong>
-                                    <span>{p.isPriceEditable ? 'Editable' : 'Fixed price'}</span>
-                                </div>
-                                <div className="mc-toggle-switch"></div>
-                            </div>
-                            <Edit3 size={14} className="mc-sc-edit-icon" onClick={() => openEditService(p)} />
-                        </div>
+            {loading ? (
+                <div className="mc-empty-state">
+                    <div className="mc-empty-icon">
+                        <RefreshCw size={28} className="spin" />
                     </div>
-                    );
-                })}
-            </div>
+                    <p>Loading services…</p>
+                </div>
+            ) : sortedFilteredServices.length === 0 ? (
+                <div className="mc-empty-state">
+                    <div className="mc-empty-icon">
+                        <Layers size={44} opacity={0.18} />
+                    </div>
+                    <p>
+                        {services.length === 0
+                            ? 'No services yet'
+                            : searchQuery
+                              ? `No services matching "${searchQuery}"`
+                              : 'No services match this filter'}
+                    </p>
+                </div>
+            ) : (
+                <div className="mc-services-grid">
+                    {sortedFilteredServices.map((p) => {
+                        const createdRaw = p.createdAt ?? p.created_at;
+                        const createdLabel = formatCatalogCreatedAt(createdRaw);
+                        return (
+                            <div
+                                key={p.id}
+                                className="mc-service-card"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => openEditService(p)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        openEditService(p);
+                                    }
+                                }}
+                            >
+                                <div className="mc-sc-header">
+                                    <div className="mc-sc-icon">
+                                        <Edit3 size={16} />
+                                    </div>
+                                    <span className={`mc-pc-status ${p.isActive === false ? 'rejected' : 'approved'}`}>
+                                        {p.isActive === false ? 'Rejected' : 'Approved'}
+                                    </span>
+                                </div>
+                                <div className="mc-sc-body">
+                                    <h4 className="mc-sc-name">{p.name}</h4>
+                                    <p className="mc-sc-sub">{p.sku || 'No SKU'}</p>
+                                    {createdLabel ? (
+                                        <p className="mc-pc-created" title={String(createdRaw)}>
+                                            Created {createdLabel}
+                                        </p>
+                                    ) : null}
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                                        <span className="mc-pc-tag">{p.categoryName || '—'}</span>
+                                        {(p.vatMode != null && String(p.vatMode).trim() !== '') ||
+                                        (p.vat_mode != null && String(p.vat_mode).trim() !== '') ? (
+                                            <span className="mc-pc-tag" title="VAT mode">
+                                                {String(p.vatMode ?? p.vat_mode)}
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                    <div className="mc-sc-price">Sale: SAR {p.sellingPrice ?? 0}</div>
+                                </div>
+                                <div className="mc-sc-footer">
+                                    <div className="mc-sc-toggle-group">
+                                        <div className="mc-toggle-label">
+                                            <strong>Cashier Price Edit</strong>
+                                            <span>{p.isPriceEditable ? 'Editable' : 'Fixed price'}</span>
+                                        </div>
+                                        <div className="mc-toggle-switch" />
+                                    </div>
+                                    <Edit3
+                                        size={14}
+                                        className="mc-sc-edit-icon"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            openEditService(p);
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
         </div>
     );
 
@@ -2355,19 +2479,44 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Category</label>
+                                <label>Department</label>
+                                <input
+                                    type="text"
+                                    readOnly
+                                    disabled
+                                    value={
+                                        departments.find((d) => String(d.id) === String(editingProduct.departmentId))
+                                            ?.name ||
+                                        editingProduct.departmentName ||
+                                        '—'
+                                    }
+                                />
+                            </div>
+
+                            <div className="mc-form-group">
+                                <label>Category *</label>
                                 <div className="mc-select-wrapper">
-                                    <select 
-                                        value={editingProduct.category} 
-                                        onChange={(e) => setEditingProduct({...editingProduct, category: e.target.value})}
+                                    <select
+                                        value={editingProduct.categoryId ?? ''}
+                                        onChange={(e) =>
+                                            setEditingProduct({ ...editingProduct, categoryId: e.target.value })
+                                        }
+                                        disabled={editModalProductCategories.length === 0}
                                     >
                                         <option value="">Select Category</option>
-                                        {categories.map(cat => (
-                                            <option key={cat.id} value={cat.name}>{cat.name}</option>
+                                        {editModalProductCategories.map((cat) => (
+                                            <option key={cat.id} value={String(cat.id)}>
+                                                {cat.name}
+                                            </option>
                                         ))}
                                     </select>
                                     <ChevronDown size={14} />
                                 </div>
+                                {editingProduct.departmentId && editModalProductCategories.length === 0 && (
+                                    <p style={{ marginTop: 6, color: '#B91C1C', fontSize: 12 }}>
+                                        No product categories for this department. Create one first.
+                                    </p>
+                                )}
                             </div>
 
                             <div className="mc-form-row">

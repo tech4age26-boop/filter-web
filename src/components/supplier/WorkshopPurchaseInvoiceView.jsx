@@ -79,8 +79,12 @@ function lineLineTotal(line) {
 
 function statusBadgeClass(s) {
     const x = String(s || '').toLowerCase();
-    if (x === 'approved') return 'wpi-view__badge wpi-view__badge--approved';
     if (x === 'rejected') return 'wpi-view__badge wpi-view__badge--rejected';
+    if (x === 'pending') return 'wpi-view__badge wpi-view__badge--pending';
+    if (x === 'delivered' || x === 'approved') return 'wpi-view__badge wpi-view__badge--approved';
+    if (x === 'processing' || x === 'ready_to_dispatch' || x === 'on_the_way') {
+        return 'wpi-view__badge wpi-view__badge--pending';
+    }
     return 'wpi-view__badge wpi-view__badge--pending';
 }
 
@@ -150,12 +154,24 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
             row.subtotal ??
             0,
     );
-    const totalVat = Number(
+    const totalVatFromApi = Number(
         pick(inv, 'totalVat', 'total_vat', 'vatAmount', 'vat_amount') ?? row.vat_amount ?? 0,
     );
     const grand = Number(
         pick(inv, 'grandTotal', 'grand_total', 'totalInclVat', 'total') ?? row.grand_total ?? 0,
     );
+    const totalVat = (() => {
+        const raw = Number.isFinite(totalVatFromApi) ? totalVatFromApi : 0;
+        if (Math.abs(raw) > 1e-6) return raw;
+        if (
+            Number.isFinite(grand) &&
+            Number.isFinite(subtotalEx) &&
+            grand > subtotalEx + 1e-6
+        ) {
+            return Math.round((grand - subtotalEx) * 100) / 100;
+        }
+        return raw;
+    })();
 
     const paid = Number(pick(inv, 'amountPaid', 'amount_paid') ?? row.amount_paid ?? 0);
     const balance = Number(
@@ -180,33 +196,45 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
 
     const [qrBroken, setQrBroken] = useState(false);
     const [pdfBusy, setPdfBusy] = useState(false);
+    const [pdfError, setPdfError] = useState('');
     const printRootRef = useRef(null);
 
     const handleDownloadPdf = useCallback(async () => {
         const el = printRootRef.current;
         if (!el) return;
         setPdfBusy(true);
+        setPdfError('');
         try {
-            const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-                import('html2canvas'),
+            const [{ toPng }, { jsPDF }] = await Promise.all([
+                import('html-to-image'),
                 import('jspdf'),
             ]);
-            const canvas = await html2canvas(el, {
-                scale: 2,
-                useCORS: true,
-                logging: false,
-                onclone: (clonedDoc) => {
-                    clonedDoc.querySelectorAll('.wpi-view__btn-download').forEach((node) => node.remove());
+            // html2canvas chokes on modern CSS (e.g. color(srgb …) from computed color-mix).
+            // html-to-image uses SVG foreignObject + native paint, then rasterizes to PNG.
+            const imgData = await toPng(el, {
+                backgroundColor: '#fafaf9',
+                pixelRatio: Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 2 : 2),
+                cacheBust: true,
+                filter: (node) => {
+                    if (!(node instanceof HTMLElement)) return true;
+                    if (node.classList.contains('wpi-view__btn-download')) return false;
+                    if (node.tagName === 'IMG' && node.closest('.wpi-view__qr')) return false;
+                    return true;
                 },
             });
-            const imgData = canvas.toDataURL('image/png', 1);
+            const dims = await new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+                img.onerror = () => reject(new Error('Invalid PNG from capture'));
+                img.src = imgData;
+            });
             const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
             const pageWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();
             const margin = 36;
             const usableW = pageWidth - margin * 2;
             const usableH = pageHeight - margin * 2;
-            const imgDisplayHeight = (canvas.height * usableW) / canvas.width;
+            const imgDisplayHeight = (dims.h * usableW) / dims.w;
 
             if (imgDisplayHeight <= usableH) {
                 pdf.addImage(imgData, 'PNG', margin, margin, usableW, imgDisplayHeight);
@@ -225,7 +253,9 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
             pdf.save(`Filter-WPI-${safe}.pdf`);
         } catch (err) {
             console.error(err);
-            window.alert('Could not create PDF. You can use your browser Print dialog and choose Save as PDF.');
+            setPdfError(
+                'Could not create PDF. Use your browser Print dialog on this page and choose Save as PDF.',
+            );
         } finally {
             setPdfBusy(false);
         }
@@ -240,7 +270,9 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
             <div className="wpi-view__surface">
                 <header className="wpi-view__masthead">
                     <div className="wpi-view__masthead-text">
-                        <p className="wpi-view__masthead-kicker">Filter</p>
+                        <p className="wpi-view__brand-logo" aria-label="Filter">
+                            FILTER
+                        </p>
                         <h3 className="wpi-view__masthead-title">Workshop purchase invoice</h3>
                         <p className="wpi-view__masthead-sub">Official workshop purchase document</p>
                     </div>
@@ -254,7 +286,14 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
                             <Download size={16} strokeWidth={2.5} aria-hidden />
                             {pdfBusy ? 'Preparing…' : 'Download PDF'}
                         </button>
-                        <span className={statusBadgeClass(status)}>{status || '—'}</span>
+                        {pdfError ? (
+                            <p className="wpi-view__pdf-error" role="alert">
+                                {pdfError}
+                            </p>
+                        ) : null}
+                        <span className={statusBadgeClass(status)}>
+                            {status && status !== '—' ? status.replace(/_/g, ' ') : '—'}
+                        </span>
                     </div>
                 </header>
 

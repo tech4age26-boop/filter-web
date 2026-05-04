@@ -189,6 +189,12 @@ export const rejectSupplierWorkshopPurchaseInvoice = (id, body) =>
         method: 'POST',
         body: JSON.stringify(body || {}),
     });
+/** Fulfillment chain after approve: processing → ready_to_dispatch → on_the_way → delivered */
+export const patchSupplierWorkshopPurchaseInvoiceStatus = (id, body) =>
+    apiFetch(`/supplier/workshop-purchase-invoices/${encodeURIComponent(String(id))}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify(body || {}),
+    });
 
 /** Download PDF for a payable (GET /supplier/payables/:id/pdf). Returns blob + suggested filename from Content-Disposition when present. */
 export async function downloadSupplierPayablePdf(id) {
@@ -238,6 +244,108 @@ export const getSupplierAccountingReport = () =>
     apiFetch('/supplier/reports/accounting');
 export const getSupplierAccountingScreen = (params = {}) =>
     apiFetch(withQuery('/supplier/reports/accounting/screen', params));
+
+/**
+ * Merge rollups from the accounting report root (`summary`, `expenses.stats`) when
+ * `chartOfAccounts.rollups` is missing, stale, or zero so COA KPIs match the Expenses tab.
+ */
+function mergeSupplierCoaRollups(report, embedded) {
+    const baseline =
+        embedded && typeof embedded === 'object' && embedded.rollups && typeof embedded.rollups === 'object'
+            ? embedded.rollups
+            : {};
+    const summary = report?.summary || {};
+    const expStats = report?.expenses?.stats || {};
+
+    const expenseRecords = Array.isArray(embedded?.expenseRecords) ? embedded.expenseRecords : [];
+    const lineSum = expenseRecords.reduce(
+        (s, e) => s + Number(e.totalAmount ?? e.amount ?? 0),
+        0,
+    );
+    const expenseByCategory = Array.isArray(embedded?.expenseByCategory) ? embedded.expenseByCategory : [];
+    const catSum = expenseByCategory.reduce((s, e) => s + Number(e.totalAmount ?? 0), 0);
+
+    const fromReport = Number(expStats.totalExpenses ?? summary.totalExpenses ?? 0);
+    const rollupExp = Number(baseline.expenseAmountTotal);
+    const expenseAmountTotal = rollupExp || fromReport || lineSum || catSum;
+
+    return {
+        currencyCode: baseline.currencyCode ?? embedded?.currencyCode ?? report?.currencyCode ?? 'SAR',
+        accountsReceivable: Number(baseline.accountsReceivable ?? summary.totalAR ?? 0),
+        accountsPayable: Number(baseline.accountsPayable ?? summary.totalAP ?? 0),
+        expenseRecordsTotal: Number(
+            baseline.expenseRecordsTotal ?? expStats.totalRecords ?? expenseRecords.length ?? 0,
+        ),
+        expenseAmountTotal,
+        expensesPaid: Number(baseline.expensesPaid ?? expStats.paid ?? 0),
+        expensesPendingApproval: Number(baseline.expensesPendingApproval ?? expStats.pendingApproval ?? 0),
+        paymentsReceivedTotal: Number(baseline.paymentsReceivedTotal ?? 0),
+        paymentsReceivedCount: Number(baseline.paymentsReceivedCount ?? 0),
+        superSupplierPurchasesTotal: Number(baseline.superSupplierPurchasesTotal ?? 0),
+        superSupplierPurchaseCount: Number(baseline.superSupplierPurchaseCount ?? 0),
+        workshopPurchaseInvoicesTotal: Number(baseline.workshopPurchaseInvoicesTotal ?? 0),
+        workshopPurchaseInvoiceCount: Number(baseline.workshopPurchaseInvoiceCount ?? 0),
+    };
+}
+
+/**
+ * Chart of accounts for supplier portal: prefers `chartOfAccounts` on
+ * `GET /supplier/reports/accounting` (works on older deployed APIs once that
+ * handler is updated). Falls back to cash/bank accounts + summary AR/AP only.
+ */
+export async function getSupplierChartOfAccounts() {
+    const report = await getSupplierAccountingReport();
+    const embedded = report?.chartOfAccounts;
+    if (embedded && Array.isArray(embedded.ledgerAccounts)) {
+        const rollups = mergeSupplierCoaRollups(report, embedded);
+        return {
+            success: true,
+            ...embedded,
+            currencyCode: embedded.currencyCode || report.currencyCode || 'SAR',
+            ledgerAccounts: embedded.ledgerAccounts,
+            memoAccounts: Array.isArray(embedded.memoAccounts) ? embedded.memoAccounts : [],
+            rollups,
+        };
+    }
+    const cur = report?.currencyCode || 'SAR';
+    const s = report?.summary || {};
+    const totalAR = Number(s.totalAR ?? 0);
+    const totalAP = Number(s.totalAP ?? 0);
+    const cb = report?.cashBank;
+    let ledgerFromCash = [];
+    if (cb && typeof cb === 'object') {
+        const arr = Array.isArray(cb.accounts) ? cb.accounts : [];
+        ledgerFromCash = arr.map((a) => ({
+            id: String(a.id ?? ''),
+            name: a.name ?? '—',
+            accountType: a.accountType ?? '—',
+            refId: null,
+            openingBalance: Number(a.openingBalance ?? 0),
+            balance: Number(a.balance ?? a.openingBalance ?? 0),
+        }));
+    }
+    const rollups = mergeSupplierCoaRollups(report, embedded && typeof embedded === 'object' ? embedded : null);
+    return {
+        success: true,
+        currencyCode: cur,
+        ledgerAccounts: ledgerFromCash,
+        memoAccounts: [
+            {
+                id: 'memo_ar',
+                name: 'Accounts receivable (open sales invoices)',
+                accountType: 'memo_ar',
+                balance: totalAR,
+            },
+            {
+                id: 'memo_ap',
+                name: 'Accounts payable (creditors / payables)',
+                accountType: 'memo_ap',
+                balance: totalAP,
+            },
+        ],
+        rollups,
+    };
+}
 
 // Staff
 export const listSupplierStaff = (params = {}) =>

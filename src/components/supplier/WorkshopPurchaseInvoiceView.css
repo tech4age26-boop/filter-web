@@ -1,16 +1,29 @@
-/* Workshop purchase invoice — brand yellow matches supplier sidebar (index.css) */
+/* Workshop purchase invoice — FILTER wordmark + single logo gold (#F2B705) */
 
 .wpi-view {
-    /* Map to global brand tokens: --color-primary / --sidebar-bg #FCC245 */
-    --wpi-accent: var(--color-primary, #fcc245);
-    --wpi-accent-dark: var(--color-primary-dark, #e0a800);
-    --wpi-accent-2: var(--color-secondary, #f5b800);
-    --wpi-accent-soft: var(--pos-gold-muted, #fff4d6);
-    --wpi-accent-tint: var(--color-accent, rgba(252, 194, 69, 0.12));
-    --wpi-accent-text: #3a3310; /* readable brown on cream; pairs with brand yellow */
+    /* Brand: logo gold only (variants via color-mix on this hue) */
+    --wpi-filter-gold: #f2b705;
+    --wpi-filter-gold-ink: #2a2100;
+    --wpi-filter-gold-mid: color-mix(in srgb, var(--wpi-filter-gold) 55%, #1a1400);
+    --wpi-filter-gold-soft: color-mix(in srgb, var(--wpi-filter-gold) 18%, #ffffff);
+    --wpi-filter-gold-tint: color-mix(in srgb, var(--wpi-filter-gold) 14%, transparent);
+    --wpi-filter-gold-muted: color-mix(in srgb, var(--wpi-filter-gold) 42%, #ffffff);
+    /* Header/footer banner: yellow (logo family), not navy */
+    --wpi-banner-bg: linear-gradient(
+        165deg,
+        color-mix(in srgb, var(--wpi-filter-gold) 28%, #ffffff) 0%,
+        var(--wpi-filter-gold) 45%,
+        color-mix(in srgb, var(--wpi-filter-gold) 78%, #5c4500) 100%
+    );
+    --wpi-banner-ink: #111e31;
+    --wpi-accent: var(--wpi-filter-gold);
+    --wpi-accent-dark: var(--wpi-filter-gold-mid);
+    --wpi-accent-soft: var(--wpi-filter-gold-soft);
+    --wpi-accent-tint: var(--wpi-filter-gold-tint);
+    --wpi-accent-text: var(--wpi-filter-gold-ink);
     --wpi-ink: #0f172a;
     --wpi-slate: #1e293b;
-    --wpi-slate-deep: #0f172a;
+    --wpi-slate-deep: var(--wpi-banner-ink);
     --wpi-paper: #fafaf9;
     --wpi-paper-edge: #e7e5e4;
 
@@ -57,7 +70,7 @@
     font-weight: 900;
     letter-spacing: clamp(0.08em, 1.2vw, 0.22em);
     line-height: 1;
-    color: rgba(252, 194, 69, 0.16);
+    color: color-mix(in srgb, var(--wpi-filter-gold) 16%, transparent);
     white-space: nowrap;
     user-select: none;
     text-shadow:
@@ -72,11 +85,11 @@
     transform: translate(-50%, -48%);
     width: min(88%, 440px);
     aspect-ratio: 1.85 / 1;
-    border: 1px solid rgba(252, 194, 69, 0.2);
+    border: 1px solid color-mix(in srgb, var(--wpi-filter-gold) 22%, transparent);
     border-radius: 50%;
     box-shadow:
-        inset 0 0 80px rgba(252, 194, 69, 0.07),
-        0 0 40px rgba(252, 194, 69, 0.05);
+        inset 0 0 80px color-mix(in srgb, var(--wpi-filter-gold) 8%, transparent),
+        0 0 40px color-mix(in srgb, var(--wpi-filter-gold) 6%, transparent);
 }
 
 .wpi-view__surface {
@@ -85,35 +98,41 @@
     padding: 0 0 24px;
 }
 
-/* Header band — template-style premium strip */
+/* Header — yellow band (logo colour family) */
 .wpi-view__masthead {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 16px;
     padding: 20px 24px 22px;
-    background: linear-gradient(
-        125deg,
-        var(--wpi-slate-deep) 0%,
-        #1e3a5f 38%,
-        var(--wpi-slate) 72%,
-        #422006 100%
-    );
-    border-bottom: 3px solid var(--wpi-accent);
-    box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.35);
+    background: var(--wpi-banner-bg);
+    border-bottom: 3px solid color-mix(in srgb, var(--wpi-banner-ink) 22%, var(--wpi-filter-gold));
+    box-shadow: 0 8px 20px -10px color-mix(in srgb, var(--wpi-banner-ink) 25%, transparent);
 }
 
 .wpi-view__masthead-text {
     min-width: 0;
 }
 
-.wpi-view__masthead-kicker {
-    margin: 0 0 6px 0;
-    font-size: 0.78rem;
-    font-weight: 800;
-    letter-spacing: 0.38em;
+/* Wordmark: heavy sans — dark on yellow banner (readable) */
+.wpi-view__brand-logo {
+    margin: 0 0 10px 0;
+    font-size: clamp(1.35rem, 4vw, 1.85rem);
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    line-height: 1;
     text-transform: uppercase;
-    color: var(--wpi-accent);
+    color: var(--wpi-banner-ink);
+    font-family:
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        'Segoe UI',
+        Roboto,
+        'Helvetica Neue',
+        Helvetica,
+        Arial,
+        sans-serif;
 }
 
 .wpi-view__masthead-title {
@@ -121,14 +140,14 @@
     font-size: clamp(1.15rem, 2.8vw, 1.45rem);
     font-weight: 800;
     letter-spacing: 0.02em;
-    color: #fff;
+    color: var(--wpi-banner-ink);
     line-height: 1.2;
 }
 
 .wpi-view__masthead-sub {
     margin: 8px 0 0 0;
     font-size: 0.75rem;
-    color: rgba(255, 248, 220, 0.88);
+    color: color-mix(in srgb, var(--wpi-banner-ink) 72%, #ffffff);
     letter-spacing: 0.04em;
 }
 
@@ -158,6 +177,34 @@
     margin-top: 0;
 }
 
+.wpi-view__pdf-error {
+    margin: 0;
+    max-width: 260px;
+    text-align: right;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #b91c1c;
+    line-height: 1.35;
+}
+
+/* Optional placeholder if QR is swapped out during capture (unused with html-to-image filter). */
+.wpi-view__qr-pdf-placeholder {
+    width: 140px;
+    height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    text-align: center;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    color: var(--wpi-slate);
+    background: #fff;
+    border: 1px dashed var(--wpi-paper-edge);
+    border-radius: 8px;
+    box-sizing: border-box;
+}
+
 .wpi-view__btn-download {
     display: inline-flex;
     align-items: center;
@@ -168,12 +215,12 @@
     font-size: 0.75rem;
     font-weight: 800;
     letter-spacing: 0.04em;
-    color: var(--sidebar-text, #000);
-    background: var(--gradient-gold, linear-gradient(135deg, #fcc245 0%, #e0a800 100%));
-    border: none;
+    color: var(--wpi-filter-gold);
+    background: var(--wpi-banner-ink);
+    border: 2px solid color-mix(in srgb, var(--wpi-banner-ink) 88%, #ffffff);
     border-radius: 8px;
     cursor: pointer;
-    box-shadow: var(--shadow-gold, 0 4px 14px rgba(252, 194, 69, 0.35));
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--wpi-banner-ink) 35%, transparent);
     transition:
         filter 0.15s ease,
         transform 0.15s ease;
@@ -228,8 +275,8 @@
     bottom: 0;
     width: min(48%, 180px);
     height: 2px;
-    background: linear-gradient(90deg, var(--wpi-accent), var(--wpi-accent-dark));
-    opacity: 0.85;
+    background: linear-gradient(90deg, var(--wpi-filter-gold), var(--wpi-filter-gold-mid));
+    opacity: 0.9;
     border-radius: 1px;
 }
 
@@ -253,14 +300,14 @@
 }
 
 .wpi-view__badge--pending {
-    background: rgba(254, 243, 199, 0.95);
-    color: var(--wpi-accent-text);
-    border-color: rgba(252, 194, 69, 0.4);
+    background: color-mix(in srgb, #ffffff 88%, var(--wpi-banner-ink));
+    color: var(--wpi-banner-ink);
+    border-color: color-mix(in srgb, var(--wpi-banner-ink) 28%, transparent);
 }
 .wpi-view__badge--approved {
-    background: rgba(209, 250, 229, 0.95);
-    color: #047857;
-    border-color: rgba(4, 120, 87, 0.25);
+    background: color-mix(in srgb, #ffffff 92%, var(--wpi-banner-ink));
+    color: var(--wpi-banner-ink);
+    border-color: color-mix(in srgb, var(--wpi-banner-ink) 35%, transparent);
 }
 .wpi-view__badge--rejected {
     background: rgba(254, 226, 226, 0.95);
@@ -283,11 +330,11 @@
 
 .wpi-view__box {
     border: 1px solid var(--wpi-paper-edge);
-    border-left: 4px solid var(--wpi-accent);
+    border-left: 4px solid var(--wpi-filter-gold);
     border-radius: 0 6px 6px 0;
     padding: 14px 16px;
     background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 1px 0 rgba(252, 194, 69, 0.1);
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--wpi-filter-gold) 12%, transparent);
 }
 
 .wpi-view__box h5 {
@@ -341,7 +388,7 @@
 
 .wpi-view__meta-cell {
     border: 1px solid var(--wpi-paper-edge);
-    border-top: 3px solid var(--wpi-accent);
+    border-top: 3px solid var(--wpi-filter-gold);
     border-radius: 0 0 8px 8px;
     padding: 10px 12px;
     background: #fff;
@@ -395,7 +442,7 @@
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--wpi-accent-text);
-    border-bottom: 2px solid rgba(252, 194, 69, 0.45);
+    border-bottom: 2px solid color-mix(in srgb, var(--wpi-filter-gold) 50%, transparent);
 }
 
 .wpi-view td {
@@ -443,9 +490,9 @@
     border: 1px solid var(--wpi-paper-edge);
     border-radius: 6px;
     padding: 16px 18px 14px;
-    background: linear-gradient(145deg, #ffffff 0%, var(--wpi-accent-soft) 55%, #fff 100%);
-    border-left: 5px solid var(--wpi-accent);
-    box-shadow: 0 4px 14px rgba(252, 194, 69, 0.12);
+    background: linear-gradient(145deg, #ffffff 0%, var(--wpi-filter-gold-soft) 55%, #fff 100%);
+    border-left: 5px solid var(--wpi-filter-gold);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--wpi-filter-gold) 18%, transparent);
 }
 
 .wpi-view__totals-lines .wpi-view__kv-row {
@@ -458,8 +505,12 @@
     border-top: none;
     border-radius: 4px;
     font-size: 1rem;
-    background: linear-gradient(90deg, rgba(254, 243, 199, 0.95) 0%, rgba(255, 251, 235, 0.65) 100%);
-    box-shadow: inset 0 0 0 1px rgba(252, 194, 69, 0.3);
+    background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--wpi-filter-gold) 42%, #ffffff) 0%,
+        color-mix(in srgb, var(--wpi-filter-gold) 18%, #ffffff) 100%
+    );
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--wpi-filter-gold) 45%, transparent);
 }
 
 .wpi-view__totals-lines .wpi-view__grand span:first-child {
@@ -480,7 +531,7 @@
 .wpi-view__qr {
     text-align: center;
     padding: 16px 14px;
-    border: 2px dashed rgba(252, 194, 69, 0.5);
+    border: 2px dashed color-mix(in srgb, var(--wpi-filter-gold) 55%, transparent);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.97);
     max-width: 200px;
@@ -514,12 +565,12 @@
     word-break: break-all;
     color: var(--wpi-accent-text);
     text-decoration: underline;
-    text-decoration-color: rgba(252, 194, 69, 0.5);
+    text-decoration-color: color-mix(in srgb, var(--wpi-filter-gold) 55%, transparent);
     text-underline-offset: 2px;
 }
 
 .wpi-view__verify-link:hover {
-    color: var(--wpi-accent-dark);
+    color: var(--wpi-filter-gold-mid);
 }
 
 .wpi-view__qr-fallback {
@@ -548,7 +599,7 @@
     margin: 0 24px 20px;
     background: #fafaf9;
     border: 1px solid var(--wpi-paper-edge);
-    border-left: 4px solid var(--wpi-accent-dark);
+    border-left: 4px solid var(--wpi-filter-gold-mid);
     font-size: 0.8125rem;
 }
 
@@ -570,8 +621,8 @@
     margin: 8px 0 0;
     padding: 18px 24px 6px;
     text-align: center;
-    background: linear-gradient(125deg, var(--wpi-slate-deep) 0%, #1e3a5f 55%, var(--wpi-slate) 100%);
-    border-top: 3px solid var(--wpi-accent);
+    background: var(--wpi-banner-bg);
+    border-top: 3px solid color-mix(in srgb, var(--wpi-banner-ink) 22%, var(--wpi-filter-gold));
 }
 
 .wpi-view__footer-line {
@@ -579,17 +630,81 @@
     font-size: 0.9375rem;
     font-weight: 700;
     letter-spacing: 0.06em;
-    color: #fff;
+    color: var(--wpi-banner-ink);
 }
 
 .wpi-view__footer-meta {
     margin: 0;
     font-size: 0.68rem;
     line-height: 1.45;
-    color: rgba(254, 243, 199, 0.88);
+    color: color-mix(in srgb, var(--wpi-banner-ink) 78%, #ffffff);
     max-width: 42rem;
     margin-left: auto;
     margin-right: auto;
+}
+
+/*
+ * Legacy: was toggled on a html2canvas clone to flatten color-mix().
+ * Kept harmless if reintroduced; live DOM does not use this class.
+ */
+.wpi-view.wpi-view--pdf-capture {
+    --wpi-filter-gold-mid: #736012 !important;
+    --wpi-filter-gold-soft: #f5e6b8 !important;
+    --wpi-filter-gold-tint: rgba(242, 183, 5, 0.22) !important;
+    --wpi-filter-gold-muted: #d4bc5c !important;
+    --wpi-banner-bg: linear-gradient(165deg, #fff2d1 0%, #f2b705 45%, #7a5f0c 100%) !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__masthead {
+    border-bottom: 3px solid #4a4030 !important;
+    box-shadow: 0 6px 16px -8px rgba(17, 30, 49, 0.35) !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__masthead-sub {
+    color: #4a5568 !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__badge--pending {
+    background: #e8eaef !important;
+    border-color: rgba(17, 30, 49, 0.22) !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__badge--approved {
+    background: #eef0f4 !important;
+    border-color: rgba(17, 30, 49, 0.28) !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__box {
+    box-shadow: 0 1px 0 rgba(242, 183, 5, 0.14) !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view th {
+    border-bottom: 2px solid rgba(242, 183, 5, 0.45) !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__totals-lines {
+    box-shadow: 0 4px 14px rgba(242, 183, 5, 0.2) !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__totals-lines .wpi-view__grand {
+    background: linear-gradient(90deg, #e8d59a 0%, #f7eac2 100%) !important;
+    box-shadow: inset 0 0 0 1px rgba(201, 162, 40, 0.45) !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__qr {
+    border: 2px dashed rgba(242, 183, 5, 0.45) !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__verify-link {
+    text-decoration-color: rgba(201, 162, 40, 0.75) !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__footer {
+    border-top: 3px solid #4a4030 !important;
+}
+
+.wpi-view.wpi-view--pdf-capture .wpi-view__footer-meta {
+    color: #5c6578 !important;
 }
 
 @media print {
@@ -599,7 +714,7 @@
     }
 
     .wpi-view__wm--primary {
-        color: rgba(252, 194, 69, 0.12);
+        color: color-mix(in srgb, var(--wpi-filter-gold) 12%, transparent);
     }
 
     .wpi-view__btn-download {

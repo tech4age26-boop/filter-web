@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { DollarSign, Plus, Pencil, Trash2 } from 'lucide-react';
+import { AlertTriangle, DollarSign, Plus, Pencil, Trash2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import {
@@ -43,6 +43,8 @@ export default function SupplierExpenses() {
         proofUrl: '',
     });
     const [categories, setCategories] = useState([]);
+    const [deleteTarget, setDeleteTarget] = useState(null);
+    const [deleteBusy, setDeleteBusy] = useState(false);
 
     const resetForm = () =>
         setForm({
@@ -199,15 +201,29 @@ export default function SupplierExpenses() {
         setModalOpen(true);
     };
 
-    const handleDelete = async (expense) => {
-        const ok = window.confirm(`Delete expense "${expense.description}"?`);
-        if (!ok) return;
+    const openDeleteModal = (expense) => {
+        setApiError('');
+        setDeleteTarget(expense);
+    };
+
+    const closeDeleteModal = () => {
+        if (deleteBusy) return;
+        setDeleteTarget(null);
+    };
+
+    const confirmDeleteExpense = async () => {
+        if (!deleteTarget?.id) return;
+        setDeleteBusy(true);
+        setApiError('');
         try {
-            await deleteSupplierExpense(expense.id);
+            await deleteSupplierExpense(deleteTarget.id);
+            setDeleteTarget(null);
             await loadData();
         } catch (err) {
             console.error('Delete expense failed:', err);
             setApiError(err?.message || 'Failed to delete expense.');
+        } finally {
+            setDeleteBusy(false);
         }
     };
 
@@ -286,7 +302,28 @@ export default function SupplierExpenses() {
                                     <td>
                                         <div style={{ display: 'flex', gap: 8 }}>
                                             <button type="button" style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => openEdit(e)}><Pencil size={13} /> Edit</button>
-                                            <button type="button" style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #FECACA', background: '#FEF2F2', color: '#B91C1C', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => handleDelete(e)}><Trash2 size={13} /> Delete</button>
+                                            <button
+                                                type="button"
+                                                style={{
+                                                    padding: '6px 10px',
+                                                    borderRadius: 8,
+                                                    border: '1px solid #FECACA',
+                                                    background: '#FEF2F2',
+                                                    color: '#B91C1C',
+                                                    fontSize: '0.75rem',
+                                                    fontWeight: 600,
+                                                    cursor: e.status === 'pending' ? 'pointer' : 'not-allowed',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 6,
+                                                    opacity: e.status === 'pending' ? 1 : 0.45,
+                                                }}
+                                                disabled={e.status !== 'pending'}
+                                                title={e.status !== 'pending' ? 'Only pending expenses can be deleted' : undefined}
+                                                onClick={() => e.status === 'pending' && openDeleteModal(e)}
+                                            >
+                                                <Trash2 size={13} /> Delete
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -421,6 +458,77 @@ export default function SupplierExpenses() {
                         </div>
                     </Modal>
                 )}
+            </AnimatePresence>
+            <AnimatePresence>
+                {deleteTarget ? (
+                    <Modal
+                        title={
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <span
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        width: 40,
+                                        height: 40,
+                                        borderRadius: 10,
+                                        background: '#FEF2F2',
+                                        color: '#B91C1C',
+                                    }}
+                                    aria-hidden
+                                >
+                                    <AlertTriangle size={22} strokeWidth={2.25} />
+                                </span>
+                                Delete expense?
+                            </span>
+                        }
+                        width="440px"
+                        onClose={closeDeleteModal}
+                        footer={
+                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                <button type="button" className="btn-portal-outline" disabled={deleteBusy} onClick={closeDeleteModal}>
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn-portal"
+                                    style={{ background: '#B91C1C', color: '#fff', border: 'none' }}
+                                    disabled={deleteBusy}
+                                    onClick={confirmDeleteExpense}
+                                >
+                                    {deleteBusy ? 'Deleting…' : 'Delete expense'}
+                                </button>
+                            </div>
+                        }
+                    >
+                        <p style={{ margin: '0 0 12px', fontSize: '0.875rem', lineHeight: 1.5, color: 'var(--color-text)' }}>
+                            This will permanently remove this expense request. This action cannot be undone.
+                        </p>
+                        <div
+                            style={{
+                                padding: 12,
+                                borderRadius: 10,
+                                background: '#F8FAFC',
+                                border: '1px solid var(--color-border)',
+                                fontSize: '0.8125rem',
+                                lineHeight: 1.5,
+                            }}
+                        >
+                            <div>
+                                <strong>Description:</strong> {deleteTarget.description || '—'}
+                            </div>
+                            <div style={{ marginTop: 6 }}>
+                                <strong>Category:</strong> {deleteTarget.category || '—'}
+                            </div>
+                            <div style={{ marginTop: 6 }}>
+                                <strong>Date:</strong> {deleteTarget.date}
+                            </div>
+                            <div style={{ marginTop: 6 }}>
+                                <strong>Amount:</strong> SAR {(deleteTarget.amount || 0).toLocaleString()}
+                            </div>
+                        </div>
+                    </Modal>
+                ) : null}
             </AnimatePresence>
         </div>
     );

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Package, Eye, Truck, CheckCircle, XCircle, PackageCheck } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -11,6 +11,10 @@ import {
     rejectSupplierPurchaseOrder,
     updateSupplierPurchaseOrderStatus,
 } from '../../services/supplierApi';
+import {
+    normalizeWorkshopSupplierPurchaseInvoiceRow,
+    unwrapWorkshopSupplierPurchaseInvoiceList,
+} from '../../services/workshopSupplierPurchaseInvoices';
 import WorkshopPurchaseInvoicesSupplierPanel from './WorkshopPurchaseInvoicesSupplierPanel';
 
 const PIPELINE_STAGES = [
@@ -26,10 +30,35 @@ const ORDER_STATUS_STYLES = Object.fromEntries(PIPELINE_STAGES.map(s => [s.id, {
 
 const STATUS_LABEL = Object.fromEntries(PIPELINE_STAGES.map(s => [s.id, s.label]));
 
+/** Maps workshop PI API status → Order Queue pipeline card id (aligned with branch PO stages). */
+function wpiStatusToPipelineId(status) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'pending') return 'pending_acceptance';
+    if (s === 'approved') return 'accepted';
+    if (s === 'processing') return 'processing';
+    if (s === 'ready_to_dispatch') return 'ready_to_dispatch';
+    if (s === 'on_the_way') return 'dispatched';
+    if (s === 'delivered') return 'delivered';
+    return null;
+}
+
+const PIPELINE_STAGE_TO_WPI_API = {
+    pending_acceptance: 'pending',
+    accepted: 'approved',
+    processing: 'processing',
+    ready_to_dispatch: 'ready_to_dispatch',
+    dispatched: 'on_the_way',
+    delivered: 'delivered',
+};
+
 export default function SupplierOrderQueue() {
     /** Purchase-order queue vs full workshop purchase invoice list (same APIs as Finance → Workshop purchases). */
     const [segment, setSegment] = useState('wpi_all');
     const [wpiTotal, setWpiTotal] = useState(null);
+    /** Rows used only for pipeline card counts (WPI + PO). */
+    const [wpiRowsForCounts, setWpiRowsForCounts] = useState([]);
+    /** When embedded WPI table is parent-controlled: API list `status` query ("" = all). */
+    const [wpiListStatusFilter, setWpiListStatusFilter] = useState('');
 
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -84,21 +113,22 @@ export default function SupplierOrderQueue() {
         reloadOrders();
     }, []);
 
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const res = await listSupplierWorkshopPurchaseInvoices({ limit: 1, offset: 0 });
-                const t = res?.total ?? res?.data?.total;
-                if (!cancelled) setWpiTotal(t != null ? Number(t) : null);
-            } catch {
-                if (!cancelled) setWpiTotal(null);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
+    const reloadWpiCounts = useCallback(async () => {
+        try {
+            const res = await listSupplierWorkshopPurchaseInvoices({ limit: 500, offset: 0 });
+            const t = res?.total ?? res?.data?.total;
+            setWpiTotal(t != null ? Number(t) : null);
+            const list = unwrapWorkshopSupplierPurchaseInvoiceList(res ?? {});
+            setWpiRowsForCounts(list.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean));
+        } catch {
+            setWpiTotal(null);
+            setWpiRowsForCounts([]);
+        }
     }, []);
+
+    useEffect(() => {
+        reloadWpiCounts();
+    }, [reloadWpiCounts]);
 
     const setStatus = (id, status) => setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
     const accept = async (id) => {
@@ -195,7 +225,15 @@ export default function SupplierOrderQueue() {
         }
     };
 
-    const pipelineCounts = PIPELINE_STAGES.reduce((acc, s) => ({ ...acc, [s.id]: orders.filter(o => o.status === s.id).length }), {});
+    const pipelineCounts = PIPELINE_STAGES.reduce(
+        (acc, s) => ({
+            ...acc,
+            [s.id]:
+                orders.filter(o => o.status === s.id).length +
+                wpiRowsForCounts.filter(r => wpiStatusToPipelineId(r?.status) === s.id).length,
+        }),
+        {},
+    );
 
     return (
         <div>
@@ -219,14 +257,23 @@ export default function SupplierOrderQueue() {
             >
                 <button
                     type="button"
-                    onClick={() => setSegment('wpi_all')}
+                    onClick={() => {
+                        setSegment('wpi_all');
+                        setWpiListStatusFilter('');
+                    }}
                     style={{
                         padding: 12,
                         borderRadius: 12,
-                        background: segment === 'wpi_all' ? '#FEF9C3' : '#F8FAFC',
-                        color: segment === 'wpi_all' ? '#854D0E' : '#475569',
+                        background:
+                            segment === 'wpi_all' && wpiListStatusFilter === ''
+                                ? '#FEF9C3'
+                                : '#F8FAFC',
+                        color: segment === 'wpi_all' && wpiListStatusFilter === '' ? '#854D0E' : '#475569',
                         textAlign: 'center',
-                        boxShadow: segment === 'wpi_all' ? '0 0 0 2px #EAB308' : '0 1px 3px rgba(0,0,0,0.04)',
+                        boxShadow:
+                            segment === 'wpi_all' && wpiListStatusFilter === ''
+                                ? '0 0 0 2px #EAB308'
+                                : '0 1px 3px rgba(0,0,0,0.04)',
                         border: 'none',
                         cursor: 'pointer',
                         font: 'inherit',
@@ -248,7 +295,10 @@ export default function SupplierOrderQueue() {
                     <button
                         key={s.id}
                         type="button"
-                        onClick={() => setSegment('po')}
+                        onClick={() => {
+                            setSegment('wpi_all');
+                            setWpiListStatusFilter(PIPELINE_STAGE_TO_WPI_API[s.id] ?? '');
+                        }}
                         style={{
                             padding: 12,
                             borderRadius: 12,
@@ -256,11 +306,13 @@ export default function SupplierOrderQueue() {
                             color: s.color,
                             textAlign: 'center',
                             boxShadow:
-                                segment === 'po' ? '0 0 0 2px rgba(15, 23, 42, 0.14)' : '0 1px 3px rgba(0,0,0,0.04)',
+                                segment === 'wpi_all' && wpiListStatusFilter === PIPELINE_STAGE_TO_WPI_API[s.id]
+                                    ? '0 0 0 2px rgba(15, 23, 42, 0.22)'
+                                    : '0 1px 3px rgba(0,0,0,0.04)',
                             border: 'none',
                             cursor: 'pointer',
                             font: 'inherit',
-                            opacity: segment === 'po' ? 1 : 0.92,
+                            opacity: 1,
                         }}
                     >
                         <p style={{ fontSize: '0.65rem', fontWeight: 600, margin: 0, lineHeight: 1.2 }}>{s.label}</p>
@@ -274,13 +326,36 @@ export default function SupplierOrderQueue() {
                     </button>
                 ))}
             </div>
+            <p style={{ margin: '0 0 16px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                <button
+                    type="button"
+                    onClick={() => setSegment('po')}
+                    style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        color: '#2563EB',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                    }}
+                >
+                    Classic branch purchase orders (PO queue)
+                </button>{' '}
+                — separate from workshop purchase invoices above.
+            </p>
 
             {segment === 'wpi_all' ? (
                 <div style={{ marginTop: 8 }}>
                     <p style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                        All statuses · same list as <strong>Finance → Workshop purchases</strong>. Use filters below to narrow.
+                        Cards filter the workshop purchase invoice table. Same data as{' '}
+                        <strong>Finance → Workshop purchases</strong>.
                     </p>
-                    <WorkshopPurchaseInvoicesSupplierPanel variant="embedded" />
+                    <WorkshopPurchaseInvoicesSupplierPanel
+                        variant="embedded"
+                        pipelineStatusFilter={wpiListStatusFilter}
+                        onListMutated={reloadWpiCounts}
+                    />
                 </div>
             ) : null}
 
