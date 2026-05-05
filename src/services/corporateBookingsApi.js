@@ -51,3 +51,37 @@ export async function fetchCorporateBookingById(id, { signal } = {}) {
     const data = await apiFetch(`/corporate/bookings/${encodeURIComponent(String(id))}`, { signal });
     return data?.booking ?? data?.data?.booking ?? data?.data ?? data?.order ?? data;
 }
+
+/** GET /corporate/bookings/:bookingId/invoice — accepts numeric id or CB-<id> reference. */
+export async function fetchCorporateBookingInvoice(bookingId, { signal } = {}) {
+    const data = await apiFetch(
+        `/corporate/bookings/${encodeURIComponent(String(bookingId))}/invoice`,
+        { signal },
+    );
+    return data?.invoice ?? data?.data?.invoice ?? data?.data ?? data;
+}
+
+/** GET /corporate/walk-in-orders/pending */
+export async function fetchCorporatePendingWalkInOrders({ signal } = {}) {
+    const data = await apiFetch('/corporate/walk-in-orders/pending', { signal });
+    return Array.isArray(data?.pending) ? data.pending : Array.isArray(data?.data?.pending) ? data.data.pending : [];
+}
+
+/** GET /corporate/walk-in-orders/:orderId */
+export async function fetchCorporateWalkInOrderById(orderId, { signal } = {}) {
+    const data = await apiFetch(`/corporate/walk-in-orders/${encodeURIComponent(String(orderId))}`, { signal });
+    return data?.data ?? data;
+}
+
+/** POST /corporate/walk-in-orders/:orderId/approve */
+export async function approveCorporateWalkInOrder(orderId) {
+    return apiFetch(`/corporate/walk-in-orders/${encodeURIComponent(String(orderId))}/approve`, { method: 'POST' });
+}
+
+/** POST /corporate/walk-in-orders/:orderId/reject */
+export async function rejectCorporateWalkInOrder(orderId, reason) {
+    return apiFetch(`/corporate/walk-in-orders/${encodeURIComponent(String(orderId))}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+    });
+}
