@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Printer, Check, QrCode } from 'lucide-react';
+import { X, Printer, Check, QrCode, Download } from 'lucide-react';
 
 // Mirrors the Flutter reference InvoiceDialog (pos_widgets.dart:3418):
 //   dark "FILTER / Simplified TAX Invoice" header with invoice no + date + time,
@@ -35,6 +35,15 @@ const formatInvoiceTime = (raw) => {
         return null;
     }
 };
+
+const CHECKLIST_LABELS = [
+    ['Tire Pressure Check', 'فحص هواء الإطارات'],
+    ['Brake Fluid Check', 'فحص سائل الفرامل'],
+    ['Wipers Fluid Check', 'فحص سائل المساحات'],
+    ['Power Steering Fluid Check', 'فحص سائل المقود'],
+    ['Transmission Fluid Check', 'فحص سائل نقل الحركة'],
+    ['Radiator Fluid Check', 'فحص سائل رديتر المحرك'],
+];
 
 const pickItems = (invoice) => {
     if (!invoice) return [];
@@ -88,7 +97,7 @@ const computeRow = (item) => {
     };
 };
 
-export default function InvoiceDetailsModal({ invoice, isOpen, onClose, onPrint }) {
+export default function InvoiceDetailsModal({ invoice, isOpen, onClose, onPrint, onDownload }) {
     if (!isOpen || !invoice) return null;
 
     const items = pickItems(invoice);
@@ -104,6 +113,32 @@ export default function InvoiceDetailsModal({ invoice, isOpen, onClose, onPrint 
     const discountTotal = parseFloat(invoice.discountAmount ?? sumDiscount) || sumDiscount;
     const vatTotal = parseFloat(invoice.vatAmount ?? sumVat) || sumVat;
     const grandTotal = parseFloat(invoice.totalAmount ?? invoice.grandTotal ?? sumTotal) || sumTotal;
+    const jobs = Array.isArray(invoice.salesOrder?.jobs)
+        ? invoice.salesOrder.jobs
+        : Array.isArray(invoice.jobs)
+          ? invoice.jobs
+          : [];
+    const itemDiscount = jobs.reduce(
+        (acc, j) =>
+            acc +
+            Math.max(
+                0,
+                (parseFloat(j.amountBeforeDiscount) || 0) -
+                    (parseFloat(j.amountAfterDiscount) || parseFloat(j.amountAfterPromo) || 0),
+            ),
+        0,
+    );
+    const invoiceDiscount = jobs.reduce((acc, j) => {
+        if (String(j.totalDiscountType || '').toLowerCase() === 'amount') return acc + (parseFloat(j.totalDiscountValue) || 0);
+        return acc;
+    }, 0);
+    const promoDiscount = jobs.reduce((acc, j) => acc + (parseFloat(j.promoDiscountAmount) || 0), 0);
+    const taxableAmount =
+        parseFloat(invoice.taxableAmount) ||
+        Math.max(0, subtotal - itemDiscount - invoiceDiscount - promoDiscount);
+    const checklistChecks = Array.isArray(invoice.maintenanceChecklist?.checks)
+        ? invoice.maintenanceChecklist.checks
+        : [];
 
     const payments = Array.isArray(invoice.payments) ? invoice.payments : [];
     const paymentMethodText = payments.length > 0
@@ -118,7 +153,17 @@ export default function InvoiceDetailsModal({ invoice, isOpen, onClose, onPrint 
     const plateNo = invoice.plateNo || invoice.vehicle?.plateNo || invoice.vehicle?.plateNumber || '-';
     const vehicleYear = String(invoice.vehicleYear || invoice.vehicle?.year || '').trim() || '-';
     const vehicleVin = String(invoice.vehicleVin || invoice.vehicle?.vin || '').trim() || '-';
-    const odometer = invoice.odometerReading || invoice.odometer || '-';
+    const odometer =
+        invoice.odometerReading ??
+        invoice.odometer ??
+        invoice.salesOrder?.odometerReading ??
+        invoice.order?.odometerReading ??
+        '-';
+    const nextOilChangeKm =
+        invoice.nextOilChangeKm ??
+        invoice.salesOrder?.nextOilChangeKm ??
+        invoice.order?.nextOilChangeKm ??
+        '-';
 
     const invoiceNo = invoice.invoiceNo || invoice.invoice_no || invoice.number || '—';
     const invoiceDate = formatInvoiceDate(invoice.invoiceDate || invoice.date || invoice.issuedAt);
@@ -126,53 +171,40 @@ export default function InvoiceDetailsModal({ invoice, isOpen, onClose, onPrint 
     const branchName = (invoice.branchName || invoice.branch?.name || 'Branch').toString().toUpperCase();
 
     const handlePrint = () => {
-        if (onPrint) { onPrint(invoice); return; }
+        if (onPrint) {
+            onPrint(invoice);
+            return;
+        }
+        // Use same-window print so popup blockers do not break invoice printing.
+        setTimeout(() => window.print(), 50);
+    };
 
+    const handleDownload = () => {
+        if (onDownload) {
+            onDownload(invoice);
+            return;
+        }
         const scrollEl = document.querySelector('.invoice-modal-card .invoice-scroll');
-        if (!scrollEl) { window.print(); return; }
-
-        const printWin = window.open('', '_blank', 'width=900,height=700');
-        if (!printWin) { alert('Please allow pop-ups to print.'); return; }
-
-        // Extract style text from modal but strip @media print blocks that hide content
+        if (!scrollEl) return;
         const modalRoot = document.querySelector('.invoice-modal-root');
         let cssText = '';
         if (modalRoot) {
-            modalRoot.querySelectorAll('style').forEach(s => {
-                // Remove @media print { ... } blocks so they don't interfere
+            modalRoot.querySelectorAll('style').forEach((s) => {
                 cssText += s.textContent.replace(/@media\s+print\s*\{[^}]*(\{[^}]*\}[^}]*)*\}/g, '') + '\n';
             });
         }
-
-        printWin.document.write(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Invoice ${invoiceNo}</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #fff;
-    padding: 20px;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    color-adjust: exact !important;
-  }
-  .invoice-scroll { overflow: visible; padding: 0; }
-  .no-print { margin-top: 24px; text-align: center; }
-  @media print {
-    .no-print { display: none !important; }
-    body { padding: 8px; }
-  }
-  ${cssText}
-</style>
-</head><body>
-${scrollEl.innerHTML}
-<div class="no-print">
-  <button onclick="window.print()" style="padding:12px 40px;background:#1E2124;color:#FCC247;border:none;border-radius:10px;font-weight:800;font-size:1rem;cursor:pointer;">Print</button>
-  <button onclick="window.close()" style="padding:12px 40px;margin-left:12px;background:#f1f5f9;color:#64748b;border:none;border-radius:10px;font-weight:800;font-size:1rem;cursor:pointer;">Close</button>
-</div>
-</body></html>`);
-        printWin.document.close();
-        setTimeout(() => printWin.print(), 500);
+        const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Invoice ${invoiceNo}</title><style>${cssText}</style></head>
+<body><div class="invoice-scroll">${scrollEl.innerHTML}</div></body></html>`;
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${String(invoiceNo || 'invoice').replace(/[^\w-]/g, '_')}.html`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
     };
 
     return (
@@ -216,7 +248,8 @@ ${scrollEl.innerHTML}
                         <InfoPairRow left={['Tax ID', customerTaxId]} right={['Model', vehicleModel || '-']} />
                         <InfoPairRow left={['Plate', plateNo]} right={['Year', vehicleYear]} />
                         <InfoPairRow left={['VIN', vehicleVin]} right={['Mileage', String(odometer)]} />
-                        <InfoPairRow left={['Make', vehicleMake || '-']} right={['Payment', paymentMethodText]} last />
+                        <InfoPairRow left={['Next Oil Change KM', String(nextOilChangeKm)]} right={['Payment', paymentMethodText]} />
+                        <InfoPairRow left={['Make', vehicleMake || '-']} right={['', '']} last />
                     </div>
 
                     {/* Items table */}
@@ -250,16 +283,39 @@ ${scrollEl.innerHTML}
                     </div>
 
                     {/* Totals */}
+                    <div className="invoice-total-section-title">Total Amount</div>
                     <div className="invoice-totals">
-                        <TotalsRow label="Subtotal (Excl VAT)" value={fmt(subtotal)} />
-                        {discountTotal > 0 && <TotalsRow label="Total Discount" value={`- ${fmt(discountTotal)}`} />}
-                        <TotalsRow label="VAT (15%)" value={fmt(vatTotal)} />
-                        <TotalsRow label="Grand Total" value={fmt(grandTotal)} bold />
+                        <TotalsRow label="Gross Amount (Excluding VAT)" value={fmt(subtotal)} />
+                        <TotalsRow label="Item Discount" subLabel="خصم الأصناف" value={fmt(itemDiscount)} />
+                        <TotalsRow label="Invoice Discount" subLabel="خصم الفاتورة" value={fmt(invoiceDiscount || discountTotal)} />
+                        <TotalsRow label="Promo Code Discount" subLabel="خصم الرمز الترويجي" value={fmt(promoDiscount)} />
+                        <TotalsRow label="Total Taxable Amount" value={fmt(taxableAmount)} />
+                        <TotalsRow label="VAT 15%" value={fmt(vatTotal)} />
+                        <TotalsRow label="Total Invoice Amount" value={fmt(grandTotal)} bold />
                     </div>
+                    <div className="invoice-total-section-title" style={{ marginTop: 10 }}>Maintenance checklist</div>
+                    <div className="invoice-checklist-grid">
+                        {CHECKLIST_LABELS.map(([en, ar], idx) => {
+                            const checked = !!checklistChecks[idx];
+                            return (
+                                <div key={en} className="invoice-check-item">
+                                    <span className="invoice-check-box">{checked ? '☑' : '☐'}</span>
+                                    <span>
+                                        <span className="invoice-check-en">{en}</span>
+                                        <span className="invoice-check-ar">{ar}</span>
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className="invoice-thanks">Thank you — شكراً لزيارتكم</div>
                 </div>
 
                 {/* Actions */}
                 <div className="invoice-actions">
+                    <button className="invoice-btn invoice-btn-tertiary" onClick={handleDownload}>
+                        <Download size={16} /> Download
+                    </button>
                     <button className="invoice-btn invoice-btn-secondary" onClick={handlePrint}>
                         <Printer size={16} /> Print
                     </button>
@@ -382,6 +438,13 @@ ${scrollEl.innerHTML}
                     margin-top: 12px;
                     border: 1px solid #1E2124;
                 }
+                .invoice-total-section-title {
+                    margin-top: 12px;
+                    background: #FCC247;
+                    color: #1E2124;
+                    font-weight: 800;
+                    padding: 8px 10px;
+                }
                 .invoice-totals-row {
                     display: flex;
                     border-bottom: 1px solid #1E2124;
@@ -394,6 +457,13 @@ ${scrollEl.innerHTML}
                     font-size: 12px;
                     font-weight: 600;
                 }
+                .invoice-totals-sub {
+                    display: block;
+                    margin-top: 2px;
+                    font-size: 11px;
+                    font-weight: 500;
+                    color: #6b7280;
+                }
                 .invoice-totals-value {
                     flex: 2;
                     padding: 8px 10px;
@@ -402,7 +472,32 @@ ${scrollEl.innerHTML}
                     font-weight: 700;
                 }
                 .invoice-totals-row.bold .invoice-totals-label { font-size: 14px; font-weight: 800; }
-                .invoice-totals-row.bold .invoice-totals-value { font-size: 14px; font-weight: 900; color: #FCC247; background: #1E2124; }
+                .invoice-totals-row.bold .invoice-totals-value { font-size: 14px; font-weight: 900; }
+                .invoice-checklist-grid {
+                    display: grid;
+                    grid-template-columns: repeat(3, minmax(0, 1fr));
+                    gap: 8px 14px;
+                    border: 1px solid #1E2124;
+                    border-top: none;
+                    border-bottom: 1px solid #1E2124;
+                    padding: 10px;
+                    font-size: 12px;
+                }
+                .invoice-check-item {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 6px;
+                }
+                .invoice-check-box { font-size: 14px; line-height: 1.1; }
+                .invoice-check-en { display: block; font-weight: 600; color: #1E2124; }
+                .invoice-check-ar { display: block; margin-top: 2px; color: #6b7280; font-size: 11px; }
+                .invoice-thanks {
+                    text-align: center;
+                    margin-top: 10px;
+                    color: #4b5563;
+                    font-size: 13px;
+                    font-weight: 600;
+                }
                 .invoice-actions {
                     display: flex;
                     gap: 10px;
@@ -426,6 +521,7 @@ ${scrollEl.innerHTML}
                 .invoice-btn:active { transform: translateY(1px); }
                 .invoice-btn-secondary { background: #1E2124; color: #fff; }
                 .invoice-btn-primary { background: #FCC247; color: #1E2124; }
+                .invoice-btn-tertiary { background: #e2e8f0; color: #0f172a; }
 
                 /* Two-pair info row cells */
                 .info-pair-row { display: flex; }
@@ -441,8 +537,12 @@ ${scrollEl.innerHTML}
 
                 /* Print-only: strip overlay chrome, render receipt as a normal page */
                 @media print {
-                    /* Hide everything in the app */
-                    body > *:not(.invoice-modal-root) { display: none !important; }
+                    @page {
+                        size: A4 portrait;
+                        margin: 6mm;
+                    }
+
+                    /* Hide app UI without collapsing DOM ancestors */
                     body * { visibility: hidden !important; }
 
                     /* Show the invoice and all its children */
@@ -451,9 +551,11 @@ ${scrollEl.innerHTML}
                         visibility: visible !important;
                     }
 
-                    /* Strip fixed/absolute overlay so it flows as a normal document */
+                    /* Anchor invoice to page top-left for print preview (avoid fixed; it repeats every page) */
                     .invoice-modal-root {
-                        position: static !important;
+                        position: absolute !important;
+                        left: 0 !important;
+                        top: 0 !important;
                         display: block !important;
                         background: #fff !important;
                         padding: 0 !important;
@@ -461,7 +563,7 @@ ${scrollEl.innerHTML}
                         width: 100% !important;
                         height: auto !important;
                         overflow: visible !important;
-                        z-index: auto !important;
+                        z-index: 2147483647 !important;
                     }
 
                     .invoice-modal-card {
@@ -478,7 +580,41 @@ ${scrollEl.innerHTML}
 
                     .invoice-scroll {
                         overflow: visible !important;
-                        padding: 8px !important;
+                        padding: 4px !important;
+                        transform: none !important;
+                        width: 100% !important;
+                    }
+
+                    /* Prevent awkward splits between printed sections/rows */
+                    .invoice-header,
+                    .invoice-branch-strip,
+                    .invoice-info-table,
+                    .invoice-items,
+                    .invoice-total-section-title,
+                    .invoice-totals,
+                    .invoice-checklist-grid,
+                    .invoice-thanks {
+                        break-inside: avoid !important;
+                        page-break-inside: avoid !important;
+                    }
+                    .invoice-items-row,
+                    .invoice-totals-row,
+                    .info-pair-row,
+                    .invoice-check-item {
+                        break-inside: avoid !important;
+                        page-break-inside: avoid !important;
+                    }
+                    .invoice-items-head {
+                        display: flex !important;
+                    }
+                    .invoice-items-row > span,
+                    .invoice-items-head > span,
+                    .info-cell {
+                        white-space: nowrap !important;
+                    }
+                    .invoice-thanks {
+                        margin-top: 6px !important;
+                        margin-bottom: 0 !important;
                     }
 
                     /* Hide non-printable UI elements */
@@ -520,10 +656,13 @@ function InfoPairRow({ left, right, last }) {
     );
 }
 
-function TotalsRow({ label, value, bold }) {
+function TotalsRow({ label, subLabel, value, bold }) {
     return (
         <div className={`invoice-totals-row${bold ? ' bold' : ''}`}>
-            <div className="invoice-totals-label">{label}</div>
+            <div className="invoice-totals-label">
+                {label}
+                {subLabel ? <span className="invoice-totals-sub">{subLabel}</span> : null}
+            </div>
             <div className="invoice-totals-value">{value}</div>
         </div>
     );

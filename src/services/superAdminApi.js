@@ -401,6 +401,16 @@ export const updateDepartment = (id, body) =>
 export const deleteDepartment = (id) =>
     apiFetch(`/super-admin/departments/${id}`, { method: 'DELETE' });
 
+// ─── Tax Codes ────────────────────────────────────────────────────────────────
+
+/** Tax config for Super Admin. First load can return { id: null, vatRate: 15, taxes: [], updatedAt: null }. */
+export const getTaxCodesConfig = () =>
+    apiFetch('/super-admin/tax-codes/config');
+
+/** Replace-all save for tax config. Body: { vatRate, taxes: [{ name, percent, sortOrder?, isActive? }] }. */
+export const saveTaxCodesConfig = (body) =>
+    apiFetch('/super-admin/tax-codes/config', { method: 'PUT', body: JSON.stringify(body) });
+
 // ─── Sales Orders ─────────────────────────────────────────────────────────────
 
 export const getSalesOrders = ({ workshopId, limit, offset } = {}) =>

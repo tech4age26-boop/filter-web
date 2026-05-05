@@ -1,40 +1,155 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash2, Percent, Calculator, FileText, AlertCircle, Save, CheckCircle2 } from 'lucide-react';
+import { getTaxCodesConfig, saveTaxCodesConfig } from '../../services/superAdminApi';
 import '../../styles/admin/TaxCodePage.css';
 
 const TaxCodePage = () => {
     const [vatRate, setVatRate] = useState(15);
-    const [taxes, setTaxes] = useState([
-        { id: 1, name: 'Service Tax', percent: 5 },
-        { id: 2, name: 'Municipal Tax', percent: 2.5 }
-    ]);
+    const [taxes, setTaxes] = useState([]);
+    const [configId, setConfigId] = useState(null);
+    const [updatedAt, setUpdatedAt] = useState(null);
     const [newName, setNewName] = useState('');
     const [newPercent, setNewPercent] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
+
+    const normalizeTaxes = (rows = []) =>
+        (Array.isArray(rows) ? rows : []).map((tax, index) => ({
+            id: tax?.id ?? `tmp-${Date.now()}-${index}`,
+            name: String(tax?.name ?? ''),
+            percent: Number(tax?.percent ?? 0),
+            sortOrder: Number(tax?.sortOrder ?? index + 1),
+            isActive: tax?.isActive !== false,
+        }));
+
+    useEffect(() => {
+        let mounted = true;
+        const loadConfig = async () => {
+            setLoading(true);
+            setErrorMessage('');
+            try {
+                const res = await getTaxCodesConfig();
+                if (!mounted) return;
+                setConfigId(res?.id ?? null);
+                setVatRate(Number(res?.vatRate ?? 15));
+                setTaxes(normalizeTaxes(res?.taxes));
+                setUpdatedAt(res?.updatedAt ?? null);
+            } catch (e) {
+                if (!mounted) return;
+                setErrorMessage(e?.message || 'Failed to load tax configuration');
+            } finally {
+                if (mounted) setLoading(false);
+            }
+        };
+        loadConfig();
+        return () => {
+            mounted = false;
+        };
+    }, []);
+
+    const previewSubtotal = 1000;
+    const vatAmount = useMemo(() => (previewSubtotal * Number(vatRate || 0)) / 100, [vatRate]);
+    const extraTaxAmount = useMemo(
+        () => taxes.reduce((acc, t) => acc + (previewSubtotal * Number(t.percent || 0)) / 100, 0),
+        [taxes],
+    );
+    const grandTotal = previewSubtotal + vatAmount + extraTaxAmount;
 
     const handleAddTax = (e) => {
         e.preventDefault();
-        if (!newName || !newPercent) return;
+        const cleanName = newName.trim();
+        const percentNum = Number(newPercent);
+        if (!cleanName) {
+            setErrorMessage('Tax name is required');
+            return;
+        }
+        if (!Number.isFinite(percentNum) || percentNum < 0 || percentNum > 100) {
+            setErrorMessage('Tax percent must be a number between 0 and 100');
+            return;
+        }
+        const duplicate = taxes.some((t) => t.name.trim().toLowerCase() === cleanName.toLowerCase());
+        if (duplicate) {
+            setErrorMessage(`Duplicate tax name found: "${cleanName}". Tax names must be unique.`);
+            return;
+        }
 
         const newTax = {
             id: Date.now(),
-            name: newName,
-            percent: parseFloat(newPercent)
+            name: cleanName,
+            percent: percentNum,
+            sortOrder: taxes.length + 1,
+            isActive: true,
         };
 
         setTaxes([...taxes, newTax]);
         setNewName('');
         setNewPercent('');
+        setErrorMessage('');
     };
 
     const handleDeleteTax = (id) => {
-        setTaxes(taxes.filter(t => t.id !== id));
+        setTaxes((prev) =>
+            prev
+                .filter((t) => t.id !== id)
+                .map((t, index) => ({ ...t, sortOrder: index + 1 })),
+        );
     };
 
-    const handleSaveAll = () => {
-        setShowSuccess(true);
-        setTimeout(() => setShowSuccess(false), 3000);
+    const handleSaveAll = async () => {
+        const vatNum = Number(vatRate);
+        if (!Number.isFinite(vatNum) || vatNum < 0 || vatNum > 100) {
+            setErrorMessage('vatRate must be a number between 0 and 100');
+            return;
+        }
+        const payloadTaxes = taxes.map((tax, index) => ({
+            name: String(tax.name ?? '').trim(),
+            percent: Number(tax.percent),
+            sortOrder: Number(tax.sortOrder ?? index + 1),
+            isActive: tax.isActive !== false,
+        }));
+        const invalidName = payloadTaxes.find((t) => !t.name);
+        if (invalidName) {
+            setErrorMessage('Tax name is required');
+            return;
+        }
+        const invalidPercent = payloadTaxes.find(
+            (t) => !Number.isFinite(t.percent) || t.percent < 0 || t.percent > 100,
+        );
+        if (invalidPercent) {
+            setErrorMessage('Tax percent must be a number between 0 and 100');
+            return;
+        }
+        const seen = new Set();
+        for (const tax of payloadTaxes) {
+            const key = tax.name.toLowerCase();
+            if (seen.has(key)) {
+                setErrorMessage(`Duplicate tax name found: "${tax.name}". Tax names must be unique.`);
+                return;
+            }
+            seen.add(key);
+        }
+
+        setSaving(true);
+        setErrorMessage('');
+        try {
+            const res = await saveTaxCodesConfig({
+                vatRate: vatNum,
+                taxes: payloadTaxes,
+            });
+            setConfigId(res?.id ?? null);
+            setVatRate(Number(res?.vatRate ?? vatNum));
+            setTaxes(normalizeTaxes(res?.taxes));
+            setUpdatedAt(res?.updatedAt ?? null);
+            setShowSuccess(true);
+            setTimeout(() => setShowSuccess(false), 3000);
+        } catch (e) {
+            setErrorMessage(e?.message || 'Failed to save tax configuration');
+        } finally {
+            setSaving(false);
+        }
     };
 
     return (
@@ -47,14 +162,35 @@ const TaxCodePage = () => {
                 <button
                     className={`tax-save-btn ${showSuccess ? 'success' : ''}`}
                     onClick={handleSaveAll}
+                    disabled={saving || loading}
                 >
                     {showSuccess ? (
                         <><CheckCircle2 size={18} /> SETTINGS SAVED</>
                     ) : (
-                        <><Save size={18} /> SAVE CONFIGURATION</>
+                        <><Save size={18} /> {saving ? 'SAVING...' : 'SAVE CONFIGURATION'}</>
                     )}
                 </button>
             </header>
+            {loading && (
+                <div className="vat-hint" style={{ marginBottom: 12 }}>
+                    <AlertCircle size={14} />
+                    <span>Loading tax configuration...</span>
+                </div>
+            )}
+            {errorMessage && (
+                <div className="vat-hint" style={{ marginBottom: 12, color: '#B91C1C' }}>
+                    <AlertCircle size={14} />
+                    <span>{errorMessage}</span>
+                </div>
+            )}
+            {!loading && (
+                <div className="vat-hint" style={{ marginBottom: 12 }}>
+                    <AlertCircle size={14} />
+                    <span>
+                        Config ID: {configId ?? 'Not created yet'} {updatedAt ? `| Updated: ${new Date(updatedAt).toLocaleString()}` : ''}
+                    </span>
+                </div>
+            )}
 
             <div className="tax-grid">
                 {/* Primary VAT Section */}
@@ -115,19 +251,19 @@ const TaxCodePage = () => {
                         </div>
                         <div className="preview-row">
                             <span>VAT ({vatRate}%)</span>
-                            <span>SAR {(1000 * vatRate / 100).toFixed(2)}</span>
+                            <span>SAR {vatAmount.toFixed(2)}</span>
                         </div>
                         {taxes.map(tax => (
                             <div key={tax.id} className="preview-row additional">
                                 <span>{tax.name} ({tax.percent}%)</span>
-                                <span>SAR {(1000 * tax.percent / 100).toFixed(2)}</span>
+                                <span>SAR {((previewSubtotal * tax.percent) / 100).toFixed(2)}</span>
                             </div>
                         ))}
                         <div className="preview-divider"></div>
                         <div className="preview-row grand-total">
                             <span>Grand Total</span>
                             <span>
-                                SAR {(1000 + (1000 * vatRate / 100) + taxes.reduce((acc, t) => acc + (1000 * t.percent / 100), 0)).toFixed(2)}
+                                SAR {grandTotal.toFixed(2)}
                             </span>
                         </div>
                     </div>

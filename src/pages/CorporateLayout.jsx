@@ -32,6 +32,14 @@ function resolveDepartmentIdForCatalogRow(row, selectedDeptIds, defaultDeptId) {
     return ids[0];
 }
 
+const PAYMENT_METHOD_OPTIONS = [
+    'Cash',
+    'Card',
+    'Wallet',
+    'Bank Transfer',
+    'Monthly Billing',
+];
+
 export default function CorporateLayout() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -74,7 +82,7 @@ export default function CorporateLayout() {
         department_ids: [],
         booking_date: '',
         notes: '',
-        pay_from_wallet: false,
+        payment_method: 'Cash',
         /** UI + API (MakePayment): { serviceId, departmentId, name } */
         services: [],
         /** UI + API: { productId, departmentId, qty, name } */
@@ -97,6 +105,7 @@ export default function CorporateLayout() {
     const [bookingStep, setBookingStep] = useState(1);
     const [bookingLoading, setBookingLoading] = useState(false);
     const [bookingError, setBookingError] = useState('');
+    const [catalogSearch, setCatalogSearch] = useState('');
     const [validateResult, setValidateResult] = useState(null);
     const [defaultItemDepartmentId, setDefaultItemDepartmentId] = useState('');
     const [branchCatalogRows, setBranchCatalogRows] = useState([]);
@@ -110,13 +119,14 @@ export default function CorporateLayout() {
         department_ids: [],
         booking_date: '',
         notes: '',
-        pay_from_wallet: false,
+        payment_method: 'Cash',
         services: [],
         products: [],
     };
     const resetBooking = () => {
         setBookingStep(1);
         setBookingError('');
+        setCatalogSearch('');
         setBookingForm(EMPTY_BOOKING);
         setValidateResult(null);
         setDefaultItemDepartmentId('');
@@ -191,6 +201,7 @@ export default function CorporateLayout() {
             departmentId: String(departmentId),
             qty: Math.max(1, Math.floor(Number(qty) || 1)),
         }));
+    const isWalletPayment = bookingForm.payment_method === 'Wallet';
 
     const handleAddCatalogRow = (row) => {
         const deptId = resolveDepartmentIdForCatalogRow(row, bookingForm.department_ids, defaultItemDepartmentId);
@@ -205,12 +216,7 @@ export default function CorporateLayout() {
             const productId = String(row.id);
             setBookingForm((f) => {
                 const idx = f.products.findIndex((p) => p.productId === productId && p.departmentId === deptId);
-                if (idx >= 0) {
-                    const next = f.products.map((p, i) =>
-                        i === idx ? { ...p, qty: Math.max(1, (Number(p.qty) || 1) + 1) } : p,
-                    );
-                    return { ...f, products: next };
-                }
+                if (idx >= 0) return f;
                 return { ...f, products: [...f.products, { productId, departmentId: deptId, qty: 1, name: row.name }] };
             });
         }
@@ -229,7 +235,7 @@ export default function CorporateLayout() {
                     vehicleId: String(bookingForm.vehicle_id),
                     departmentIds: bookingForm.department_ids.map(String),
                     bookedFor: fmtDate(bookingForm.booking_date),
-                    payFromWallet: bookingForm.pay_from_wallet,
+                    payFromWallet: isWalletPayment,
                     notes: bookingForm.notes?.trim() ? bookingForm.notes.trim() : undefined,
                 }),
             });
@@ -249,9 +255,9 @@ export default function CorporateLayout() {
                 branchId: String(bookingForm.branch_id),
                 departmentIds: bookingForm.department_ids.map(String),
                 bookedFor: fmtDate(bookingForm.booking_date),
-                payFromWallet: bookingForm.pay_from_wallet,
+                payFromWallet: isWalletPayment,
                 notes: bookingForm.notes?.trim() ? bookingForm.notes.trim() : undefined,
-                paymentMethod: bookingForm.pay_from_wallet ? 'Wallet balance' : 'Cash at Branch',
+                paymentMethod: bookingForm.payment_method,
                 partialWalletPayment: false,
                 saveAsDraft: false,
                 services: makePaymentServicesPayload(),
@@ -339,6 +345,67 @@ export default function CorporateLayout() {
                     const visibleBranchCatalogRows = branchCatalogRows.filter(
                         (r) => !r.departmentId || branchDeptFilter.has(String(r.departmentId)),
                     );
+                    const q = String(catalogSearch || '').trim().toLowerCase();
+                    const filteredBranchCatalogRows = !q
+                        ? []
+                        : visibleBranchCatalogRows.filter((r) =>
+                              [
+                                  r.name,
+                                  r.departmentName,
+                                  r.itemType,
+                                  r.sku,
+                                  r.brandName,
+                                  r.code,
+                              ]
+                                  .filter(Boolean)
+                                  .some((v) => String(v).toLowerCase().includes(q)),
+                          );
+                    const isRowAdded = (row) => {
+                        const deptId = resolveDepartmentIdForCatalogRow(
+                            row,
+                            bookingForm.department_ids,
+                            defaultItemDepartmentId,
+                        );
+                        if (!deptId) return false;
+                        if (row.itemType === 'service') {
+                            return bookingForm.services.some(
+                                (s) => s.serviceId === String(row.id) && s.departmentId === String(deptId),
+                            );
+                        }
+                        return bookingForm.products.some(
+                            (p) => p.productId === String(row.id) && p.departmentId === String(deptId),
+                        );
+                    };
+                    const getAddedProductQty = (row) => {
+                        const deptId = resolveDepartmentIdForCatalogRow(
+                            row,
+                            bookingForm.department_ids,
+                            defaultItemDepartmentId,
+                        );
+                        if (!deptId || row.itemType !== 'product') return null;
+                        const found = bookingForm.products.find(
+                            (p) => p.productId === String(row.id) && p.departmentId === String(deptId),
+                        );
+                        return found ? Math.max(1, Math.floor(Number(found.qty) || 1)) : null;
+                    };
+                    const setProductQtyFromSearch = (row, qty) => {
+                        const deptId = resolveDepartmentIdForCatalogRow(
+                            row,
+                            bookingForm.department_ids,
+                            defaultItemDepartmentId,
+                        );
+                        if (!deptId || row.itemType !== 'product') return;
+                        const productId = String(row.id);
+                        const nextQty = Math.max(1, Math.floor(Number(qty) || 1));
+                        setBookingForm((f) => ({
+                            ...f,
+                            products: f.products.map((p) =>
+                                p.productId === productId && p.departmentId === String(deptId)
+                                    ? { ...p, qty: nextQty }
+                                    : p,
+                            ),
+                        }));
+                    };
                     return (
                         <Modal
                             title={bookingStep === 1 ? 'Book Service Appointment' : 'Review & Confirm'}
@@ -353,7 +420,7 @@ export default function CorporateLayout() {
                                     ) : (
                                         <>
                                             <button className="btn-portal-outline" onClick={() => { setBookingStep(1); setBookingError(''); }}>Back</button>
-                                            <button className="btn-portal" style={{background:'#059669',color:'#fff',border:'none'}} disabled={bookingLoading || (bookingForm.pay_from_wallet && walletBalance < Number(validateResult?.totalAmount ?? validateResult?.grandTotal ?? validateResult?.grand_total ?? validateResult?.total ?? validateResult?.amount ?? 0) && Number(validateResult?.totalAmount ?? validateResult?.grandTotal ?? validateResult?.grand_total ?? validateResult?.total ?? validateResult?.amount ?? 0) > 0)} onClick={handleConfirmBooking}>{bookingLoading ? 'Processing…' : 'Confirm Booking'}</button>
+                                            <button className="btn-portal" style={{background:'#059669',color:'#fff',border:'none'}} disabled={bookingLoading || (isWalletPayment && walletBalance < Number(validateResult?.totalAmount ?? validateResult?.grandTotal ?? validateResult?.grand_total ?? validateResult?.total ?? validateResult?.amount ?? 0) && Number(validateResult?.totalAmount ?? validateResult?.grandTotal ?? validateResult?.grand_total ?? validateResult?.total ?? validateResult?.amount ?? 0) > 0)} onClick={handleConfirmBooking}>{bookingLoading ? 'Processing…' : 'Confirm Booking'}</button>
                                         </>
                                     )}
                                 </div>
@@ -363,7 +430,7 @@ export default function CorporateLayout() {
                             {bookingStep === 1 ? (
                                 <div style={{display:'flex',flexDirection:'column',gap:14}}>
                                     <div className="ws-field"><label>Vehicle *</label><select value={bookingForm.vehicle_id} onChange={e=>setBook('vehicle_id',e.target.value)} style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)'}}><option value="">Select vehicle</option>{vehicles.map(v=><option key={v.id} value={v.id}>{v.plateNo} – {v.make} {v.model}</option>)}</select></div>
-                                    <div className="ws-field"><label>Branch *</label><select value={bookingForm.branch_id} onChange={e=>setBookingForm(f=>({...f,branch_id:e.target.value,department_ids:[],services:[],products:[]}))} style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)'}}><option value="">Select branch</option>{branchChoicesForBooking.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
+                                    <div className="ws-field"><label>Branch *</label><select value={bookingForm.branch_id} onChange={e=>{ setCatalogSearch(''); setBookingForm(f=>({...f,branch_id:e.target.value,department_ids:[],services:[],products:[]})); }} style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)'}}><option value="">Select branch</option>{branchChoicesForBooking.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
                                     <div><label style={{display:'block',marginBottom:6,fontWeight:600}}>Departments (Services) * <span style={{fontWeight:400,color:'var(--color-text-muted)',fontSize:'0.75rem'}}>— select one or more</span></label>
                                         <div style={{border:'1px solid var(--color-border)',borderRadius:10,maxHeight:140,overflowY:'auto'}}>
                                             {!bookingForm.branch_id ? <p style={{margin:0,padding:'12px 14px',fontSize:'0.8rem',color:'var(--color-text-muted)'}}>Select a branch first</p>
@@ -382,8 +449,18 @@ export default function CorporateLayout() {
                                         <div style={{ border: '1px solid var(--color-border)', borderRadius: 12, padding: 12, background: 'var(--color-bg-muted)' }}>
                                             <label style={{ display: 'block', marginBottom: 8, fontWeight: 600, fontSize: '0.875rem' }}>Products &amp; services (optional)</label>
                                             <p style={{ margin: '0 0 10px 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                                                Only items available on this branch for the departments you selected (from the workshop catalog — not the global master list). Click a row to add. Each service is qty 1; set product qty below. Included when you confirm.
+                                                Only items available on this branch for the departments you selected (from the workshop catalog — not the global master list). Search and click Add. If an item is already selected, it shows Added.
                                             </p>
+                                            <div className="ws-field" style={{ marginBottom: 10 }}>
+                                                <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Search products/services</label>
+                                                <input
+                                                    type="text"
+                                                    value={catalogSearch}
+                                                    onChange={(e) => setCatalogSearch(e.target.value)}
+                                                    placeholder="Search by name, department, type..."
+                                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 9, border: '1px solid var(--color-border)', fontSize: '0.875rem' }}
+                                                />
+                                            </div>
                                             {bookingForm.department_ids.length > 1 && (
                                                 <div className="ws-field" style={{ marginBottom: 10 }}>
                                                     <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Assign new lines to department</label>
@@ -420,24 +497,27 @@ export default function CorporateLayout() {
                                                         <p style={{ margin: 0, padding: '10px 12px', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
                                                             Loading branch catalog…
                                                         </p>
-                                                    ) : visibleBranchCatalogRows.length === 0 ? (
+                                                    ) : filteredBranchCatalogRows.length === 0 ? (
                                                         <p style={{ margin: 0, padding: '10px 12px', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                                                            No products or services for this branch and departments (with stock for products). The workshop can add items to this branch catalog.
+                                                            {q
+                                                                ? 'No matching products/services found.'
+                                                                : 'Search to find products/services from this branch catalog.'}
                                                         </p>
                                                     ) : (
-                                                        visibleBranchCatalogRows.map((row) => (
-                                                            <button
+                                                        filteredBranchCatalogRows.map((row) => {
+                                                            const added = isRowAdded(row);
+                                                            const addedQty = getAddedProductQty(row);
+                                                            const isProduct = row.itemType === 'product';
+                                                            return (
+                                                            <div
                                                                 key={`br-${row.itemType}-${row.id}-${row.departmentId || 'na'}`}
-                                                                type="button"
-                                                                onClick={() => handleAddCatalogRow(row)}
                                                                 style={{
                                                                     width: '100%',
                                                                     textAlign: 'left',
                                                                     padding: '8px 12px',
-                                                                    border: 'none',
                                                                     borderBottom: '1px solid var(--color-border-light)',
-                                                                    background: 'none',
-                                                                    cursor: 'pointer',
+                                                                    background: '#fff',
+                                                                    opacity: added ? 0.9 : 1,
                                                                     fontSize: '0.8125rem',
                                                                     display: 'flex',
                                                                     justifyContent: 'space-between',
@@ -454,11 +534,54 @@ export default function CorporateLayout() {
                                                                         <span style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}> · {row.departmentName}</span>
                                                                     ) : null}
                                                                 </span>
-                                                                <span style={{ flexShrink: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                                                                    SAR {Number(row.salePrice || 0).toFixed(2)}
+                                                                <span style={{ flexShrink: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                                                    <span>SAR {Number(row.salePrice || 0).toFixed(2)}</span>
+                                                                    {added && (
+                                                                        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#047857', background: '#D1FAE5', borderRadius: 999, padding: '2px 8px' }}>
+                                                                            Added{addedQty != null ? ` (Qty ${addedQty})` : ''}
+                                                                        </span>
+                                                                    )}
+                                                                    {isProduct && added ? (
+                                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn-portal-outline"
+                                                                                style={{ padding: '2px 6px', fontSize: '0.75rem' }}
+                                                                                onClick={() => setProductQtyFromSearch(row, (addedQty || 1) - 1)}
+                                                                            >
+                                                                                -
+                                                                            </button>
+                                                                            <input
+                                                                                type="number"
+                                                                                min={1}
+                                                                                value={addedQty || 1}
+                                                                                onChange={(e) => setProductQtyFromSearch(row, e.target.value)}
+                                                                                style={{ width: 52, padding: '2px 6px', borderRadius: 6, border: '1px solid var(--color-border)' }}
+                                                                            />
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn-portal-outline"
+                                                                                style={{ padding: '2px 6px', fontSize: '0.75rem' }}
+                                                                                onClick={() => setProductQtyFromSearch(row, (addedQty || 1) + 1)}
+                                                                            >
+                                                                                +
+                                                                            </button>
+                                                                        </span>
+                                                                    ) : (
+                                                                        <button
+                                                                            type="button"
+                                                                            className="btn-portal-outline"
+                                                                            style={{ padding: '2px 8px', fontSize: '0.7rem' }}
+                                                                            onClick={() => !added && handleAddCatalogRow(row)}
+                                                                            disabled={added}
+                                                                        >
+                                                                            {added ? 'Added' : 'Add'}
+                                                                        </button>
+                                                                    )}
                                                                 </span>
-                                                            </button>
-                                                        ))
+                                                            </div>
+                                                            );
+                                                        })
                                                     )}
                                                 </div>
                                             </div>
@@ -535,15 +658,28 @@ export default function CorporateLayout() {
                                     )}
                                     <div className="ws-field"><label>Date & Time *</label><input type="datetime-local" value={bookingForm.booking_date} onChange={e=>setBook('booking_date',e.target.value)} style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)'}}/></div>
                                     <div className="ws-field"><label>Notes</label><textarea value={bookingForm.notes} onChange={e=>setBook('notes',e.target.value)} rows={2} placeholder="Any special requirements…" style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)',resize:'vertical'}}/></div>
-                                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:14,borderRadius:14,background:'#FAF5FF',border:'1px solid #EDE9FE'}}>
-                                        <div><p style={{fontSize:'0.875rem',fontWeight:600,color:'#6D28D9',margin:0}}>Wallet Balance: SAR {Number(walletBalance).toLocaleString()}</p><p style={{fontSize:'0.75rem',color:'#7C3AED',margin:'2px 0 0 0'}}>Pay from wallet?</p></div>
-                                        <button type="button" onClick={()=>setBook('pay_from_wallet',!bookingForm.pay_from_wallet)} style={{width:48,height:24,borderRadius:999,border:'none',background:bookingForm.pay_from_wallet?'#7C3AED':'#D1D5DB',cursor:'pointer',position:'relative'}}><span style={{position:'absolute',top:2,left:2,width:20,height:20,borderRadius:'50%',background:'#fff',transform:bookingForm.pay_from_wallet?'translateX(24px)':'none',transition:'transform 0.2s'}}/></button>
+                                    <div style={{padding:14,borderRadius:14,background:'#FAF5FF',border:'1px solid #EDE9FE'}}>
+                                        <div className="ws-field" style={{marginBottom:8}}>
+                                            <label style={{color:'#6D28D9'}}>Payment Method *</label>
+                                            <select
+                                                value={bookingForm.payment_method}
+                                                onChange={(e) => setBook('payment_method', e.target.value)}
+                                                style={{width:'100%',padding:'10px 12px',borderRadius:9,border:'1px solid var(--color-border)'}}
+                                            >
+                                                {PAYMENT_METHOD_OPTIONS.map((m) => (
+                                                    <option key={m} value={m}>{m}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <p style={{fontSize:'0.75rem',color:'#7C3AED',margin:0}}>
+                                            Wallet Balance: SAR {Number(walletBalance).toLocaleString()}
+                                        </p>
                                     </div>
                                     {bookingError && <p style={{margin:0,padding:'10px 14px',background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:9,fontSize:'0.8rem',color:'#DC2626'}}>{bookingError}</p>}
                                 </div>
                             ) : (() => {
                                 const orderTotal = Number(validateResult?.totalAmount ?? validateResult?.grandTotal ?? validateResult?.grand_total ?? validateResult?.total ?? validateResult?.amount ?? 0);
-                                const insufficientBalance = bookingForm.pay_from_wallet && walletBalance < orderTotal && orderTotal > 0;
+                                const insufficientBalance = isWalletPayment && walletBalance < orderTotal && orderTotal > 0;
                                 return (
                                 <div style={{display:'flex',flexDirection:'column',gap:14}}>
                                     <div style={{padding:16,background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:12,display:'flex',flexDirection:'column',gap:8}}>
@@ -575,7 +711,7 @@ export default function CorporateLayout() {
                                                     : '—',
                                             ],
                                             ['Date', bookingForm.booking_date?.replace('T', ' ') || '—'],
-                                            ['Payment', bookingForm.pay_from_wallet ? 'Wallet balance' : 'Cash at Branch'],
+                                            ['Payment', bookingForm.payment_method || 'Cash'],
                                         ].map(([k, val]) => (
                                             <div key={k} style={{display:'flex',gap:8,fontSize:'0.8rem'}}><span style={{color:'var(--color-text-muted)',minWidth:70}}>{k}:</span><span style={{fontWeight:600}}>{val}</span></div>
                                         ))}
@@ -589,7 +725,7 @@ export default function CorporateLayout() {
                                         </span>
                                     </div>
 
-                                    {bookingForm.pay_from_wallet && (
+                                    {isWalletPayment && (
                                         <div style={{padding:'10px 14px',borderRadius:9,background: insufficientBalance ? '#FEF2F2' : '#F0FDF4', border:`1px solid ${insufficientBalance ? '#FECACA' : '#BBF7D0'}`,fontSize:'0.8rem'}}>
                                             <div style={{display:'flex',justifyContent:'space-between'}}>
                                                 <span style={{color:'var(--color-text-muted)'}}>Wallet Balance</span>

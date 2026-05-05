@@ -1,8 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Calendar, Plus, Eye, Loader2, Car, MapPin, Wrench, Clock, FileText, Package } from 'lucide-react';
 import { apiFetch } from '../../services/api';
-import { fetchCorporateBookings, fetchCorporateBookingById } from '../../services/corporateBookingsApi';
+import {
+    fetchCorporateBookings,
+    fetchCorporateBookingById,
+    fetchCorporateBookingInvoice,
+    fetchCorporatePendingWalkInOrders,
+    fetchCorporateWalkInOrderById,
+    approveCorporateWalkInOrder,
+    rejectCorporateWalkInOrder,
+} from '../../services/corporateBookingsApi';
 import Modal from '../../components/Modal';
+import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 
 /** Flatten `{ booking: { ... } }` so services/products sit on the object we read. */
 function normalizeBookingDetailPayload(raw) {
@@ -20,6 +29,7 @@ const STATUS_STYLES = {
     confirmed: { bg: '#DBEAFE', color: '#1D4ED8' },
     in_progress: { bg: '#EFF6FF', color: '#1D4ED8' },
     completed: { bg: '#D1FAE5', color: '#047857' },
+    invoiced: { bg: '#EDE9FE', color: '#6D28D9' },
     cancelled: { bg: '#FEE2E2', color: '#B91C1C' },
 };
 
@@ -358,10 +368,164 @@ function OrderDetailModal({ orderId, onClose }) {
     );
 }
 
+function WalkInOrderDetailModal({ orderId, onClose }) {
+    const [detail, setDetail] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        const ac = new AbortController();
+        setLoading(true);
+        setError('');
+        (async () => {
+            try {
+                const d = await fetchCorporateWalkInOrderById(orderId, { signal: ac.signal });
+                if (!ac.signal.aborted) setDetail(d);
+            } catch (err) {
+                if (!ac.signal.aborted) setError(err.message || 'Failed to load');
+            } finally {
+                if (!ac.signal.aborted) setLoading(false);
+            }
+        })();
+        return () => ac.abort();
+    }, [orderId]);
+
+    const timeline = Array.isArray(detail?.timeline) ? detail.timeline : [];
+    const jobs = Array.isArray(detail?.jobs) ? detail.jobs : [];
+    const lineItems = Array.isArray(detail?.lineItems) ? detail.lineItems : [];
+
+    return (
+        <Modal
+            title={`Walk-in Order #${orderId}`}
+            onClose={onClose}
+            width="760px"
+            footer={
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button className="btn-portal-outline" onClick={onClose}>Close</button>
+                </div>
+            }
+        >
+            {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: 36 }}><Loader2 className="spin" size={28} /></div>}
+            {error && <p style={{ color: '#DC2626', margin: 0 }}>{error}</p>}
+            {detail && !loading && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8, background: 'var(--color-bg-muted)', borderRadius: 10, padding: 10 }}>
+                        <div><strong>Order ID:</strong> {detail.id || orderId}</div>
+                        <div><strong>Status:</strong> {String(detail.status || '—').replace(/_/g, ' ')}</div>
+                        <div><strong>Branch:</strong> {detail.branchName || '—'}</div>
+                        <div><strong>Vehicle:</strong> {(detail.vehicle?.plateNo || '—')} · {(detail.vehicle?.make || '')} {(detail.vehicle?.model || '')}</div>
+                    </div>
+
+                    <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ padding: '8px 10px', fontWeight: 700, fontSize: '0.78rem', background: '#EEF2FF' }}>Line Items</div>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                                <thead>
+                                    <tr style={{ background: '#F8FAFC' }}>
+                                        <th style={{ textAlign: 'left', padding: 8 }}>Item</th>
+                                        <th style={{ textAlign: 'left', padding: 8 }}>Type</th>
+                                        <th style={{ textAlign: 'left', padding: 8 }}>Department</th>
+                                        <th style={{ textAlign: 'right', padding: 8 }}>Qty</th>
+                                        <th style={{ textAlign: 'right', padding: 8 }}>Unit</th>
+                                        <th style={{ textAlign: 'right', padding: 8 }}>Discount</th>
+                                        <th style={{ textAlign: 'right', padding: 8 }}>VAT%</th>
+                                        <th style={{ textAlign: 'right', padding: 8 }}>Line Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {lineItems.map((it) => (
+                                        <tr key={it.id} style={{ borderTop: '1px solid var(--color-border-light)' }}>
+                                            <td style={{ padding: 8 }}>{it.productName || it.name || '—'}</td>
+                                            <td style={{ padding: 8, textTransform: 'capitalize' }}>{it.itemType || '—'}</td>
+                                            <td style={{ padding: 8 }}>{it.departmentName || '—'}</td>
+                                            <td style={{ padding: 8, textAlign: 'right' }}>{it.qty ?? 1}</td>
+                                            <td style={{ padding: 8, textAlign: 'right' }}>SAR {Number(it.unitPrice || 0).toFixed(2)}</td>
+                                            <td style={{ padding: 8, textAlign: 'right' }}>{it.discountType || '—'} {it.discountValue ?? 0}</td>
+                                            <td style={{ padding: 8, textAlign: 'right' }}>{it.vatPercent ?? 0}</td>
+                                            <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>SAR {Number(it.lineTotal || 0).toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ padding: '8px 10px', fontWeight: 700, fontSize: '0.78rem', background: '#F0FDF4' }}>Jobs</div>
+                        <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {jobs.length === 0 ? (
+                                <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>No job records.</p>
+                            ) : jobs.map((j) => (
+                                <div key={j.id} style={{ border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 8 }}>
+                                    <p style={{ margin: 0, fontWeight: 700, fontSize: '0.8rem' }}>
+                                        Job #{j.id} · {j.departmentName || j.departmentId || '—'} · {j.status || '—'} · SAR {Number(j.totalAmount || 0).toFixed(2)}
+                                    </p>
+                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                        Technicians: {Array.isArray(j.technicians) && j.technicians.length ? j.technicians.map((t) => t.name).join(', ') : 'Not assigned'}
+                                    </p>
+                                    {!!j.items?.length && (
+                                        <ul style={{ margin: '6px 0 0 0', paddingLeft: 18, fontSize: '0.76rem' }}>
+                                            {j.items.map((it) => (
+                                                <li key={it.id}>{it.productName || '—'} ×{it.qty ?? 1} — SAR {Number(it.lineTotal || 0).toFixed(2)}</li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ padding: '8px 10px', fontWeight: 700, fontSize: '0.78rem', background: '#FFF7ED' }}>Timeline</div>
+                        <div style={{ padding: 10 }}>
+                            {timeline.length === 0 ? (
+                                <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>No timeline entries.</p>
+                            ) : (
+                                <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.8rem' }}>
+                                    {timeline.map((t, idx) => (
+                                        <li key={`${t.label}-${idx}`} style={{ marginBottom: 6 }}>
+                                            <strong>{t.label || t.status || 'Update'}</strong>
+                                            {t.detail ? ` — ${t.detail}` : ''}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8 }}>
+                        <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 8 }}>
+                            <p style={{ margin: '0 0 4px 0', fontWeight: 700, fontSize: '0.76rem' }}>Invoice</p>
+                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                {detail.invoice ? 'Available' : 'Not generated yet'}
+                            </p>
+                        </div>
+                        <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 8 }}>
+                            <p style={{ margin: '0 0 4px 0', fontWeight: 700, fontSize: '0.76rem' }}>Quote Totals</p>
+                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                {detail.quoteTotals ? JSON.stringify(detail.quoteTotals) : 'Not available'}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </Modal>
+    );
+}
+
 export default function CorporateBookings({ setBookingOpen }) {
+    const [bookingsTab, setBookingsTab] = useState('bookings');
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [viewId, setViewId] = useState(null);
+    const [walkInOrders, setWalkInOrders] = useState([]);
+    const [walkInLoading, setWalkInLoading] = useState(false);
+    const [walkInDetailId, setWalkInDetailId] = useState(null);
+    const [walkInActionId, setWalkInActionId] = useState(null);
+    const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+    const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
+    const [invoiceError, setInvoiceError] = useState('');
+    const [activeInvoice, setActiveInvoice] = useState(null);
 
     const load = useCallback(() => {
         setLoading(true);
@@ -375,6 +539,18 @@ export default function CorporateBookings({ setBookingOpen }) {
         load();
     }, [load]);
 
+    const loadWalkIns = useCallback(() => {
+        setWalkInLoading(true);
+        fetchCorporatePendingWalkInOrders()
+            .then((rows) => setWalkInOrders(rows))
+            .catch(() => setWalkInOrders([]))
+            .finally(() => setWalkInLoading(false));
+    }, []);
+
+    useEffect(() => {
+        if (bookingsTab === 'walkin') loadWalkIns();
+    }, [bookingsTab, loadWalkIns]);
+
     const cancelOrder = async (id) => {
         try {
             try {
@@ -385,6 +561,67 @@ export default function CorporateBookings({ setBookingOpen }) {
             setOrders((prev) => prev.map((o) => (String(o.id) === String(id) ? { ...o, status: 'cancelled' } : o)));
         } catch {
             /* ignore */
+        }
+    };
+
+    const normalizeInvoiceForModal = (invoice) => {
+        if (!invoice || typeof invoice !== 'object') return invoice;
+        const srcOrder = invoice.salesOrder || invoice.sales_order || {};
+        const srcCustomer = srcOrder.customer || invoice.customer || {};
+        const srcVehicle = srcOrder.vehicle || invoice.vehicle || {};
+        const srcJobs = Array.isArray(srcOrder.jobs) ? srcOrder.jobs : Array.isArray(invoice.jobs) ? invoice.jobs : [];
+        return {
+            ...invoice,
+            order: { ...srcOrder, jobs: srcJobs },
+            jobs: srcJobs,
+            customer: srcCustomer,
+            vehicle: srcVehicle,
+            branch: invoice.branch || srcOrder.branch,
+            workshop: invoice.workshop || srcOrder.workshop,
+            paymentMethod: invoice.paymentMethod || invoice.payments?.[0]?.method,
+        };
+    };
+
+    const openInvoice = async (booking) => {
+        const bookingRef = booking?.bookingCode || booking?.booking_code || booking?.id;
+        if (!bookingRef) return;
+        const rowId = String(booking?.id ?? bookingRef);
+        setInvoiceLoadingId(rowId);
+        setInvoiceError('');
+        try {
+            const invoice = await fetchCorporateBookingInvoice(bookingRef);
+            setActiveInvoice(normalizeInvoiceForModal(invoice));
+            setInvoiceModalOpen(true);
+        } catch (err) {
+            setInvoiceError(err?.message || 'Failed to load invoice');
+        } finally {
+            setInvoiceLoadingId(null);
+        }
+    };
+
+    const handleApproveWalkIn = async (orderId) => {
+        setWalkInActionId(String(orderId));
+        try {
+            await approveCorporateWalkInOrder(orderId);
+            await loadWalkIns();
+        } catch (err) {
+            setInvoiceError(err?.message || 'Failed to approve walk-in order');
+        } finally {
+            setWalkInActionId(null);
+        }
+    };
+
+    const handleRejectWalkIn = async (orderId) => {
+        const reason = window.prompt('Reason for rejection?');
+        if (!reason || !reason.trim()) return;
+        setWalkInActionId(String(orderId));
+        try {
+            await rejectCorporateWalkInOrder(orderId, reason.trim());
+            await loadWalkIns();
+        } catch (err) {
+            setInvoiceError(err?.message || 'Failed to reject walk-in order');
+        } finally {
+            setWalkInActionId(null);
         }
     };
 
@@ -403,8 +640,27 @@ export default function CorporateBookings({ setBookingOpen }) {
                     <Plus size={15} /> New Booking
                 </button>
             </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <button
+                    type="button"
+                    className={bookingsTab === 'bookings' ? 'btn-portal' : 'btn-portal-outline'}
+                    style={bookingsTab === 'bookings' ? { background: '#0EA5E9', color: '#fff', border: 'none' } : undefined}
+                    onClick={() => setBookingsTab('bookings')}
+                >
+                    My Bookings
+                </button>
+                <button
+                    type="button"
+                    className={bookingsTab === 'walkin' ? 'btn-portal' : 'btn-portal-outline'}
+                    style={bookingsTab === 'walkin' ? { background: '#7C3AED', color: '#fff', border: 'none' } : undefined}
+                    onClick={() => setBookingsTab('walkin')}
+                >
+                    Walk-in Orders
+                </button>
+            </div>
 
-            {loading ? (
+            {bookingsTab === 'bookings' ? (
+            loading ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
                     <Loader2 className="spin" size={36} style={{ color: 'var(--color-primary)' }} />
                 </div>
@@ -423,9 +679,11 @@ export default function CorporateBookings({ setBookingOpen }) {
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {orders.map((o) => {
-                        const status = o.status || o.orderStatus || o.order_status || 'pending';
+                        const rawStatus = o.status || o.orderStatus || o.order_status || 'pending';
+                        const status = String(rawStatus).toLowerCase();
                         const st = STATUS_STYLES[status] || STATUS_STYLES.pending;
                         const canCancel = status === 'pending' || status === 'confirmed';
+                        const isInvoiceLoading = invoiceLoadingId != null && String(invoiceLoadingId) === String(o.id);
                         return (
                             <div key={o.id} className="ws-section" style={{ marginBottom: 0, padding: 20 }}>
                                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -479,6 +737,25 @@ export default function CorporateBookings({ setBookingOpen }) {
                                     >
                                         <Eye size={14} /> View Details
                                     </button>
+                                    {status === 'invoiced' && (
+                                        <button
+                                            type="button"
+                                            style={{
+                                                padding: '6px 10px',
+                                                borderRadius: 6,
+                                                border: '1px solid #BFDBFE',
+                                                background: '#EFF6FF',
+                                                color: '#1D4ED8',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 600,
+                                                cursor: 'pointer',
+                                            }}
+                                            onClick={() => openInvoice(o)}
+                                            disabled={isInvoiceLoading}
+                                        >
+                                            {isInvoiceLoading ? 'Loading invoice…' : 'View Invoice'}
+                                        </button>
+                                    )}
                                     {canCancel && (
                                         <button
                                             type="button"
@@ -502,9 +779,81 @@ export default function CorporateBookings({ setBookingOpen }) {
                         );
                     })}
                 </div>
+            )) : (
+                walkInLoading ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
+                        <Loader2 className="spin" size={36} style={{ color: 'var(--color-primary)' }} />
+                    </div>
+                ) : walkInOrders.length === 0 ? (
+                    <div className="ws-section" style={{ textAlign: 'center', padding: 40 }}>
+                        <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>No pending walk-in corporate quotes.</p>
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        {walkInOrders.map((o) => {
+                            const actionLoading = walkInActionId != null && String(walkInActionId) === String(o.id);
+                            return (
+                                <div key={o.id} className="ws-section" style={{ marginBottom: 0, padding: 20 }}>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                        <div>
+                                            <p style={{ fontWeight: 700, fontSize: '0.9375rem', margin: 0 }}>Walk-in #{o.id}</p>
+                                            <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>
+                                                {o.vehiclePlate || '—'} · {o.vehicleSummary || '—'} · {o.branchName || '—'}
+                                            </p>
+                                            <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>
+                                                {o.createdAt ? new Date(o.createdAt).toLocaleString('en-SA') : '—'}
+                                            </p>
+                                            <p style={{ fontSize: '0.875rem', fontWeight: 600, margin: '6px 0 0 0' }}>
+                                                SAR {Number(o.totalAmount || 0).toFixed(2)} · {o.lineCount || (o.items || []).length || 0} items
+                                            </p>
+                                        </div>
+                                        <span style={{ background: '#FEF3C7', color: '#B45309', padding: '4px 10px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600 }}>
+                                            {o.status || 'pending'}
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                                        <button type="button" className="btn-portal-outline" onClick={() => setWalkInDetailId(o.id)} style={{ padding: '6px 10px', fontSize: '0.75rem' }}>
+                                            <Eye size={14} /> View Details
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn-portal"
+                                            style={{ padding: '6px 10px', fontSize: '0.75rem', background: '#16A34A', color: '#fff', border: 'none' }}
+                                            onClick={() => handleApproveWalkIn(o.id)}
+                                            disabled={actionLoading}
+                                        >
+                                            {actionLoading ? 'Processing…' : 'Approve'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn-portal"
+                                            style={{ padding: '6px 10px', fontSize: '0.75rem', background: '#DC2626', color: '#fff', border: 'none' }}
+                                            onClick={() => handleRejectWalkIn(o.id)}
+                                            disabled={actionLoading}
+                                        >
+                                            Reject
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )
             )}
 
             {viewId && <OrderDetailModal orderId={viewId} onClose={() => setViewId(null)} />}
+            {walkInDetailId && <WalkInOrderDetailModal orderId={walkInDetailId} onClose={() => setWalkInDetailId(null)} />}
+            {invoiceError && (
+                <p style={{ marginTop: 10, color: '#DC2626', fontSize: '0.8rem' }}>{invoiceError}</p>
+            )}
+            <InvoiceDetailsModal
+                invoice={activeInvoice}
+                isOpen={invoiceModalOpen}
+                onClose={() => {
+                    setInvoiceModalOpen(false);
+                    setActiveInvoice(null);
+                }}
+            />
         </div>
     );
 }
