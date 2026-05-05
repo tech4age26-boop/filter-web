@@ -2,28 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { ChevronDown, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export const INITIAL_PROMOTIONS = [
-    { id: 1, name: 'Eid15%', strategy: 'Percentage Discount', usage: '124/500', status: 'Active', value: '15', type: 'percentage' },
-    { id: 2, name: 'Weekend Deal', strategy: 'Zone Wise', usage: '45/100', status: 'Active', value: '50', type: 'fixed' },
-    { id: 3, name: 'Oil Change Special', strategy: 'Seasonal', usage: '89/200', status: 'Paused', value: '25', type: 'percentage' }
-];
+/** Legacy demo seeds — admin marketing loads from `super-admin-marketing-protal` APIs. */
+export const INITIAL_PROMOTIONS = [];
 
-export const INITIAL_PROMO_CODES = [
-    { id: 1, code: 'OFF50', discount: '50 SAR', status: 'Active', usage: '45/100', expiry: '2024-12-31' },
-    { id: 2, code: 'WELCOME20', discount: '20%', status: 'Active', usage: '120/500', expiry: '2024-06-30' },
-    { id: 3, code: 'EID2024', discount: '15%', status: 'Expired', usage: '500/500', expiry: '2024-04-10' }
-];
+export const INITIAL_PROMO_CODES = [];
 
-export const INITIAL_REFERRERS = [
-    { id: 1, name: 'Ahmed Khan', cat: 'Influencer', rate: '5%', earned: 2450, paid: 2000, bal: 450, mobile: '+966 50 123 4567', email: 'ahmed@email.com', status: 'Active' },
-    { id: 2, name: 'Riyadh Car Club', cat: 'Corporate Partner', rate: '10%', earned: 8900, paid: 7500, bal: 1400, mobile: '+966 55 987 6543', email: 'rcc@email.com', status: 'Active' },
-    { id: 3, name: 'Sara Miller', cat: 'Individual', rate: '2.5%', earned: 1200, paid: 1200, bal: 0, mobile: '+966 53 444 5555', email: 'sara@email.com', status: 'Active' }
-];
+export const INITIAL_REFERRERS = [];
 
-export const INITIAL_REFERRAL_CODES = [
-    { id: 1, code: 'CORP-HNMTE', type: 'corporate', typeLabel: 'Corporate Referral', referrerName: 'Ahmed Khan', status: 'Active' },
-    { id: 2, code: 'REF-XYZ12', type: 'walk-in', typeLabel: 'Walk-in Referral', referrerName: 'Jane Smith', status: 'Active' }
-];
+export const INITIAL_REFERRAL_CODES = [];
 
 export const INITIAL_LOYALTY_TIERS = [
     { id: 1, tier: 'Bronze', color: 'bronze', points: '0 - 1,000', perks: '3% Points back, 1 Free Wash/yr', minPoints: 0, discount: 3 },
@@ -37,7 +23,8 @@ export const INITIAL_LOYALTY_PROGRAM = {
     pointsPerSpent: 1,
     pointsPerDiscount: 100,
     minRedeem: 500,
-    desc: 'Reward your most loyal customers with points and exclusive perks.'
+    desc: 'Reward your most loyal customers with points and exclusive perks.',
+    isActive: true,
 };
 
 export const MarketingContext = React.createContext();
@@ -75,14 +62,17 @@ export const useMarketingState = () => {
 };
 
 
-export const StatCardMini = ({ title, value, icon: Icon, trend }) => (
+export const StatCardMini = ({ title, value, icon: Icon, trend, trendSuffix = 'this month' }) => (
     <div className="dashboard-stat-card">
         <div className="dashboard-stat-content">
             <p className="dashboard-stat-label">{title}</p>
             <h3 className="dashboard-stat-value">{value}</h3>
-            {trend && <p className="dashboard-stat-subtitle" style={{ color: trend.startsWith('+') ? '#10B981' : '#6B7280' }}>
-                {trend} <span style={{ color: '#6B7280' }}>this month</span>
-            </p>}
+            {trend != null && trend !== '' && (
+                <p className="dashboard-stat-subtitle" style={{ color: String(trend).startsWith('+') ? '#10B981' : '#6B7280' }}>
+                    {trend}
+                    {trendSuffix ? <span style={{ color: '#6B7280' }}> {trendSuffix}</span> : null}
+                </p>
+            )}
         </div>
         <div className="icon-wrapper">
             <Icon size={20} />

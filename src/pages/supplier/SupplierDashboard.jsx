@@ -9,10 +9,6 @@ import {
     Eye,
     ShoppingCart,
     ChevronRight,
-    Users,
-    LayoutGrid,
-    MapPin,
-    ClipboardList,
 } from 'lucide-react';
 import {
     getSupplierDashboard,
@@ -27,11 +23,11 @@ import {
 import { ShimmerKpiGrid, ShimmerOrderStatusBar, ShimmerListRows } from '../../components/supplier/Shimmer';
 
 const ORDER_SUMMARY_STAGES = [
-    { id: 'pending_acceptance', label: 'Pending Acceptance', c: 'ws-badge--yellow' },
+    { id: 'pending_acceptance', label: 'Pending', c: 'ws-badge--yellow' },
     { id: 'accepted', label: 'Accepted', c: 'ws-badge--blue' },
-    { id: 'processing', label: 'Processing', c: 'ws-badge--blue' },
-    { id: 'ready_to_dispatch', label: 'Ready to Dispatch', c: 'ws-badge--purple' },
-    { id: 'dispatched', label: 'Dispatched / On Way', c: 'ws-badge--yellow' },
+    { id: 'processing', label: 'Processing', c: 'ws-badge--cyan' },
+    { id: 'ready_to_dispatch', label: 'Ready to Deliver', c: 'ws-badge--purple' },
+    { id: 'dispatched', label: 'On the Way', c: 'ws-badge--orange' },
     { id: 'delivered', label: 'Delivered', c: 'ws-badge--green' },
 ];
 
@@ -59,8 +55,6 @@ export default function SupplierDashboard({ onTabChange }) {
     const [apiError, setApiError] = useState('');
     const [dashboardData, setDashboardData] = useState(null);
     const [recentWorkshopInvoices, setRecentWorkshopInvoices] = useState([]);
-    /** Server `total` from WPI list — used when dashboard JSON omits WPI counts (older APIs). */
-    const [supplierWpiListTotal, setSupplierWpiListTotal] = useState(null);
     /** Normalized WPI rows for pipeline counts (up to API limit). */
     const [wpiRowsForPipeline, setWpiRowsForPipeline] = useState([]);
     const [cashTotal, setCashTotal] = useState(null);
@@ -75,37 +69,9 @@ export default function SupplierDashboard({ onTabChange }) {
         dashboardData?.reports?.summary?.currencyCode ||
         'SAR';
 
-    /** POs (Order Queue) + workshop purchase invoices (Finance → Workshop purchases). */
-    const totalOrdersCount = dataReady
-        ? (() => {
-              const po = Number(dashboardData.totalPurchaseOrders ?? 0);
-              const wpi = Number(dashboardData.totalWorkshopPurchaseInvoices ?? 0);
-              const combined = po + wpi;
-              const inboundRaw = dashboardData.totalInboundOrderDocuments;
-              const inbound =
-                  inboundRaw != null && inboundRaw !== ''
-                      ? Number(inboundRaw)
-                      : null;
-              const fromReports = Number(dashboardData.reports?.summary?.totalOrders ?? 0);
-              let fromDashboard = Number.isFinite(combined) ? combined : 0;
-              if (inbound != null && Number.isFinite(inbound)) {
-                  fromDashboard = Math.max(fromDashboard, inbound);
-              }
-              if (fromDashboard === 0 && Number.isFinite(fromReports) && fromReports > 0) {
-                  fromDashboard = fromReports;
-              }
-              if (supplierWpiListTotal != null && Number.isFinite(supplierWpiListTotal)) {
-                  return Math.max(fromDashboard, supplierWpiListTotal);
-              }
-              return fromDashboard;
-          })()
-        : null;
-
     const totalAR = dataReady ? Number(dashboardData.receivables?.total ?? 0) : null;
     const totalAP = dataReady
-        ? dashboardData.reports?.summary?.totalPayables != null
-            ? Number(dashboardData.reports.summary.totalPayables)
-            : null
+        ? Number(dashboardData.reports?.summary?.totalPayables ?? 0)
         : null;
 
     const totalCash =
@@ -161,110 +127,46 @@ export default function SupplierDashboard({ onTabChange }) {
         return typeof val === 'number' ? formatCurrency(val, currency) : String(val);
     };
 
-    const formatCount = (n) => {
-        if (loading) return '…';
-        if (apiError) return '—';
-        if (n == null || !Number.isFinite(Number(n))) return '—';
-        return String(Number(n));
-    };
+    const pendingAcceptanceDisplay =
+        orderSummary.find((s) => s.id === 'pending_acceptance')?.count ?? '—';
 
-    const totalProducts = dataReady ? Number(dashboardData.totalSupplierProducts ?? 0) : null;
-    const totalStaff = dataReady ? Number(dashboardData.totalSupplierStaff ?? 0) : null;
-    const totalLocations = dataReady ? Number(dashboardData.totalSupplierLocations ?? 0) : null;
-    const openInvoicesCount = dataReady ? Number(dashboardData.openSalesInvoicesCount ?? 0) : null;
-    const stockMatrixRows = dataReady ? Number(dashboardData.totalSupplierStockRows ?? 0) : null;
-    const criticalAlertCount = dataReady ? Number(dashboardData.criticalStockAlerts?.count ?? 0) : null;
-
+    /** Top-row KPIs aligned with supplier dashboard reference (4 cards only). */
     const kpis = [
         {
-            key: 'wpi',
-            label: 'Total workshop purchases',
-            value: loading ? '…' : apiError ? '—' : String(totalOrdersCount ?? 0),
-            sub: 'POs + workshop purchase invoices',
+            key: 'new_pos',
+            label: 'NEW POS',
+            value: pendingAcceptanceDisplay,
+            sub: 'Pending acceptance',
             subAction: () => onTabChange('order_queue'),
             icon: Package,
             c: 'ws-kpi-icon--blue',
         },
         {
             key: 'ar',
-            label: 'Accounts receivable',
+            label: 'ACCOUNTS RECEIVABLE',
             value: formatKpiValue(totalAR),
-            sub: 'Unpaid sales invoices',
+            sub: 'From workshops',
             subAction: () => onTabChange('sales_invoices'),
             icon: FileText,
             c: 'ws-kpi-icon--yellow',
         },
         {
             key: 'ap',
-            label: 'Outstanding invoices',
+            label: 'ACCOUNTS PAYABLE',
             value: formatKpiValue(totalAP),
-            sub: 'Open balance owed to you',
-            subAction: () => onTabChange('sales_invoices'),
+            sub: 'To vendors',
+            subAction: () => onTabChange('purchase_invoices'),
             icon: BarChart3,
             c: 'ws-kpi-icon--purple',
         },
         {
             key: 'cash',
-            label: 'Cash & Bank',
+            label: 'CASH & BANK',
             value: formatKpiValue(totalCash),
-            sub: 'Ledger cash + bank',
+            sub: 'Total balance',
             subAction: () => onTabChange('cash_bank'),
             icon: DollarSign,
             c: 'ws-kpi-icon--green',
-        },
-        {
-            key: 'catalog',
-            label: 'Product catalog',
-            value: formatCount(totalProducts),
-            sub: 'Your supplier products',
-            subAction: () => onTabChange('catalog'),
-            icon: LayoutGrid,
-            c: 'ws-kpi-icon--blue',
-        },
-        {
-            key: 'staff',
-            label: 'Staff',
-            value: formatCount(totalStaff),
-            sub: 'Staff & roles (linked workshop)',
-            subAction: () => onTabChange('employees'),
-            icon: Users,
-            c: 'ws-kpi-icon--purple',
-        },
-        {
-            key: 'locations',
-            label: 'Warehouse locations',
-            value: formatCount(totalLocations),
-            sub: 'Stock inventory locations',
-            subAction: () => onTabChange('stock'),
-            icon: MapPin,
-            c: 'ws-kpi-icon--yellow',
-        },
-        {
-            key: 'stockrows',
-            label: 'Stock lines',
-            value: formatCount(stockMatrixRows),
-            sub: 'Product × location rows',
-            subAction: () => onTabChange('stock'),
-            icon: Warehouse,
-            c: 'ws-kpi-icon--green',
-        },
-        {
-            key: 'openinv',
-            label: 'Open sales invoices',
-            value: formatCount(openInvoicesCount),
-            sub: 'Count of unpaid / partial AR',
-            subAction: () => onTabChange('sales_invoices'),
-            icon: ClipboardList,
-            c: 'ws-kpi-icon--blue',
-        },
-        {
-            key: 'crit',
-            label: 'Critical stock alerts',
-            value: formatCount(criticalAlertCount),
-            sub: 'Workshop alerts — low stock',
-            subAction: () => onTabChange('stock_alerts'),
-            icon: AlertTriangle,
-            c: 'ws-kpi-icon--purple',
         },
     ];
 
@@ -290,7 +192,6 @@ export default function SupplierDashboard({ onTabChange }) {
                     setDashboardData(null);
                     setRecentWorkshopInvoices([]);
                     setWpiRowsForPipeline([]);
-                    setSupplierWpiListTotal(null);
                     setCashTotal(null);
                     return;
                 }
@@ -318,11 +219,6 @@ export default function SupplierDashboard({ onTabChange }) {
                 const wpiNorm = wpiList.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean);
                 setWpiRowsForPipeline(wpiNorm);
                 setRecentWorkshopInvoices(wpiNorm.slice(0, 10));
-                if (wpiRes && typeof wpiRes === 'object' && wpiRes.total != null) {
-                    setSupplierWpiListTotal(Number(wpiRes.total));
-                } else {
-                    setSupplierWpiListTotal(null);
-                }
             } catch (err) {
                 if (!cancelled) {
                     console.error('Supplier dashboard load failed:', err);
@@ -330,7 +226,6 @@ export default function SupplierDashboard({ onTabChange }) {
                     setDashboardData(null);
                     setRecentWorkshopInvoices([]);
                     setWpiRowsForPipeline([]);
-                    setSupplierWpiListTotal(null);
                     setCashTotal(null);
                 }
             } finally {
@@ -384,14 +279,18 @@ export default function SupplierDashboard({ onTabChange }) {
             ) : null}
             {loading && !apiError ? (
                 <>
-                    <ShimmerKpiGrid cards={10} />
+                    <ShimmerKpiGrid cards={4} />
                     <ShimmerOrderStatusBar pillCount={ORDER_SUMMARY_STAGES.length} />
                 </>
             ) : (
                 <>
                     <div
                         className="ws-kpi-grid"
-                        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 20 }}
+                        style={{
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                            marginBottom: 20,
+                            gap: 16,
+                        }}
                     >
                         {kpis.map((k) => (
                             <div key={k.key} className="ws-kpi-card">
@@ -450,7 +349,7 @@ export default function SupplierDashboard({ onTabChange }) {
                                     whiteSpace: 'nowrap',
                                 }}
                             >
-                                Order status (branch POs + workshop purchases)
+                                Order Status Summary
                             </p>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                                 {orderSummary.map((s) => (
@@ -557,8 +456,8 @@ export default function SupplierDashboard({ onTabChange }) {
                         { label: 'Stock Inventory', tab: 'stock', icon: Warehouse },
                         { label: 'Sales Invoices (AR)', tab: 'sales_invoices', icon: FileText },
                         { label: 'Purchase Invoices (AP)', tab: 'purchase_invoices', icon: ShoppingCart },
-                        { label: 'Cash & Bank', tab: 'cash_bank', icon: DollarSign },
-                        { label: 'Expenses', tab: 'expenses', icon: AlertTriangle },
+                        // { label: 'Cash & Bank', tab: 'cash_bank', icon: DollarSign },
+                        // { label: 'Expenses', tab: 'expenses', icon: AlertTriangle },
                         { label: 'Staff & Roles', tab: 'employees', icon: Eye },
                         { label: 'Accounting', tab: 'accounting', icon: BarChart3 },
                     ].map((a) => (

@@ -52,6 +52,16 @@
     color: #1D4ED8;
 }
 
+.badge-expired {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.badge-inactive {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
 .badge-pending {
     background: #FEF3C7;
     color: #B45309;
@@ -113,6 +123,11 @@
     font-size: 0.9375rem;
     font-weight: 700;
     color: var(--color-text-dark);
+}
+
+/* Loading shimmer (see MarketingShimmer.jsx; reuses supplier Shimmer.css) */
+.mk-shimmer-busy {
+    pointer-events: none;
 }
 
 /* Dashboard Special layouts */
