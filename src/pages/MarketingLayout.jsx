@@ -9,6 +9,17 @@ import {
 import '../styles/AdminLayout.css';
 import './marketing/Marketing.css';
 import { useMarketingState } from './marketing/MarketingUtils';
+import { getWorkshops } from '../services/superAdminApi';
+
+function normalizeWorkshopsPayload(payload) {
+    if (!payload) return [];
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload.workshops)) return payload.workshops;
+    if (Array.isArray(payload.items)) return payload.items;
+    if (Array.isArray(payload.data)) return payload.data;
+    if (Array.isArray(payload.data?.workshops)) return payload.data.workshops;
+    return [];
+}
 
 const TRANSLATIONS = {
     en: {
@@ -54,7 +65,7 @@ const NAV_CONFIG = [
             { label: 'Dashboard', path: 'dashboard', icon: LayoutDashboard },
             { label: 'Promotions', path: 'promotions', icon: Megaphone },
             { label: 'Promo Codes', path: 'promo-codes', icon: Ticket },
-            { label: 'Referral Management', path: 'referral-management', icon: Users, isExternal: true },
+            { label: 'Referral Management', path: 'referral-management', icon: Users },
             { label: 'Referral Types + Rules', path: 'referral-types-rules', icon: Shield },
             { label: 'Loyalty Programs', path: 'loyalty-programs', icon: Gift },
         ],
@@ -137,6 +148,14 @@ export default function MarketingLayout() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [workshops, setWorkshops] = useState([]);
+    const [marketingWorkshopId, setMarketingWorkshopId] = useState('');
+
+    useEffect(() => {
+        getWorkshops({ limit: '200', offset: '0' })
+            .then((data) => setWorkshops(normalizeWorkshopsPayload(data)))
+            .catch(() => setWorkshops([]));
+    }, []);
 
     // Close mobile menu on route change
     useEffect(() => {
@@ -242,6 +261,26 @@ export default function MarketingLayout() {
                         </div>
                     </div>
                     <div className="flex items-center gap-8">
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.65rem', fontWeight: 700, color: '#64748b' }}>
+                            {locale === 'ar' ? 'نطاق الورشة' : 'Workshop scope'}
+                            <select
+                                className="form-input-field"
+                                style={{ minWidth: 180, height: 38, fontWeight: 600, fontSize: '0.8rem' }}
+                                value={marketingWorkshopId}
+                                onChange={(e) => setMarketingWorkshopId(e.target.value)}
+                            >
+                                <option value="">{locale === 'ar' ? 'كل الورش' : 'All workshops'}</option>
+                                {workshops.map((w) => {
+                                    const id = w.id ?? w._id ?? w.workshopId;
+                                    if (id == null) return null;
+                                    return (
+                                        <option key={String(id)} value={String(id)}>
+                                            {w.name || `Workshop ${id}`}
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                        </label>
                         {!isDashboard && !isInsights && (
                             <button
                                 className="btn-portal"
@@ -269,7 +308,10 @@ export default function MarketingLayout() {
                     referrers, setReferrers,
                     referralCodes, setReferralCodes,
                     loyaltyTiers, setLoyaltyTiers,
-                    loyaltyProgram, setLoyaltyProgram
+                    loyaltyProgram, setLoyaltyProgram,
+                    marketingWorkshopId,
+                    setMarketingWorkshopId,
+                    workshops,
                 }} />
             </main>
         </div>
