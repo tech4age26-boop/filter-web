@@ -1,12 +1,19 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useEffect, useState } from 'react';
+import { motion as m, AnimatePresence } from 'framer-motion';
 import { 
     Plus, Search, Edit2, Trash2, X, AlertCircle, 
     User, Building, Shield, CheckCircle2, Info
 } from 'lucide-react';
 import { MOCK_RULES } from '../referral-management/RM_Rules';
+import { MarketingReferralRulesSkeleton } from './MarketingShimmer';
 
 export default function ReferralRules() {
+    const [layoutBooting, setLayoutBooting] = useState(true);
+    useEffect(() => {
+        const id = window.setTimeout(() => setLayoutBooting(false), 100);
+        return () => window.clearTimeout(id);
+    }, []);
+
     // Main layout state
     const [activeTab, setActiveTab] = useState('rules'); // 'types' or 'rules'
     const [activeType, setActiveType] = useState('Individual');
@@ -117,6 +124,10 @@ export default function ReferralRules() {
         setIsTypeModalOpen(false);
     };
 
+    if (layoutBooting) {
+        return <MarketingReferralRulesSkeleton />;
+    }
+
     return (
         <div className="module-container" style={{ padding: '2rem' }}>
             {/* Main Tabs Switcher */}
@@ -159,7 +170,7 @@ export default function ReferralRules() {
 
             {activeTab === 'types' ? (
                 /* REFERRAL TYPES VIEW */
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                     <div className="module-header-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                         <div>
                             <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800 }}>Manage Referral Types</h2>
@@ -240,10 +251,10 @@ export default function ReferralRules() {
                             </table>
                         </div>
                     </div>
-                </motion.div>
+                </m.div>
             ) : (
                 /* REFERRAL RULES VIEW */
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                     <div className="module-header-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
                         <div style={{ display: 'flex', gap: '1rem' }}>
                             {referralTypes.filter(t => t.status === 'Active').map((type) => (
@@ -369,14 +380,14 @@ export default function ReferralRules() {
                             </table>
                         </div>
                     </div>
-                </motion.div>
+                </m.div>
             )}
 
             {/* CREATE RULE MODAL */}
             <AnimatePresence>
                 {isRulesModalOpen && (
                     <div className="modal-overlay" onClick={() => setIsRulesModalOpen(false)}>
-                        <motion.div 
+                        <m.div 
                             initial={{ opacity: 0, scale: 0.95, y: 20 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
                             exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -537,7 +548,7 @@ export default function ReferralRules() {
                                     {editingRule ? 'Update Rule' : 'Save Rule'}
                                 </button>
                             </div>
-                        </motion.div>
+                        </m.div>
                     </div>
                 )}
             </AnimatePresence>
@@ -546,7 +557,7 @@ export default function ReferralRules() {
             <AnimatePresence>
                 {isTypeModalOpen && (
                     <div className="modal-overlay" onClick={() => setIsTypeModalOpen(false)}>
-                        <motion.div 
+                        <m.div 
                             initial={{ opacity: 0, scale: 0.95, y: 20 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
                             exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -582,7 +593,7 @@ export default function ReferralRules() {
                                 <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setIsTypeModalOpen(false)}>Cancel</button>
                                 <button className="btn-submit" style={{ flex: 1, background: 'var(--gradient-gold)', color: '#000' }} onClick={handleAddType}>Create Type</button>
                             </div>
-                        </motion.div>
+                        </m.div>
                     </div>
                 )}
             </AnimatePresence>

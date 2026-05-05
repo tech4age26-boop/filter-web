@@ -59,6 +59,9 @@ export const getSupplierStockVisibilityScreen = (params = {}) =>
     apiFetch(withQuery('/supplier/stock-visibility/screen', params));
 export const getSupplierCriticalStockSummary = () =>
     apiFetch('/supplier/stock-visibility/critical-summary');
+/** Workshop branches (linked to this supplier) with catalog products at/below critical stock */
+export const getSupplierWorkshopCriticalStockAlerts = () =>
+    apiFetch('/supplier/workshops/critical-stock-alerts');
 export const getSupplierStockVisibility = (params = {}) =>
     apiFetch(withQuery('/supplier/stock-visibility', params));
 export const setSupplierStock = (body) =>
@@ -114,6 +117,9 @@ export const createSupplierInvoice = (body) =>
     apiFetch('/supplier/invoices', { method: 'POST', body: JSON.stringify(body) });
 export const listSupplierInvoices = (params = {}) =>
     apiFetch(withQuery('/supplier/invoices', params));
+/** Workshop branches linked to this supplier (sales invoice `branchId` dropdown). */
+export const getSupplierSalesInvoiceCustomerBranches = () =>
+    apiFetch('/supplier/invoices/customer-branches');
 export const getSupplierInvoice = (id) => apiFetch(`/supplier/invoices/${id}`);
 export const updateSupplierInvoice = (id, body) =>
     apiFetch(`/supplier/invoices/${id}`, {
@@ -354,6 +360,11 @@ export const createSupplierStaff = (body) =>
     apiFetch('/supplier/staff', { method: 'POST', body: JSON.stringify(body) });
 export const updateSupplierStaff = (id, body) =>
     apiFetch(`/supplier/staff/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+export const patchSupplierStaffDutyStatus = (id, body) =>
+    apiFetch(`/supplier/staff/${id}/duty-status`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
 export const deleteSupplierStaff = (id) =>
     apiFetch(`/supplier/staff/${id}`, { method: 'DELETE' });
 

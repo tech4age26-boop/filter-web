@@ -31,7 +31,16 @@ const overlayStyle = {
 };
 
 export default function Modal({
-    title, onClose, children, footer, className = '', contentClassName = '', width, hideCloseButton = false,
+    title,
+    onClose,
+    children,
+    footer,
+    className = '',
+    contentClassName = '',
+    width,
+    hideCloseButton = false,
+    /** When true, backdrop click and header close do nothing (still render close for layout; disabled). */
+    disableClose = false,
 }) {
     useEffect(() => {
         const prev = document.body.style.overflow;
@@ -40,7 +49,12 @@ export default function Modal({
     }, []);
 
     const node = (
-        <div className={`app-modal-overlay ${className}`} style={overlayStyle} onClick={onClose}>
+        <div
+            className={`app-modal-overlay ${className}`}
+            style={overlayStyle}
+            onClick={disableClose ? undefined : onClose}
+            role="presentation"
+        >
             <div
                 className={`app-modal-content ${contentClassName}`.trim()}
                 style={width ? { width, maxWidth: 'none', position: 'relative', zIndex: 1 } : { position: 'relative', zIndex: 1 }}
@@ -49,7 +63,13 @@ export default function Modal({
                 <div className="app-modal-header">
                     <h3>{title}</h3>
                     {!hideCloseButton && (
-                        <button type="button" className="app-modal-close-btn" onClick={onClose} aria-label="Close">
+                        <button
+                            type="button"
+                            className="app-modal-close-btn"
+                            onClick={onClose}
+                            aria-label="Close"
+                            disabled={disableClose}
+                        >
                             <X size={20} />
                         </button>
                     )}

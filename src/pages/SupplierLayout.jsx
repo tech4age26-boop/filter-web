@@ -16,7 +16,7 @@ import SupplierOrderQueue from './supplier/SupplierOrderQueue';
 import SupplierStockInventory from './supplier/SupplierStockInventory';
 import SupplierWorkshopAlerts from './supplier/SupplierWorkshopAlerts';
 import SupplierCatalog from './supplier/SupplierCatalog';
-import SupplierStaff from './supplier/SupplierStaff';
+import SupplierEmployeesPage from './supplier/supplier_employees';
 import SupplierSalesInvoices from './supplier/SupplierSalesInvoices';
 import SupplierPurchaseInvoices from './supplier/SupplierPurchaseInvoices';
 import SupplierWorkshopPurchaseInvoices from './supplier/SupplierWorkshopPurchaseInvoices';
@@ -131,7 +131,7 @@ export default function SupplierLayout() {
             case 'stock': return <SupplierStockInventory/>;
             case 'stock_alerts': return <SupplierWorkshopAlerts/>;
             case 'catalog': return <SupplierCatalog/>;
-            case 'employees': return <SupplierStaff/>;
+            case 'employees': return <SupplierEmployeesPage/>;
             case 'sales_invoices': return <SupplierSalesInvoices/>;
             case 'workshop_purchase_invoices': return <SupplierWorkshopPurchaseInvoices/>;
             case 'purchase_invoices': return <SupplierPurchaseInvoices/>;
@@ -258,7 +258,21 @@ export default function SupplierLayout() {
             <div className="ws-main">
                 <header className="ws-topbar"><div><p className="ws-topbar-title">{currentLabel}</p><p className="ws-topbar-sub">Complete operations, stock, invoicing & accounting</p></div>
                     <div className="ws-topbar-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <button type="button" className="btn-portal" style={{ background: '#2563EB', color: '#fff', border: 'none', fontSize: '0.8125rem', padding: '8px 14px' }} onClick={() => setActiveTab('sales_invoices')}><FileText size={14}/> New Sales Invoice</button>
+                        <button
+                            type="button"
+                            className="btn-portal"
+                            style={{ background: '#2563EB', color: '#fff', border: 'none', fontSize: '0.8125rem', padding: '8px 14px' }}
+                            onClick={() => {
+                                try {
+                                    sessionStorage.setItem('supplier_open_new_sales_invoice', '1');
+                                } catch {
+                                    /* ignore */
+                                }
+                                setActiveTab('sales_invoices');
+                            }}
+                        >
+                            <FileText size={14}/> New Sales Invoice
+                        </button>
                         <button type="button" className="btn-portal-outline" style={{ fontSize: '0.8125rem', padding: '8px 14px' }} onClick={() => setActiveTab('order_queue')}><ShoppingCart size={14}/> Order Queue</button>
                         <div className="ws-online-badge"><div className="ws-online-dot"/>Online</div>
                     </div>
