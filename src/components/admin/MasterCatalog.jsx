@@ -131,6 +131,18 @@ const parseNumberOr = (value, fallback = 0) => {
     return Number.isNaN(n) ? fallback : n;
 };
 
+const toBoolPriceEditable = (obj) => {
+    if (!obj || typeof obj !== 'object') return false;
+    const raw = obj.isPriceEditable ?? obj.is_price_editable;
+    if (raw === true || raw === 1) return true;
+    if (raw === false || raw === 0) return false;
+    if (typeof raw === 'string') {
+        const s = raw.trim().toLowerCase();
+        return s === 'true' || s === '1' || s === 'yes';
+    }
+    return false;
+};
+
 /**
  * Super-admin product list and GET-by-id responses expose `allowDecimalQty` in camelCase JSON
  * (Nest DTOs). Prisma @map("allow_decimal_qty") only affects the DB column, not the HTTP body.
@@ -844,7 +856,7 @@ export default function MasterCatalog() {
             sku: service.sku || '',
             description: service.description || '',
             sellingPrice: service.sellingPrice == null ? '' : String(service.sellingPrice),
-            isPriceEditable: !!service.isPriceEditable,
+            isPriceEditable: toBoolPriceEditable(service),
             isActive: service.isActive !== false,
             categoryId: service.categoryId != null ? String(service.categoryId) : '',
             categoryName: service.categoryName ?? service.category?.name ?? '',
@@ -858,15 +870,27 @@ export default function MasterCatalog() {
         if (!editingService?.id) return;
         setSaving(true);
         try {
-            await updateService(editingService.id, {
-                name: editingService.name || undefined,
-                arabicName: editingService.arabicName?.trim() || undefined,
-                sku: editingService.sku || undefined,
-                description: editingService.description || undefined,
-                sellingPrice: editingService.sellingPrice === '' ? null : parseNumberOr(editingService.sellingPrice, 0),
+            const payload = {
+                name: (editingService.name ?? '').trim(),
+                arabicName: (editingService.arabicName ?? '').trim(),
+                sku: (editingService.sku ?? '').trim(),
+                description: (editingService.description ?? '').trim(),
+                sellingPrice:
+                    editingService.sellingPrice === ''
+                        ? null
+                        : parseNumberOr(editingService.sellingPrice, 0),
                 isPriceEditable: !!editingService.isPriceEditable,
                 isActive: !!editingService.isActive,
-            });
+                categoryId:
+                    editingService.categoryId == null || editingService.categoryId === ''
+                        ? null
+                        : String(editingService.categoryId),
+                vatMode:
+                    editingService.vatMode == null || editingService.vatMode === ''
+                        ? null
+                        : String(editingService.vatMode),
+            };
+            await updateService(editingService.id, payload);
             setIsEditServiceModalOpen(false);
             setEditingService(null);
             await refreshCatalog();
@@ -1735,7 +1759,7 @@ export default function MasterCatalog() {
                     <div className="mc-ss-label">Approved</div>
                 </div>
                 <div className="mc-ss-card blue">
-                    <div className="mc-ss-value">{services.filter((s) => s.isPriceEditable).length}</div>
+                    <div className="mc-ss-value">{services.filter((s) => toBoolPriceEditable(s)).length}</div>
                     <div className="mc-ss-label">Price Editable</div>
                 </div>
             </div>
@@ -1763,6 +1787,7 @@ export default function MasterCatalog() {
             ) : (
                 <div className="mc-services-grid">
                     {sortedFilteredServices.map((p) => {
+                        const priceEditable = toBoolPriceEditable(p);
                         const createdRaw = p.createdAt ?? p.created_at;
                         const createdLabel = formatCatalogCreatedAt(createdRaw);
                         return (
@@ -1810,9 +1835,11 @@ export default function MasterCatalog() {
                                     <div className="mc-sc-toggle-group">
                                         <div className="mc-toggle-label">
                                             <strong>Cashier Price Edit</strong>
-                                            <span>{p.isPriceEditable ? 'Editable' : 'Fixed price'}</span>
+                                            <span className={priceEditable ? 'mc-toggle-state--on' : ''}>
+                                                {priceEditable ? 'Editable' : 'Fixed price'}
+                                            </span>
                                         </div>
-                                        <div className="mc-toggle-switch" />
+                                        <div className={`mc-toggle-switch${priceEditable ? ' active' : ''}`} />
                                     </div>
                                     <Edit3
                                         size={14}
