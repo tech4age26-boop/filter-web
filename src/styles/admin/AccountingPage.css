@@ -2499,9 +2499,26 @@
 .pi-line-row {
     padding: 16px;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 16px;
     background: #ffffff;
+}
+
+/* Toolbar row: search grows, Add line stays intrinsic width (avoid duplicate .btn-add-line { width:100% }) */
+.pi-line-row .btn-add-line {
+    flex: 0 0 auto;
+    width: auto !important;
+    margin-top: 0 !important;
+}
+
+.pi-search-box-wrapper {
+    flex: 1 1 0%;
+    min-width: 0;
+    align-self: stretch;
+}
+
+.pi-search-box-wrapper .pi-search-box {
+    width: 100%;
 }
 
 .pi-search-box {
@@ -2509,6 +2526,8 @@
     position: relative;
     display: flex;
     align-items: center;
+    width: 100%;
+    min-width: 0;
 }
 
 .pi-search-box svg {
@@ -2531,13 +2550,18 @@
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
-    right: 0;
+    right: auto;
+    width: max(100%, min(720px, calc(100vw - 80px)));
+    max-width: min(960px, calc(100vw - 48px));
+    box-sizing: border-box;
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
     box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
-    z-index: 100;
-    overflow: hidden;
+    z-index: 500;
+    overflow-x: hidden;
+    overflow-y: auto;
+    max-height: min(360px, 50vh);
     animation: slideDownFade 0.2s ease-out;
 }
 
@@ -2556,7 +2580,8 @@
 .pi-result-item {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
+    gap: 12px;
     padding: 12px 16px;
     cursor: pointer;
     transition: all 0.2s;
@@ -2576,12 +2601,16 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    flex: 1;
+    min-width: 0;
 }
 
 .pi-item-name {
     font-size: 0.875rem;
     font-weight: 700;
     color: #c2410c;
+    white-space: normal;
+    word-break: break-word;
     /* Orange matching screenshot */
 }
 
@@ -2604,6 +2633,8 @@
 
 .pi-item-price {
     text-align: right;
+    flex: 0 0 auto;
+    white-space: nowrap;
 }
 
 .pi-price-val {
@@ -4063,30 +4094,6 @@
 
 .pi-row-input:focus, .pi-row-input-num:focus {
     border-color: #FBBF24;
-}
-
-.btn-add-line {
-    background: none;
-    border: 2px dashed #E5E7EB;
-    color: #6B7280;
-    width: 100%;
-    padding: 12px;
-    border-radius: 12px;
-    font-weight: 700;
-    font-size: 0.875rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 16px;
-    transition: all 0.2s;
-}
-
-.btn-add-line:hover {
-    background: #F9FAFB;
-    border-color: #D1D5DB;
-    color: #111827;
 }
 
 .pi-footer-summary {

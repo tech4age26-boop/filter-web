@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { FileText, Plus, Eye, Download, Calendar, Search, Zap, Pencil, Trash2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -15,10 +15,38 @@ import {
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
 const INVENTORY_ITEMS = [
-    { id: 1, name: 'Engine Oil — Full Synthetic 5W40', price: 45, unit: 'liter', lastPrice: 42 },
-    { id: 2, name: 'Oil Filter — Universal', price: 22, unit: 'pcs', lastPrice: 22 },
-    { id: 3, name: 'Car Wash Normal - Small', price: 20, unit: 'service', lastPrice: 18 },
-    { id: 4, name: 'Brake Fluid DOT4', price: 28, unit: 'liter', lastPrice: 28 },
+    {
+        id: 1,
+        itemType: 'Product',
+        name: 'Engine Oil — Full Synthetic 5W40',
+        price: 45,
+        unit: 'liter',
+        lastPrice: 42,
+    },
+    {
+        id: 2,
+        itemType: 'Product',
+        name: 'Oil Filter — Universal',
+        price: 22,
+        unit: 'pcs',
+        lastPrice: 22,
+    },
+    {
+        id: 3,
+        itemType: 'Service',
+        name: 'Car Wash Normal - Small',
+        price: 20,
+        unit: 'service',
+        lastPrice: 18,
+    },
+    {
+        id: 4,
+        itemType: 'Product',
+        name: 'Brake Fluid DOT4',
+        price: 28,
+        unit: 'liter',
+        lastPrice: 28,
+    },
 ];
 
 const ACCOUNT_OPTIONS = [
@@ -34,6 +62,49 @@ const TAXES = [
 ];
 
 const CASH_ACCOUNTS = ['Main Cash', 'Bank — Al Rajhi', 'Bank — SNB'];
+
+const SEARCH_QUICK_PICK = 15;
+const SEARCH_MAX_RESULTS = 50;
+
+function mergeInventoryLists(stockRows, fallback) {
+    const map = new Map();
+    (stockRows || []).forEach((entry) => {
+        if (entry?.id == null || entry.id === '') return;
+        map.set(String(entry.id), entry);
+    });
+    (fallback || []).forEach((inv) => {
+        if (inv?.id == null || inv.id === '') return;
+        const k = String(inv.id);
+        if (!map.has(k)) map.set(k, inv);
+    });
+    return Array.from(map.values());
+}
+
+function normalizeStockCatalogRow(item) {
+    const qtyWh = Number(item.currentBalanceWarehouse || 0);
+    const unitCost =
+        qtyWh > 0 ? Number(item.valueWarehouseSar || 0) / qtyWh : 0;
+    const price = Number.isFinite(unitCost) ? Math.max(0, unitCost) : 0;
+    const stockHint =
+        qtyWh > 0
+            ? `Warehouse stock: ${qtyWh} • Unit cost SAR ${price.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
+            : qtyWh <= 0
+              ? 'No warehouse qty — edit unit price manually'
+              : '';
+    return {
+        id: item.productId,
+        name: item.productName || 'Product',
+        price,
+        unit: item.workshopUnit || item.unitCode || item.unit || 'pcs',
+        lastPrice: Number(item.lastWarehouseSalePrice || item.lastSalePrice || price || 0) || price,
+        itemType: 'Product',
+        stockHint,
+    };
+}
+
+function nextLineId() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
 
 function formatInvoicePayloadForPdf(payload) {
     const inv = payload?.invoice ?? payload;
@@ -100,20 +171,34 @@ export default function SupplierSalesInvoices() {
     const [selectedIndex, setSelectedIndex] = useState(-1);
     const [inventoryItems, setInventoryItems] = useState(INVENTORY_ITEMS);
     const [branches, setBranches] = useState([]);
+    const invoiceLineSearchWrapRef = useRef(null);
 
-    const handleSearch = (query) => {
-        setSearchQuery(query);
-        if (query.trim()) {
-            const filtered = inventoryItems.filter((item) =>
-                item.name.toLowerCase().includes(query.toLowerCase())
-            );
-            setSearchResults(filtered);
-            setShowDropdown(true);
-            setSelectedIndex(0);
-        } else {
-            setSearchResults([]);
-            setShowDropdown(false);
-        }
+    const getSearchSuggestions = (query) => {
+        const items = [...inventoryItems].sort((a, b) =>
+            String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+                sensitivity: 'base',
+            }),
+        );
+        const q = query.trim().toLowerCase();
+        if (!q) return items.slice(0, SEARCH_QUICK_PICK);
+        return items
+            .filter((i) => String(i.name || '').toLowerCase().includes(q))
+            .slice(0, SEARCH_MAX_RESULTS);
+    };
+
+    const applySearchQuery = (value) => {
+        setSearchQuery(value);
+        const results = getSearchSuggestions(value);
+        setSearchResults(results);
+        setShowDropdown(true);
+        setSelectedIndex(results.length ? 0 : -1);
+    };
+
+    const openInvoiceLineSearch = () => {
+        const results = getSearchSuggestions(searchQuery);
+        setSearchResults(results);
+        setShowDropdown(true);
+        setSelectedIndex(results.length ? 0 : -1);
     };
 
     const updateLineItem = (id, field, value) => {
@@ -162,29 +247,35 @@ export default function SupplierSalesInvoices() {
     const summary = getSummary();
 
     const addItemToLines = (item) => {
+        const unitPrice = Number(item.price) || 0;
+        const lastSale = Number(item.lastPrice ?? item.price ?? 0) || unitPrice;
         const newLine = {
-            id: Date.now(),
+            id: nextLineId(),
             productId: item.id != null && item.id !== '' ? String(item.id) : undefined,
             item: item.name,
             account: '4100 - Sales Revenue',
             description: '',
             uom: item.unit,
             qty: 1,
-            price: item.price,
+            price: unitPrice,
             discount: 0,
             taxCode: 'VAT 15%',
-            taxAmt: (item.price * 0.15).toFixed(2),
-            totalFinal: (item.price * 1.15).toFixed(2),
-            lastSalePrice: item.lastPrice ?? item.price,
+            taxAmt: (unitPrice * 0.15).toFixed(2),
+            totalFinal: (unitPrice * 1.15).toFixed(2),
+            lastSalePrice: lastSale,
         };
         setLineItems((prev) => [...prev, newLine]);
         setSearchQuery('');
         setShowDropdown(false);
     };
 
+    const removeLineItem = (lineId) => {
+        setLineItems((prev) => prev.filter((l) => l.id !== lineId));
+    };
+
     const addEmptyLine = () => {
         const newLine = {
-            id: Date.now() + Math.floor(Math.random() * 1000),
+            id: nextLineId(),
             productId: undefined,
             item: '',
             account: '4100 - Sales Revenue',
@@ -207,7 +298,7 @@ export default function SupplierSalesInvoices() {
             setSelectedIndex((i) => (i < searchResults.length - 1 ? i + 1 : i));
         } else if (e.key === 'ArrowUp') {
             setSelectedIndex((i) => (i > 0 ? i - 1 : i));
-        } else if (e.key === 'Enter' && selectedIndex >= 0) {
+        } else if (e.key === 'Enter' && selectedIndex >= 0 && searchResults[selectedIndex]) {
             addItemToLines(searchResults[selectedIndex]);
         } else if (e.key === 'Escape') {
             setShowDropdown(false);
@@ -269,6 +360,7 @@ export default function SupplierSalesInvoices() {
         cols.push('0.8fr', '0.8fr', '1fr'); // UOM, Qty, Price
         if (showDiscount) cols.push('1fr');
         cols.push('1fr', '1fr', '1fr', '1fr', '1fr'); // Total, TaxCode, TaxAmt, Total(final), Last Sale
+        cols.push('48px'); // delete
         return cols.join(' ');
     };
 
@@ -283,6 +375,10 @@ export default function SupplierSalesInvoices() {
         setDescription('');
         setLineItems([]);
         setSaveError('');
+        setSearchQuery('');
+        setSearchResults([]);
+        setShowDropdown(false);
+        setSelectedIndex(-1);
     };
 
     const openNewInvoiceModal = () => {
@@ -435,13 +531,13 @@ export default function SupplierSalesInvoices() {
                 setNetDays(diffDays || 30);
             }
             setLineItems(
-                (inv.items || []).map((it, idx) => ({
-                    id: Date.now() + idx,
+                (inv.items || []).map((it) => ({
+                    id: nextLineId(),
                     productId: it.productId != null ? String(it.productId) : undefined,
                     item: it.productName,
                     account: '4100 - Sales Revenue',
                     description: '',
-                    uom: 'pcs',
+                    uom: it.unit || 'pcs',
                     qty: String(it.qty),
                     price: String(it.unitPrice),
                     discount: 0,
@@ -515,6 +611,18 @@ export default function SupplierSalesInvoices() {
     const list = invoices || [];
 
     useEffect(() => {
+        if (!modalOpen || !showDropdown) return undefined;
+        const onDocMouseDown = (e) => {
+            const el = invoiceLineSearchWrapRef.current;
+            if (el && !el.contains(e.target)) {
+                setShowDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', onDocMouseDown);
+        return () => document.removeEventListener('mousedown', onDocMouseDown);
+    }, [modalOpen, showDropdown]);
+
+    useEffect(() => {
         let cancelled = false;
         const load = async () => {
             try {
@@ -523,25 +631,13 @@ export default function SupplierSalesInvoices() {
                     getSupplierSalesInvoiceCustomerBranches().catch(() => null),
                 ]);
                 const stockItems = Array.isArray(stockRes?.items)
-                    ? stockRes.items.map((item) => ({
-                          id: item.productId,
-                          name: item.productName,
-                          price: Math.max(
-                              0,
-                              Number(item.currentBalanceWarehouse || 0) > 0
-                                  ? Number(item.valueWarehouseSar || 0) /
-                                        Number(item.currentBalanceWarehouse || 1)
-                                  : 0,
-                          ),
-                          unit: item.workshopUnit || 'pcs',
-                          lastPrice: 0,
-                      }))
+                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw))
                     : [];
                 const custBranches = Array.isArray(branchesRes?.branches)
                     ? branchesRes.branches
                     : [];
                 if (!cancelled) {
-                    if (stockItems.length) setInventoryItems(stockItems);
+                    setInventoryItems(mergeInventoryLists(stockItems, INVENTORY_ITEMS));
                     if (custBranches.length) {
                         setBranches(
                             custBranches.map((b) => ({
@@ -1052,6 +1148,7 @@ export default function SupplierSalesInvoices() {
                                     <div className="pi-col-tamt">Tax Amt</div>
                                     <div className="pi-col-total">Grand Total</div>
                                     <div className="pi-col-total">Last Sale Price</div>
+                                    <div aria-hidden />
                                 </div>
 
                                 {lineItems.map((line, idx) => (
@@ -1067,6 +1164,7 @@ export default function SupplierSalesInvoices() {
                                             <input
                                                 type="text"
                                                 value={line.item}
+                                                placeholder="Item name"
                                                 className="pi-row-input"
                                                 onChange={(e) =>
                                                     updateLineItem(
@@ -1108,7 +1206,21 @@ export default function SupplierSalesInvoices() {
                                                 />
                                             </div>
                                         )}
-                                        <div className="pi-col-uom">{line.uom}</div>
+                                        <div className="pi-col-uom">
+                                            <input
+                                                type="text"
+                                                className="pi-row-input"
+                                                placeholder="UOM"
+                                                value={line.uom ?? ''}
+                                                onChange={(e) =>
+                                                    updateLineItem(
+                                                        line.id,
+                                                        'uom',
+                                                        e.target.value,
+                                                    )
+                                                }
+                                            />
+                                        </div>
                                         <div className="pi-col-qty">
                                             <input
                                                 type="text"
@@ -1210,13 +1322,46 @@ export default function SupplierSalesInvoices() {
                                                 fontWeight: 600,
                                             }}
                                         >
-                                            SAR {line.lastSalePrice}
+                                            {line.lastSalePrice != null &&
+                                            Number(line.lastSalePrice) > 0 ? (
+                                                `SAR ${Number(line.lastSalePrice).toLocaleString()}`
+                                            ) : (
+                                                <span style={{ color: '#94a3b8' }}>—</span>
+                                            )}
+                                        </div>
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}
+                                        >
+                                            <button
+                                                type="button"
+                                                title="Remove line"
+                                                aria-label="Remove line"
+                                                onClick={() =>
+                                                    removeLineItem(line.id)
+                                                }
+                                                style={{
+                                                    padding: 6,
+                                                    borderRadius: 8,
+                                                    border: '1px solid #fecaca',
+                                                    background: '#fff',
+                                                    color: '#b91c1c',
+                                                    cursor: 'pointer',
+                                                    lineHeight: 0,
+                                                }}
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
                                         </div>
                                     </div>
                                 ))}
 
                                 <div className="pi-line-row">
                                     <div
+                                        ref={invoiceLineSearchWrapRef}
                                         className="pi-search-box-wrapper"
                                         style={{ position: 'relative', flex: 1 }}
                                     >
@@ -1227,55 +1372,104 @@ export default function SupplierSalesInvoices() {
                                                 placeholder="Search product to add"
                                                 value={searchQuery}
                                                 onChange={(e) =>
-                                                    handleSearch(e.target.value)
+                                                    applySearchQuery(e.target.value)
                                                 }
                                                 onKeyDown={handleKeyDown}
-                                                onFocus={() =>
-                                                    searchQuery.trim() &&
-                                                    setShowDropdown(true)
-                                                }
+                                                onFocus={openInvoiceLineSearch}
                                             />
                                         </div>
-                                        {showDropdown && searchResults.length > 0 && (
+                                        {showDropdown ? (
                                             <div className="pi-search-results">
-                                                {searchResults.map((item, index) => (
+                                                {searchResults.length > 0 ? (
+                                                    searchResults.map((item, index) => (
+                                                        <div
+                                                            key={`${item.id}-${item.name}`}
+                                                            className={`pi-result-item ${
+                                                                selectedIndex === index
+                                                                    ? 'selected'
+                                                                    : ''
+                                                            }`}
+                                                            onClick={() =>
+                                                                addItemToLines(item)
+                                                            }
+                                                            onMouseEnter={() =>
+                                                                setSelectedIndex(index)
+                                                            }
+                                                        >
+                                                            <div className="pi-result-info">
+                                                                <div className="pi-item-name">
+                                                                    {item.name}
+                                                                </div>
+                                                                <div
+                                                                    className="pi-item-meta"
+                                                                    style={{
+                                                                        flexDirection: 'column',
+                                                                        alignItems: 'flex-start',
+                                                                        gap: 4,
+                                                                    }}
+                                                                >
+                                                                    <span
+                                                                        style={{
+                                                                            display: 'flex',
+                                                                            gap: 8,
+                                                                            flexWrap: 'wrap',
+                                                                        }}
+                                                                    >
+                                                                        <span className="pi-item-type">
+                                                                            {item.itemType ||
+                                                                                'Product'}
+                                                                        </span>
+                                                                        <span>
+                                                                            {item.unit
+                                                                                ? `• ${item.unit}`
+                                                                                : null}
+                                                                        </span>
+                                                                    </span>
+                                                                    {item.stockHint ? (
+                                                                        <span
+                                                                            style={{
+                                                                                fontSize: 11,
+                                                                                color: '#64748b',
+                                                                                lineHeight: 1.35,
+                                                                            }}
+                                                                        >
+                                                                            {item.stockHint}
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                            </div>
+                                                            <div className="pi-item-price">
+                                                                <div className="pi-price-val">
+                                                                    SAR{' '}
+                                                                    {Number(
+                                                                        item.price || 0,
+                                                                    ).toLocaleString()}
+                                                                </div>
+                                                                <div className="pi-price-unit">
+                                                                    {item.unit
+                                                                        ? `per ${item.unit}`
+                                                                        : ' '}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                ) : (
                                                     <div
-                                                        key={item.id}
-                                                        className={`pi-result-item ${
-                                                            selectedIndex === index
-                                                                ? 'selected'
-                                                                : ''
-                                                        }`}
-                                                        onClick={() =>
-                                                            addItemToLines(item)
-                                                        }
-                                                        onMouseEnter={() =>
-                                                            setSelectedIndex(index)
-                                                        }
+                                                        style={{
+                                                            padding: 14,
+                                                            fontSize: 13,
+                                                            color: '#64748b',
+                                                        }}
                                                     >
-                                                        <div className="pi-result-info">
-                                                            <div className="pi-item-name">
-                                                                {item.name}
-                                                            </div>
-                                                            <div className="pi-item-meta">
-                                                                <span className="pi-item-type">
-                                                                    Service
-                                                                </span>
-                                                                <span>• {item.unit}</span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="pi-item-price">
-                                                            <div className="pi-price-val">
-                                                                SAR {item.price}
-                                                            </div>
-                                                            <div className="pi-price-unit">
-                                                                per {item.unit}
-                                                            </div>
-                                                        </div>
+                                                        {inventoryItems.length === 0
+                                                            ? 'No products loaded. Try again later or use “Add line” and type manually.'
+                                                            : searchQuery.trim()
+                                                              ? 'No matching products.'
+                                                              : 'No products available.'}
                                                     </div>
-                                                ))}
+                                                )}
                                             </div>
-                                        )}
+                                        ) : null}
                                     </div>
                                     <button
                                         type="button"
@@ -1286,8 +1480,8 @@ export default function SupplierSalesInvoices() {
                                     </button>
                                 </div>
                                 <div className="pi-hint">
-                                    <Zap size={14} /> Tip: Type to search, use ↑↓ arrows,
-                                    Enter to select. Price fields support math (e.g. 120*2)
+                                    <Zap size={14} /> Tip: ↑ ↓ arrows, Enter to select from
+                                    search. Price fields support math (e.g. 120*2).
                                 </div>
                             </div>
 

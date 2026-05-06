@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, FileText } from 'lucide-react';
+import { AlertTriangle, FileText, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getSupplierWorkshopCriticalStockAlerts } from '../../services/supplierApi';
 import { ShimmerTable } from '../../components/supplier/Shimmer';
@@ -17,6 +17,8 @@ export default function SupplierWorkshopAlerts() {
     const [summaryMessage, setSummaryMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [apiError, setApiError] = useState('');
+    const [branchFilter, setBranchFilter] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
 
     useEffect(() => {
         let cancelled = false;
@@ -49,9 +51,55 @@ export default function SupplierWorkshopAlerts() {
         };
     }, []);
 
+    const branchOptions = useMemo(() => {
+        const byId = new Map();
+        for (const r of rows) {
+            const id = String(r.branchId ?? '');
+            if (!id || byId.has(id)) continue;
+            byId.set(id, {
+                id,
+                branchName: r.branchName || 'Branch',
+                workshopName: r.workshopName || '',
+            });
+        }
+        return [...byId.values()].sort((a, b) => {
+            const ws = String(a.workshopName).localeCompare(String(b.workshopName));
+            if (ws !== 0) return ws;
+            return String(a.branchName).localeCompare(String(b.branchName));
+        });
+    }, [rows]);
+
+    const filteredRows = useMemo(() => {
+        let list = rows;
+        if (branchFilter) {
+            list = list.filter((r) => String(r.branchId ?? '') === String(branchFilter));
+        }
+        const q = searchQuery.trim().toLowerCase();
+        if (q) {
+            const tokens = q.split(/\s+/).filter(Boolean);
+            list = list.filter((r) => {
+                const haystack = [
+                    r.workshopName,
+                    r.branchName,
+                    r.productName,
+                    r.sku,
+                    r.unit,
+                    r.thresholdSource === 'workshop_branch' ? 'branch setting' : 'catalog',
+                    fmtQty(r.currentQty),
+                    fmtQty(r.criticalStockPoint),
+                ]
+                    .filter((x) => x != null && String(x).trim() !== '')
+                    .join(' ')
+                    .toLowerCase();
+                return tokens.every((t) => haystack.includes(t));
+            });
+        }
+        return list;
+    }, [rows, branchFilter, searchQuery]);
+
     const groupedByWorkshop = useMemo(() => {
         const map = new Map();
-        for (const r of rows) {
+        for (const r of filteredRows) {
             const wid = String(r.workshopId ?? '');
             if (!map.has(wid)) {
                 map.set(wid, {
@@ -65,7 +113,11 @@ export default function SupplierWorkshopAlerts() {
         return [...map.values()].sort((a, b) =>
             a.workshopName.localeCompare(b.workshopName),
         );
-    }, [rows]);
+    }, [filteredRows]);
+
+    const filtersActive = Boolean(branchFilter || searchQuery.trim());
+    const totalAlertLines = rows.length;
+    const filteredCount = filteredRows.length;
 
     const openSalesInvoiceForBranch = (branchId) => {
         try {
@@ -134,6 +186,120 @@ export default function SupplierWorkshopAlerts() {
                     {summaryMessage}
                 </p>
             ) : null}
+            {!loading && rows.length > 0 ? (
+                <div
+                    className="ws-section"
+                    style={{
+                        marginBottom: 16,
+                        padding: '12px 16px',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        gap: 12,
+                    }}
+                >
+                    <label
+                        style={{
+                            flex: '1 1 220px',
+                            minWidth: 200,
+                            position: 'relative',
+                            display: 'block',
+                            margin: 0,
+                        }}
+                    >
+                        <Search
+                            size={16}
+                            style={{
+                                position: 'absolute',
+                                left: 12,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                color: '#94a3b8',
+                                pointerEvents: 'none',
+                            }}
+                        />
+                        <input
+                            type="search"
+                            aria-label="Search alerts"
+                            placeholder="Search workshop, branch, product, SKU…"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px 10px 40px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: 10,
+                                fontSize: '0.875rem',
+                                background: '#fff',
+                                boxSizing: 'border-box',
+                            }}
+                        />
+                    </label>
+                    <label
+                        style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 4,
+                            minWidth: 220,
+                            flex: '0 1 240px',
+                            margin: 0,
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            color: '#64748b',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                        }}
+                    >
+                        Branch
+                        <select
+                            value={branchFilter}
+                            onChange={(e) => setBranchFilter(e.target.value)}
+                            style={{
+                                padding: '10px 12px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: 10,
+                                fontSize: '0.875rem',
+                                fontWeight: 600,
+                                background: '#fff',
+                                color: '#1e293b',
+                            }}
+                        >
+                            <option value="">All branches</option>
+                            {branchOptions.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                    {b.workshopName
+                                        ? `${b.workshopName} — ${b.branchName}`
+                                        : b.branchName}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    {filtersActive ? (
+                        <button
+                            type="button"
+                            className="btn-portal-outline"
+                            style={{ alignSelf: 'flex-end', whiteSpace: 'nowrap' }}
+                            onClick={() => {
+                                setBranchFilter('');
+                                setSearchQuery('');
+                            }}
+                        >
+                            Clear filters
+                        </button>
+                    ) : null}
+                    <span
+                        style={{
+                            marginLeft: 'auto',
+                            fontSize: '0.8125rem',
+                            color: 'var(--color-text-muted)',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        Showing {filteredCount} of {totalAlertLines} line
+                        {totalAlertLines === 1 ? '' : 's'}
+                    </span>
+                </div>
+            ) : null}
             {loading ? (
                 <div className="ws-section" style={{ padding: 0, overflow: 'hidden' }}>
                     <ShimmerTable rows={8} columns={7} />
@@ -142,6 +308,35 @@ export default function SupplierWorkshopAlerts() {
                 <div className="ws-empty">
                     <AlertTriangle size={56} className="ws-empty-icon" />
                     <p className="ws-empty-text">No active alerts</p>
+                </div>
+            ) : filteredCount === 0 ? (
+                <div className="ws-empty">
+                    <AlertTriangle size={56} className="ws-empty-icon" />
+                    <p className="ws-empty-text">No alerts match your filters</p>
+                    <p
+                        style={{
+                            marginTop: 8,
+                            fontSize: '0.875rem',
+                            color: 'var(--color-text-muted)',
+                            maxWidth: 420,
+                            textAlign: 'center',
+                        }}
+                    >
+                        Try another branch or clear the search. You still have{' '}
+                        <strong>{totalAlertLines}</strong> active line
+                        {totalAlertLines === 1 ? '' : 's'} in total.
+                    </p>
+                    <button
+                        type="button"
+                        className="btn-portal"
+                        style={{ marginTop: 16 }}
+                        onClick={() => {
+                            setBranchFilter('');
+                            setSearchQuery('');
+                        }}
+                    >
+                        Clear filters
+                    </button>
                 </div>
             ) : (
                 groupedByWorkshop.map((g) => (
@@ -154,6 +349,8 @@ export default function SupplierWorkshopAlerts() {
                                 gap: 12,
                                 flexWrap: 'wrap',
                                 marginBottom: 12,
+                                padding: '16px 20px 0',
+                                boxSizing: 'border-box',
                             }}
                         >
                             <h3
@@ -162,6 +359,11 @@ export default function SupplierWorkshopAlerts() {
                                     fontSize: '1rem',
                                     fontWeight: 800,
                                     color: '#EA580C',
+                                    flex: '1 1 200px',
+                                    minWidth: 0,
+                                    overflowWrap: 'anywhere',
+                                    wordBreak: 'break-word',
+                                    lineHeight: 1.35,
                                 }}
                             >
                                 {g.workshopName}
@@ -171,12 +373,15 @@ export default function SupplierWorkshopAlerts() {
                                     fontSize: '0.75rem',
                                     fontWeight: 600,
                                     color: 'var(--color-text-muted)',
+                                    flexShrink: 0,
+                                    whiteSpace: 'nowrap',
+                                    paddingLeft: 4,
                                 }}
                             >
                                 {g.items.length} critical line{g.items.length === 1 ? '' : 's'}
                             </span>
                         </div>
-                        <div style={{ overflowX: 'auto' }}>
+                        <div style={{ overflowX: 'auto', padding: '0 20px 16px', boxSizing: 'border-box' }}>
                             <table className="ws-table">
                                 <thead>
                                     <tr>
