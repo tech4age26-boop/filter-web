@@ -8,6 +8,12 @@ function money(n, currency = 'SAR') {
     return `${currency} ${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function round2(n) {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return 0;
+    return Math.round(x * 100) / 100;
+}
+
 function pick(inv, ...keys) {
     for (const k of keys) {
         if (inv && inv[k] != null && inv[k] !== '') return inv[k];
@@ -41,7 +47,7 @@ function lineQty(line) {
 
 function lineUom(line) {
     const u = line?.uom ?? line?.unit ?? line?.unitOfMeasure ?? line?.unit_of_measure;
-    return u != null && String(u).trim() !== '' ? String(u).trim() : '—';
+    return u != null && String(u).trim() !== '' ? String(u).trim() : 'piece';
 }
 
 function lineUnitExVat(line) {
@@ -60,21 +66,24 @@ function lineVatPct(line) {
 }
 
 function lineVatAmount(line) {
-    const v = Number(line?.vatAmount ?? line?.vat_amount ?? line?.lineVat ?? 0);
+    const v = Number(line?.vatAmount ?? line?.vat_amount ?? line?.lineVat ?? line?.tax_amount ?? line?.taxAmount);
     return Number.isFinite(v) ? v : null;
 }
 
-function lineLineTotal(line) {
-    const explicit = Number(line?.lineTotal ?? line?.line_total ?? line?.totalInclVat ?? line?.total ?? NaN);
-    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+function lineTotalExVatOnly(line) {
     const q = Number(line?.qty ?? line?.quantity ?? 0);
     const unit = lineUnitExVat(line);
-    const ex = Number.isFinite(q) && Number.isFinite(unit) ? q * unit : 0;
-    const vat = lineVatAmount(line);
-    if (vat != null && Number.isFinite(vat)) return ex + vat;
+    if (!Number.isFinite(q) || !Number.isFinite(unit)) return 0;
+    return round2(q * unit);
+}
+
+function lineVatForDisplay(line) {
+    const v = lineVatAmount(line);
+    if (v != null && Number.isFinite(v) && Math.abs(v) >= 1e-9) return round2(v);
+    const ex = lineTotalExVatOnly(line);
     const pct = lineVatPct(line);
-    if (pct != null && Number.isFinite(pct)) return ex * (1 + pct / 100);
-    return ex;
+    if (pct != null && Number.isFinite(pct)) return round2(ex * (pct / 100));
+    return round2(0);
 }
 
 function statusBadgeClass(s) {
@@ -88,10 +97,30 @@ function statusBadgeClass(s) {
     return 'wpi-view__badge wpi-view__badge--pending';
 }
 
-/**
- * Full invoice layout for supplier-side workshop purchase invoice view modal.
- * `detail`: GET invoice payload; `listRow`: normalized list row fallbacks.
- */
+function fmtStatusLabel(status) {
+    if (!status || status === '—') return '—';
+    return String(status)
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatInvoiceDateTime(inv, row) {
+    const raw =
+        pick(inv, 'createdAt', 'created_at', 'updatedAt', 'updated_at', 'issueDate', 'issue_date') ??
+        row?.date;
+    if (!raw && raw !== 0) return '—';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return String(raw).slice(0, 19);
+    return d.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+    });
+}
+
 export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
     const inv = detail && typeof detail === 'object' ? detail : {};
     const row = listRow && typeof listRow === 'object' ? listRow : {};
@@ -101,9 +130,7 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
         row.invoice_number ??
         '—';
 
-    const status = String(
-        pick(inv, 'status', 'state') ?? row.status ?? '—',
-    ).toLowerCase();
+    const status = String(pick(inv, 'status', 'state') ?? row.status ?? '—').toLowerCase();
 
     const issueDate = (
         pick(inv, 'issueDate', 'issue_date', 'createdAt', 'created_at') ?? row.date ?? ''
@@ -111,11 +138,7 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
         .toString()
         .slice(0, 10);
 
-    const dueDate = (
-        pick(inv, 'dueDate', 'due_date') ?? row.due_date ?? ''
-    )
-        .toString()
-        .slice(0, 10);
+    const dueDate = (pick(inv, 'dueDate', 'due_date') ?? row.due_date ?? '').toString().slice(0, 10);
 
     const vendorRef =
         pick(inv, 'vendorInvoiceRef', 'vendor_invoice_ref', 'vendorRef', 'ref_number') ??
@@ -142,10 +165,68 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
         inv?.supplier?.name ??
         row.vendor_name ??
         row.supplier ??
-        '';
+        'FILTER';
+
+    const supplierLabelAr =
+        pick(
+            inv,
+            'supplierNameAr',
+            'supplier_name_ar',
+            'supplierLegalNameAr',
+            'vendorNameAr',
+        ) ??
+        inv?.supplier?.nameAr ??
+        inv?.supplier?.name_ar ??
+        supplierLabel;
+
+    const supplierTagline =
+        pick(inv, 'supplierTagline', 'supplier_tagline') ??
+        'Specialist procurement & inventory for automotive workshops — wholesale linked supply.';
+
+    const supplierTaglineAr =
+        pick(inv, 'supplierTaglineAr', 'supplier_tagline_ar') ??
+        'توريد وقطع ومستهلكات ورش ومبيعات تجارية وفق بوليصة المورد المعتمد.';
 
     const description = pick(inv, 'description', 'title') ?? '';
     const notes = pick(inv, 'notes', 'internalNotes', 'internal_notes') ?? row.notes ?? '';
+
+    const workshopVat =
+        pick(
+            inv,
+            'workshopVatNumber',
+            'workshop_vat_number',
+            'buyerVatNumber',
+            'buyer_vat_number',
+            'customerVat',
+            'customer_vat',
+            'branchVat',
+            'branch_vat',
+        ) ??
+        inv?.branch?.vatNumber ??
+        inv?.branch?.vat_number ??
+        inv?.workshop?.vatNumber ??
+        '';
+
+    const supplierVat =
+        pick(inv, 'supplierVatNumber', 'supplier_vat_number', 'vendorVat', 'sellerVatNumber') ??
+        inv?.supplier?.vatNumber ??
+        inv?.supplier?.vat_number ??
+        '';
+
+    const workshopMobile =
+        pick(
+            inv,
+            'workshopMobile',
+            'workshop_mobile',
+            'buyerMobile',
+            'branchPhone',
+            'branch_phone',
+        ) ??
+        inv?.branch?.phone ??
+        inv?.branch?.mobile ??
+        inv?.workshop?.mobile ??
+        inv?.workshop?.phone ??
+        '';
 
     const items = Array.isArray(inv.items) ? inv.items : Array.isArray(inv.lines) ? inv.lines : [];
 
@@ -163,21 +244,32 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
     const totalVat = (() => {
         const raw = Number.isFinite(totalVatFromApi) ? totalVatFromApi : 0;
         if (Math.abs(raw) > 1e-6) return raw;
-        if (
-            Number.isFinite(grand) &&
-            Number.isFinite(subtotalEx) &&
-            grand > subtotalEx + 1e-6
-        ) {
+        if (Number.isFinite(grand) && Number.isFinite(subtotalEx) && grand > subtotalEx + 1e-6) {
             return Math.round((grand - subtotalEx) * 100) / 100;
         }
         return raw;
     })();
 
+    const discountAmount = round2(
+        Number(
+            pick(
+                inv,
+                'discountTotal',
+                'discount_total',
+                'discountAmount',
+                'discount_amount',
+                'invoiceDiscountAmount',
+                'invoice_discount_amount',
+            ) ??
+                inv?.totals?.discount ??
+                inv?.totals?.discountTotal ??
+                0,
+        ),
+    );
+
     const paid = Number(pick(inv, 'amountPaid', 'amount_paid') ?? row.amount_paid ?? 0);
     const balance = Number(
-        pick(inv, 'balanceDue', 'balance_due') ??
-            row.balance_due ??
-            Math.max(0, grand - paid),
+        pick(inv, 'balanceDue', 'balance_due') ?? row.balance_due ?? Math.max(0, grand - paid),
     );
 
     const currency = pick(inv, 'currencyCode', 'currency') ?? 'SAR';
@@ -190,8 +282,11 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
         return `${window.location.origin}/verify/wpi/${encodeURIComponent(String(internalId))}`;
     }, [inv, row.id]);
 
-    const qrSrc = verifyUrl
-        ? `https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=1&data=${encodeURIComponent(verifyUrl)}`
+    const qrSrcLarge = verifyUrl
+        ? `https://api.qrserver.com/v1/create-qr-code/?size=132x132&margin=1&data=${encodeURIComponent(verifyUrl)}`
+        : '';
+    const qrSrcSmall = verifyUrl
+        ? `https://api.qrserver.com/v1/create-qr-code/?size=64x64&margin=0&data=${encodeURIComponent(verifyUrl)}`
         : '';
 
     const [qrBroken, setQrBroken] = useState(false);
@@ -199,26 +294,40 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
     const [pdfError, setPdfError] = useState('');
     const printRootRef = useRef(null);
 
+    const watermarkText =
+        supplierLabel.length <= 24 ? String(supplierLabel).replace(/\s+/g, ' ').toUpperCase() : 'FILTER';
+
+    const logoLetter = (supplierLabel || 'F').trim().charAt(0).toUpperCase() || 'F';
+
+    const invoiceDateDisplay = formatInvoiceDateTime(inv, row);
+
+    const paymentLabelRaw =
+        pick(inv, 'paymentStatus', 'payment_status') ?? row.payment_status ?? 'unpaid';
+
+    const paymentLabel =
+        paymentLabelRaw && String(paymentLabelRaw) !== '—'
+            ? String(paymentLabelRaw).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+            : '—';
+
     const handleDownloadPdf = useCallback(async () => {
         const el = printRootRef.current;
         if (!el) return;
         setPdfBusy(true);
         setPdfError('');
+        el.classList.add('wpi-view--pdf-capture');
         try {
             const [{ toPng }, { jsPDF }] = await Promise.all([
                 import('html-to-image'),
                 import('jspdf'),
             ]);
-            // html2canvas chokes on modern CSS (e.g. color(srgb …) from computed color-mix).
-            // html-to-image uses SVG foreignObject + native paint, then rasterizes to PNG.
             const imgData = await toPng(el, {
-                backgroundColor: '#fafaf9',
+                backgroundColor: '#eceff1',
                 pixelRatio: Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 2 : 2),
                 cacheBust: true,
                 filter: (node) => {
                     if (!(node instanceof HTMLElement)) return true;
+                    if (node.classList.contains('wpi-view__toolbar')) return false;
                     if (node.classList.contains('wpi-view__btn-download')) return false;
-                    if (node.tagName === 'IMG' && node.closest('.wpi-view__qr')) return false;
                     return true;
                 },
             });
@@ -231,7 +340,7 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
             const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
             const pageWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();
-            const margin = 36;
+            const margin = 28;
             const usableW = pageWidth - margin * 2;
             const usableH = pageHeight - margin * 2;
             const imgDisplayHeight = (dims.h * usableW) / dims.w;
@@ -257,216 +366,354 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
                 'Could not create PDF. Use your browser Print dialog on this page and choose Save as PDF.',
             );
         } finally {
+            el.classList.remove('wpi-view--pdf-capture');
             setPdfBusy(false);
         }
     }, [invoiceNo]);
 
     return (
         <div className="wpi-view" ref={printRootRef}>
-            <div className="wpi-view__watermark-layer" aria-hidden="true">
-                <span className="wpi-view__wm wpi-view__wm--primary">FILTER</span>
-                <span className="wpi-view__wm wpi-view__wm--ring" />
-            </div>
-            <div className="wpi-view__surface">
-                <header className="wpi-view__masthead">
-                    <div className="wpi-view__masthead-text">
-                        <p className="wpi-view__brand-logo" aria-label="Filter">
-                            FILTER
-                        </p>
-                        <h3 className="wpi-view__masthead-title">Workshop purchase invoice</h3>
-                        <p className="wpi-view__masthead-sub">Official workshop purchase document</p>
-                    </div>
-                    <div className="wpi-view__masthead-actions">
-                        <button
-                            type="button"
-                            className="wpi-view__btn-download"
-                            onClick={handleDownloadPdf}
-                            disabled={pdfBusy}
-                        >
-                            <Download size={16} strokeWidth={2.5} aria-hidden />
-                            {pdfBusy ? 'Preparing…' : 'Download PDF'}
-                        </button>
-                        {pdfError ? (
-                            <p className="wpi-view__pdf-error" role="alert">
-                                {pdfError}
-                            </p>
-                        ) : null}
-                        <span className={statusBadgeClass(status)}>
-                            {status && status !== '—' ? status.replace(/_/g, ' ') : '—'}
-                        </span>
-                    </div>
-                </header>
-
-                <div className="wpi-view__doc-hero">
-                    <p className="wpi-view__doc-label">Invoice no.</p>
-                    <p className="wpi-view__doc-no">{invoiceNo}</p>
-                    {description ? <p className="wpi-view__description">{description}</p> : null}
-                </div>
-
-                <div className="wpi-view__grid-2">
-                <div className="wpi-view__box">
-                    <h5>Issued by (workshop)</h5>
-                    <div className="wpi-view__kv">
-                        <div className="wpi-view__kv-row">
-                            <span>Branch / workshop</span>
-                            <span>{workshopLabel || '—'}</span>
-                        </div>
-                        {inv?.branch?.code || inv?.branchCode ? (
-                            <div className="wpi-view__kv-row">
-                                <span>Branch code</span>
-                                <span>{inv.branch?.code ?? inv.branchCode}</span>
-                            </div>
-                        ) : null}
-                    </div>
-                </div>
-                <div className="wpi-view__box">
-                    <h5>Bill to (supplier)</h5>
-                    <div className="wpi-view__kv">
-                        <div className="wpi-view__kv-row">
-                            <span>Supplier</span>
-                            <span>{supplierLabel || '—'}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="wpi-view__meta-row">
-                <div className="wpi-view__meta-cell">
-                    <label>Issue date</label>
-                    <p>{issueDate || '—'}</p>
-                </div>
-                <div className="wpi-view__meta-cell">
-                    <label>Due date</label>
-                    <p>{dueDate || '—'}</p>
-                </div>
-                <div className="wpi-view__meta-cell">
-                    <label>Vendor reference</label>
-                    <p>{vendorRef || '—'}</p>
-                </div>
-                <div className="wpi-view__meta-cell">
-                    <label>Payment</label>
-                    <p className="wpi-view__payment-value">
-                        {pick(inv, 'paymentStatus', 'payment_status') ?? row.payment_status ?? '—'}
+            <div className="wpi-view__toolbar">
+                <button
+                    type="button"
+                    className="wpi-view__btn-download"
+                    onClick={handleDownloadPdf}
+                    disabled={pdfBusy}
+                >
+                    <Download size={16} strokeWidth={2.5} aria-hidden />
+                    {pdfBusy ? 'Preparing…' : 'Download PDF'}
+                </button>
+                <span className={statusBadgeClass(status)}>{fmtStatusLabel(status)}</span>
+                {pdfError ? (
+                    <p className="wpi-view__pdf-error" role="alert">
+                        {pdfError}
                     </p>
-                </div>
-            </div>
-
-            <div className="wpi-view__table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Description</th>
-                            <th className="wpi-view__num">Qty</th>
-                            <th className="wpi-view__num">Unit</th>
-                            <th className="wpi-view__num">Unit (ex VAT)</th>
-                            <th className="wpi-view__num">VAT %</th>
-                            <th className="wpi-view__num">Line total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {items.length === 0 ? (
-                            <tr>
-                                <td colSpan={7} className="wpi-view__table-empty">
-                                    No line items
-                                </td>
-                            </tr>
-                        ) : (
-                            items.map((line, i) => {
-                                const vatPct = lineVatPct(line);
-                                return (
-                                    <tr
-                                        key={line.id ?? line.lineId ?? i}
-                                        className={i % 2 === 1 ? 'wpi-view__tr--stripe' : undefined}
-                                    >
-                                        <td>{i + 1}</td>
-                                        <td>{lineDesc(line)}</td>
-                                        <td className="wpi-view__num">{lineQty(line)}</td>
-                                        <td className="wpi-view__num">{lineUom(line)}</td>
-                                        <td className="wpi-view__num">{money(lineUnitExVat(line), currency)}</td>
-                                        <td className="wpi-view__num">
-                                            {vatPct != null ? `${vatPct.toFixed(0)}%` : '—'}
-                                        </td>
-                                        <td className="wpi-view__num">{money(lineLineTotal(line), currency)}</td>
-                                    </tr>
-                                );
-                            })
-                        )}
-                    </tbody>
-                </table>
-            </div>
-
-            <div className="wpi-view__totals">
-                <div className="wpi-view__totals-lines">
-                    <div className="wpi-view__kv-row">
-                        <span>Subtotal (ex VAT)</span>
-                        <span>{money(subtotalEx, currency)}</span>
-                    </div>
-                    <div className="wpi-view__kv-row">
-                        <span>VAT</span>
-                        <span>{money(totalVat, currency)}</span>
-                    </div>
-                    <div className="wpi-view__kv-row wpi-view__grand">
-                        <span>Grand total</span>
-                        <span>{money(grand, currency)}</span>
-                    </div>
-                    {(paid > 0 || balance > 0) && (
-                        <>
-                            <div className="wpi-view__kv-row wpi-view__kv-row--spaced">
-                                <span>Amount paid</span>
-                                <span>{money(paid, currency)}</span>
-                            </div>
-                            <div className="wpi-view__kv-row">
-                                <span>Balance due</span>
-                                <span>{money(balance, currency)}</span>
-                            </div>
-                        </>
-                    )}
-                </div>
-
-                <div className="wpi-view__qr">
-                    {verifyUrl && qrSrc && !qrBroken ? (
-                        <img
-                            src={qrSrc}
-                            width={140}
-                            height={140}
-                            alt="Open Filter invoice verification page"
-                            onError={() => setQrBroken(true)}
-                        />
-                    ) : verifyUrl && qrBroken ? (
-                        <div className="wpi-view__qr-fallback">
-                            QR image blocked — open the link manually below.
-                        </div>
-                    ) : (
-                        <div className="wpi-view__qr-fallback wpi-view__qr-fallback--muted">
-                            Invoice id missing — cannot build verify link.
-                        </div>
-                    )}
-                    <p className="wpi-view__qr-caption">
-                        Scan opens your browser on Filter&apos;s public verification page (live check against our
-                        database — not a static JSON blob).
-                    </p>
-                    {verifyUrl ? (
-                        <a className="wpi-view__verify-link" href={verifyUrl} target="_blank" rel="noopener noreferrer">
-                            {verifyUrl}
-                        </a>
-                    ) : null}
-                </div>
-            </div>
-
-                {notes ? (
-                    <div className="wpi-view__notes">
-                        <strong>Notes</strong>
-                        <div className="wpi-view__notes-body">{notes}</div>
-                    </div>
                 ) : null}
+            </div>
 
-                <footer className="wpi-view__footer">
-                    <p className="wpi-view__footer-line">Thank you for your business.</p>
-                    <p className="wpi-view__footer-meta">
-                        Scan the QR code to verify this document on Filter — authenticity is checked against our live
-                        records.
-                    </p>
+            <div className="wpi-view__sheet">
+                <div className="wpi-view__watermark-layer" aria-hidden="true">
+                    <span className="wpi-view__wm--primary">{watermarkText}</span>
+                </div>
+
+                <div className="wpi-view__surface">
+                    <header className="wpi-view__corp-header">
+                        <div className="wpi-view__corp-left">
+                            <h1 className="wpi-view__corp-name">{supplierLabel}</h1>
+                            <p className="wpi-view__corp-tagline">{supplierTagline}</p>
+                            <p className="wpi-view__corp-vat">VAT No. {supplierVat || '—'}</p>
+                            <p className="wpi-view__corp-vat-ar" dir="rtl">
+                                الرقم الضريبي: {supplierVat || '—'}
+                            </p>
+                        </div>
+
+                        <div className="wpi-view__corp-logo">
+                            <div className="wpi-view__corp-logo-ring" aria-hidden>
+                                <span className="wpi-view__corp-logo-letter">{logoLetter}</span>
+                            </div>
+                        </div>
+
+                        <div className="wpi-view__corp-right">
+                            <h2 className="wpi-view__corp-name-ar" dir="rtl">
+                                {supplierLabelAr}
+                            </h2>
+                            <p className="wpi-view__corp-tagline-ar" dir="rtl">
+                                {supplierTaglineAr}
+                            </p>
+                        </div>
+                    </header>
+
+                    <div className="wpi-view__brands">
+                        {['OEM parts', 'Lubricants', 'Filters', 'Fluids', 'Batteries', 'Workshop supply', 'Wholesale', 'Retail'].map(
+                            (label) => (
+                                <span key={label} className="wpi-view__brand-pill">
+                                    {label}
+                                </span>
+                            ),
+                        )}
+                    </div>
+
+                    <div className="wpi-view__title-ribbon">
+                        <span className="wpi-view__title-ribbon-ar" dir="rtl">
+                            فاتورة ضريبية
+                        </span>
+                        <span className="wpi-view__title-ribbon-en">Tax invoice</span>
+                    </div>
+
+                    <div className="wpi-view__meta-split">
+                        <div className="wpi-view__panel">
+                            <h3 className="wpi-view__panel-title">Customer · العميل</h3>
+                            <div className="wpi-view__field">
+                                <div className="wpi-view__field-label-bi">
+                                    <span className="wpi-view__field-label-bi-en">Customer name</span>
+                                    <span className="wpi-view__field-label-bi-ar" dir="rtl">
+                                        اسم العميل
+                                    </span>
+                                </div>
+                                <div className="wpi-view__field-value" dir="auto">
+                                    {workshopLabel || '—'}
+                                </div>
+                            </div>
+                            <div className="wpi-view__field">
+                                <div className="wpi-view__field-label-bi">
+                                    <span className="wpi-view__field-label-bi-en">Customer mobile</span>
+                                    <span className="wpi-view__field-label-bi-ar" dir="rtl">
+                                        جوال العميل
+                                    </span>
+                                </div>
+                                <div className="wpi-view__field-value">{workshopMobile || '—'}</div>
+                            </div>
+                            <div className="wpi-view__field">
+                                <div className="wpi-view__field-label-bi">
+                                    <span className="wpi-view__field-label-bi-en">Customer VAT no.</span>
+                                    <span className="wpi-view__field-label-bi-ar" dir="rtl">
+                                        الرقم الضريبي للعميل
+                                    </span>
+                                </div>
+                                <div className="wpi-view__field-value">{workshopVat || '—'}</div>
+                            </div>
+                        </div>
+
+                        <div className="wpi-view__panel">
+                            <h3 className="wpi-view__panel-title">Invoice details · تفاصيل الفاتورة</h3>
+                            <div className="wpi-view__field">
+                                <span className="wpi-view__field-label">Invoice no.</span>
+                                <div className="wpi-view__field-value" style={{ fontWeight: 800 }}>
+                                    {invoiceNo}
+                                </div>
+                            </div>
+                            <div className="wpi-view__field">
+                                <span className="wpi-view__field-label">Date &amp; time</span>
+                                <div className="wpi-view__field-value">{invoiceDateDisplay}</div>
+                            </div>
+                            <div className="wpi-view__field">
+                                <span className="wpi-view__field-label">Issue date</span>
+                                <div className="wpi-view__field-value">{issueDate || '—'}</div>
+                            </div>
+                            <div className="wpi-view__field">
+                                <span className="wpi-view__field-label">Due date</span>
+                                <div className="wpi-view__field-value">{dueDate || '—'}</div>
+                            </div>
+                            <div className="wpi-view__field">
+                                <span className="wpi-view__field-label">Vendor reference</span>
+                                <div className="wpi-view__field-value">{vendorRef || '—'}</div>
+                            </div>
+                            <div className="wpi-view__field">
+                                <span className="wpi-view__field-label">Payment</span>
+                                <div className="wpi-view__field-value">{paymentLabel}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {(description || notes) ? (
+                        <div className="wpi-view__memo-inline">
+                            {description ? (
+                                <span>
+                                    <strong>Subject:</strong> {description}{' '}
+                                </span>
+                            ) : null}
+                            {notes ? (
+                                <span>
+                                    {description ? (
+                                        <>
+                                            {' '}
+                                            <strong>Notes:</strong>{' '}
+                                        </>
+                                    ) : (
+                                        <strong>Notes:</strong>
+                                    )}
+                                    {notes}
+                                </span>
+                            ) : null}
+                        </div>
+                    ) : null}
+
+                    <div className="wpi-view__table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style={{ width: 36 }}>
+                                        S. No.
+                                        <span className="wpi-view__th-sub" dir="rtl">
+                                            م
+                                        </span>
+                                    </th>
+                                    <th>
+                                        Description
+                                        <span className="wpi-view__th-sub" dir="rtl">
+                                            البيان
+                                        </span>
+                                    </th>
+                                    <th className="wpi-view__th-num" style={{ minWidth: 88 }}>
+                                        Quantity
+                                        <span className="wpi-view__th-sub" dir="rtl">
+                                            الكمية
+                                        </span>
+                                    </th>
+                                    <th className="wpi-view__th-num">
+                                        Unit price
+                                        <span className="wpi-view__th-sub" dir="rtl">
+                                            سعر الوحدة
+                                        </span>
+                                    </th>
+                                    <th className="wpi-view__th-num">
+                                        Total
+                                        <span className="wpi-view__th-sub" dir="rtl">
+                                            الإجمالي
+                                        </span>
+                                    </th>
+                                    <th className="wpi-view__th-num">
+                                        VAT
+                                        <span className="wpi-view__th-sub" dir="rtl">
+                                            الضريبة
+                                        </span>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {items.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} className="wpi-view__table-empty">
+                                            No line items
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    items.map((line, i) => (
+                                        <tr key={line.id ?? line.lineId ?? i}>
+                                            <td>{i + 1}</td>
+                                            <td dir="auto">{lineDesc(line)}</td>
+                                            <td className="wpi-view__td-num">
+                                                {lineQty(line)} {lineUom(line)}
+                                            </td>
+                                            <td className="wpi-view__td-num">{money(lineUnitExVat(line), currency)}</td>
+                                            <td className="wpi-view__td-num">
+                                                {money(lineTotalExVatOnly(line), currency)}
+                                            </td>
+                                            <td className="wpi-view__td-num">{money(lineVatForDisplay(line), currency)}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="wpi-view__bottom-grid">
+                        <div className="wpi-view__policy">
+                            <strong>Returns · الإرجاع</strong>
+                            Return of products is allowed within <strong>7 days</strong> from the invoice date with the
+                            original invoice; products must be in good condition. Subject to supplier approval.
+                            <div className="wpi-view__policy-ar" dir="rtl">
+                                يُسمح بإرجاع المنتجات خلال <strong>7 أيام</strong> من تاريخ الفاتورة مع الفاتورة
+                                الأصلية، ويشترط أن تكون البضاعة بحالة سليمة — وفق سياسة المورد المعتمد.
+                            </div>
+                        </div>
+
+                        <div className="wpi-view__qr-block wpi-view__qr-visual">
+                            {verifyUrl && qrSrcLarge && !qrBroken ? (
+                                <>
+                                    <img
+                                        src={qrSrcLarge}
+                                        width={120}
+                                        height={120}
+                                        alt="Verification QR"
+                                        onError={() => setQrBroken(true)}
+                                    />
+                                    <p className="wpi-view__qr-caption">
+                                        Scan to verify on Filter
+                                        <br />
+                                        <span dir="rtl">امسح للتحقق</span>
+                                    </p>
+                                </>
+                            ) : verifyUrl && qrBroken ? (
+                                <div className="wpi-view__qr-fallback">QR unavailable — open link below</div>
+                            ) : (
+                                <div className="wpi-view__qr-fallback">No verify id</div>
+                            )}
+                            {verifyUrl ? (
+                                <a className="wpi-view__verify-link" href={verifyUrl} target="_blank" rel="noopener noreferrer">
+                                    {verifyUrl}
+                                </a>
+                            ) : null}
+                        </div>
+
+                        <div className="wpi-view__sum-box">
+                            <div className="wpi-view__sum-row">
+                                <span className="wpi-view__sum-row-label">
+                                    Total <span dir="rtl">(الإجمالي)</span>
+                                </span>
+                                <span className="wpi-view__sum-row-val">{money(subtotalEx, currency)}</span>
+                            </div>
+                            <div className="wpi-view__sum-row">
+                                <span className="wpi-view__sum-row-label">
+                                    Discount <span dir="rtl">(الخصم)</span>
+                                </span>
+                                <span className="wpi-view__sum-row-val">{money(discountAmount, currency)}</span>
+                            </div>
+                            <div className="wpi-view__sum-row">
+                                <span className="wpi-view__sum-row-label">
+                                    VAT <span dir="rtl">(الضريبة)</span>
+                                </span>
+                                <span className="wpi-view__sum-row-val">{money(totalVat, currency)}</span>
+                            </div>
+                            <div className="wpi-view__sum-row wpi-view__sum-row--net">
+                                <span className="wpi-view__sum-row-label">
+                                    Net total <span dir="rtl">(الصافي)</span>
+                                </span>
+                                <span className="wpi-view__sum-row-val">{money(grand, currency)}</span>
+                            </div>
+                            <div className="wpi-view__sum-words">ريال سعودي لا غير · Saudi riyals only</div>
+                        </div>
+                    </div>
+
+                    {(paid > 0 || balance > 0) && (
+                        <div className="wpi-view__panel" style={{ marginBottom: 12 }}>
+                            <div className="wpi-view__sum-row" style={{ border: 'none', padding: '4px 0' }}>
+                                <span className="wpi-view__sum-row-label">Amount paid</span>
+                                <span className="wpi-view__sum-row-val">{money(paid, currency)}</span>
+                            </div>
+                            <div className="wpi-view__sum-row" style={{ border: 'none', padding: '4px 0' }}>
+                                <span className="wpi-view__sum-row-label">Balance due</span>
+                                <span className="wpi-view__sum-row-val">{money(balance, currency)}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="wpi-view__signatures">
+                        <div className="wpi-view__sig">
+                            <div className="wpi-view__sig-line">Salesman: _________________________________</div>
+                            <div className="wpi-view__sig-ar" dir="rtl">
+                                اسم مندوب المبيعات
+                            </div>
+                        </div>
+                        <div className="wpi-view__sig">
+                            <div className="wpi-view__sig-line">Received by: _________________________________</div>
+                            <div className="wpi-view__sig-ar" dir="rtl">
+                                المستلم
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <footer className="wpi-view__corp-footer">
+                    <div className="wpi-view__corp-footer-inner">
+                        <div className="wpi-view__corp-footer-contact">
+                            <strong>Filter — workshop purchase invoice</strong>
+                            <br />
+                            Digital document issued through Filter supplier portal · verify via QR above.
+                            <br />
+                            Support: hello@filter.app · الإصدار الإلكتروني عبر منصّة فِلتر
+                        </div>
+                        <div className="wpi-view__corp-footer-contact-ar">
+                            هذا المستند صادر إلكترونيًا وفق عملية التوريد بين الورشة والمورد.
+                            <br />
+                            لمزيد من المعلومات يُرجى التواصل عبر بوابة فِلتر.
+                        </div>
+                        {verifyUrl && qrSrcSmall && !qrBroken ? (
+                            <div className="wpi-view__corp-footer-qr-small">
+                                <img src={qrSrcSmall} width={56} height={56} alt="" />
+                            </div>
+                        ) : null}
+                    </div>
                 </footer>
             </div>
         </div>
