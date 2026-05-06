@@ -4,7 +4,13 @@ import { Search, Plus, Users, Building, Pencil, FileText, Loader } from 'lucide-
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import '../../styles/admin/CustomersPage.css';
-import { getCustomerDetails, getCustomers } from '../../services/superAdminApi';
+import {
+    createCorporateCustomerDirect,
+    getBranches,
+    getCustomerDetails,
+    getCustomers,
+    getWorkshopOptions,
+} from '../../services/superAdminApi';
 
 const SUB_TABS = [
     { path: 'all-customers', label: 'All Customers' },
@@ -50,11 +56,80 @@ export default function CustomersPage() {
             .catch(() => {})
             .finally(() => setLoading(false));
     }, [typeFilter]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const normalizeWorkshop = (w) => ({
+            id: String(w?.id ?? w?.value ?? ''),
+            name: w?.name ?? w?.label ?? `Workshop ${w?.id ?? ''}`,
+            status: String(w?.status ?? '').toLowerCase(),
+        });
+        const normalizeBranch = (b, workshopId = '') => ({
+            id: String(b?.id ?? b?._id ?? ''),
+            name: String(b?.name ?? 'Unnamed branch'),
+            workshopId: String(b?.mainWorkshopId ?? b?.workshopId ?? workshopId ?? ''),
+            workshopName: b?.mainWorkshopName ?? b?.workshopName ?? '',
+        });
+        const loadBranchOptions = async () => {
+            try {
+                const workshopsRes = await getWorkshopOptions();
+                const workshopRows = Array.isArray(workshopsRes)
+                    ? workshopsRes
+                    : (workshopsRes?.options ?? workshopsRes?.workshops ?? workshopsRes?.data ?? []);
+                const approvedWorkshops = workshopRows
+                    .map(normalizeWorkshop)
+                    .filter((w) => w.id && (w.status === 'approved' || w.status === 'active' || !w.status));
+                if (cancelled) return;
+                setWorkshops(approvedWorkshops);
+                const branchLists = await Promise.all(
+                    approvedWorkshops.map((w) =>
+                        getBranches({ workshopId: w.id })
+                            .then((res) => {
+                                const rows = Array.isArray(res) ? res : (res?.branches ?? res?.data ?? []);
+                                return rows.map((b) => normalizeBranch(b, w.id));
+                            })
+                            .catch(() => []),
+                    ),
+                );
+                if (cancelled) return;
+                const dedup = new Map();
+                branchLists.flat().forEach((b) => {
+                    if (!b.id) return;
+                    if (!dedup.has(b.id)) dedup.set(b.id, b);
+                });
+                setAllBranches(Array.from(dedup.values()));
+            } catch {
+                if (!cancelled) {
+                    setWorkshops([]);
+                    setAllBranches([]);
+                }
+            }
+        };
+        loadBranchOptions();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
     const [createOpen, setCreateOpen] = useState(false);
     const [editOpen, setEditOpen] = useState(false);
     const [editingCustomer, setEditingCustomer] = useState(null);
     const [saving, setSaving] = useState(false);
     const [billingTab, setBillingTab] = useState('All');
+    const [workshops, setWorkshops] = useState([]);
+    const [allBranches, setAllBranches] = useState([]);
+    const [newCustomer, setNewCustomer] = useState({
+        customerName: '',
+        type: 'Corporate',
+        mobile: '',
+        email: '',
+        vatNumber: '',
+        status: 'Active',
+        contactPerson: '',
+        companyName: '',
+        password: '',
+        referralId: '',
+        selectedStoreIds: [],
+    });
 
     const corporateCount = customers.filter((c) => c.customerType === 'corporate').length;
     const walkInCount = customers.filter((c) => c.customerType === 'regular').length;
@@ -107,9 +182,79 @@ export default function CustomersPage() {
             setDetailsLoading(false);
         }
     };
-    const handleSaveNew = () => {
-        setCustomers((prev) => [...prev, { id: Date.now(), name: '', type: 'Walk-in', mobile: '', email: '', vat: '-', balance: 'SAR 0.00', status: 'Active' }]);
-        setCreateOpen(false);
+    const handleSaveNew = async () => {
+        const type = String(newCustomer.type || 'Walk-in').toLowerCase();
+        if (type !== 'corporate') {
+            alert('Direct API create is currently enabled for Corporate only.');
+            return;
+        }
+        const companyName = String(newCustomer.companyName || newCustomer.customerName || '').trim();
+        const contactPerson = String(newCustomer.contactPerson || '').trim();
+        const email = String(newCustomer.email || '').trim();
+        const password = String(newCustomer.password || '').trim();
+        const mobile = String(newCustomer.mobile || '').trim();
+        if (!companyName || !contactPerson || !email || !password || !mobile) {
+            alert('Company name, contact person, email, password, and mobile are required for corporate registration.');
+            return;
+        }
+        if (!Array.isArray(newCustomer.selectedStoreIds) || newCustomer.selectedStoreIds.length === 0) {
+            alert('Select at least one branch.');
+            return;
+        }
+        setSaving(true);
+        try {
+            const payload = {
+                companyName,
+                vatNumber: String(newCustomer.vatNumber || '').trim() || undefined,
+                contactPerson,
+                email,
+                password,
+                selectedStoreIds: newCustomer.selectedStoreIds.map((id) => String(id)),
+                referralId: String(newCustomer.referralId || '').trim() || undefined,
+                mobile,
+                autoApprove: true,
+            };
+            await createCorporateCustomerDirect(payload);
+            const d = await getCustomers({ customerType: typeFilter === 'all' ? undefined : typeFilter });
+            const rows = (Array.isArray(d) ? d : (d?.customers ?? [])).map((c) => ({
+                id: String(c.id ?? c._id ?? ''),
+                workshopId: c.workshopId != null ? String(c.workshopId) : '',
+                workshopName: c.workshopName ?? '—',
+                name: c.name ?? c.companyName ?? '—',
+                mobile: c.mobile ?? '—',
+                whatsapp: c.whatsapp ?? '—',
+                taxId: c.taxId ?? '-',
+                customerType: c.customerType === 'corporate' ? 'corporate' : 'regular',
+                isActive: c.isActive !== false,
+                vehiclesCount: Number(c.vehiclesCount ?? 0),
+                salesOrdersCount: Number(c.salesOrdersCount ?? 0),
+                orderStats: {
+                    totalOrders: Number(c.orderStats?.totalOrders ?? 0),
+                    completedOrders: Number(c.orderStats?.completedOrders ?? 0),
+                    draftOrders: Number(c.orderStats?.draftOrders ?? 0),
+                },
+                corporateAccount: c.corporateAccount ?? null,
+            }));
+            setCustomers(rows);
+            setCreateOpen(false);
+            setNewCustomer({
+                customerName: '',
+                type: 'Corporate',
+                mobile: '',
+                email: '',
+                vatNumber: '',
+                status: 'Active',
+                contactPerson: '',
+                companyName: '',
+                password: '',
+                referralId: '',
+                selectedStoreIds: [],
+            });
+        } catch (e) {
+            alert(e?.message || 'Failed to create corporate account');
+        } finally {
+            setSaving(false);
+        }
     };
     const handleSaveEdit = () => {
         if (!editingCustomer) return;
@@ -319,36 +464,163 @@ export default function CustomersPage() {
                         footer={
                             <>
                                 <button type="button" className="btn-secondary" onClick={() => setCreateOpen(false)}>Cancel</button>
-                                <button type="button" className="btn-submit" onClick={handleSaveNew}>Create Customer</button>
+                                <button type="button" className="btn-submit" onClick={handleSaveNew} disabled={saving}>
+                                    {saving ? <><Loader size={14} className="spin" /> Creating…</> : 'Create Customer'}
+                                </button>
                             </>
                         }
                     >
                         <div className="form-group">
                             <label className="form-label">Customer Name</label>
-                            <input type="text" className="form-input-field" placeholder="Full name or company" />
+                            <input
+                                type="text"
+                                className="form-input-field"
+                                placeholder="Full name or company"
+                                value={newCustomer.customerName}
+                                onChange={(e) => setNewCustomer((p) => ({ ...p, customerName: e.target.value }))}
+                            />
                         </div>
                         <div className="form-group">
                             <label className="form-label">Type</label>
-                            <select className="form-input-field"><option value="Walk-in">Walk-in</option><option value="Corporate">Corporate</option></select>
+                            <select
+                                className="form-input-field"
+                                value={newCustomer.type}
+                                onChange={(e) => setNewCustomer((p) => ({ ...p, type: e.target.value }))}
+                            >
+                                <option value="Corporate">Corporate</option>
+                            </select>
                         </div>
                         <div className="form-grid">
                             <div className="form-group">
                                 <label className="form-label">Mobile</label>
-                                <input type="text" className="form-input-field" placeholder="+966..." />
+                                <input
+                                    type="text"
+                                    className="form-input-field"
+                                    placeholder="+966..."
+                                    value={newCustomer.mobile}
+                                    onChange={(e) => setNewCustomer((p) => ({ ...p, mobile: e.target.value }))}
+                                />
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Email</label>
-                                <input type="email" className="form-input-field" placeholder="email@example.com" />
+                                <input
+                                    type="email"
+                                    className="form-input-field"
+                                    placeholder="email@example.com"
+                                    value={newCustomer.email}
+                                    onChange={(e) => setNewCustomer((p) => ({ ...p, email: e.target.value }))}
+                                />
                             </div>
                         </div>
                         <div className="form-group">
                             <label className="form-label">VAT Number</label>
-                            <input type="text" className="form-input-field" placeholder="Optional for Walk-in" />
+                            <input
+                                type="text"
+                                className="form-input-field"
+                                placeholder="Optional for Walk-in"
+                                value={newCustomer.vatNumber}
+                                onChange={(e) => setNewCustomer((p) => ({ ...p, vatNumber: e.target.value }))}
+                            />
                         </div>
                         <div className="form-group">
                             <label className="form-label">Status</label>
-                            <select className="form-input-field"><option value="Active">Active</option><option value="Inactive">Inactive</option></select>
+                            <select
+                                className="form-input-field"
+                                value={newCustomer.status}
+                                onChange={(e) => setNewCustomer((p) => ({ ...p, status: e.target.value }))}
+                            >
+                                <option value="Active">Active</option>
+                                <option value="Inactive">Inactive</option>
+                            </select>
                         </div>
+                        {String(newCustomer.type).toLowerCase() === 'corporate' && (
+                            <>
+                                <div className="form-grid">
+                                    <div className="form-group">
+                                        <label className="form-label">Company Name *</label>
+                                        <input
+                                            type="text"
+                                            className="form-input-field"
+                                            placeholder="Filter Corp"
+                                            value={newCustomer.companyName}
+                                            onChange={(e) => setNewCustomer((p) => ({ ...p, companyName: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Contact Person *</label>
+                                        <input
+                                            type="text"
+                                            className="form-input-field"
+                                            placeholder="John Doe"
+                                            value={newCustomer.contactPerson}
+                                            onChange={(e) => setNewCustomer((p) => ({ ...p, contactPerson: e.target.value }))}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="form-grid">
+                                    <div className="form-group">
+                                        <label className="form-label">Password *</label>
+                                        <input
+                                            type="password"
+                                            className="form-input-field"
+                                            placeholder="Password"
+                                            value={newCustomer.password}
+                                            onChange={(e) => setNewCustomer((p) => ({ ...p, password: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Referral ID</label>
+                                        <input
+                                            type="text"
+                                            className="form-input-field"
+                                            placeholder="Optional"
+                                            value={newCustomer.referralId}
+                                            onChange={(e) => setNewCustomer((p) => ({ ...p, referralId: e.target.value }))}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Select Branches *</label>
+                                    <div className="customer-branch-picker">
+                                        {workshops.length === 0 ? (
+                                            <div className="cell-sub-text">No workshops available.</div>
+                                        ) : (
+                                            workshops.map((w) => {
+                                                const branchRows = allBranches.filter((b) => String(b.workshopId) === String(w.id));
+                                                if (branchRows.length === 0) return null;
+                                                return (
+                                                    <div key={w.id} className="customer-branch-workshop">
+                                                        <div className="customer-branch-workshop-title">{w.name}</div>
+                                                        <div className="customer-branch-list">
+                                                            {branchRows.map((b) => {
+                                                                const checked = newCustomer.selectedStoreIds.includes(String(b.id));
+                                                                return (
+                                                                    <label key={b.id} className="customer-branch-option">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={checked}
+                                                                            onChange={(e) =>
+                                                                                setNewCustomer((prev) => ({
+                                                                                    ...prev,
+                                                                                    selectedStoreIds: e.target.checked
+                                                                                        ? [...prev.selectedStoreIds, String(b.id)]
+                                                                                        : prev.selectedStoreIds.filter((id) => String(id) !== String(b.id)),
+                                                                                }))
+                                                                            }
+                                                                        />
+                                                                        <span>{b.name}</span>
+                                                                    </label>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </Modal>
                 )}
 

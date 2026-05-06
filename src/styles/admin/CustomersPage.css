@@ -277,3 +277,42 @@
     color: var(--color-text-muted);
     font-size: 0.9375rem;
 }
+
+.customer-branch-picker {
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    padding: 10px;
+    max-height: 220px;
+    overflow: auto;
+    background: #FFF;
+}
+
+.customer-branch-workshop {
+    padding: 8px 0;
+    border-bottom: 1px solid #F3F4F6;
+}
+
+.customer-branch-workshop:last-child {
+    border-bottom: none;
+}
+
+.customer-branch-workshop-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #4B5563;
+    margin-bottom: 6px;
+}
+
+.customer-branch-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+}
+
+.customer-branch-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+    color: #111827;
+}

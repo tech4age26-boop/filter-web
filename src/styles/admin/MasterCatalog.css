@@ -1146,9 +1146,9 @@
     transition: all 0.2s;
 }
 
-.mc-service-card:nth-child(n+5) .mc-toggle-switch { background: #10B981; }
-.mc-service-card:nth-child(n+5) .mc-toggle-switch::after { left: 18px; }
-.mc-service-card:nth-child(n+5) .mc-toggle-label span { color: #10B981; }
+.mc-sc-toggle-group .mc-toggle-switch.active { background: #10B981; }
+.mc-sc-toggle-group .mc-toggle-switch.active::after { left: 18px; }
+.mc-toggle-label span.mc-toggle-state--on { color: #10B981; }
 
 .mc-sc-edit-icon { color: #9CA3AF; cursor: pointer; }
 

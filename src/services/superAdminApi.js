@@ -387,6 +387,10 @@ export const getCustomers = ({ workshopId, customerType } = {}) =>
 export const getCustomerDetails = (id) =>
     apiFetch(`/super-admin/customers/${encodeURIComponent(String(id))}/details`);
 
+/** Direct corporate registration by super-admin (immediate active; no approval queue). */
+export const createCorporateCustomerDirect = (body) =>
+    apiFetch('/super-admin/corporate/register', { method: 'POST', body: JSON.stringify(body) });
+
 // ─── Departments ──────────────────────────────────────────────────────────────
 
 export const getDepartments = () =>
