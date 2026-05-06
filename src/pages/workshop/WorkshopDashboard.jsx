@@ -117,6 +117,7 @@ export default function WorkshopDashboard({
     const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
     const [technicians, setTechnicians] = useState([]);
     const [techLoadError, setTechLoadError] = useState('');
+    const [showAllTechnicians, setShowAllTechnicians] = useState(false);
 
     const loadDashboard = useCallback(async () => {
         setIsLoading(true);
@@ -260,6 +261,21 @@ export default function WorkshopDashboard({
 
     const todaySales = useMemo(() => toNumber(dashboardData?.totalSalesToday), [dashboardData]);
     const pendingInvoices = useMemo(() => toNumber(dashboardData?.pendingInvoicesCount), [dashboardData]);
+    const purchaseCostToday = useMemo(
+        () =>
+            toNumber(
+                dashboardData?.purchaseCostToday
+                ?? dashboardData?.todayPurchaseCost
+                ?? dashboardData?.totalPurchaseCostToday
+                ?? dashboardData?.costOfGoodsSoldToday,
+            ),
+        [dashboardData],
+    );
+    const grossMarginProfit = useMemo(() => {
+        const explicit = Number(dashboardData?.grossMarginProfit ?? dashboardData?.grossProfitToday);
+        if (Number.isFinite(explicit)) return explicit;
+        return todaySales - purchaseCostToday;
+    }, [dashboardData, todaySales, purchaseCostToday]);
     // KPI low-stock list: staff union (`allBranches`) or per-branch `branchId` + branch-path products.
     // BE `getDashboard` now runs the same rule for `lowStockAlertsCount` (other
     // consumers, mobile, etc.); the FE keeps the number derived from the list
@@ -287,8 +303,25 @@ export default function WorkshopDashboard({
         }
         return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
     }, [techniciansFiltered]);
+    const technicianRows = useMemo(() => {
+        const rows = [];
+        for (const [branchLabel, list] of techniciansByBranch) {
+            for (const t of list) rows.push({ ...t, branchLabel });
+        }
+        return rows;
+    }, [techniciansByBranch]);
+    const techniciansVisible = useMemo(
+        () => (showAllTechnicians ? technicianRows : technicianRows.slice(0, 2)),
+        [showAllTechnicians, technicianRows],
+    );
+    const hasMoreTechnicians = technicianRows.length > 2;
+
+    useEffect(() => {
+        setShowAllTechnicians(false);
+    }, [selectedBranchId, technicians.length]);
     const kpis = [
         { label: 'Total Sales Today', value: `SAR ${todaySales.toLocaleString()}`, iconClass: 'ws-kpi-icon--green', Icon: DollarSign },
+        { label: 'Gross Margin Profit', value: `SAR ${grossMarginProfit.toLocaleString()}`, sub: 'Sales - Purchase Cost', iconClass: 'ws-kpi-icon--blue', Icon: TrendingUp },
         { label: 'Pending Invoices', value: pendingInvoices, iconClass: 'ws-kpi-icon--orange', Icon: ShoppingCart },
         { label: 'Low Stock Alerts', value: lowStockAlertsCount, sub: dataScopeLabel, iconClass: 'ws-kpi-icon--red', Icon: AlertTriangle },
         { label: 'Pending Approvals', value: pendingApprovalsCount, iconClass: 'ws-kpi-icon--purple', Icon: ClipboardCheck },
@@ -346,50 +379,55 @@ export default function WorkshopDashboard({
                     <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No technicians for this selection.</p>
                 ) : (
                     <div style={{ padding: '0 16px 16px' }}>
-                        {techniciansByBranch.map(([branchLabel, list]) => (
-                            <div key={branchLabel} style={{ marginBottom: 14 }}>
-                                <p style={{ margin: '0 0 8px', fontSize: '0.75rem', fontWeight: 800, color: 'var(--color-text-muted)', letterSpacing: '0.06em' }}>{branchLabel}</p>
-                                {list.map((t) => (
+                        {techniciansVisible.map((t) => (
+                            <div
+                                key={`${t.branchLabel}-${t.id}`}
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '8px 0',
+                                    borderBottom: '1px solid var(--color-border-light)',
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                     <div
-                                        key={`${branchLabel}-${t.id}`}
                                         style={{
+                                            width: 28,
+                                            height: 28,
+                                            borderRadius: '50%',
+                                            background: 'var(--color-bg-muted)',
                                             display: 'flex',
-                                            justifyContent: 'space-between',
                                             alignItems: 'center',
-                                            padding: '8px 0',
-                                            borderBottom: '1px solid var(--color-border-light)',
+                                            justifyContent: 'center',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
                                         }}
                                     >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                            <div
-                                                style={{
-                                                    width: 28,
-                                                    height: 28,
-                                                    borderRadius: '50%',
-                                                    background: 'var(--color-bg-muted)',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    fontSize: '0.75rem',
-                                                    fontWeight: 700,
-                                                }}
-                                            >
-                                                {t.name?.[0] || 'T'}
-                                            </div>
-                                            <div>
-                                                <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{t.name}</p>
-                                                <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                                                    {(t.workshop_duty ? 'Workshop' : '') + (t.oncall_available ? ' + On-Call' : '') || '—'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <span className={`ws-badge ${t.status === 'active' ? 'ws-badge--green' : 'ws-badge--gray'}`}>
-                                            {t.status === 'active' ? 'Active' : 'Inactive'}
-                                        </span>
+                                        {t.name?.[0] || 'T'}
                                     </div>
-                                ))}
+                                    <div>
+                                        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{t.name}</p>
+                                        <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                            {t.branchLabel} · {((t.workshop_duty ? 'Workshop' : '') + (t.oncall_available ? ' + On-Call' : '') || '—')}
+                                        </p>
+                                    </div>
+                                </div>
+                                <span className={`ws-badge ${t.status === 'active' ? 'ws-badge--green' : 'ws-badge--gray'}`}>
+                                    {t.status === 'active' ? 'Active' : 'Inactive'}
+                                </span>
                             </div>
                         ))}
+                        {hasMoreTechnicians && (
+                            <button
+                                type="button"
+                                className="btn-portal"
+                                style={{ marginTop: 10, padding: '6px 12px', fontSize: '0.75rem' }}
+                                onClick={() => setShowAllTechnicians((v) => !v)}
+                            >
+                                {showAllTechnicians ? 'View less' : `View more (${technicianRows.length - 2})`}
+                            </button>
+                        )}
                     </div>
                 )}
             </div>

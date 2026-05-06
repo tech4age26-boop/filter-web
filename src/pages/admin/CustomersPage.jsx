@@ -11,6 +11,7 @@ import {
     getCustomers,
     getWorkshopOptions,
 } from '../../services/superAdminApi';
+import { marketingListReferrers } from '../../services/superAdminMarketingApi';
 
 const CORPORATE_BRANCH_CACHE_KEY = 'filter_corporate_branch_options_cache_v1';
 
@@ -145,6 +146,7 @@ export default function CustomersPage() {
         referralId: '',
         selectedStoreIds: [],
     });
+    const [referrerOptions, setReferrerOptions] = useState([]);
 
     const corporateCount = customers.filter((c) => c.customerType === 'corporate').length;
     const walkInCount = customers.filter((c) => c.customerType === 'regular').length;
@@ -178,6 +180,42 @@ export default function CustomersPage() {
         () => corporateRows.filter((c) => String(c.corporateAccount?.status ?? '').toLowerCase() === 'overdue').length,
         [corporateRows],
     );
+
+    useEffect(() => {
+        let cancelled = false;
+        const normalizeReferrer = (r) => {
+            const id = String(r?.id ?? r?.referrerId ?? r?.userId ?? '').trim();
+            const username = String(
+                r?.username
+                ?? r?.userName
+                ?? r?.name
+                ?? r?.fullName
+                ?? r?.displayName
+                ?? r?.email
+                ?? id,
+            ).trim();
+            return { id, username };
+        };
+        marketingListReferrers({ status: 'active' })
+            .then((res) => {
+                const rows = Array.isArray(res)
+                    ? res
+                    : (res?.referrers ?? res?.data ?? res?.items ?? []);
+                if (cancelled) return;
+                const dedup = new Map();
+                rows.map(normalizeReferrer).forEach((r) => {
+                    if (!r.id) return;
+                    if (!dedup.has(r.id)) dedup.set(r.id, r);
+                });
+                setReferrerOptions(Array.from(dedup.values()));
+            })
+            .catch(() => {
+                if (!cancelled) setReferrerOptions([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const openEdit = (c) => {
         setEditingCustomer({ ...c });
@@ -584,14 +622,19 @@ export default function CustomersPage() {
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Referral ID</label>
-                                        <input
-                                            type="text"
+                                        <label className="form-label">Referral Username</label>
+                                        <select
                                             className="form-input-field"
-                                            placeholder="Optional"
                                             value={newCustomer.referralId}
                                             onChange={(e) => setNewCustomer((p) => ({ ...p, referralId: e.target.value }))}
-                                        />
+                                        >
+                                            <option value="">Optional (No referral)</option>
+                                            {referrerOptions.map((r) => (
+                                                <option key={r.id} value={r.id}>
+                                                    {r.username}
+                                                </option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
                                 <div className="form-group">

@@ -16,6 +16,10 @@ import {
     removeBranchCategory,
     removeBranchProduct,
     removeBranchService,
+    removeWorkshopProduct,
+    removeWorkshopProductsBulk,
+    removeWorkshopService,
+    removeWorkshopServicesBulk,
     getCatalogDepartments,
     getCatalogCategories,
     getCatalogUnitsOfMeasure,
@@ -112,6 +116,16 @@ function normalizeUomOption(row) {
     return { value, label };
 }
 
+/** After workshop-wide bulk remove — partial failures still return success: true + failed[]. */
+function summarizeBulkRemoveResult(result) {
+    if (!result || typeof result !== 'object') return;
+    const failed = Array.isArray(result.failed) ? result.failed : [];
+    if (failed.length === 0) return;
+    const removed = Array.isArray(result.removedIds) ? result.removedIds.length : 0;
+    const lines = failed.slice(0, 10).map((f) => `• ${String(f?.id ?? '—')}: ${f?.reason ?? 'Failed'}`);
+    window.alert(`Removed ${removed} item(s). ${failed.length} could not be removed:\n${lines.join('\n')}${failed.length > 10 ? `\n… and ${failed.length - 10} more` : ''}`);
+}
+
 export default function WorkshopDepartments({ selectedBranchId = 'all', branches: branchesProp = [] }) {
     const { workshop } = useAuth();
     const isAllBranches = !selectedBranchId || selectedBranchId === 'all';
@@ -144,6 +158,9 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     const [showCategoryForm, setShowCategoryForm] = useState(false);
     const [isSavingCategory, setIsSavingCategory] = useState(false);
     const [categoryForm, setCategoryForm] = useState({ name: '', type: 'product', departmentId: '' });
+    const [selectedProductIds, setSelectedProductIds] = useState([]);
+    const [selectedServiceIds, setSelectedServiceIds] = useState([]);
+    const [isBulkRemoving, setIsBulkRemoving] = useState(false);
 
     /** True only for "Request Product" new-item flow (not edit / not service). */
     const [isProductRequestFlow, setIsProductRequestFlow] = useState(false);
@@ -660,6 +677,48 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
 
     const productItems = filteredProds.filter((row) => row.type !== 'service');
     const serviceItems = filteredProds.filter((row) => row.type === 'service');
+    const allProductRowsSelected = productItems.length > 0 && productItems.every((p) => selectedProductIds.includes(String(p.sourceId)));
+    const allServiceRowsSelected = serviceItems.length > 0 && serviceItems.every((s) => selectedServiceIds.includes(String(s.sourceId)));
+
+    useEffect(() => {
+        const valid = new Set(productItems.map((p) => String(p.sourceId)));
+        setSelectedProductIds((prev) => prev.filter((id) => valid.has(String(id))));
+    }, [productItems]);
+
+    useEffect(() => {
+        const valid = new Set(serviceItems.map((s) => String(s.sourceId)));
+        setSelectedServiceIds((prev) => prev.filter((id) => valid.has(String(id))));
+    }, [serviceItems]);
+
+    const toggleProductSelection = (sourceId) => {
+        const id = String(sourceId);
+        setSelectedProductIds((prev) => (
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+        ));
+    };
+
+    const toggleServiceSelection = (sourceId) => {
+        const id = String(sourceId);
+        setSelectedServiceIds((prev) => (
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+        ));
+    };
+
+    const toggleAllProductsOnPage = () => {
+        if (allProductRowsSelected) {
+            setSelectedProductIds([]);
+            return;
+        }
+        setSelectedProductIds(productItems.map((p) => String(p.sourceId)));
+    };
+
+    const toggleAllServicesOnPage = () => {
+        if (allServiceRowsSelected) {
+            setSelectedServiceIds([]);
+            return;
+        }
+        setSelectedServiceIds(serviceItems.map((s) => String(s.sourceId)));
+    };
     const openEditProd = (p) => {
         setEditingProd(p);
         setIsProductRequestFlow(false);
@@ -843,18 +902,63 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     };
 
     const removeProductFromBranch = async (sourceId, isService) => {
-        if (!branchScope || !sourceId) return;
+        if (!sourceId) return;
         const noun = isService ? 'service' : 'product';
-        if (!window.confirm(`Remove this ${noun} from ${selectedBranchName || 'this branch'}?`)) return;
+        const scopeLabel = branchScope
+            ? `${selectedBranchName || 'this branch'} only`
+            : 'all branches in this workshop';
+        if (!window.confirm(`Remove this ${noun} from ${scopeLabel}?`)) return;
+        setProductsError('');
         try {
-            if (isService) {
-                await removeBranchService(branchScope, sourceId);
+            if (branchScope) {
+                if (isService) await removeBranchService(branchScope, sourceId);
+                else await removeBranchProduct(branchScope, sourceId);
+            } else if (isService) {
+                const res = await removeWorkshopService(sourceId);
+                summarizeBulkRemoveResult(res);
             } else {
-                await removeBranchProduct(branchScope, sourceId);
+                const res = await removeWorkshopProduct(sourceId);
+                summarizeBulkRemoveResult(res);
             }
             await loadProducts();
         } catch (error) {
-            setProductsError(error.message || `Failed to remove ${noun} from this branch.`);
+            setProductsError(error.message || `Failed to remove ${noun}.`);
+        }
+    };
+
+    const removeSelectedFromBranch = async (isService) => {
+        const ids = isService ? selectedServiceIds : selectedProductIds;
+        if (!ids.length) return;
+        const noun = isService ? 'service' : 'product';
+        const scopeText = branchScope ? `${selectedBranchName || 'this branch'} only` : 'all branches in this workshop';
+        if (!window.confirm(`Remove ${ids.length} ${noun}${ids.length === 1 ? '' : 's'} from ${scopeText}?`)) return;
+        setIsBulkRemoving(true);
+        setProductsError('');
+        try {
+            if (branchScope) {
+                if (isService) {
+                    await Promise.all(ids.map((id) => removeBranchService(branchScope, id)));
+                    setSelectedServiceIds([]);
+                } else {
+                    await Promise.all(ids.map((id) => removeBranchProduct(branchScope, id)));
+                    setSelectedProductIds([]);
+                }
+            } else if (isService) {
+                const res = await removeWorkshopServicesBulk(ids.map(String));
+                summarizeBulkRemoveResult(res);
+                const removed = new Set((res?.removedIds || []).map(String));
+                setSelectedServiceIds((prev) => prev.filter((id) => !removed.has(String(id))));
+            } else {
+                const res = await removeWorkshopProductsBulk(ids.map(String));
+                summarizeBulkRemoveResult(res);
+                const removed = new Set((res?.removedIds || []).map(String));
+                setSelectedProductIds((prev) => prev.filter((id) => !removed.has(String(id))));
+            }
+            await loadProducts();
+        } catch (error) {
+            setProductsError(error.message || `Failed to bulk remove ${noun}s.`);
+        } finally {
+            setIsBulkRemoving(false);
         }
     };
 
@@ -995,6 +1099,14 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 <button className="btn-portal" onClick={loadProducts} disabled={isProductsLoading}>
                                     <RefreshCw size={14}/> {isProductsLoading ? 'Refreshing...' : 'Refresh'}
                                 </button>
+                                <button
+                                    className="btn-portal"
+                                    onClick={() => removeSelectedFromBranch(false)}
+                                    disabled={isBulkRemoving || selectedProductIds.length === 0}
+                                    style={{ background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA' }}
+                                >
+                                    Remove Selected ({selectedProductIds.length})
+                                </button>
                                 <button className="btn-portal" onClick={() => openAddProd('product')}><Plus size={14}/> Request Product</button>
                             </div>
                         </div>
@@ -1004,6 +1116,14 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                             <table className="ws-table">
                                 <thead>
                                     <tr>
+                                        <th style={{ width: 44 }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={allProductRowsSelected}
+                                                onChange={toggleAllProductsOnPage}
+                                                aria-label="Select all products on page"
+                                            />
+                                        </th>
                                         <th>Name</th>
                                         <th>SKU</th>
                                         <th>Unit</th>
@@ -1023,11 +1143,19 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                     </tr>
                                 </thead>
                                 <tbody>{productItems.length === 0 ? (
-                                    <tr><td colSpan={branchScope ? 10 : 9} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading products...' : 'No products found'}</td></tr>
+                                    <tr><td colSpan={branchScope ? 11 : 10} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading products...' : 'No products found'}</td></tr>
                                 ) : productItems.map(p => {
                                     const isCritical = p.critical_level && p.stock_qty <= p.critical_level;
                                     return (
                                         <tr key={p.id} style={{background: isCritical ? '#FEF2F2' : undefined}}>
+                                            <td>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedProductIds.includes(String(p.sourceId))}
+                                                    onChange={() => toggleProductSelection(p.sourceId)}
+                                                    aria-label={`Select product ${p.name}`}
+                                                />
+                                            </td>
                                             <td><strong>{p.name}</strong></td>
                                             <td style={{fontFamily:'monospace',fontSize:'0.8rem',color:'var(--color-text-muted)'}}>{p.sku || '—'}</td>
                                             <td style={{textTransform:'capitalize'}}>{p.unit}</td>
@@ -1043,7 +1171,16 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                             )}
                                             <td style={{color:'var(--color-text-muted)'}}>{p.critical_level ?? '—'}</td>
                                             <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(p)}</td>
-                                            <td><span className={`ws-badge ${isCritical?'ws-badge--red':'ws-badge--green'}`}>{isCritical ? '⚠ Critical' : 'OK'}</span></td>
+                                            <td>
+                                                <span className={`ws-badge ${isCritical?'ws-badge--red':'ws-badge--green'}`}>{isCritical ? '⚠ Critical' : 'OK'}</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeProductFromBranch(p.sourceId, false)}
+                                                    style={{ marginLeft: 8, padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                >
+                                                    {branchScope ? 'Remove' : 'Remove from workshop'}
+                                                </button>
+                                            </td>
                                         </tr>
                                     );
                                 })}</tbody>
@@ -1072,24 +1209,56 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 <button className="btn-portal" onClick={loadProducts} disabled={isProductsLoading}>
                                     <RefreshCw size={14}/> {isProductsLoading ? 'Refreshing...' : 'Refresh'}
                                 </button>
+                                <button
+                                    className="btn-portal"
+                                    onClick={() => removeSelectedFromBranch(true)}
+                                    disabled={isBulkRemoving || selectedServiceIds.length === 0}
+                                    style={{ background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA' }}
+                                >
+                                    Remove Selected ({selectedServiceIds.length})
+                                </button>
                             </div>
                         </div>
                     </div>
                     <div className="ws-section">
                         <div style={{overflowX:'auto'}}>
                             <table className="ws-table">
-                                <thead><tr><th>Name</th><th>Department</th><th>Sale Price</th><th>Branches</th><th>Status</th></tr></thead>
+                                <thead><tr><th style={{ width: 44 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={allServiceRowsSelected}
+                                        onChange={toggleAllServicesOnPage}
+                                        aria-label="Select all services on page"
+                                    />
+                                </th><th>Name</th><th>Department</th><th>Sale Price</th><th>Branches</th><th>Status</th></tr></thead>
                                 <tbody>{serviceItems.length === 0 ? (
-                                    <tr><td colSpan={5} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading services...' : 'No services found'}</td></tr>
+                                    <tr><td colSpan={6} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading services...' : 'No services found'}</td></tr>
                                 ) : serviceItems.map(s => {
                                     const isActive = s.isActive !== false;
                                     return (
                                         <tr key={s.id}>
+                                            <td>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedServiceIds.includes(String(s.sourceId))}
+                                                    onChange={() => toggleServiceSelection(s.sourceId)}
+                                                    aria-label={`Select service ${s.name}`}
+                                                />
+                                            </td>
                                             <td><strong>{s.name}</strong></td>
                                             <td style={{color:'var(--color-text-muted)'}}>{s.dept || '—'}</td>
                                             <td>SAR {(s.sale_price||0).toFixed(2)}</td>
                                             <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(s)}</td>
-                                            <td><span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? 'active' : 'inactive'}</span></td>
+                                            <td>
+                                                <span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? 'active' : 'inactive'}</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeProductFromBranch(s.sourceId, true)}
+                                                    style={{ marginLeft: 8, padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                >
+                                                    {branchScope ? 'Remove' : 'Remove from workshop'}
+                                                </button>
+                                            </td>
                                         </tr>
                                     );
                                 })}</tbody>
