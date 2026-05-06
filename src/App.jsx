@@ -23,6 +23,7 @@ import MarketingPortalPage from './pages/admin/MarketingPortalPage';
 import WorkshopManagementPage from './pages/admin/WorkshopManagementPage';
 import ReportingPage from './pages/admin/ReportingPage';
 import PortalLoginPage from './pages/PortalLoginPage';
+import PortalSignupPage from './pages/PortalSignupPage';
 import PortalHubPage from './pages/PortalHubPage';
 // SalesReports and SalesOrders moved to SalesPage.jsx
 
@@ -67,6 +68,7 @@ function App() {
             <Route path="/verify/wpi/:id" element={<PublicWpiVerifyPage />} />
             <Route path="/admin/login" element={<SignInPage />} />
             <Route path="/:portalId/login" element={<PortalLoginPage />} />
+            <Route path="/:portalId/signup" element={<PortalSignupPage />} />
             <Route 
               path="/admin" 
               element={

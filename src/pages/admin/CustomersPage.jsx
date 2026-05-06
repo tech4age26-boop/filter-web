@@ -12,6 +12,8 @@ import {
     getWorkshopOptions,
 } from '../../services/superAdminApi';
 
+const CORPORATE_BRANCH_CACHE_KEY = 'filter_corporate_branch_options_cache_v1';
+
 const SUB_TABS = [
     { path: 'all-customers', label: 'All Customers' },
     { path: 'corporate-billing', label: 'Corporate Billing' },
@@ -97,7 +99,20 @@ export default function CustomersPage() {
                     if (!b.id) return;
                     if (!dedup.has(b.id)) dedup.set(b.id, b);
                 });
-                setAllBranches(Array.from(dedup.values()));
+                const branchRows = Array.from(dedup.values());
+                setAllBranches(branchRows);
+                try {
+                    localStorage.setItem(
+                        CORPORATE_BRANCH_CACHE_KEY,
+                        JSON.stringify({
+                            workshops: approvedWorkshops,
+                            branches: branchRows,
+                            savedAt: Date.now(),
+                        }),
+                    );
+                } catch {
+                    /* ignore */
+                }
             } catch {
                 if (!cancelled) {
                     setWorkshops([]);
