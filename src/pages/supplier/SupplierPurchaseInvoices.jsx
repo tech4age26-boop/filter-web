@@ -8,9 +8,9 @@ import {
     createSupplierSuperSupplierPurchase,
     downloadSupplierPayablePdf,
     getSupplierPayable,
+    getSupplierInventoryStockBalances,
     getSupplierSuperSupplierPurchase,
     listSupplierPayables,
-    listSupplierProducts,
     listSupplierSuperSuppliers,
     createSupplierSuperSupplier,
     listSupplierSuperSupplierAudit,
@@ -59,6 +59,33 @@ function mapPayableToRow(p) {
 
 function nextLineId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Rows from `/supplier/inventory/stock-balances` only — purchase picker must not mix full catalog / services. */
+function mapStockBalanceToPurchasePickerRow(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const pid =
+        raw.productId != null && raw.productId !== ''
+            ? String(raw.productId)
+            : raw.supplierProductId != null && raw.supplierProductId !== ''
+              ? String(raw.supplierProductId)
+              : '';
+    if (!pid) return null;
+    const qtyWh = Number(raw.currentBalanceWarehouse || 0);
+    const unitCost = qtyWh > 0 ? Number(raw.valueWarehouseSar || 0) / qtyWh : 0;
+    const price = Number.isFinite(unitCost) ? Math.max(0, unitCost) : 0;
+    return {
+        id: pid,
+        sku: String(raw.sku ?? raw.barcode ?? '').trim(),
+        name: raw.productName || 'Product',
+        price,
+        unit: raw.workshopUnit || raw.unitCode || raw.unit || 'pcs',
+        type: 'Stock',
+        stockHint:
+            qtyWh > 0
+                ? `Warehouse stock: ${qtyWh}`
+                : 'No warehouse qty — edit unit price if needed',
+    };
 }
 
 const SEARCH_QUICK_PICK_PI = 12;
@@ -314,17 +341,12 @@ export default function SupplierPurchaseInvoices() {
         if (!modalOpen) return undefined;
         let cancelled = false;
         setCatalogLoading(true);
-        listSupplierProducts({ limit: 300 })
+        getSupplierInventoryStockBalances({ limit: 500, offset: 0 })
             .then((res) => {
-                const raw = extractArray(res, ['products', 'items', 'list']);
-                const mapped = raw.map((p) => ({
-                    id: p.id ?? p.supplierProductId ?? String(Math.random()),
-                    sku: String(p.sku ?? p.barcode ?? '').trim(),
-                    name: p.name ?? p.productName ?? 'Item',
-                    price: Number(p.price ?? p.unitPrice ?? p.sellingPrice ?? 0),
-                    unit: p.unit ?? p.uom ?? 'pcs',
-                    type: String(p.type ?? '').toLowerCase().includes('service') ? 'Service' : 'Stock',
-                }));
+                const raw = Array.isArray(res?.items) ? res.items : [];
+                const mapped = raw
+                    .map((row) => mapStockBalanceToPurchasePickerRow(row))
+                    .filter(Boolean);
                 if (!cancelled) setCatalogItems(mapped);
             })
             .catch(() => {
@@ -1402,7 +1424,11 @@ export default function SupplierPurchaseInvoices() {
                             </div>
 
                             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '0 0 8px 0' }}>
-                                {catalogLoading ? 'Loading catalog…' : catalogForSearch.length ? 'Search products from your catalog to add lines.' : 'Add catalog products in Product Catalog, or type search will be empty.'}
+                                {catalogLoading
+                                    ? 'Loading warehouse stock…'
+                                    : catalogForSearch.length
+                                      ? 'Search products that exist in Stock Inventory (warehouse) to add lines.'
+                                      : 'No stock rows returned. Open Stock Inventory — only listed SKUs appear here.'}
                             </p>
 
                             <div className="pi-lines-section">
@@ -1503,7 +1529,7 @@ export default function SupplierPurchaseInvoices() {
                                             <Search size={16} />
                                             <input
                                                 type="text"
-                                                placeholder="Search catalog (name or SKU) to add"
+                                                placeholder="Search stock inventory (name or SKU)"
                                                 value={searchQuery}
                                                 onChange={(e) => applySearchQueryPi(e.target.value)}
                                                 onKeyDown={handleKeyDown}
@@ -1515,7 +1541,7 @@ export default function SupplierPurchaseInvoices() {
                                                 {searchResults.length > 0 ? (
                                                     searchResults.map((item, index) => (
                                                         <div
-                                                            key={`${item.id}-${item.name}`}
+                                                            key={String(item.id)}
                                                             className={`pi-result-item ${selectedIndex === index ? 'selected' : ''}`}
                                                             onClick={() => addItemToLines(item)}
                                                             onMouseEnter={() => setSelectedIndex(index)}
@@ -1524,10 +1550,15 @@ export default function SupplierPurchaseInvoices() {
                                                             <div className="pi-result-info">
                                                                 <div className="pi-item-name">{item.name}</div>
                                                                 <div className="pi-item-meta">
-                                                                    <span className="pi-item-type">{item.type}</span>
+                                                                    <span className="pi-item-type">Product</span>
                                                                     <span>• {item.unit}</span>
                                                                     {item.sku ? (
                                                                         <span style={{ marginLeft: 6 }}>SKU {item.sku}</span>
+                                                                    ) : null}
+                                                                    {item.stockHint ? (
+                                                                        <span style={{ marginLeft: 6, color: '#64748b' }}>
+                                                                            · {item.stockHint}
+                                                                        </span>
                                                                     ) : null}
                                                                 </div>
                                                             </div>
@@ -1540,8 +1571,8 @@ export default function SupplierPurchaseInvoices() {
                                                 ) : (
                                                     <div style={{ padding: 14, fontSize: 13, color: '#64748b' }}>
                                                         {catalogForSearch.length === 0
-                                                            ? 'No catalog products loaded. Open Product Catalog tab and add stock items first.'
-                                                            : 'No matching products.'}
+                                                            ? 'No stock inventory items loaded. Check Stock Inventory — this list matches warehouse stock only.'
+                                                            : 'No matching stock items.'}
                                                     </div>
                                                 )}
                                             </div>
@@ -1556,7 +1587,7 @@ export default function SupplierPurchaseInvoices() {
                                     </button>
                                 </div>
                                 <div className="pi-hint">
-                                    <Zap size={14} /> Tip: Type to search catalog, use ↑↓ arrows, Enter to select. Price fields support math (e.g. 12*5)
+                                    <Zap size={14} /> Tip: Type to search stock inventory, use ↑↓ arrows, Enter to select. Price fields support math (e.g. 12*5)
                                 </div>
                             </div>
 
