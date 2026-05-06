@@ -1,7 +1,8 @@
-// export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+
+export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 
 
-export const BASE_URL = 'http://10.144.167.15:3000';
+// export const BASE_URL = 'http://10.144.167.15:3000';
 
 const API_LOADING_EVENT = 'filter-api-loading';
 let activeApiRequests = 0;
