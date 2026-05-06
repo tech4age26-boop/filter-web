@@ -91,14 +91,23 @@ function normalizeStockCatalogRow(item) {
             : qtyWh <= 0
               ? 'No warehouse qty — edit unit price manually'
               : '';
+    /** Used for picker key / display only — not POSTed as `productId` (server validates IDs against PO/workshop links and returns "Invalid reference… poId"). */
+    const catalogId =
+        item.productId != null && item.productId !== ''
+            ? item.productId
+            : item.supplierProductId != null && item.supplierProductId !== ''
+              ? item.supplierProductId
+              : undefined;
     return {
-        id: item.productId,
+        id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
         name: item.productName || 'Product',
+        sku: String(item.sku ?? item.barcode ?? '').trim(),
         price,
         unit: item.workshopUnit || item.unitCode || item.unit || 'pcs',
         lastPrice: Number(item.lastWarehouseSalePrice || item.lastSalePrice || price || 0) || price,
         itemType: 'Product',
         stockHint,
+        catalogProductResolved: catalogId != null && catalogId !== '',
     };
 }
 
@@ -251,7 +260,7 @@ export default function SupplierSalesInvoices() {
         const lastSale = Number(item.lastPrice ?? item.price ?? 0) || unitPrice;
         const newLine = {
             id: nextLineId(),
-            productId: item.id != null && item.id !== '' ? String(item.id) : undefined,
+            sku: item.sku || '',
             item: item.name,
             account: '4100 - Sales Revenue',
             description: '',
@@ -276,7 +285,7 @@ export default function SupplierSalesInvoices() {
     const addEmptyLine = () => {
         const newLine = {
             id: nextLineId(),
-            productId: undefined,
+            sku: '',
             item: '',
             account: '4100 - Sales Revenue',
             description: '',
@@ -453,7 +462,8 @@ export default function SupplierSalesInvoices() {
             qty: Number(line.qty) || 0,
             unitPrice: Number(line.price) || 0,
             vatRate: Number(TAXES.find((t) => t.code === line.taxCode)?.percent || 0),
-            productId: line.productId ? String(line.productId) : undefined,
+            unit: String(line.uom || 'pcs').trim() || 'pcs',
+            sku: String(line.sku || '').trim(),
         }));
         const invalidLine = normalizedLines.find(
             (line) => !line.productName || !(line.qty > 0) || line.unitPrice < 0,
@@ -468,11 +478,12 @@ export default function SupplierSalesInvoices() {
         const due =
             calculatedDueDate === '—' ? issueDate : calculatedDueDate;
         const itemsPayload = normalizedLines.map((line) => ({
-            ...(line.productId ? { productId: line.productId } : {}),
             productName: line.productName,
             qty: line.qty,
             unitPrice: line.unitPrice,
             vatRate: line.vatRate,
+            unit: line.unit,
+            ...(line.sku ? { sku: line.sku } : {}),
         }));
         try {
             if (invoiceModalMode === 'edit' && editingInvoiceId) {
@@ -533,7 +544,7 @@ export default function SupplierSalesInvoices() {
             setLineItems(
                 (inv.items || []).map((it) => ({
                     id: nextLineId(),
-                    productId: it.productId != null ? String(it.productId) : undefined,
+                    sku: String(it.sku ?? '').trim(),
                     item: it.productName,
                     account: '4100 - Sales Revenue',
                     description: '',
@@ -640,11 +651,16 @@ export default function SupplierSalesInvoices() {
                     setInventoryItems(mergeInventoryLists(stockItems, INVENTORY_ITEMS));
                     if (custBranches.length) {
                         setBranches(
-                            custBranches.map((b) => ({
-                                id: b.id,
-                                name: b.name,
-                                label: b.label || `${b.workshopName || ''} — ${b.name || ''}`.trim(),
-                            })),
+                            custBranches.map((b) => {
+                                const bid = b.branchId ?? b.branch_id ?? b.id;
+                                return {
+                                    id: bid != null && bid !== '' ? String(bid) : '',
+                                    name: b.name,
+                                    label:
+                                        b.label ||
+                                        `${b.workshopName || ''} — ${b.name || ''}`.trim(),
+                                };
+                            }),
                         );
                     } else {
                         setBranches([]);
@@ -966,7 +982,6 @@ export default function SupplierSalesInvoices() {
                                     </button>
                                 </div>
                                 <div className="pi-footer-right">
-                                    <button className="btn-pi-draft">Save as Draft</button>
                                     <button
                                         className="btn-pi-create"
                                         onClick={handleSaveInvoice}
