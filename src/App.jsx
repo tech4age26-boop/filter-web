@@ -57,6 +57,8 @@ import ReferrerSettings from './pages/referrer-portal/ReferrerSettings';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicWpiVerifyPage from './pages/PublicWpiVerifyPage';
+import PublicSinvVerifyPage from './pages/PublicSinvVerifyPage';
+import PublicSspVerifyPage from './pages/PublicSspVerifyPage';
 
 function App() {
   return (
@@ -66,6 +68,8 @@ function App() {
           <Routes>
             <Route path="/" element={<PortalHubPage />} />
             <Route path="/verify/wpi/:id" element={<PublicWpiVerifyPage />} />
+            <Route path="/verify/sinv/:id" element={<PublicSinvVerifyPage />} />
+            <Route path="/verify/ssp/:id" element={<PublicSspVerifyPage />} />
             <Route path="/admin/login" element={<SignInPage />} />
             <Route path="/:portalId/login" element={<PortalLoginPage />} />
             <Route path="/:portalId/signup" element={<PortalSignupPage />} />

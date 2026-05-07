@@ -11,6 +11,7 @@ import {
     listSupplierProducts,
 } from '../../services/supplierApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
+import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 
 function unwrapProducts(res) {
     if (!res || typeof res !== 'object') return [];
@@ -24,6 +25,7 @@ function newLineRow() {
         uid: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         productName: '',
         sku: '',
+        supplierProductId: undefined,
         qty: '1',
         unit: 'pcs',
         unitPrice: '',
@@ -165,6 +167,10 @@ export default function SupplierSuperSupplierPurchasesPanel({
                           uid: `${it.id}-${Math.random().toString(36).slice(2)}`,
                           productName: it.productName || '',
                           sku: it.sku || '',
+                          supplierProductId:
+                              it.supplierProductId != null && String(it.supplierProductId) !== ''
+                                  ? String(it.supplierProductId)
+                                  : undefined,
                           qty: String(it.qty ?? 1),
                           unit: it.unit || 'pcs',
                           unitPrice: String(it.unitPrice ?? ''),
@@ -217,6 +223,10 @@ export default function SupplierSuperSupplierPurchasesPanel({
             .map((l) => ({
                 productName: (l.productName || '').trim(),
                 sku: (l.sku || '').trim() || undefined,
+                ...(l.supplierProductId != null &&
+                String(l.supplierProductId).trim() !== ''
+                    ? { supplierProductId: String(l.supplierProductId).trim() }
+                    : {}),
                 qty: parseNum(l.qty) || 0,
                 unit: (l.unit || 'pcs').trim() || 'pcs',
                 unitPrice: parseNum(l.unitPrice),
@@ -268,6 +278,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                               uid: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
                               productName: p.name,
                               sku: p.sku || '',
+                              supplierProductId: p.id,
                               qty: '1',
                               unit: p.unit || 'pcs',
                               unitPrice: String(p.price ?? ''),
@@ -284,8 +295,6 @@ export default function SupplierSuperSupplierPurchasesPanel({
         if (x === 'draft') return 'ws-badge--yellow';
         return 'ws-badge--green';
     };
-
-    const itemsDetail = Array.isArray(viewDetail?.items) ? viewDetail.items : [];
 
     return (
         <div className="ws-section" style={{ marginTop: 24, overflow: 'hidden' }}>
@@ -348,6 +357,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                             <th>Issue date</th>
                             <th>Product</th>
                             <th>Qty / Unit</th>
+                            <th>Unit price</th>
                             <th>Lines</th>
                             <th>Total</th>
                             <th>Status</th>
@@ -357,13 +367,13 @@ export default function SupplierSuperSupplierPurchasesPanel({
                     <tbody>
                         {loading && rows.length === 0 ? (
                             <tr>
-                                <td colSpan={10} style={{ padding: 16, verticalAlign: 'top' }}>
-                                    <ShimmerTable rows={8} columns={10} />
+                                <td colSpan={11} style={{ padding: 16, verticalAlign: 'top' }}>
+                                    <ShimmerTable rows={8} columns={11} />
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={10} style={{ textAlign: 'center', padding: 36, color: 'var(--color-text-muted)' }}>
+                                <td colSpan={11} style={{ textAlign: 'center', padding: 36, color: 'var(--color-text-muted)' }}>
                                     No purchases yet — use{' '}
                                     <strong>&quot;Record purchase&quot;</strong> beside a vendor.
                                 </td>
@@ -412,6 +422,28 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                         {r.primaryQty != null && r.primaryQty !== ''
                                             ? `${r.primaryQty} ${r.primaryUnit || ''}`
                                             : '—'}
+                                    </td>
+                                    <td
+                                        style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}
+                                        title="Unit price for the first line (per quantity / per piece)"
+                                    >
+                                        {r.primaryUnitPrice != null && Number.isFinite(Number(r.primaryUnitPrice)) ? (
+                                            <>
+                                                SAR{' '}
+                                                {Number(r.primaryUnitPrice).toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}
+                                                {r.primaryUnit ? (
+                                                    <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                                                        {' '}
+                                                        / {r.primaryUnit}
+                                                    </span>
+                                                ) : null}
+                                            </>
+                                        ) : (
+                                            '—'
+                                        )}
                                     </td>
                                     <td style={{ fontSize: '0.8125rem' }}>{r.itemCount ?? 0}</td>
                                     <td>
@@ -465,110 +497,21 @@ export default function SupplierSuperSupplierPurchasesPanel({
             <AnimatePresence>
                 {viewRow && (
                     <Modal
-                        title={`Invoice ${viewRow.invoiceNo ?? `SSP-${viewRow.id}`}`}
-                        width="760px"
+                        title="Super supplier purchase invoice"
+                        width="min(980px, 99vw)"
                         onClose={() => {
                             setViewRow(null);
                             setViewDetail(null);
                         }}
-                        footer={
-                            <button type="button" className="btn-portal-outline" onClick={() => setViewRow(null)}>
-                                Close
-                            </button>
-                        }
                     >
                         {viewLoading ? (
-                            <ShimmerTextBlock lines={6} />
+                            <ShimmerTextBlock lines={8} />
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Vendor</span>
-                                    <strong>{viewDetail?.superSupplierName ?? viewRow.superSupplierName}</strong>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Vendor ref #</span>
-                                    <span>{viewDetail?.vendorRef || viewDetail?.referenceNo || '—'}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Issue date</span>
-                                    <span>{viewDetail?.purchaseDate ?? viewRow.purchaseDate}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Description</span>
-                                    <span style={{ textAlign: 'right', maxWidth: '70%' }}>{viewDetail?.description || '—'}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Notes</span>
-                                    <span style={{ textAlign: 'right', maxWidth: '70%', whiteSpace: 'pre-wrap' }}>
-                                        {viewDetail?.notes || '—'}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Subtotal (lines)</span>
-                                    <span>
-                                        SAR{' '}
-                                        {(viewDetail?.subtotalLines ?? viewDetail?.amount ?? 0).toLocaleString(undefined, {
-                                            minimumFractionDigits: 2,
-                                        })}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>VAT</span>
-                                    <span>
-                                        SAR{' '}
-                                        {(viewDetail?.vatAmount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Grand total</span>
-                                    <strong>
-                                        SAR{' '}
-                                        {(viewDetail?.total ?? viewRow.total ?? 0).toLocaleString(undefined, {
-                                            minimumFractionDigits: 2,
-                                        })}
-                                    </strong>
-                                </div>
-                                <p style={{ fontSize: '0.75rem', fontWeight: 700, margin: '8px 0 4px' }}>Lines</p>
-                                <table className="ws-table" style={{ fontSize: '0.8125rem' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>#</th>
-                                            <th>Product name</th>
-                                            <th>SKU</th>
-                                            <th>Qty</th>
-                                            <th>Unit</th>
-                                            <th>Unit price</th>
-                                            <th>Line total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {itemsDetail.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={7} style={{ padding: 16 }}>
-                                                    No line breakdown (legacy total only).
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            itemsDetail.map((it, i) => (
-                                                <tr key={String(it.id || i)}>
-                                                    <td>{i + 1}</td>
-                                                    <td>{it.productName}</td>
-                                                    <td>{it.sku || '—'}</td>
-                                                    <td>{Number(it.qty ?? 0).toLocaleString()}</td>
-                                                    <td>{it.unit ?? 'pcs'}</td>
-                                                    <td>SAR {(it.unitPrice ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                                                    <td>
-                                                        <strong>
-                                                            SAR{' '}
-                                                            {(it.lineTotal ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                                        </strong>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
+                            <WorkshopPurchaseInvoiceView
+                                variant="super_supplier"
+                                detail={viewDetail}
+                                listRow={viewRow}
+                            />
                         )}
                     </Modal>
                 )}

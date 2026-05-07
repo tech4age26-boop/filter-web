@@ -444,6 +444,7 @@ export default function SupplierPurchaseInvoices() {
                 id: nextLineId(),
                 item: '',
                 sku: '',
+                supplierProductId: undefined,
                 account: '1410 - Inventory Asset',
                 description: '',
                 uom: 'pcs',
@@ -459,10 +460,13 @@ export default function SupplierPurchaseInvoices() {
 
     const addItemToLines = (item) => {
         const unitPrice = Number(item.price) || 0;
+        const catalogId =
+            item?.id != null && String(item.id).trim() !== '' ? String(item.id).trim() : undefined;
         const newLine = {
             id: nextLineId(),
             sku: item.sku || '',
             item: item.name,
+            supplierProductId: catalogId,
             account: item.type === 'Stock' ? '1410 - Inventory Asset' : '5100 - Cost of Goods Sold',
             description: '',
             uom: item.unit,
@@ -565,6 +569,10 @@ export default function SupplierPurchaseInvoices() {
             idx,
             productName: String(line.item || '').trim(),
             sku: String(line.sku || '').trim() || undefined,
+            supplierProductId:
+                line.supplierProductId != null && String(line.supplierProductId).trim() !== ''
+                    ? String(line.supplierProductId).trim()
+                    : undefined,
             qty: parseFloat(line.qty) || 0,
             unit: String(line.uom || 'pcs').trim() || 'pcs',
             unitPrice: parseFloat(line.price) || 0,
@@ -588,6 +596,7 @@ export default function SupplierPurchaseInvoices() {
 
         const items = normalizedLines.map((l) => ({
             ...(l.sku ? { sku: l.sku } : {}),
+            ...(l.supplierProductId ? { supplierProductId: l.supplierProductId } : {}),
             productName: l.productName,
             qty: l.qty,
             unit: l.unit,
