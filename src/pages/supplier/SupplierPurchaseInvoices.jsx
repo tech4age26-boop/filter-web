@@ -1,18 +1,20 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Calendar, ShoppingCart, Search, Zap, Eye, Download, Building2, History } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import SupplierSuperSupplierPurchasesPanel from './SupplierSuperSupplierPurchasesPanel';
 import '../../styles/admin/AccountingPage.css';
 import {
-    createSupplierPayable,
+    createSupplierSuperSupplierPurchase,
     downloadSupplierPayablePdf,
     getSupplierPayable,
+    getSupplierInventoryStockBalances,
+    getSupplierSuperSupplierPurchase,
     listSupplierPayables,
-    listSupplierProducts,
     listSupplierSuperSuppliers,
     createSupplierSuperSupplier,
     listSupplierSuperSupplierAudit,
+    listSupplierSuperSupplierPurchases,
 } from '../../services/supplierApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
@@ -55,6 +57,44 @@ function mapPayableToRow(p) {
     };
 }
 
+function nextLineId() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Rows from `/supplier/inventory/stock-balances` only — purchase picker must not mix full catalog / services. */
+function mapStockBalanceToPurchasePickerRow(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const pid =
+        raw.productId != null && raw.productId !== ''
+            ? String(raw.productId)
+            : raw.supplierProductId != null && raw.supplierProductId !== ''
+              ? String(raw.supplierProductId)
+              : '';
+    if (!pid) return null;
+    const qtyWh = Number(raw.currentBalanceWarehouse || 0);
+    const unitCost = qtyWh > 0 ? Number(raw.valueWarehouseSar || 0) / qtyWh : 0;
+    const price = Number.isFinite(unitCost) ? Math.max(0, unitCost) : 0;
+    return {
+        id: pid,
+        sku: String(raw.sku ?? raw.barcode ?? '').trim(),
+        name: raw.productName || 'Product',
+        price,
+        unit: raw.workshopUnit || raw.unitCode || raw.unit || 'pcs',
+        type: 'Stock',
+        stockHint:
+            qtyWh > 0
+                ? `Warehouse stock: ${qtyWh}`
+                : 'No warehouse qty — edit unit price if needed',
+    };
+}
+
+const SEARCH_QUICK_PICK_PI = 12;
+const SEARCH_MAX_RESULTS_PI = 40;
+/** Max purchases to load line detail for in super-supplier history modal (avoids huge parallel GET bursts). */
+const SSP_HISTORY_DETAIL_CAP = 50;
+
+/** @typedef {'payables'|'super_suppliers'|'ssp_invoices'} ApTabId */
+
 function statusBadgeClass(status) {
     const s = (status || '').toLowerCase();
     if (s.includes('paid') || s.includes('approved') || s.includes('closed')) return 'status-completed';
@@ -76,14 +116,23 @@ export default function SupplierPurchaseInvoices() {
     const [netDays, setNetDays] = useState(30);
     const [customDueDate, setCustomDueDate] = useState('');
     const [refNo, setRefNo] = useState('');
-    const [vendor, setVendor] = useState('');
+    /** Selected super-supplier ID (upstream vendor); required for purchase invoice. */
+    const [superSupplierId, setSuperSupplierId] = useState('');
     const [description, setDescription] = useState('');
+    const [internalNotes, setInternalNotes] = useState('');
 
     const [lineItems, setLineItems] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [showDropdown, setShowDropdown] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
+    const piSearchWrapRef = useRef(null);
+
+    const [sspPanelKey, setSspPanelKey] = useState(0);
+    /** @type {[ApTabId, React.Dispatch<React.SetStateAction<ApTabId>>]} */
+    const [apTab, setApTab] = useState(
+        /** @type {ApTabId} */ ('payables'),
+    );
 
     const [catalogItems, setCatalogItems] = useState([]);
     const [catalogLoading, setCatalogLoading] = useState(false);
@@ -115,6 +164,13 @@ export default function SupplierPurchaseInvoices() {
     const [auditSsFilter, setAuditSsFilter] = useState('');
     const [auditItems, setAuditItems] = useState([]);
     const [auditLoading, setAuditLoading] = useState(false);
+
+    const [ssHistoryOpen, setSsHistoryOpen] = useState(false);
+    const [ssHistoryLoading, setSsHistoryLoading] = useState(false);
+    const [ssHistoryError, setSsHistoryError] = useState('');
+    const [ssHistoryInfo, setSsHistoryInfo] = useState('');
+    const [ssHistorySupplierName, setSsHistorySupplierName] = useState('');
+    const [ssHistoryLines, setSsHistoryLines] = useState([]);
 
     const loadPayables = useCallback(async () => {
         setListLoading(true);
@@ -171,6 +227,83 @@ export default function SupplierPurchaseInvoices() {
         }
     };
 
+    const openSuperSupplierPurchaseHistory = async (superSupplierId, supplierName = '') => {
+        setSsHistoryOpen(true);
+        setSsHistorySupplierName(supplierName || 'Super supplier');
+        setSsHistoryLoading(true);
+        setSsHistoryError('');
+        setSsHistoryInfo('');
+        setSsHistoryLines([]);
+        try {
+            const res = await listSupplierSuperSupplierPurchases({
+                superSupplierId: String(superSupplierId),
+                limit: 200,
+                offset: 0,
+            });
+            const purchases = Array.isArray(res?.purchases) ? res.purchases : [];
+            const capped = purchases.slice(0, SSP_HISTORY_DETAIL_CAP);
+            const details = await Promise.all(
+                capped.map(async (row) => {
+                    try {
+                        const d = await getSupplierSuperSupplierPurchase(row.id);
+                        return { listRow: row, purchase: d?.purchase ?? d?.data ?? d };
+                    } catch {
+                        return { listRow: row, purchase: null };
+                    }
+                }),
+            );
+            const lines = [];
+            for (const { listRow, purchase } of details) {
+                const purchaseDate = (purchase?.purchaseDate ?? listRow?.purchaseDate ?? '')
+                    .toString()
+                    .slice(0, 10);
+                const invoiceNo = purchase?.invoiceNo ?? listRow?.invoiceNo ?? `SSP-${listRow?.id}`;
+                const items = Array.isArray(purchase?.items) ? purchase.items : [];
+                if (items.length > 0) {
+                    items.forEach((it, idx) => {
+                        lines.push({
+                            key: `${listRow.id}-${it.id ?? idx}`,
+                            purchaseDate,
+                            invoiceNo,
+                            productName: it.productName || '—',
+                            sku: it.sku || '—',
+                            qty: Number(it.qty ?? 0),
+                            unit: it.unit || 'pcs',
+                            unitPrice: Number(it.unitPrice ?? 0),
+                            lineTotal: Number(it.lineTotal ?? 0),
+                        });
+                    });
+                } else {
+                    const total = Number(purchase?.total ?? listRow?.total ?? 0);
+                    lines.push({
+                        key: `${listRow.id}-summary`,
+                        purchaseDate,
+                        invoiceNo,
+                        productName:
+                            (purchase?.description || listRow?.primaryProductName || '').trim() ||
+                            'Purchase (no line detail)',
+                        sku: '—',
+                        qty: null,
+                        unit: '—',
+                        unitPrice: null,
+                        lineTotal: total,
+                    });
+                }
+            }
+            setSsHistoryLines(lines);
+            if (purchases.length > SSP_HISTORY_DETAIL_CAP) {
+                setSsHistoryInfo(
+                    `Line detail is shown for the ${SSP_HISTORY_DETAIL_CAP} most recent purchases (${purchases.length} total).`,
+                );
+            }
+        } catch (e) {
+            setSsHistoryError(e?.message || 'Could not load purchase history.');
+            setSsHistoryLines([]);
+        } finally {
+            setSsHistoryLoading(false);
+        }
+    };
+
     const handleSaveSuperSupplier = async () => {
         if (!ssForm.name?.trim()) {
             setSsErr('Name is required');
@@ -208,16 +341,12 @@ export default function SupplierPurchaseInvoices() {
         if (!modalOpen) return undefined;
         let cancelled = false;
         setCatalogLoading(true);
-        listSupplierProducts({ limit: 300 })
+        getSupplierInventoryStockBalances({ limit: 500, offset: 0 })
             .then((res) => {
-                const raw = extractArray(res, ['products', 'items', 'list']);
-                const mapped = raw.map((p) => ({
-                    id: p.id ?? p.supplierProductId ?? String(Math.random()),
-                    name: p.name ?? p.productName ?? 'Item',
-                    price: Number(p.price ?? p.unitPrice ?? p.sellingPrice ?? 0),
-                    unit: p.unit ?? p.uom ?? 'pcs',
-                    type: String(p.type ?? '').toLowerCase().includes('service') ? 'Service' : 'Stock',
-                }));
+                const raw = Array.isArray(res?.items) ? res.items : [];
+                const mapped = raw
+                    .map((row) => mapStockBalanceToPurchasePickerRow(row))
+                    .filter(Boolean);
                 if (!cancelled) setCatalogItems(mapped);
             })
             .catch(() => {
@@ -233,20 +362,49 @@ export default function SupplierPurchaseInvoices() {
 
     const catalogForSearch = catalogItems.length ? catalogItems : [];
 
-    const handleSearch = (query) => {
-        setSearchQuery(query);
-        if (query.trim()) {
-            const filtered = catalogForSearch.filter((item) =>
-                item.name.toLowerCase().includes(query.toLowerCase()),
-            );
-            setSearchResults(filtered);
-            setShowDropdown(true);
-            setSelectedIndex(0);
-        } else {
-            setSearchResults([]);
-            setShowDropdown(false);
-        }
+    const getSearchSuggestionsPi = (query) => {
+        const items = [...catalogForSearch].sort((a, b) =>
+            String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }),
+        );
+        const q = query.trim().toLowerCase();
+        if (!q) return items.slice(0, SEARCH_QUICK_PICK_PI);
+        return items
+            .filter(
+                (i) =>
+                    String(i.name || '')
+                        .toLowerCase()
+                        .includes(q) ||
+                    String(i.sku || '')
+                        .toLowerCase()
+                        .includes(q),
+            )
+            .slice(0, SEARCH_MAX_RESULTS_PI);
     };
+
+    const applySearchQueryPi = (value) => {
+        setSearchQuery(value);
+        const results = getSearchSuggestionsPi(value);
+        setSearchResults(results);
+        setShowDropdown(true);
+        setSelectedIndex(results.length ? 0 : -1);
+    };
+
+    const openPiLineSearch = () => {
+        const results = getSearchSuggestionsPi(searchQuery);
+        setSearchResults(results);
+        setShowDropdown(true);
+        setSelectedIndex(results.length ? 0 : -1);
+    };
+
+    useEffect(() => {
+        if (!modalOpen || !showDropdown) return undefined;
+        const close = (e) => {
+            const el = piSearchWrapRef.current;
+            if (el && !el.contains(e.target)) setShowDropdown(false);
+        };
+        document.addEventListener('mousedown', close);
+        return () => document.removeEventListener('mousedown', close);
+    }, [modalOpen, showDropdown]);
 
     const updateLineItem = (id, field, value) => {
         setLineItems((prev) =>
@@ -279,19 +437,45 @@ export default function SupplierPurchaseInvoices() {
     };
     const summary = getSummary();
 
+    const addEmptyPurchaseLine = () => {
+        setLineItems((prev) => [
+            ...prev,
+            {
+                id: nextLineId(),
+                item: '',
+                sku: '',
+                supplierProductId: undefined,
+                account: '1410 - Inventory Asset',
+                description: '',
+                uom: 'pcs',
+                qty: 1,
+                price: 0,
+                discount: 0,
+                taxCode: 'VAT 15%',
+                taxAmt: '0.00',
+                totalFinal: '0.00',
+            },
+        ]);
+    };
+
     const addItemToLines = (item) => {
+        const unitPrice = Number(item.price) || 0;
+        const catalogId =
+            item?.id != null && String(item.id).trim() !== '' ? String(item.id).trim() : undefined;
         const newLine = {
-            id: Date.now(),
+            id: nextLineId(),
+            sku: item.sku || '',
             item: item.name,
+            supplierProductId: catalogId,
             account: item.type === 'Stock' ? '1410 - Inventory Asset' : '5100 - Cost of Goods Sold',
             description: '',
             uom: item.unit,
             qty: 1,
-            price: item.price,
+            price: unitPrice,
             discount: 0,
             taxCode: 'VAT 15%',
-            taxAmt: (item.price * 0.15).toFixed(2),
-            totalFinal: (item.price * 1.15).toFixed(2),
+            taxAmt: (unitPrice * 0.15).toFixed(2),
+            totalFinal: (unitPrice * 1.15).toFixed(2),
         };
         setLineItems((prev) => [...prev, newLine]);
         setSearchQuery('');
@@ -302,8 +486,9 @@ export default function SupplierPurchaseInvoices() {
         if (!showDropdown) return;
         if (e.key === 'ArrowDown') setSelectedIndex((i) => (i < searchResults.length - 1 ? i + 1 : i));
         else if (e.key === 'ArrowUp') setSelectedIndex((i) => (i > 0 ? i - 1 : i));
-        else if (e.key === 'Enter' && selectedIndex >= 0) addItemToLines(searchResults[selectedIndex]);
-        else if (e.key === 'Escape') setShowDropdown(false);
+        else if (e.key === 'Enter' && selectedIndex >= 0 && searchResults[selectedIndex]) {
+            addItemToLines(searchResults[selectedIndex]);
+        } else if (e.key === 'Escape') setShowDropdown(false);
     };
 
     const evalMath = (expr) => {
@@ -356,8 +541,9 @@ export default function SupplierPurchaseInvoices() {
     const resetCreateForm = () => {
         setLineItems([]);
         setRefNo('');
-        setVendor('');
+        setSuperSupplierId('');
         setDescription('');
+        setInternalNotes('');
         setIssueDate(new Date().toISOString().slice(0, 10));
         setSearchQuery('');
         setCreateError('');
@@ -365,33 +551,81 @@ export default function SupplierPurchaseInvoices() {
 
     const handleCreateInvoice = async () => {
         setCreateError('');
-        const companyName = vendor.trim();
-        if (!companyName) {
-            setCreateError('Supplier / vendor name is required.');
+        if (!superSupplierId) {
+            setCreateError('Select a super supplier from the list.');
             return;
         }
-        const amount = lineItems.reduce((acc, line) => acc + parseFloat(line.totalFinal || 0), 0);
-        if (!lineItems.length || !(amount > 0)) {
-            setCreateError('Add at least one line item with a positive total.');
+        const supplierRow = superSuppliers.find((s) => String(s.id) === String(superSupplierId));
+        if (!supplierRow) {
+            setCreateError('Invalid super supplier selection. Refresh the page.');
+            return;
+        }
+        if (supplierRow.isActive === false) {
+            setCreateError('Selected super supplier is inactive.');
             return;
         }
 
+        const normalizedLines = lineItems.map((line, idx) => ({
+            idx,
+            productName: String(line.item || '').trim(),
+            sku: String(line.sku || '').trim() || undefined,
+            supplierProductId:
+                line.supplierProductId != null && String(line.supplierProductId).trim() !== ''
+                    ? String(line.supplierProductId).trim()
+                    : undefined,
+            qty: parseFloat(line.qty) || 0,
+            unit: String(line.uom || 'pcs').trim() || 'pcs',
+            unitPrice: parseFloat(line.price) || 0,
+            vatLine: parseFloat(line.taxAmt || 0),
+        }));
+
+        const bad = normalizedLines.find(
+            (l) => !l.productName || !(l.qty > 0) || l.unitPrice < 0,
+        );
+        if (bad) {
+            setCreateError(`Line ${bad.idx + 1}: product name required, qty > 0, and unit price cannot be negative.`);
+            return;
+        }
+
+        const vatAmount = normalizedLines.reduce((s, l) => s + l.vatLine, 0);
+        const subtotalExVat = normalizedLines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
+        if (!(subtotalExVat + vatAmount > 0)) {
+            setCreateError('Invoice total must be greater than zero (check quantities and unit prices).');
+            return;
+        }
+
+        const items = normalizedLines.map((l) => ({
+            ...(l.sku ? { sku: l.sku } : {}),
+            ...(l.supplierProductId ? { supplierProductId: l.supplierProductId } : {}),
+            productName: l.productName,
+            qty: l.qty,
+            unit: l.unit,
+            unitPrice: Math.round(l.unitPrice * 1e6) / 1e6,
+        }));
+
+        const due =
+            calculatedDueDate === '—' ? '' : calculatedDueDate;
+        const notesParts = [internalNotes.trim(), due ? `Due date: ${due}` : ''].filter(Boolean);
+
         setCreateSubmitting(true);
         try {
-            await createSupplierPayable({
-                companyName,
-                openingBalance: Math.round(amount * 100) / 100,
-                openingBalanceDate: issueDate,
-                vatNumber: refNo.trim() || undefined,
-                contactPerson: '',
-                contactNumber: '',
-                notes: description.trim() || undefined,
+            await createSupplierSuperSupplierPurchase({
+                superSupplierId: String(superSupplierId),
+                purchaseDate: issueDate,
+                vendorRef: refNo.trim() || undefined,
+                referenceNo: refNo.trim() || undefined,
+                description: description.trim() || undefined,
+                notes: notesParts.length ? notesParts.join('\n') : undefined,
+                vatAmount: Math.round(vatAmount * 100) / 100,
+                items,
             });
             setModalOpen(false);
             resetCreateForm();
-            await loadPayables();
+            setSspPanelKey((k) => k + 1);
+            setApTab('ssp_invoices');
+            await Promise.all([loadPayables(), loadSuperSuppliers()]);
         } catch (err) {
-            console.error('Create supplier payable failed:', err);
+            console.error('Create super supplier purchase failed:', err);
             setCreateError(err?.message || 'Could not create purchase invoice');
         } finally {
             setCreateSubmitting(false);
@@ -492,7 +726,7 @@ export default function SupplierPurchaseInvoices() {
             <header className="purchases-header-row">
                 <div className="pi-header-left">
                     <h2 className="cash-bank-title">Purchases</h2>
-                    <p className="cash-bank-desc">Track purchase orders and bills.</p>
+                    <p className="cash-bank-desc">Track payables, super suppliers, and upstream purchase invoices.</p>
                 </div>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button
@@ -500,6 +734,7 @@ export default function SupplierPurchaseInvoices() {
                         className="btn-save-all"
                         onClick={() => {
                             setSsErr('');
+                            setApTab('super_suppliers');
                             setAddSsOpen(true);
                         }}
                     >
@@ -518,7 +753,61 @@ export default function SupplierPurchaseInvoices() {
                 </div>
             </header>
 
-            <section className="premium-table cash-bank-table">
+            <div
+                role="tablist"
+                aria-label="Purchase sections"
+                style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 4,
+                    marginBottom: 16,
+                    padding: 4,
+                    background: '#F8FAFC',
+                    borderRadius: 12,
+                    border: '1px solid #E2E8F0',
+                }}
+            >
+                {[
+                    { id: 'payables', label: 'Payables' },
+                    { id: 'super_suppliers', label: 'Super suppliers' },
+                    { id: 'ssp_invoices', label: 'Super supplier invoices' },
+                ].map((t) => {
+                    const active = apTab === t.id;
+                    return (
+                        <button
+                            key={t.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
+                            id={`ap-tab-${t.id}`}
+                            aria-controls={`ap-panel-${t.id}`}
+                            onClick={() => setApTab(/** @type {ApTabId} */ (t.id))}
+                            style={{
+                                padding: '10px 18px',
+                                borderRadius: 10,
+                                border: active ? '1px solid #CA8A04' : '1px solid transparent',
+                                background: active ? '#FFF9E7' : 'transparent',
+                                color: active ? '#854D0E' : '#475569',
+                                fontWeight: active ? 800 : 600,
+                                fontSize: '0.875rem',
+                                cursor: 'pointer',
+                                transition: 'background 0.15s, color 0.15s',
+                            }}
+                        >
+                            {t.label}
+                        </button>
+                    );
+                })}
+            </div>
+
+            <section
+                id="ap-panel-payables"
+                role="tabpanel"
+                aria-labelledby="ap-tab-payables"
+                hidden={apTab !== 'payables'}
+                className="premium-table cash-bank-table"
+                style={{ display: apTab === 'payables' ? undefined : 'none' }}
+            >
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
@@ -585,7 +874,19 @@ export default function SupplierPurchaseInvoices() {
                 </table>
             </section>
 
-            <section className="ws-section" style={{ marginTop: 24, padding: 0, overflow: 'hidden' }}>
+            <section
+                id="ap-panel-super_suppliers"
+                role="tabpanel"
+                aria-labelledby="ap-tab-super_suppliers"
+                hidden={apTab !== 'super_suppliers'}
+                className="ws-section"
+                style={{
+                    marginTop: 0,
+                    padding: 0,
+                    overflow: 'hidden',
+                    display: apTab === 'super_suppliers' ? undefined : 'none',
+                }}
+            >
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border-light)' }}>
                     <h3
                         style={{
@@ -638,7 +939,23 @@ export default function SupplierPurchaseInvoices() {
                                 superSuppliers.map((ss) => (
                                     <tr key={String(ss.id)} className="table-row">
                                         <td className="table-cell">
-                                            <strong>{ss.name}</strong>
+                                            <button
+                                                type="button"
+                                                onClick={() => openSuperSupplierPurchaseHistory(String(ss.id), ss.name)}
+                                                style={{
+                                                    display: 'block',
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    padding: 0,
+                                                    margin: 0,
+                                                    cursor: 'pointer',
+                                                    textAlign: 'left',
+                                                    font: 'inherit',
+                                                }}
+                                                title="View purchase history for this vendor"
+                                            >
+                                                <strong style={{ color: '#EA580C', textDecoration: 'underline' }}>{ss.name}</strong>
+                                            </button>
                                             {ss.notes ? (
                                                 <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
                                                     {ss.notes}
@@ -664,7 +981,10 @@ export default function SupplierPurchaseInvoices() {
                                                     className="btn-pi-cancel"
                                                     style={{ padding: '6px 12px', fontSize: '0.8125rem' }}
                                                     disabled={!ss.isActive}
-                                                    onClick={() => setCreateSspPurchaseForId(String(ss.id))}
+                                                    onClick={() => {
+                                                        setApTab('ssp_invoices');
+                                                        setCreateSspPurchaseForId(String(ss.id));
+                                                    }}
                                                 >
                                                     <Plus size={14} /> Record purchase
                                                 </button>
@@ -686,12 +1006,21 @@ export default function SupplierPurchaseInvoices() {
                 </div>
             </section>
 
-            <SupplierSuperSupplierPurchasesPanel
-                superSuppliers={superSuppliers}
-                createIntentSupplierId={createSspPurchaseForId}
-                onConsumeCreateIntent={() => setCreateSspPurchaseForId(null)}
-                onPurchasesMutated={loadSuperSuppliers}
-            />
+            <div
+                id="ap-panel-ssp_invoices"
+                role="tabpanel"
+                aria-labelledby="ap-tab-ssp_invoices"
+                hidden={apTab !== 'ssp_invoices'}
+                style={{ display: apTab === 'ssp_invoices' ? 'block' : 'none' }}
+            >
+                <SupplierSuperSupplierPurchasesPanel
+                    key={sspPanelKey}
+                    superSuppliers={superSuppliers}
+                    createIntentSupplierId={createSspPurchaseForId}
+                    onConsumeCreateIntent={() => setCreateSspPurchaseForId(null)}
+                    onPurchasesMutated={loadSuperSuppliers}
+                />
+            </div>
 
             <AnimatePresence>
                 {addSsOpen && (
@@ -770,6 +1099,123 @@ export default function SupplierPurchaseInvoices() {
                                 onChange={(e) => setSsForm((s) => ({ ...s, notes: e.target.value }))}
                             />
                         </div>
+                    </Modal>
+                )}
+
+                {ssHistoryOpen && (
+                    <Modal
+                        title={
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <ShoppingCart size={20} /> Purchases from {ssHistorySupplierName}
+                            </span>
+                        }
+                        onClose={() => {
+                            setSsHistoryOpen(false);
+                            setSsHistoryError('');
+                            setSsHistoryInfo('');
+                            setSsHistoryLines([]);
+                        }}
+                        width="900px"
+                        footer={
+                            <button
+                                type="button"
+                                className="btn-portal-outline"
+                                onClick={() => {
+                                    setSsHistoryOpen(false);
+                                    setSsHistoryError('');
+                                    setSsHistoryInfo('');
+                                    setSsHistoryLines([]);
+                                }}
+                            >
+                                Close
+                            </button>
+                        }
+                    >
+                        {ssHistoryLoading ? (
+                            <ShimmerTextBlock lines={8} />
+                        ) : ssHistoryError ? (
+                            <p style={{ margin: 0, color: '#B91C1C', fontSize: '0.875rem' }}>{ssHistoryError}</p>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {ssHistoryInfo ? (
+                                    <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                                        {ssHistoryInfo}
+                                    </p>
+                                ) : null}
+                                <div style={{ maxHeight: 460, overflow: 'auto' }}>
+                                    <table className="ws-table" style={{ width: '100%', fontSize: '0.8125rem' }}>
+                                        <thead>
+                                            <tr>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>Date</th>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>Invoice</th>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>Item</th>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>SKU</th>
+                                                <th style={{ textAlign: 'right', padding: 8 }}>Qty</th>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>Unit</th>
+                                                <th style={{ textAlign: 'right', padding: 8 }}>Unit price</th>
+                                                <th style={{ textAlign: 'right', padding: 8 }}>Line total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {ssHistoryLines.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={8} style={{ padding: 16, color: 'var(--color-text-muted)' }}>
+                                                        No purchases recorded for this vendor yet.
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                ssHistoryLines.map((ln) => (
+                                                    <tr key={ln.key}>
+                                                        <td style={{ padding: 8, whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                                                            {ln.purchaseDate || '—'}
+                                                        </td>
+                                                        <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.invoiceNo}</td>
+                                                        <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.productName}</td>
+                                                        <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.sku}</td>
+                                                        <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
+                                                            {ln.qty == null ? '—' : Number(ln.qty).toLocaleString()}
+                                                        </td>
+                                                        <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.unit}</td>
+                                                        <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
+                                                            {ln.unitPrice == null
+                                                                ? '—'
+                                                                : `SAR ${Number(ln.unitPrice).toLocaleString(undefined, {
+                                                                      minimumFractionDigits: 2,
+                                                                  })}`}
+                                                        </td>
+                                                        <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
+                                                            <strong>
+                                                                SAR{' '}
+                                                                {Number(ln.lineTotal ?? 0).toLocaleString(undefined, {
+                                                                    minimumFractionDigits: 2,
+                                                                })}
+                                                            </strong>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {ssHistoryLines.length > 0 ? (
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            justifyContent: 'flex-end',
+                                            paddingTop: 8,
+                                            borderTop: '1px solid #e2e8f0',
+                                            fontSize: '0.9375rem',
+                                            fontWeight: 700,
+                                        }}
+                                    >
+                                        Sum of lines: SAR{' '}
+                                        {ssHistoryLines
+                                            .reduce((acc, ln) => acc + Number(ln.lineTotal ?? 0), 0)
+                                            .toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                    </div>
+                                ) : null}
+                            </div>
+                        )}
                     </Modal>
                 )}
 
@@ -883,7 +1329,16 @@ export default function SupplierPurchaseInvoices() {
                                     </button>
                                 </div>
                                 <div className="pi-footer-right">
-                                    <button type="button" className="btn-pi-create" disabled={createSubmitting} onClick={handleCreateInvoice}>
+                                    <button
+                                        type="button"
+                                        className="btn-pi-create"
+                                        disabled={
+                                            createSubmitting ||
+                                            !superSupplierId ||
+                                            (!ssLoading && superSuppliers.length === 0)
+                                        }
+                                        onClick={handleCreateInvoice}
+                                    >
                                         {createSubmitting ? 'Creating…' : 'Create Purchase Invoice'}
                                     </button>
                                 </div>
@@ -933,8 +1388,44 @@ export default function SupplierPurchaseInvoices() {
                             </div>
 
                             <div className="pi-field pi-full-width">
-                                <label>Supplier / Vendor *</label>
-                                <input type="text" placeholder="Type or select vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
+                                <label>Super supplier *</label>
+                                <select
+                                    value={superSupplierId}
+                                    onChange={(e) => setSuperSupplierId(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 14px',
+                                        borderRadius: 10,
+                                        border: '1px solid #e2e8f0',
+                                        fontSize: '0.9375rem',
+                                        fontWeight: 600,
+                                        background: '#f8fafc',
+                                        color: '#1e293b',
+                                    }}
+                                >
+                                    <option value="">
+                                        {ssLoading ? 'Loading vendors…' : 'Select super supplier'}
+                                    </option>
+                                    {superSuppliers.map((ss) => (
+                                        <option
+                                            key={String(ss.id)}
+                                            value={String(ss.id)}
+                                            disabled={ss.isActive === false}
+                                        >
+                                            {ss.name}
+                                            {ss.isActive === false ? ' (inactive)' : ''}
+                                            {ss.vatNumber ? ` — VAT ${ss.vatNumber}` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                {!ssLoading && superSuppliers.length === 0 ? (
+                                    <span
+                                        className="pi-sub-label"
+                                        style={{ color: '#B45309', marginTop: 8, display: 'block' }}
+                                    >
+                                        Add a super supplier with &quot;Add Super Supplier&quot; before recording a purchase.
+                                    </span>
+                                ) : null}
                             </div>
                             <div className="pi-field pi-full-width">
                                 <label>Description</label>
@@ -942,7 +1433,11 @@ export default function SupplierPurchaseInvoices() {
                             </div>
 
                             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '0 0 8px 0' }}>
-                                {catalogLoading ? 'Loading catalog…' : catalogForSearch.length ? 'Search products from your catalog to add lines.' : 'Add catalog products in Product Catalog, or type search will be empty.'}
+                                {catalogLoading
+                                    ? 'Loading warehouse stock…'
+                                    : catalogForSearch.length
+                                      ? 'Search products that exist in Stock Inventory (warehouse) to add lines.'
+                                      : 'No stock rows returned. Open Stock Inventory — only listed SKUs appear here.'}
                             </p>
 
                             <div className="pi-lines-section">
@@ -1034,50 +1529,74 @@ export default function SupplierPurchaseInvoices() {
                                 ))}
 
                                 <div className="pi-line-row">
-                                    <div className="pi-search-box-wrapper" style={{ position: 'relative', flex: 1 }}>
+                                    <div
+                                        ref={piSearchWrapRef}
+                                        className="pi-search-box-wrapper"
+                                        style={{ position: 'relative', flex: 1 }}
+                                    >
                                         <div className="pi-search-box">
                                             <Search size={16} />
                                             <input
                                                 type="text"
-                                                placeholder="Search product to add"
+                                                placeholder="Search stock inventory (name or SKU)"
                                                 value={searchQuery}
-                                                onChange={(e) => handleSearch(e.target.value)}
+                                                onChange={(e) => applySearchQueryPi(e.target.value)}
                                                 onKeyDown={handleKeyDown}
-                                                onFocus={() => searchQuery.trim() && setShowDropdown(true)}
+                                                onFocus={openPiLineSearch}
                                             />
                                         </div>
-                                        {showDropdown && searchResults.length > 0 && (
+                                        {showDropdown ? (
                                             <div className="pi-search-results">
-                                                {searchResults.map((item, index) => (
-                                                    <div
-                                                        key={item.id}
-                                                        className={`pi-result-item ${selectedIndex === index ? 'selected' : ''}`}
-                                                        onClick={() => addItemToLines(item)}
-                                                        onMouseEnter={() => setSelectedIndex(index)}
-                                                        role="presentation"
-                                                    >
-                                                        <div className="pi-result-info">
-                                                            <div className="pi-item-name">{item.name}</div>
-                                                            <div className="pi-item-meta">
-                                                                <span className="pi-item-type">{item.type}</span>
-                                                                <span>• {item.unit}</span>
+                                                {searchResults.length > 0 ? (
+                                                    searchResults.map((item, index) => (
+                                                        <div
+                                                            key={String(item.id)}
+                                                            className={`pi-result-item ${selectedIndex === index ? 'selected' : ''}`}
+                                                            onClick={() => addItemToLines(item)}
+                                                            onMouseEnter={() => setSelectedIndex(index)}
+                                                            role="presentation"
+                                                        >
+                                                            <div className="pi-result-info">
+                                                                <div className="pi-item-name">{item.name}</div>
+                                                                <div className="pi-item-meta">
+                                                                    <span className="pi-item-type">Product</span>
+                                                                    <span>• {item.unit}</span>
+                                                                    {item.sku ? (
+                                                                        <span style={{ marginLeft: 6 }}>SKU {item.sku}</span>
+                                                                    ) : null}
+                                                                    {item.stockHint ? (
+                                                                        <span style={{ marginLeft: 6, color: '#64748b' }}>
+                                                                            · {item.stockHint}
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                            </div>
+                                                            <div className="pi-item-price">
+                                                                <div className="pi-price-val">SAR {item.price}</div>
+                                                                <div className="pi-price-unit">per {item.unit}</div>
                                                             </div>
                                                         </div>
-                                                        <div className="pi-item-price">
-                                                            <div className="pi-price-val">SAR {item.price}</div>
-                                                            <div className="pi-price-unit">per {item.unit}</div>
-                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div style={{ padding: 14, fontSize: 13, color: '#64748b' }}>
+                                                        {catalogForSearch.length === 0
+                                                            ? 'No stock inventory items loaded. Check Stock Inventory — this list matches warehouse stock only.'
+                                                            : 'No matching stock items.'}
                                                     </div>
-                                                ))}
+                                                )}
                                             </div>
-                                        )}
+                                        ) : null}
                                     </div>
-                                    <button type="button" className="btn-add-line">
+                                    <button
+                                        type="button"
+                                        className="btn-add-line"
+                                        onClick={addEmptyPurchaseLine}
+                                    >
                                         <Plus size={16} /> Add line
                                     </button>
                                 </div>
                                 <div className="pi-hint">
-                                    <Zap size={14} /> Tip: Type to search catalog, use ↑↓ arrows, Enter to select. Price fields support math (e.g. 12*5)
+                                    <Zap size={14} /> Tip: Type to search stock inventory, use ↑↓ arrows, Enter to select. Price fields support math (e.g. 12*5)
                                 </div>
                             </div>
 
@@ -1113,7 +1632,12 @@ export default function SupplierPurchaseInvoices() {
                                     </div>
                                     <div className="pi-field pi-full-width">
                                         <label>Notes</label>
-                                        <textarea placeholder="Internal notes" rows={4} />
+                                        <textarea
+                                            placeholder="Internal notes (optional)"
+                                            rows={4}
+                                            value={internalNotes}
+                                            onChange={(e) => setInternalNotes(e.target.value)}
+                                        />
                                     </div>
                                 </div>
                                 <div className="pi-footer-column pi-summary-column">
@@ -1133,7 +1657,9 @@ export default function SupplierPurchaseInvoices() {
                                     </div>
                                     <div className="pi-ap-alert">
                                         <span>
-                                            Creates <strong>Accounts Payable</strong> via the supplier API. Line items are used to calculate the total sent to the server.
+                                            Saves a <strong>super supplier purchase invoice</strong> with line items and VAT
+                                            total. It appears in <strong>Super supplier purchase invoices</strong> below and
+                                            updates your vendor purchase history.
                                         </span>
                                     </div>
                                 </div>

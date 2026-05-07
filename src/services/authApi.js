@@ -103,3 +103,70 @@ export async function supplierLogin(mobileOrEmail, password) {
     }
     return data;
 }
+
+export async function corporateRegister(body) {
+    const res = await fetch(`${BASE_URL}/auth/corporate/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
+        body: JSON.stringify(body || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.message || `Corporate registration failed: ${res.status}`);
+    }
+    return data;
+}
+
+export async function workshopRegister(body) {
+    const res = await fetch(`${BASE_URL}/auth/workshop/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
+        body: JSON.stringify(body || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const m = data.message;
+        const msg =
+            Array.isArray(m)
+                ? m.map((x) => (typeof x === 'string' ? x : x?.message || JSON.stringify(x))).join(' ')
+                : typeof m === 'string'
+                  ? m
+                  : typeof data.error === 'string'
+                    ? data.error
+                    : '';
+        throw new Error(msg || `Workshop registration failed: ${res.status}`);
+    }
+    return data;
+}
+
+export async function supplierRegister(body) {
+    const res = await fetch(`${BASE_URL}/auth/supplier/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
+        body: JSON.stringify(body || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.message || `Supplier registration failed: ${res.status}`);
+    }
+    return data;
+}
+
+/** Public signup: workshop-wise branches for corporate registration. */
+export async function getCorporateRegisterBranchOptions(selectedStoreIds = []) {
+    const qs = new URLSearchParams();
+    (Array.isArray(selectedStoreIds) ? selectedStoreIds : [])
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+        .forEach((id) => qs.append('selectedStoreIds', id));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    const res = await fetch(`${BASE_URL}/auth/corporate/register/branch-options${suffix}`, {
+        method: 'GET',
+        headers: { accept: '*/*' },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.message || `Corporate branch options failed: ${res.status}`);
+    }
+    return data;
+}

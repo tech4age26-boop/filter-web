@@ -245,7 +245,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
             <div className="ws-section">
                 <div style={{ overflowX: 'auto' }}>
                     {loading && rows.length === 0 ? (
-                        <ShimmerTable rows={10} columns={9} />
+                        <ShimmerTable rows={10} columns={10} />
                     ) : (
                     <table className="ws-table">
                         <thead>
@@ -256,6 +256,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                 <th>Product name</th>
                                 <th>Quantity</th>
                                 <th>Unit</th>
+                                <th>Unit price</th>
                                 <th>Total</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -264,7 +265,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                         <tbody>
                             {rows.length === 0 ? (
                                 <tr>
-                                    <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                    <td colSpan={10} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                         No workshop purchase invoices
                                     </td>
                                 </tr>
@@ -294,6 +295,38 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                         <td style={{ fontSize: '0.8125rem' }}>{r.quantity_label ?? '—'}</td>
                                         <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                                             {r.unit_label ?? '—'}
+                                        </td>
+                                        <td
+                                            style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}
+                                            title={
+                                                Array.isArray(r.items) && r.items.length > 1
+                                                    ? 'Unit price (ex VAT) — first line'
+                                                    : 'Unit price (ex VAT)'
+                                            }
+                                        >
+                                            {r.primary_unit_price != null &&
+                                            Number.isFinite(Number(r.primary_unit_price)) ? (
+                                                <>
+                                                    SAR{' '}
+                                                    {Number(r.primary_unit_price).toLocaleString(undefined, {
+                                                        minimumFractionDigits: 2,
+                                                        maximumFractionDigits: 2,
+                                                    })}
+                                                    {Array.isArray(r.items) && r.items.length > 1 ? (
+                                                        <span
+                                                            style={{
+                                                                color: 'var(--color-text-muted)',
+                                                                fontSize: '0.6875rem',
+                                                                marginLeft: 4,
+                                                            }}
+                                                        >
+                                                            (1st line)
+                                                        </span>
+                                                    ) : null}
+                                                </>
+                                            ) : (
+                                                '—'
+                                            )}
                                         </td>
                                         <td>
                                             <strong>SAR {(r.grand_total || 0).toLocaleString()}</strong>
@@ -436,7 +469,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                 {viewRow && (
                     <Modal
                         title="Workshop purchase invoice"
-                        width="min(800px, 96vw)"
+                        width="min(980px, 99vw)"
                         onClose={() => {
                             setViewRow(null);
                             setViewDetail(null);

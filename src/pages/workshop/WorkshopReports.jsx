@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, ChevronRight, MoreVertical } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Modal from '../../components/Modal';
@@ -8,6 +8,16 @@ import {
     getWorkshopRecentOrderDetails,
     getWorkshopRecentOrderPdf,
     getWorkshopRecentOrders,
+    getWorkshopReportsByBranch,
+    getWorkshopReportsByBranchDetails,
+    getWorkshopReportsByCustomer,
+    getWorkshopReportsByCustomerDetails,
+    getWorkshopReportsByDepartment,
+    getWorkshopReportsByDepartmentDetails,
+    getWorkshopReportsByProduct,
+    getWorkshopReportsByProductDetails,
+    getWorkshopReportsByTechnician,
+    getWorkshopReportsByTechnicianDetails,
     getWorkshopTechnicians,
     runWorkshopRelativeAction,
     workshopReportsAnalyticsParams,
@@ -131,6 +141,24 @@ function parseArr(v) {
     return [];
 }
 
+function extractSummaryRows(res, key) {
+    const direct = parseArr(res?.[key]);
+    if (direct.length) return direct;
+    const nested = parseArr(res?.data?.[key]);
+    if (nested.length) return nested;
+    const rows = parseArr(res?.rows);
+    if (rows.length) return rows;
+    const dataRows = parseArr(res?.data?.rows);
+    if (dataRows.length) return dataRows;
+    return [];
+}
+
+const humanizeKey = (key) =>
+    String(key || '')
+        .replace(/_/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/\b\w/g, (m) => m.toUpperCase());
+
 function technicianDropdownRow(raw) {
     const row = flattenWorkshopStaffRow(raw, 'technician');
     const id =
@@ -161,6 +189,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [technicianOptions, setTechnicianOptions] = useState([]);
     const [reportData, setReportData] = useState(null);
     const [recentOrders, setRecentOrders] = useState([]);
+    const [summaryData, setSummaryData] = useState({
+        by_technician: [],
+        by_customer: [],
+        by_product: [],
+        by_department: [],
+        by_branch: [],
+    });
+    const [detailRows, setDetailRows] = useState([]);
+    const [detailsLoading, setDetailsLoading] = useState(false);
+    const [detailsError, setDetailsError] = useState('');
+    const [detailsTitle, setDetailsTitle] = useState('');
+    const [selectedDetailKey, setSelectedDetailKey] = useState('');
+    const [detailTableWidth, setDetailTableWidth] = useState(0);
+    const topScrollRef = useRef(null);
+    const bottomScrollRef = useRef(null);
+    const scrollSyncLockRef = useRef(false);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [recentOrderDetails, setRecentOrderDetails] = useState(null);
@@ -213,24 +257,55 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const loadReports = useCallback(async () => {
         setIsLoading(true);
         setLoadError('');
+        setDetailsError('');
+        setDetailRows([]);
+        setSelectedDetailKey('');
+        setDetailsTitle('');
         try {
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
                 startDate: dateFrom,
                 endDate: dateTo,
                 technicianId: selectedTechId || undefined,
             });
-            const [response, recentOrdersRes] = await Promise.all([
+            const [
+                response,
+                recentOrdersRes,
+                byTechnicianRes,
+                byCustomerRes,
+                byProductRes,
+                byDepartmentRes,
+                byBranchRes,
+            ] = await Promise.all([
                 getWorkshopReportsAnalytics(params),
                 getWorkshopRecentOrders(params),
+                getWorkshopReportsByTechnician(params),
+                getWorkshopReportsByCustomer(params),
+                getWorkshopReportsByProduct(params),
+                getWorkshopReportsByDepartment(params),
+                getWorkshopReportsByBranch(params),
             ]);
             if (!response?.success) {
                 throw new Error('Invalid reports response.');
             }
             setReportData(response);
             setRecentOrders(Array.isArray(recentOrdersRes?.rows) ? recentOrdersRes.rows : []);
+            setSummaryData({
+                by_technician: extractSummaryRows(byTechnicianRes, 'by_technician'),
+                by_customer: extractSummaryRows(byCustomerRes, 'by_customer'),
+                by_product: extractSummaryRows(byProductRes, 'by_product'),
+                by_department: extractSummaryRows(byDepartmentRes, 'by_department'),
+                by_branch: extractSummaryRows(byBranchRes, 'by_branch'),
+            });
         } catch (error) {
             setLoadError(error.message || 'Failed to load reports analytics.');
             setReportData(null);
+            setSummaryData({
+                by_technician: [],
+                by_customer: [],
+                by_product: [],
+                by_department: [],
+                by_branch: [],
+            });
             setRecentOrders([]);
         } finally {
             setIsLoading(false);
@@ -307,6 +382,185 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         return () => clearTimeout(timer);
     }, [autoDownloadAfterPreview, invoicePreviewData]);
 
+    useEffect(() => {
+        setDetailRows([]);
+        setDetailsError('');
+        setDetailsTitle('');
+        setSelectedDetailKey('');
+    }, [activeTab]);
+
+    useEffect(() => {
+        if (detailsLoading || detailsError || detailRows.length === 0) return;
+        const updateWidth = () => {
+            const el = bottomScrollRef.current;
+            if (!el) return;
+            setDetailTableWidth(el.scrollWidth || 0);
+        };
+        updateWidth();
+        window.addEventListener('resize', updateWidth);
+        return () => window.removeEventListener('resize', updateWidth);
+    }, [detailRows, detailsLoading, detailsError]);
+
+    const handleTopScroll = () => {
+        if (scrollSyncLockRef.current) return;
+        const top = topScrollRef.current;
+        const bottom = bottomScrollRef.current;
+        if (!top || !bottom) return;
+        scrollSyncLockRef.current = true;
+        bottom.scrollLeft = top.scrollLeft;
+        scrollSyncLockRef.current = false;
+    };
+
+    const handleBottomScroll = () => {
+        if (scrollSyncLockRef.current) return;
+        const top = topScrollRef.current;
+        const bottom = bottomScrollRef.current;
+        if (!top || !bottom) return;
+        scrollSyncLockRef.current = true;
+        top.scrollLeft = bottom.scrollLeft;
+        scrollSyncLockRef.current = false;
+    };
+
+    const loadDetails = useCallback(
+        async (tabId, row) => {
+            const params = workshopReportsAnalyticsParams(selectedBranchId, {
+                startDate: dateFrom,
+                endDate: dateTo,
+                technicianId: selectedTechId || undefined,
+            });
+            let fetcher = null;
+            let key = '';
+            let title = '';
+            if (tabId === 'by_technician') {
+                fetcher = getWorkshopReportsByTechnicianDetails;
+                key = String(row.technician_id ?? row.technicianId ?? row.id ?? '');
+                title = `Technician details: ${row.name || 'Technician'}`;
+            } else if (tabId === 'by_customer') {
+                fetcher = getWorkshopReportsByCustomerDetails;
+                key = String(row.customer_id ?? row.customerId ?? '');
+                title = `Customer details: ${row.customer_name ?? row.customerName ?? 'Customer'}`;
+            } else if (tabId === 'by_product') {
+                fetcher = getWorkshopReportsByProductDetails;
+                key = String(row.product_id ?? row.productId ?? '');
+                title = `Product details: ${row.product_name ?? row.productName ?? row.item_name ?? 'Item'}`;
+            } else if (tabId === 'by_department') {
+                fetcher = getWorkshopReportsByDepartmentDetails;
+                key = String(row.department_id ?? row.departmentId ?? '');
+                title = `Department details: ${row.department_name ?? row.departmentName ?? 'Department'}`;
+            } else if (tabId === 'by_branch') {
+                fetcher = getWorkshopReportsByBranchDetails;
+                key = String(row.branch_id ?? row.branchId ?? '');
+                title = `Branch details: ${row.branch_name ?? row.branchName ?? 'Branch'}`;
+            }
+            if (!fetcher || !key) return;
+
+            setSelectedDetailKey(`${tabId}:${key || 'all'}`);
+            setDetailsLoading(true);
+            setDetailsError('');
+            setDetailsTitle(title);
+            try {
+                const res = await fetcher(key, params);
+                const rows = parseArr(res?.rows);
+                if (tabId === 'by_technician') {
+                    setDetailRows(
+                        rows.map((r) => {
+                            const next = { ...(r || {}) };
+                            delete next.jobId;
+                            delete next.job_id;
+                            delete next.departmentId;
+                            delete next.department_id;
+                            delete next.branchId;
+                            delete next.branch_id;
+                            delete next.salesOrderId;
+                            delete next.sales_order_id;
+                            delete next.invoiceId;
+                            delete next.invoice_id;
+                            delete next.technicianId;
+                            delete next.technician_id;
+                            delete next.vehicleId;
+                            delete next.vehicle_id;
+                            return next;
+                        }),
+                    );
+                } else if (tabId === 'by_customer') {
+                    setDetailRows(
+                        rows.map((r) => {
+                            const next = { ...(r || {}) };
+                            delete next.invoiceId;
+                            delete next.invoice_id;
+                            delete next.salesOrderId;
+                            delete next.sales_order_id;
+                            delete next.corporateAccountId;
+                            delete next.corporate_account_id;
+                            delete next.vehicleId;
+                            delete next.vehicle_id;
+                            return next;
+                        }),
+                    );
+                } else if (tabId === 'by_product') {
+                    setDetailRows(
+                        rows.map((r) => {
+                            const next = { ...(r || {}) };
+                            delete next.salesOrderItemId;
+                            delete next.sales_order_item_id;
+                            delete next.salesOrderId;
+                            delete next.sales_order_id;
+                            delete next.invoiceId;
+                            delete next.invoice_id;
+                            delete next.vehicleId;
+                            delete next.vehicle_id;
+                            delete next.productId;
+                            delete next.product_id;
+                            delete next.serviceId;
+                            delete next.service_id;
+                            return next;
+                        }),
+                    );
+                } else if (tabId === 'by_department') {
+                    setDetailRows(
+                        rows.map((r) => {
+                            const next = { ...(r || {}) };
+                            delete next.salesOrderItemId;
+                            delete next.sales_order_item_id;
+                            delete next.salesOrderId;
+                            delete next.sales_order_id;
+                            delete next.invoiceId;
+                            delete next.invoice_id;
+                            delete next.vehicleId;
+                            delete next.vehicle_id;
+                            delete next.productId;
+                            delete next.product_id;
+                            delete next.serviceId;
+                            delete next.service_id;
+                            return next;
+                        }),
+                    );
+                } else if (tabId === 'by_branch') {
+                    setDetailRows(
+                        rows.map((r) => {
+                            const next = { ...(r || {}) };
+                            delete next.invoiceId;
+                            delete next.invoice_id;
+                            delete next.salesOrderId;
+                            delete next.sales_order_id;
+                            delete next.vehicleId;
+                            delete next.vehicle_id;
+                            return next;
+                        }),
+                    );
+                } else {
+                    setDetailRows(rows);
+                }
+            } catch (error) {
+                setDetailsError(error?.message || 'Failed to load details.');
+                setDetailRows([]);
+            } finally {
+                setDetailsLoading(false);
+            }
+        },
+        [selectedBranchId, dateFrom, dateTo, selectedTechId],
+    );
+
     const norm = useMemo(() => {
         if (!reportData || typeof reportData !== 'object') return null;
         const r = reportData;
@@ -326,7 +580,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             amount: toNumber(e.revenue ?? e.amount),
         }));
 
-        const techRaw = parseArr(r.by_technician).length ? r.by_technician : r.operationalPerformance;
+        const techRaw = parseArr(summaryData.by_technician).length
+            ? summaryData.by_technician
+            : parseArr(r.by_technician).length
+              ? r.by_technician
+              : r.operationalPerformance;
         const byTechnician = parseArr(techRaw).map((e) => ({
             id: String(e.technician_id ?? e.employeeId ?? e.id ?? ''),
             name: e.name || 'Unknown',
@@ -344,15 +602,15 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             activeSkus,
             dailyRevenue,
             byTechnician,
-            byCustomer: parseArr(r.by_customer),
-            byProduct: parseArr(r.by_product),
-            byDepartment: parseArr(r.by_department),
-            byBranch: parseArr(r.by_branch),
+            byCustomer: parseArr(summaryData.by_customer).length ? summaryData.by_customer : parseArr(r.by_customer),
+            byProduct: parseArr(summaryData.by_product).length ? summaryData.by_product : parseArr(r.by_product),
+            byDepartment: parseArr(summaryData.by_department).length ? summaryData.by_department : parseArr(r.by_department),
+            byBranch: parseArr(summaryData.by_branch).length ? summaryData.by_branch : parseArr(r.by_branch),
             period: r.period ?? null,
             previousPeriod: r.previous_period ?? null,
             definitions: typeof r.definitions === 'string' ? r.definitions : '',
         };
-    }, [reportData]);
+    }, [reportData, summaryData]);
 
     const kpis = useMemo(() => {
         if (!norm) {
@@ -587,7 +845,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         </tr>
                                     ) : (
                                         (norm?.byTechnician ?? []).map((t) => (
-                                            <tr key={t.id || t.name}>
+                                            <tr
+                                                key={t.id || t.name}
+                                                onClick={() => loadDetails('by_technician', t)}
+                                                style={{ cursor: 'pointer', background: selectedDetailKey === `by_technician:${t.id}` ? '#F8FAFC' : undefined }}
+                                            >
                                                 <td>
                                                     <strong>{t.name}</strong>
                                                 </td>
@@ -609,6 +871,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <thead>
                                 <tr>
                                     <th>CUSTOMER</th>
+                                    <th>PLATE NUMBER</th>
                                     <th>ORDERS</th>
                                     <th>REVENUE (SAR)</th>
                                 </tr>
@@ -616,15 +879,25 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <tbody>
                                 {(norm?.byCustomer ?? []).length === 0 ? (
                                     <tr>
-                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                        <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                             No customer breakdown for this scope.
                                         </td>
                                     </tr>
                                 ) : (
                                     norm.byCustomer.map((row, i) => (
-                                        <tr key={row.customer_id ?? row.customerId ?? i}>
+                                        <tr
+                                            key={row.customer_id ?? row.customerId ?? i}
+                                            onClick={() => loadDetails('by_customer', row)}
+                                            style={{ cursor: 'pointer', background: selectedDetailKey === `by_customer:${String(row.customer_id ?? row.customerId ?? '')}` ? '#F8FAFC' : undefined }}
+                                        >
                                             <td>
                                                 <strong>{row.customer_name ?? row.customerName ?? '—'}</strong>
+                                            </td>
+                                            <td>
+                                                {Array.isArray(row.plate_numbers ?? row.plateNumbers) &&
+                                                (row.plate_numbers ?? row.plateNumbers).length > 0
+                                                    ? (row.plate_numbers ?? row.plateNumbers).join(', ')
+                                                    : row.plate_no ?? row.plateNo ?? '—'}
                                             </td>
                                             <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
                                             <td className="ws-font-bold">
@@ -658,7 +931,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     </tr>
                                 ) : (
                                     norm.byProduct.map((row, i) => (
-                                        <tr key={row.product_id ?? row.productId ?? i}>
+                                        <tr
+                                            key={row.product_id ?? row.productId ?? i}
+                                            onClick={() => loadDetails('by_product', row)}
+                                            style={{ cursor: 'pointer', background: selectedDetailKey === `by_product:${String(row.product_id ?? row.productId ?? '')}` ? '#F8FAFC' : undefined }}
+                                        >
                                             <td>
                                                 <strong>{row.product_name ?? row.productName ?? row.product_id ?? row.productId ?? '—'}</strong>
                                             </td>
@@ -694,7 +971,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     </tr>
                                 ) : (
                                     norm.byDepartment.map((row, i) => (
-                                        <tr key={row.department_id ?? row.departmentId ?? i}>
+                                        <tr
+                                            key={row.department_id ?? row.departmentId ?? i}
+                                            onClick={() => loadDetails('by_department', row)}
+                                            style={{ cursor: 'pointer', background: selectedDetailKey === `by_department:${String(row.department_id ?? row.departmentId ?? '')}` ? '#F8FAFC' : undefined }}
+                                        >
                                             <td>
                                                 <strong>{row.department_name ?? row.departmentName ?? '—'}</strong>
                                             </td>
@@ -729,7 +1010,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     </tr>
                                 ) : (
                                     norm.byBranch.map((row, i) => (
-                                        <tr key={row.branch_id ?? row.branchId ?? i}>
+                                        <tr
+                                            key={row.branch_id ?? row.branchId ?? i}
+                                            onClick={() => loadDetails('by_branch', row)}
+                                            style={{ cursor: 'pointer', background: selectedDetailKey === `by_branch:${String(row.branch_id ?? row.branchId ?? '')}` ? '#F8FAFC' : undefined }}
+                                        >
                                             <td>
                                                 <strong>{row.branch_name ?? row.branchName ?? '—'}</strong>
                                             </td>
@@ -857,7 +1142,113 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     setAutoDownloadAfterPreview(false);
                 }}
             />
-
+            {(detailsLoading || detailsError || detailRows.length > 0) && (
+                <Modal
+                    title={detailsTitle || 'Details'}
+                    onClose={() => {
+                        setDetailRows([]);
+                        setDetailsError('');
+                        setDetailsTitle('');
+                        setSelectedDetailKey('');
+                    }}
+                    width="min(1620px, 98vw)"
+                >
+                    {detailsLoading ? (
+                        <div className="ws-text-dim" style={{ padding: 8 }}>Loading details...</div>
+                    ) : detailsError ? (
+                        <div style={{ padding: 8, color: '#B91C1C' }}>{detailsError}</div>
+                    ) : (
+                        <div style={{ display: 'grid', gap: 12, maxHeight: '70vh', overflowY: 'auto', overflowX: 'hidden' }}>
+                            {(() => {
+                                const hiddenCols = new Set([
+                                    'jobId',
+                                    'job_id',
+                                    'departmentId',
+                                    'department_id',
+                                    'branchId',
+                                    'branch_id',
+                                    'customerId',
+                                    'customer_id',
+                                ]);
+                                const columns = Object.keys(detailRows[0] || {}).filter((k) => !hiddenCols.has(k));
+                                return (
+                            <>
+                                <div
+                                    className="ws-report-table-wrapper"
+                                    ref={topScrollRef}
+                                    onScroll={handleTopScroll}
+                                    style={{ overflowX: 'auto', overflowY: 'hidden' }}
+                                >
+                                    <div style={{ width: detailTableWidth, height: 1 }} />
+                                </div>
+                                <div
+                                    className="ws-report-table-wrapper"
+                                    ref={bottomScrollRef}
+                                    onScroll={handleBottomScroll}
+                                    style={{ overflowX: 'auto', overflowY: 'hidden' }}
+                                >
+                                    <table className="ws-table" style={{ minWidth: 'max-content', width: '100%' }}>
+                                        <thead>
+                                            <tr>
+                                                {columns.map((k) => (
+                                                    <th key={k} style={{ padding: '8px 10px' }}>{humanizeKey(k)}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {detailRows.map((row, i) => (
+                                                <tr key={i}>
+                                                    {columns.map((k) => {
+                                                        const val = row?.[k];
+                                                        return (
+                                                            <td key={k} style={{ padding: '10px' }}>
+                                                            {Array.isArray(val) ? (
+                                                                val.length === 0 ? (
+                                                                    '[]'
+                                                                ) : val.every((item) => item && typeof item === 'object') ? (
+                                                                    <div style={{ display: 'grid', gap: 6, minWidth: 220 }}>
+                                                                        {val.map((item, idx) => (
+                                                                            <div
+                                                                                key={item.salesOrderItemId ?? idx}
+                                                                                style={{
+                                                                                    padding: '6px 8px',
+                                                                                    border: '1px solid #E5E7EB',
+                                                                                    borderRadius: 8,
+                                                                                    background: '#F8FAFC',
+                                                                                }}
+                                                                            >
+                                                                                <div style={{ fontWeight: 700, fontSize: 12 }}>
+                                                                                    {item.itemName ?? item.name ?? `Item ${idx + 1}`}
+                                                                                </div>
+                                                                                <div style={{ fontSize: 11, color: '#6B7280' }}>
+                                                                                    {item.itemType ?? 'item'} • Qty: {item.qty ?? '—'} • SAR {toNumber(item.lineTotal).toLocaleString()}
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    val.join(', ')
+                                                                )
+                                                            ) : val == null || val === '' ? (
+                                                                '—'
+                                                            ) : (
+                                                                String(val)
+                                                            )}
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                                );
+                            })()}
+                        </div>
+                    )}
+                </Modal>
+            )}
             {norm?.definitions ? (
                 <details className="ws-section" style={{ marginTop: 20 }}>
                     <summary className="ws-text-dim" style={{ cursor: 'pointer', fontWeight: 600 }}>
