@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Users, FileText, MousePointer2, Ticket, TrendingUp, DollarSign, Award, Star, ChevronRight, ChevronDown, Plus, Clock, Pencil, Trash2 } from 'lucide-react';
+import { Users, FileText, MousePointer2, Ticket, TrendingUp, DollarSign, Award, Star, ChevronRight, ChevronDown, Plus, Clock } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { StatCardMini } from './MarketingUtils';
 import { ReferralTypeModal } from './ReferralTypeModal';
+import { marketingGetReferralManagementDashboard } from '../../services/superAdminMarketingApi';
+import { MarketingReferralManagementSkeleton } from './MarketingShimmer';
 
 export const ReferralManagement = ({
     showAdd: propsShowAdd,
@@ -20,8 +22,34 @@ export const ReferralManagement = ({
 
     const [activeTab, setActiveTab] = useState('referrals');
     const [referralType, setReferralType] = useState(null);
+    const [refDash, setRefDash] = useState(null);
+    const [refDashErr, setRefDashErr] = useState('');
+    const [refDashLoading, setRefDashLoading] = useState(true);
 
     const isModalOpen = showAdd || !!referralType;
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            setRefDashLoading(true);
+            setRefDashErr('');
+            try {
+                const d = await marketingGetReferralManagementDashboard({
+                    recentReferrals: 12,
+                    recentReferrers: 12,
+                });
+                if (!cancelled) setRefDash(d);
+            } catch (e) {
+                if (!cancelled) {
+                    setRefDash(null);
+                    setRefDashErr(e?.message || 'Failed to load referral dashboard.');
+                }
+            } finally {
+                if (!cancelled) setRefDashLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
 
     const closeModal = () => {
         if (onCancel) onCancel();
@@ -144,13 +172,41 @@ export const ReferralManagement = ({
                 </div>
             </div>
 
-            {activeTab === 'ledger' ? renderLedger() : (
+            {activeTab === 'ledger' ? renderLedger() : refDashLoading ? (
                 <>
+                    {refDashErr ? (
+                        <p style={{ color: '#b91c1c', fontWeight: 600, marginBottom: 12 }}>{refDashErr}</p>
+                    ) : null}
+                    <MarketingReferralManagementSkeleton />
+                </>
+            ) : (
+                <>
+                    {refDashErr ? (
+                        <p style={{ color: '#b91c1c', fontWeight: 600, marginBottom: 12 }}>{refDashErr}</p>
+                    ) : null}
                     <div className="dashboard-stats-row" style={{ marginBottom: '32px' }}>
-                        <StatCardMini title="Total Referrals" value={referrals.length} icon={MousePointer2} />
-                        <StatCardMini title="Active Codes" value={referrals.filter(r => r.status === 'Active').length} icon={Ticket} />
-                        <StatCardMini title="Sales Generated" value="SAR 850K" icon={TrendingUp} />
-                        <StatCardMini title="Commission Due" value="SAR 4,200" icon={DollarSign} />
+                        <StatCardMini
+                            title="Active referrers"
+                            value={refDash?.stats?.activeReferrers?.total ?? '—'}
+                            icon={MousePointer2}
+                            trend={refDash?.stats?.activeReferrers?.breakdownLabel}
+                            trendSuffix=""
+                        />
+                        <StatCardMini
+                            title="Corporate referrals (total)"
+                            value={refDash?.stats?.totalReferrals?.total ?? '—'}
+                            icon={Ticket}
+                        />
+                        <StatCardMini
+                            title="Pending review"
+                            value={refDash?.stats?.totalReferrals?.pendingReview?.total ?? '—'}
+                            icon={TrendingUp}
+                        />
+                        <StatCardMini
+                            title="Outstanding payable (placeholder)"
+                            value={`${refDash?.stats?.outstandingPayable?.currencyCode || 'SAR'} ${refDash?.stats?.outstandingPayable?.amount ?? 0}`}
+                            icon={DollarSign}
+                        />
                     </div>
                     <div className="marketing-grid" style={{ marginBottom: '40px' }}>
                         {[
@@ -177,52 +233,61 @@ export const ReferralManagement = ({
                         ))}
                     </div>
 
-                    <h4 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '20px' }}>Recent Referral Codes</h4>
+                    <h4 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '20px' }}>Recent corporate referrals</h4>
+                    <section className="premium-table" style={{ marginBottom: 32 }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                                <tr className="table-header-row">
+                                    <th className="table-th">Company</th>
+                                    <th className="table-th">Referrer</th>
+                                    <th className="table-th">Status</th>
+                                    <th className="table-th">Referred at</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(refDash?.recentReferrals || []).map((r) => (
+                                    <tr key={r.corporateAccountId} className="table-row">
+                                        <td className="table-cell">{r.companyName}</td>
+                                        <td className="table-cell">{r.referrerName || '—'}</td>
+                                        <td className="table-cell">{r.status}</td>
+                                        <td className="table-cell">{r.referredAt ? String(r.referredAt).slice(0, 10) : '—'}</td>
+                                    </tr>
+                                ))}
+                                {(!refDash?.recentReferrals || refDash.recentReferrals.length === 0) && (
+                                    <tr>
+                                        <td colSpan={4} style={{ textAlign: 'center', padding: '40px', color: '#9CA3AF' }}>
+                                            No recent corporate referrals
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </section>
+
+                    <h4 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '20px' }}>Recent referrers</h4>
                     <section className="premium-table">
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                                 <tr className="table-header-row">
-                                    <th className="table-th">Type</th>
-                                    <th className="table-th">Code</th>
-                                    <th className="table-th">Referrer Name</th>
-                                    <th className="table-th">Analytics</th>
+                                    <th className="table-th">Name</th>
+                                    <th className="table-th">Category</th>
+                                    <th className="table-th">Linked accounts</th>
                                     <th className="table-th">Status</th>
-                                    <th className="table-th">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {referrals.map((r) => (
-                                    <tr key={r.id} className="table-row">
-                                        <td className="table-cell">
-                                            <div className="cell-main-text">{r.typeLabel}</div>
-                                        </td>
-                                        <td className="table-cell">
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <code style={{ background: '#F9FAFB', padding: '4px 8px', borderRadius: '6px', fontWeight: 700 }}>{r.code}</code>
-                                            </div>
-                                        </td>
-                                        <td className="table-cell">{r.referrerName}</td>
-                                        <td className="table-cell">
-                                            <div style={{ fontSize: '11px', color: '#6B7280' }}>
-                                                <div>Uses: 0</div>
-                                                <div>Earnings: SAR 0</div>
-                                            </div>
-                                        </td>
-                                        <td className="table-cell">
-                                            <span className="marketing-card-badge badge-active">{r.status}</span>
-                                        </td>
-                                        <td className="table-cell">
-                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                <button className="icon-btn-mini" title="Edit"><Pencil size={14} /></button>
-                                                <button className="icon-btn-mini text-danger" title="Delete"><Trash2 size={14} /></button>
-                                            </div>
-                                        </td>
+                                {(refDash?.recentReferrers || []).map((r) => (
+                                    <tr key={r.referrerId} className="table-row">
+                                        <td className="table-cell">{r.fullName}</td>
+                                        <td className="table-cell">{r.category}</td>
+                                        <td className="table-cell">{r.linkedCorporateAccounts}</td>
+                                        <td className="table-cell">{r.status}</td>
                                     </tr>
                                 ))}
-                                {referrals.length === 0 && (
+                                {(!refDash?.recentReferrers || refDash.recentReferrers.length === 0) && (
                                     <tr>
-                                        <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: '#9CA3AF' }}>
-                                            No referral codes generated yet
+                                        <td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: '#9CA3AF' }}>
+                                            No referrers yet
                                         </td>
                                     </tr>
                                 )}

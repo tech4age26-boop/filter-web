@@ -8,12 +8,11 @@ import {
     deleteSupplierInvoice,
     getSupplierInvoice,
     getSupplierInventoryStockBalances,
-    getSupplierLocations,
+    getSupplierSalesInvoiceCustomerBranches,
     listSupplierInvoices,
     updateSupplierInvoice,
 } from '../../services/supplierApi';
-import WorkshopPurchaseInvoicesSupplierPanel from './WorkshopPurchaseInvoicesSupplierPanel';
-import { ShimmerOrderQueueCards, ShimmerTextBlock } from '../../components/supplier/Shimmer';
+import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
 const INVENTORY_ITEMS = [
     { id: 1, name: 'Engine Oil — Full Synthetic 5W40', price: 45, unit: 'liter', lastPrice: 42 },
@@ -35,14 +34,6 @@ const TAXES = [
 ];
 
 const CASH_ACCOUNTS = ['Main Cash', 'Bank — Al Rajhi', 'Bank — SNB'];
-
-const STATUS_STYLES = {
-    paid: { bg: '#D1FAE5', color: '#047857' },
-    pending: { bg: '#FEF3C7', color: '#B45309' },
-    pending_payment: { bg: '#FEF3C7', color: '#B45309' },
-    partially_paid: { bg: '#FFEDD5', color: '#C2410C' },
-    overdue: { bg: '#FEE2E2', color: '#B91C1C' },
-};
 
 function formatInvoicePayloadForPdf(payload) {
     const inv = payload?.invoice ?? payload;
@@ -173,6 +164,7 @@ export default function SupplierSalesInvoices() {
     const addItemToLines = (item) => {
         const newLine = {
             id: Date.now(),
+            productId: item.id != null && item.id !== '' ? String(item.id) : undefined,
             item: item.name,
             account: '4100 - Sales Revenue',
             description: '',
@@ -188,6 +180,25 @@ export default function SupplierSalesInvoices() {
         setLineItems((prev) => [...prev, newLine]);
         setSearchQuery('');
         setShowDropdown(false);
+    };
+
+    const addEmptyLine = () => {
+        const newLine = {
+            id: Date.now() + Math.floor(Math.random() * 1000),
+            productId: undefined,
+            item: '',
+            account: '4100 - Sales Revenue',
+            description: '',
+            uom: 'pcs',
+            qty: 1,
+            price: 0,
+            discount: 0,
+            taxCode: 'VAT 15%',
+            taxAmt: '0.00',
+            totalFinal: '0.00',
+            lastSalePrice: 0,
+        };
+        setLineItems((prev) => [...prev, newLine]);
     };
 
     const handleKeyDown = (e) => {
@@ -298,9 +309,21 @@ export default function SupplierSalesInvoices() {
                       id: inv.id,
                       invoiceNo: inv.invoiceNo,
                       branch: inv.branch?.name || '-',
+                      branchId: inv.branch?.id,
+                      workshopName: inv.workshop?.name || inv.branch?.workshopName || '',
                       date: inv.invoiceDate,
+                      dueDate: inv.dueDate || '—',
                       amount: Number(inv.grandTotal || 0),
+                      paid: Number(inv.paid || 0),
+                      balance: Number(inv.outstanding || 0),
                       status: inv.status || 'pending_payment',
+                      paymentStatus:
+                          inv.paymentStatus ||
+                          (Number(inv.outstanding || 0) <= 0 ? 'paid' : 'unpaid'),
+                      vendorRef: inv.deliveryNoteUrl || '—',
+                      productLabel: inv.productLabel ?? '—',
+                      quantityLabel: inv.quantityLabel ?? '—',
+                      unitLabel: inv.unitLabel ?? '—',
                   }))
                 : [];
             setInvoices(invList);
@@ -314,17 +337,46 @@ export default function SupplierSalesInvoices() {
     };
 
     const handleSaveInvoice = async () => {
-        const branchRef = branches.find((b) => b.name === branch || String(b.id) === String(branch));
-        if (!branchRef?.id || lineItems.length === 0) return;
-        setSaving(true);
         setSaveError('');
-        const due =
-            calculatedDueDate === '—' ? issueDate : calculatedDueDate;
-        const itemsPayload = lineItems.map((line) => ({
-            productName: line.item,
+        if (!branch) {
+            setSaveError('Select a workshop branch (customer).');
+            return;
+        }
+        if (lineItems.length === 0) {
+            setSaveError('Add at least one line item.');
+            return;
+        }
+        const branchRef = branches.find((b) => String(b.id) === String(branch));
+        if (!branchRef?.id) {
+            setSaveError('Invalid branch selection. Refresh the page if branches are missing.');
+            return;
+        }
+        const normalizedLines = lineItems.map((line, idx) => ({
+            index: idx,
+            productName: String(line.item || '').trim(),
             qty: Number(line.qty) || 0,
             unitPrice: Number(line.price) || 0,
             vatRate: Number(TAXES.find((t) => t.code === line.taxCode)?.percent || 0),
+            productId: line.productId ? String(line.productId) : undefined,
+        }));
+        const invalidLine = normalizedLines.find(
+            (line) => !line.productName || !(line.qty > 0) || line.unitPrice < 0,
+        );
+        if (invalidLine) {
+            setSaveError(
+                `Line ${invalidLine.index + 1}: item name required, qty must be > 0, and price cannot be negative.`,
+            );
+            return;
+        }
+        setSaving(true);
+        const due =
+            calculatedDueDate === '—' ? issueDate : calculatedDueDate;
+        const itemsPayload = normalizedLines.map((line) => ({
+            ...(line.productId ? { productId: line.productId } : {}),
+            productName: line.productName,
+            qty: line.qty,
+            unitPrice: line.unitPrice,
+            vatRate: line.vatRate,
         }));
         try {
             if (invoiceModalMode === 'edit' && editingInvoiceId) {
@@ -372,7 +424,7 @@ export default function SupplierSalesInvoices() {
             const inv = res?.invoice;
             if (!inv) return;
             setIssueDate(inv.invoiceDate || issueDate);
-            setBranch(inv.branch?.name || '');
+            setBranch(inv.branch?.id != null ? String(inv.branch.id) : '');
             setDescription(inv.deliveryNoteUrl || '');
             setRefNo(inv.invoiceNo || '');
             const due = inv.dueDate ? new Date(inv.dueDate) : new Date();
@@ -385,6 +437,7 @@ export default function SupplierSalesInvoices() {
             setLineItems(
                 (inv.items || []).map((it, idx) => ({
                     id: Date.now() + idx,
+                    productId: it.productId != null ? String(it.productId) : undefined,
                     item: it.productName,
                     account: '4100 - Sales Revenue',
                     description: '',
@@ -465,9 +518,9 @@ export default function SupplierSalesInvoices() {
         let cancelled = false;
         const load = async () => {
             try {
-                const [stockRes, locationsRes] = await Promise.all([
+                const [stockRes, branchesRes] = await Promise.all([
                     getSupplierInventoryStockBalances({ limit: 200 }),
-                    getSupplierLocations(),
+                    getSupplierSalesInvoiceCustomerBranches().catch(() => null),
                 ]);
                 const stockItems = Array.isArray(stockRes?.items)
                     ? stockRes.items.map((item) => ({
@@ -484,15 +537,21 @@ export default function SupplierSalesInvoices() {
                           lastPrice: 0,
                       }))
                     : [];
-                const locs = Array.isArray(locationsRes?.locations)
-                    ? locationsRes.locations
-                    : Array.isArray(locationsRes)
-                      ? locationsRes
-                      : [];
+                const custBranches = Array.isArray(branchesRes?.branches)
+                    ? branchesRes.branches
+                    : [];
                 if (!cancelled) {
                     if (stockItems.length) setInventoryItems(stockItems);
-                    if (locs.length) {
-                        setBranches(locs.map((l) => ({ id: l.id, name: l.name })));
+                    if (custBranches.length) {
+                        setBranches(
+                            custBranches.map((b) => ({
+                                id: b.id,
+                                name: b.name,
+                                label: b.label || `${b.workshopName || ''} — ${b.name || ''}`.trim(),
+                            })),
+                        );
+                    } else {
+                        setBranches([]);
                     }
                 }
                 if (!cancelled) await loadInvoiceList();
@@ -505,6 +564,30 @@ export default function SupplierSalesInvoices() {
         return () => {
             cancelled = true;
         };
+    }, []);
+
+    useEffect(() => {
+        try {
+            if (sessionStorage.getItem('supplier_open_new_sales_invoice') === '1') {
+                sessionStorage.removeItem('supplier_open_new_sales_invoice');
+                const presetBranch = sessionStorage.getItem(
+                    'supplier_sales_invoice_preset_branch_id',
+                );
+                if (presetBranch) {
+                    sessionStorage.removeItem('supplier_sales_invoice_preset_branch_id');
+                }
+                setInvoiceModalMode('create');
+                setEditingInvoiceId(null);
+                resetInvoiceForm();
+                if (presetBranch) {
+                    setBranch(String(presetBranch));
+                }
+                setModalOpen(true);
+            }
+        } catch {
+            /* ignore */
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot from layout header
     }, []);
 
     return (
@@ -524,22 +607,6 @@ export default function SupplierSalesInvoices() {
                 creates an <strong>Accounts Receivable</strong> for you and auto-creates a{' '}
                 <strong>Purchase Invoice</strong> on the workshop side. Stock is updated on both ends.
             </div>
-            <div
-                style={{
-                    padding: 14,
-                    background: '#FFFBEB',
-                    border: '1px solid #FDE68A',
-                    borderRadius: 12,
-                    marginBottom: 16,
-                    fontSize: '0.875rem',
-                    color: '#92400E',
-                }}
-            >
-                <strong>Workshop purchase invoices</strong> — when a workshop submits a purchase invoice to you as
-                supplier, it appears in the table below. You can <strong>edit</strong> ref / description / notes while
-                it is pending, then <strong>approve</strong> or <strong>reject</strong> (stock applies on approve).
-            </div>
-            <WorkshopPurchaseInvoicesSupplierPanel variant="embedded" />
             <div className="ws-page-header">
                 <div>
                     <h2 className="ws-page-title">Sales Invoices (AR)</h2>
@@ -553,7 +620,6 @@ export default function SupplierSalesInvoices() {
                     <Plus size={15} /> New Invoice
                 </button>
             </div>
-            {listLoading ? <ShimmerOrderQueueCards count={4} /> : null}
             {listError ? (
                 <div
                     className="ws-section"
@@ -569,189 +635,210 @@ export default function SupplierSalesInvoices() {
                     {listError}
                 </div>
             ) : null}
-            {!listLoading && list.length === 0 ? (
-                <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
-                    <FileText
-                        size={48}
-                        style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }}
-                    />
-                    <p
-                        style={{
-                            margin: 0,
-                            fontWeight: 600,
-                            color: 'var(--color-text-muted)',
-                        }}
-                    >
-                        No warehouse sales invoices yet
-                    </p>
-                    <button
-                        className="btn-portal"
-                        style={{
-                            marginTop: 16,
-                            background: '#2563EB',
-                            color: '#fff',
-                            border: 'none',
-                        }}
-                        onClick={openNewInvoiceModal}
-                    >
-                        <Plus size={15} /> Create First Invoice
-                    </button>
-                </div>
-            ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {list.map((inv) => {
-                        const st = STATUS_STYLES[inv.status] || STATUS_STYLES.pending;
-                        const statusLabel = String(inv.status || '').replace(/_/g, ' ');
-                        const canMutate = inv.status === 'pending_payment';
-                        return (
-                            <div
-                                key={inv.id}
-                                className="ws-section"
-                                style={{ marginBottom: 0, padding: 20 }}
-                            >
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'flex-start',
-                                        justifyContent: 'space-between',
-                                    }}
-                                >
-                                    <div>
-                                        <p
+            <div className="ws-section">
+                <div style={{ overflowX: 'auto' }}>
+                    {listLoading && list.length === 0 ? (
+                        <ShimmerTable rows={8} columns={9} />
+                    ) : (
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>Invoice #</th>
+                                    <th>Workshop / Branch</th>
+                                    <th>Date</th>
+                                    <th>Due Date</th>
+                                    <th>Total</th>
+                                    <th>Paid</th>
+                                    <th>Balance</th>
+                                    <th>Status</th>
+                                    <th>Payment</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {!listLoading && list.length === 0 ? (
+                                    <tr>
+                                        <td
+                                            colSpan={10}
                                             style={{
-                                                fontWeight: 700,
-                                                fontSize: '0.9375rem',
-                                                color: 'var(--color-text-dark)',
-                                                margin: 0,
-                                            }}
-                                        >
-                                            {inv.invoiceNo || inv.id}
-                                        </p>
-                                        <p
-                                            style={{
-                                                fontSize: '0.75rem',
+                                                textAlign: 'center',
+                                                padding: 40,
                                                 color: 'var(--color-text-muted)',
-                                                margin: '2px 0 0 0',
                                             }}
                                         >
-                                            {inv.date} · {inv.branch}
-                                        </p>
-                                        <p
-                                            style={{
-                                                fontSize: '0.875rem',
-                                                fontWeight: 600,
-                                                margin: '8px 0 0 0',
-                                                color: 'var(--color-text-dark)',
-                                            }}
-                                        >
-                                            SAR {(inv.amount || 0).toLocaleString()}
-                                        </p>
-                                    </div>
-                                    <span
-                                        style={{
-                                            background: st.bg,
-                                            color: st.color,
-                                            padding: '4px 10px',
-                                            borderRadius: 6,
-                                            fontSize: '0.75rem',
-                                            fontWeight: 600,
-                                            textTransform: 'capitalize',
-                                        }}
-                                    >
-                                        {statusLabel}
-                                    </span>
-                                </div>
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        gap: 8,
-                                        marginTop: 12,
-                                        flexWrap: 'wrap',
-                                    }}
-                                >
-                                    <button
-                                        type="button"
-                                        style={{
-                                            padding: '6px 10px',
-                                            borderRadius: 6,
-                                            border: '1px solid var(--color-border)',
-                                            background: '#fff',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 600,
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 6,
-                                        }}
-                                        onClick={() => handleViewInvoice(inv)}
-                                    >
-                                        <Eye size={14} /> View
-                                    </button>
-                                    <button
-                                        type="button"
-                                        style={{
-                                            padding: '6px 10px',
-                                            borderRadius: 6,
-                                            border: '1px solid var(--color-border)',
-                                            background: '#fff',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 600,
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 6,
-                                        }}
-                                        onClick={() => handleDownloadInvoice(inv)}
-                                    >
-                                        <Download size={14} /> Download
-                                    </button>
-                                    <button
-                                        type="button"
-                                        disabled={!canMutate}
-                                        style={{
-                                            padding: '6px 10px',
-                                            borderRadius: 6,
-                                            border: '1px solid var(--color-border)',
-                                            background: canMutate ? '#fff' : '#f8fafc',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 600,
-                                            cursor: canMutate ? 'pointer' : 'not-allowed',
-                                            opacity: canMutate ? 1 : 0.55,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 6,
-                                        }}
-                                        onClick={() => openEditInvoice(inv)}
-                                    >
-                                        <Pencil size={14} /> Edit
-                                    </button>
-                                    <button
-                                        type="button"
-                                        disabled={!canMutate}
-                                        style={{
-                                            padding: '6px 10px',
-                                            borderRadius: 6,
-                                            border: '1px solid #FECACA',
-                                            background: canMutate ? '#FEF2F2' : '#f8fafc',
-                                            color: '#B91C1C',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 600,
-                                            cursor: canMutate ? 'pointer' : 'not-allowed',
-                                            opacity: canMutate ? 1 : 0.55,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 6,
-                                        }}
-                                        onClick={() => handleDeleteInvoice(inv)}
-                                    >
-                                        <Trash2 size={14} /> Delete
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
+                                            <FileText
+                                                size={40}
+                                                style={{
+                                                    opacity: 0.25,
+                                                    margin: '0 auto 12px',
+                                                    display: 'block',
+                                                }}
+                                            />
+                                            <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                                                No sales invoices yet
+                                            </div>
+                                            <div style={{ fontSize: '0.8125rem', marginBottom: 16 }}>
+                                                Issue a warehouse → workshop invoice; it will appear in this table.
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className="btn-portal"
+                                                style={{
+                                                    background: '#2563EB',
+                                                    color: '#fff',
+                                                    border: 'none',
+                                                }}
+                                                onClick={openNewInvoiceModal}
+                                            >
+                                                <Plus size={15} /> Create first invoice
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    list.map((inv) => {
+                                        const canMutate = inv.status === 'pending_payment';
+                                        const statusLabel = String(inv.status || '')
+                                            .replace(/_/g, ' ')
+                                            .trim();
+                                        return (
+                                            <tr key={inv.id}>
+                                                <td>
+                                                    <strong style={{ color: '#2563EB' }}>
+                                                        {inv.invoiceNo || inv.id}
+                                                    </strong>
+                                                </td>
+                                                <td
+                                                    style={{
+                                                        fontSize: '0.8125rem',
+                                                        color: 'var(--color-text-muted)',
+                                                        maxWidth: 220,
+                                                    }}
+                                                    title={
+                                                        inv.workshopName
+                                                            ? `${inv.workshopName} — ${inv.branch}`
+                                                            : inv.branch
+                                                    }
+                                                >
+                                                    {inv.workshopName
+                                                        ? `${inv.workshopName} — ${inv.branch}`
+                                                        : inv.branch || '—'}
+                                                </td>
+                                                <td style={{ fontSize: '0.8125rem' }}>{inv.date || '—'}</td>
+                                                <td style={{ fontSize: '0.8125rem' }}>{inv.dueDate || '—'}</td>
+                                                <td
+                                                    style={{
+                                                        fontWeight: 700,
+                                                    }}
+                                                >
+                                                    SAR {(inv.amount || 0).toLocaleString()}
+                                                </td>
+                                                <td style={{ color: '#0f766e', fontWeight: 600 }}>
+                                                    SAR {(inv.paid || 0).toLocaleString()}
+                                                </td>
+                                                <td style={{ color: '#b91c1c', fontWeight: 700 }}>
+                                                    SAR {(inv.balance || 0).toLocaleString()}
+                                                </td>
+                                                <td>
+                                                    <span
+                                                        className={`ws-badge ws-badge--${
+                                                            inv.status === 'paid'
+                                                                ? 'green'
+                                                                : inv.status === 'overdue'
+                                                                  ? 'red'
+                                                                  : inv.status === 'partially_paid'
+                                                                    ? 'yellow'
+                                                                    : 'yellow'
+                                                        }`}
+                                                    >
+                                                        {statusLabel || 'pending payment'}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span
+                                                        className={`ws-badge ws-badge--${
+                                                            String(inv.paymentStatus).toLowerCase() === 'paid'
+                                                                ? 'green'
+                                                                : 'yellow'
+                                                        }`}
+                                                    >
+                                                        {String(inv.paymentStatus || 'unpaid').replace(/_/g, ' ')}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleViewInvoice(inv)}
+                                                            style={{
+                                                                padding: 6,
+                                                                borderRadius: 6,
+                                                                border: 'none',
+                                                                background: '#F3F4F6',
+                                                                cursor: 'pointer',
+                                                            }}
+                                                            title="View"
+                                                        >
+                                                            <Eye size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDownloadInvoice(inv)}
+                                                            style={{
+                                                                padding: 6,
+                                                                borderRadius: 6,
+                                                                border: 'none',
+                                                                background: '#F3F4F6',
+                                                                cursor: 'pointer',
+                                                            }}
+                                                            title="Download"
+                                                        >
+                                                            <Download size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={!canMutate}
+                                                            onClick={() => openEditInvoice(inv)}
+                                                            style={{
+                                                                padding: 6,
+                                                                borderRadius: 6,
+                                                                border: 'none',
+                                                                background: canMutate ? '#E0E7FF' : '#F3F4F6',
+                                                                color: canMutate ? '#4338CA' : '#94A3B8',
+                                                                cursor: canMutate ? 'pointer' : 'not-allowed',
+                                                                opacity: canMutate ? 1 : 0.6,
+                                                            }}
+                                                            title="Edit"
+                                                        >
+                                                            <Pencil size={14} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={!canMutate}
+                                                            onClick={() => handleDeleteInvoice(inv)}
+                                                            style={{
+                                                                padding: 6,
+                                                                borderRadius: 6,
+                                                                border: 'none',
+                                                                background: canMutate ? '#FEE2E2' : '#F3F4F6',
+                                                                color: canMutate ? '#DC2626' : '#94A3B8',
+                                                                cursor: canMutate ? 'pointer' : 'not-allowed',
+                                                                opacity: canMutate ? 1 : 0.6,
+                                                            }}
+                                                            title="Delete"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
-            )}
+            </div>
             <AnimatePresence>
                 {modalOpen && (
                     <Modal
@@ -906,11 +993,20 @@ export default function SupplierSalesInvoices() {
                                     >
                                         <option value="">Select workshop / branch</option>
                                         {(branches || []).map((b) => (
-                                            <option key={b.id} value={b.name}>
-                                                {b.name}
+                                            <option key={b.id} value={String(b.id)}>
+                                                {b.label || b.name}
                                             </option>
                                         ))}
                                     </select>
+                                    {!listLoading && branches.length === 0 ? (
+                                        <span
+                                            className="pi-sub-label"
+                                            style={{ color: '#B45309', marginTop: 6, display: 'block' }}
+                                        >
+                                            No linked workshop branches. Your supplier account must be linked to a
+                                            workshop (admin) before you can issue sales invoices.
+                                        </span>
+                                    ) : null}
                                 </div>
                                 <div className="pi-field">
                                     <label>Cash / Bank Account</label>
@@ -1184,9 +1280,7 @@ export default function SupplierSalesInvoices() {
                                     <button
                                         type="button"
                                         className="btn-add-line"
-                                        onClick={() =>
-                                            searchQuery ? handleSearch('') : null
-                                        }
+                                        onClick={addEmptyLine}
                                     >
                                         <Plus size={16} /> Add line
                                     </button>

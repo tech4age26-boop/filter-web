@@ -22,7 +22,6 @@ import ReferralCommissionsPage from './pages/admin/ReferralCommissionsPage';
 import MarketingPortalPage from './pages/admin/MarketingPortalPage';
 import WorkshopManagementPage from './pages/admin/WorkshopManagementPage';
 import ReportingPage from './pages/admin/ReportingPage';
-import ReferralRules from './pages/marketing/ReferralRules';
 import PortalLoginPage from './pages/PortalLoginPage';
 import PortalHubPage from './pages/PortalHubPage';
 // SalesReports and SalesOrders moved to SalesPage.jsx
@@ -35,6 +34,7 @@ import { ReferralPersons } from './pages/marketing/ReferralPersons';
 import { ReferralManagement } from './pages/marketing/ReferralManagement';
 import { LoyaltyPrograms } from './pages/marketing/LoyaltyPrograms';
 import { CustomerInsights } from './pages/marketing/CustomerInsights';
+import ReferralRules from './pages/marketing/ReferralRules';
 import { MarketingProvider } from './pages/marketing/MarketingUtils';
 
 import WorkshopLayout from './pages/WorkshopLayout';
@@ -85,6 +85,8 @@ function App() {
                 <Route path="dashboard" element={<MarketingDashboard />} />
                 <Route path="promotions" element={<Promotions />} />
                 <Route path="promo-codes" element={<PromoCodes />} />
+                <Route path="referral-management" element={<ReferralManagement />} />
+                <Route path="referral-types-rules" element={<ReferralRules />} />
                 <Route path="loyalty-programs" element={<LoyaltyPrograms />} />
                 <Route path="customer-insights" element={<CustomerInsights />} />
               </Route>
@@ -115,9 +117,10 @@ function App() {
               <Route path="dashboard" element={<MarketingDashboard />} />
               <Route path="promotions" element={<Promotions />} />
               <Route path="promo-codes" element={<PromoCodes />} />
+              <Route path="referral-management" element={<ReferralManagement />} />
+              <Route path="referral-types-rules" element={<ReferralRules />} />
               <Route path="loyalty-programs" element={<LoyaltyPrograms />} />
               <Route path="customer-insights" element={<CustomerInsights />} />
-              <Route path="referral-types-rules" element={<ReferralRules />} />
             </Route>
 
             <Route path="/pos/*" element={<POSLayout />} />
