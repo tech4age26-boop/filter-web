@@ -436,7 +436,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                 {viewRow && (
                     <Modal
                         title="Workshop purchase invoice"
-                        width="min(800px, 96vw)"
+                        width="min(980px, 99vw)"
                         onClose={() => {
                             setViewRow(null);
                             setViewDetail(null);

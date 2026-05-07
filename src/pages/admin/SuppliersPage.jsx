@@ -6,6 +6,15 @@ import '../../styles/admin/SuppliersPage.css';
 import { getSuppliers, getSupplier, createSupplier, updateSupplier } from '../../services/superAdminApi';
 
 export default function SuppliersPage() {
+    const normalizeCategory = (value) => {
+        const v = String(value ?? '').trim().toLowerCase();
+        if (v === 'supplier') return 'supplier';
+        if (v === 'warehouse') return 'warehouse';
+        if (v === 'other') return 'other';
+        if (v === 'parts' || v === 'lubricants' || v === 'tires' || v === 'equipment') return 'supplier';
+        return 'supplier';
+    };
+
     const [suppliers, setSuppliers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -16,7 +25,7 @@ export default function SuppliersPage() {
     const normalize = (s) => ({
         id: String(s.id ?? s._id ?? ''),
         name: s.name ?? '—',
-        category: s.registrationType ?? s.category ?? 'Other',
+        category: normalizeCategory(s.registrationType ?? s.category ?? 'supplier'),
         vatId: s.vatId ?? s.taxId ?? '',
         crNumber: s.tradeLicenseNo ?? s.crNumber ?? '',
         contactPerson: s.contactPerson ?? s.ownerName ?? '',
@@ -28,6 +37,7 @@ export default function SuppliersPage() {
         street: s.street ?? '',
         cityDistrict: s.cityDistrict ?? '',
         status: s.status ?? (s.isActive === false ? 'inactive' : 'active'),
+        password: '',
     });
 
     const reload = () =>
@@ -86,6 +96,8 @@ export default function SuppliersPage() {
         try {
             await createSupplier({
                 name: supplierForm.name,
+                registrationType: normalizeCategory(supplierForm.category) || undefined,
+                category: normalizeCategory(supplierForm.category) || undefined,
                 vatId: supplierForm.vatId || undefined,
                 tradeLicenseNo: supplierForm.crNumber || undefined,
                 contactPerson: supplierForm.contactPerson || undefined,
@@ -115,6 +127,8 @@ export default function SuppliersPage() {
         try {
             await updateSupplier(editingSupplier.id, {
                 name: editingSupplier.name,
+                registrationType: normalizeCategory(editingSupplier.category) || undefined,
+                category: normalizeCategory(editingSupplier.category) || undefined,
                 vatId: editingSupplier.vatId || undefined,
                 tradeLicenseNo: editingSupplier.crNumber || undefined,
                 contactPerson: editingSupplier.contactPerson || undefined,
@@ -126,6 +140,7 @@ export default function SuppliersPage() {
                 street: editingSupplier.street || undefined,
                 cityDistrict: editingSupplier.cityDistrict || undefined,
                 isActive: editingSupplier.status === 'active',
+                password: String(editingSupplier.password || '').trim() || undefined,
             });
             await reload();
             setEditOpen(false);
@@ -414,11 +429,9 @@ export default function SuppliersPage() {
                                             value={editingSupplier.category}
                                             onChange={(e) => setEditingSupplier({ ...editingSupplier, category: e.target.value })}
                                         >
-                                            <option value="Other">Other</option>
-                                            <option value="Parts">Parts</option>
-                                            <option value="Lubricants">Lubricants</option>
-                                            <option value="Tires">Tires</option>
-                                            <option value="Equipment">Equipment</option>
+                                            <option value="supplier">Supplier</option>
+                                            <option value="warehouse">Warehouse</option>
+                                            <option value="other">Other</option>
                                         </select>
                                         <ChevronDown className="select-icon" size={16} />
                                     </div>
@@ -442,6 +455,29 @@ export default function SuppliersPage() {
                                         className="form-input-field"
                                         value={editingSupplier.crNumber}
                                         onChange={(e) => setEditingSupplier({ ...editingSupplier, crNumber: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-grid">
+                                <div className="form-group">
+                                    <label className="form-label">Street (optional)</label>
+                                    <input
+                                        type="text"
+                                        className="form-input-field"
+                                        placeholder="Street"
+                                        value={editingSupplier.street || ''}
+                                        onChange={(e) => setEditingSupplier({ ...editingSupplier, street: e.target.value })}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">City / District (optional)</label>
+                                    <input
+                                        type="text"
+                                        className="form-input-field"
+                                        placeholder="City / District"
+                                        value={editingSupplier.cityDistrict || ''}
+                                        onChange={(e) => setEditingSupplier({ ...editingSupplier, cityDistrict: e.target.value })}
                                     />
                                 </div>
                             </div>
@@ -484,6 +520,19 @@ export default function SuppliersPage() {
                                         className="form-input-field"
                                         value={editingSupplier.address}
                                         onChange={(e) => setEditingSupplier({ ...editingSupplier, address: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-grid">
+                                <div className="form-group">
+                                    <label className="form-label">Password</label>
+                                    <input
+                                        type="password"
+                                        className="form-input-field"
+                                        placeholder="Leave blank to keep current password"
+                                        value={editingSupplier.password || ''}
+                                        onChange={(e) => setEditingSupplier({ ...editingSupplier, password: e.target.value })}
                                     />
                                 </div>
                             </div>

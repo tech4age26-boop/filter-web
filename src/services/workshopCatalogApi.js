@@ -216,3 +216,28 @@ export const patchBranchProduct = (branchId, productId, body, { workshopId, sign
 
 export const removeBranchService = (branchId, serviceId) =>
     apiFetch(`/workshop-catalog/branches/${branchId}/services/${serviceId}`, { method: 'DELETE' });
+
+// ─── Workshop-wide adoption removal (all branches / workshop_products | workshop_services) ──
+/** @returns {{ success?: boolean, removedIds?: string[], failed?: Array<{ id: string, reason: string }> }} */
+export const removeWorkshopProduct = (productId) =>
+    apiFetch(`/workshop-staff/workshop-products/${encodeURIComponent(String(productId))}`, {
+        method: 'DELETE',
+    });
+
+/** Body must be non-empty. @returns bulk response shape above. */
+export const removeWorkshopProductsBulk = (productIds) =>
+    apiFetch('/workshop-staff/workshop-products/bulk-remove', {
+        method: 'POST',
+        body: JSON.stringify({ productIds: (productIds || []).map(String).filter(Boolean) }),
+    });
+
+export const removeWorkshopService = (serviceId) =>
+    apiFetch(`/workshop-staff/workshop-services/${encodeURIComponent(String(serviceId))}`, {
+        method: 'DELETE',
+    });
+
+export const removeWorkshopServicesBulk = (serviceIds) =>
+    apiFetch('/workshop-staff/workshop-services/bulk-remove', {
+        method: 'POST',
+        body: JSON.stringify({ serviceIds: (serviceIds || []).map(String).filter(Boolean) }),
+    });

@@ -507,6 +507,36 @@ export const runWorkshopRelativeAction = (endpoint, method = 'POST', body) =>
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
 
+export const getWorkshopReportsByTechnician = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-technician${qs(params)}`, options);
+
+export const getWorkshopReportsByCustomer = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-customer${qs(params)}`, options);
+
+export const getWorkshopReportsByProduct = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-product${qs(params)}`, options);
+
+export const getWorkshopReportsByDepartment = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-department${qs(params)}`, options);
+
+export const getWorkshopReportsByBranch = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-branch${qs(params)}`, options);
+
+export const getWorkshopReportsByTechnicianDetails = (id, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-technician/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
+
+export const getWorkshopReportsByCustomerDetails = (id, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-customer/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
+
+export const getWorkshopReportsByProductDetails = (id, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-product/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
+
+export const getWorkshopReportsByDepartmentDetails = (id, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-department/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
+
+export const getWorkshopReportsByBranchDetails = (id, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-branch/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
+
 /**
  * Flat list from GET .../branches/:id/products|services (workshop-staff or workshop-catalog) and
  * similar workshop-product payloads. Staff APIs may use `items`, `rows`, or `data` instead of `products`.

@@ -20,6 +20,8 @@ const PORTAL_NAMES = {
     'referral-management': 'Filter Referral Management Portal',
 };
 
+const PORTAL_SIGNUP_ALLOWED = new Set(['corporate', 'supplier', 'workshop']);
+
 const PORTAL_USER_TYPES = {
     'corporate': 'corporate_user',
     'admin': 'admin',
@@ -42,6 +44,7 @@ const PortalLoginPage = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [successMessage, setSuccessMessage] = useState('');
     const [loading, setLoading] = useState(false);
 
     const portalName = PORTAL_NAMES[portalId] || 'Portal';
@@ -72,6 +75,10 @@ const PortalLoginPage = () => {
         }
     }, [location.state, logout, navigate, location.pathname]);
 
+    useEffect(() => {
+        setSuccessMessage(location.state?.signupSuccess || '');
+    }, [location.state]);
+
     // Redirect if already authenticated WITH THE CORRECT ROLE
     useEffect(() => {
         if (isAuthenticated && !location.state?.forceLogout) {
@@ -85,6 +92,7 @@ const PortalLoginPage = () => {
     const handleSignIn = async (e) => {
         e.preventDefault();
         setError('');
+        setSuccessMessage('');
         setLoading(true);
 
         // DEMO LOGIN BYPASS
@@ -198,6 +206,22 @@ const PortalLoginPage = () => {
                     </div>
 
                     {error && <div className="error-message">{error}</div>}
+                    {successMessage && (
+                        <div
+                            style={{
+                                background: '#F0FDF4',
+                                color: '#166534',
+                                padding: '12px',
+                                borderRadius: '8px',
+                                fontSize: '0.875rem',
+                                marginBottom: '24px',
+                                textAlign: 'center',
+                                border: '1px solid #BBF7D0',
+                            }}
+                        >
+                            {successMessage}
+                        </div>
+                    )}
 
                     <form onSubmit={handleSignIn}>
                         <div className="form-group">
@@ -258,6 +282,17 @@ const PortalLoginPage = () => {
                                 Back to Portal Hub
                             </a>
                         </p>
+                        {PORTAL_SIGNUP_ALLOWED.has(portalId) && (
+                            <p style={{ marginTop: '10px', fontSize: '0.8125rem', color: '#6B7280' }}>
+                                Don&apos;t have an account?{' '}
+                                <a
+                                    onClick={() => navigate(`/${portalId}/signup`)}
+                                    style={{ color: '#111827', cursor: 'pointer', fontWeight: 700 }}
+                                >
+                                    Sign Up
+                                </a>
+                            </p>
+                        )}
                     </div>
                 </motion.div>
             </div>
