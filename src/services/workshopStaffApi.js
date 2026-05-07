@@ -492,6 +492,21 @@ export function workshopReportsAnalyticsParams(selectedBranchId, opts = {}) {
 export const getWorkshopReportsAnalytics = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports-analytics${qs(params)}`, options);
 
+export const getWorkshopRecentOrders = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/recent-orders${qs(params)}`, options);
+
+export const getWorkshopRecentOrderDetails = (invoiceId, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/recent-orders/${encodeURIComponent(String(invoiceId))}/details${qs(params)}`, options);
+
+export const getWorkshopRecentOrderPdf = (invoiceId, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/recent-orders/${encodeURIComponent(String(invoiceId))}/pdf${qs(params)}`, options);
+
+export const runWorkshopRelativeAction = (endpoint, method = 'POST', body) =>
+    apiFetch(endpoint, {
+        method,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+
 export const getWorkshopReportsByTechnician = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-technician${qs(params)}`, options);
 

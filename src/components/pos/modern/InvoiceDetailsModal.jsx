@@ -179,32 +179,56 @@ export default function InvoiceDetailsModal({ invoice, isOpen, onClose, onPrint,
         setTimeout(() => window.print(), 50);
     };
 
-    const handleDownload = () => {
+    const handleDownload = async () => {
         if (onDownload) {
             onDownload(invoice);
             return;
         }
         const scrollEl = document.querySelector('.invoice-modal-card .invoice-scroll');
         if (!scrollEl) return;
-        const modalRoot = document.querySelector('.invoice-modal-root');
-        let cssText = '';
-        if (modalRoot) {
-            modalRoot.querySelectorAll('style').forEach((s) => {
-                cssText += s.textContent.replace(/@media\s+print\s*\{[^}]*(\{[^}]*\}[^}]*)*\}/g, '') + '\n';
+        try {
+            const [{ toPng }, { jsPDF }] = await Promise.all([
+                import('html-to-image'),
+                import('jspdf'),
+            ]);
+            const imgData = await toPng(scrollEl, {
+                backgroundColor: '#ffffff',
+                pixelRatio: Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 2 : 2),
+                cacheBust: true,
             });
+            const dims = await new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+                img.onerror = () => reject(new Error('Invalid PNG from capture'));
+                img.src = imgData;
+            });
+            const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            const margin = 24;
+            const usableW = pageWidth - margin * 2;
+            const usableH = pageHeight - margin * 2;
+            const imgDisplayHeight = (dims.h * usableW) / dims.w;
+
+            if (imgDisplayHeight <= usableH) {
+                pdf.addImage(imgData, 'PNG', margin, margin, usableW, imgDisplayHeight);
+            } else {
+                let heightLeft = imgDisplayHeight;
+                let position = 0;
+                while (heightLeft > 0) {
+                    pdf.addImage(imgData, 'PNG', margin, margin + position, usableW, imgDisplayHeight);
+                    heightLeft -= usableH;
+                    position -= usableH;
+                    if (heightLeft > 0) pdf.addPage();
+                }
+            }
+
+            const safe = String(invoiceNo || 'invoice').replace(/[^\w.\-]+/g, '_').replace(/^_|_$/g, '').slice(0, 96) || 'invoice';
+            pdf.save(`${safe}.pdf`);
+        } catch (err) {
+            console.error(err);
+            window.alert('Could not create PDF. Please try again.');
         }
-        const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Invoice ${invoiceNo}</title><style>${cssText}</style></head>
-<body><div class="invoice-scroll">${scrollEl.innerHTML}</div></body></html>`;
-        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${String(invoiceNo || 'invoice').replace(/[^\w-]/g, '_')}.html`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
     };
 
     return (
@@ -539,7 +563,12 @@ export default function InvoiceDetailsModal({ invoice, isOpen, onClose, onPrint,
                 @media print {
                     @page {
                         size: A4 portrait;
-                        margin: 6mm;
+                        margin: 2mm 6mm 6mm 6mm;
+                    }
+
+                    html, body {
+                        margin: 0 !important;
+                        padding: 0 !important;
                     }
 
                     /* Hide app UI without collapsing DOM ancestors */
@@ -580,9 +609,47 @@ export default function InvoiceDetailsModal({ invoice, isOpen, onClose, onPrint,
 
                     .invoice-scroll {
                         overflow: visible !important;
-                        padding: 4px !important;
+                        padding: 0 !important;
                         transform: none !important;
                         width: 100% !important;
+                    }
+
+                    /* Remove grey preview look and normalize all table/grid lines */
+                    .invoice-modal-root,
+                    .invoice-modal-card,
+                    .invoice-scroll {
+                        background: #fff !important;
+                    }
+
+                    .invoice-info-table,
+                    .invoice-items,
+                    .invoice-totals,
+                    .invoice-checklist-grid {
+                        border: 1px solid #1E2124 !important;
+                    }
+
+                    .invoice-items-head > span,
+                    .invoice-items-row > span,
+                    .info-cell,
+                    .invoice-totals-row,
+                    .invoice-totals-label,
+                    .invoice-check-item {
+                        border-color: #1E2124 !important;
+                        border-width: 1px !important;
+                    }
+
+                    .invoice-items-row {
+                        border-top: 1px solid #1E2124 !important;
+                    }
+
+                    .invoice-items-head > span,
+                    .invoice-items-row > span {
+                        border-right: 1px solid #1E2124 !important;
+                    }
+
+                    .invoice-items-head > span:last-child,
+                    .invoice-items-row > span:last-child {
+                        border-right: none !important;
                     }
 
                     /* Prevent awkward splits between printed sections/rows */
