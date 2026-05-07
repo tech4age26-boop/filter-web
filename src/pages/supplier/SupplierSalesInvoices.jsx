@@ -13,6 +13,74 @@ import {
     updateSupplierInvoice,
 } from '../../services/supplierApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
+import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
+
+/** Map GET `/supplier/invoices/:id` → WorkshopPurchaseInvoiceView detail (same bilingual layout as workshop PI). */
+function mapSupplierSalesInvoiceToWorkshopDetail(inv) {
+    if (!inv || typeof inv !== 'object') return {};
+    const branchName = inv.branch?.name ?? inv.workshop?.name ?? '';
+    const refLabel =
+        inv.deliveryNoteUrl != null && String(inv.deliveryNoteUrl).trim() !== ''
+            ? String(inv.deliveryNoteUrl).trim()
+            : '';
+    return {
+        id: inv.id,
+        invoiceNumber: inv.invoiceNo,
+        invoiceNo: inv.invoiceNo,
+        issueDate: inv.invoiceDate,
+        invoiceDate: inv.invoiceDate,
+        dueDate: inv.dueDate,
+        status: inv.status,
+        workshopName: branchName,
+        branchName,
+        branch: inv.branch,
+        workshop: inv.workshop,
+        vendorInvoiceRef: refLabel,
+        vendorRef: refLabel,
+        subtotalExVat: inv.subtotal,
+        subtotal: inv.subtotal,
+        vatAmount: inv.vatAmount,
+        totalVat: inv.vatAmount,
+        grandTotal: inv.grandTotal,
+        total: inv.grandTotal,
+        amountPaid: inv.paid,
+        paidAmount: inv.paid,
+        balanceDue: inv.outstanding,
+        balance: inv.outstanding,
+        paymentStatus:
+            Number(inv.paid) >= Number(inv.grandTotal) && Number(inv.grandTotal) > 0 ? 'paid' : 'unpaid',
+        notes: inv.internalNotes ?? '',
+        description: refLabel,
+        items: (inv.items || []).map((it) => ({
+            id: it.id,
+            productName: it.productName,
+            product_name: it.productName,
+            qty: it.qty,
+            quantity: it.qty,
+            unit: 'piece',
+            uom: 'piece',
+            unitPrice: it.unitPrice,
+            unit_price: it.unitPrice,
+            unitPriceExVat: it.unitPrice,
+            vatRate: it.vatRate,
+            vat_rate: it.vatRate,
+            lineTotal: it.lineTotal,
+            line_total: it.lineTotal,
+        })),
+    };
+}
+
+function mapSupplierSalesInvoiceToWorkshopListRow(inv) {
+    if (!inv || typeof inv !== 'object') return {};
+    return {
+        id: inv.id,
+        invoice_number: inv.invoiceNo,
+        invoiceNo: inv.invoiceNo,
+        date: inv.invoiceDate,
+        status: inv.status,
+        grand_total: inv.grandTotal,
+    };
+}
 
 const INVENTORY_ITEMS = [
     {
@@ -1595,92 +1663,25 @@ export default function SupplierSalesInvoices() {
             <AnimatePresence>
                 {viewOpen && (
                     <Modal
-                        title="Invoice details"
-                        width="680px"
+                        title="Sales invoice"
+                        width="min(980px, 99vw)"
                         onClose={() => {
                             setViewOpen(false);
                             setViewPayload(null);
                         }}
-                        footer={
-                            <button
-                                type="button"
-                                className="btn-portal-outline"
-                                onClick={() => {
-                                    setViewOpen(false);
-                                    setViewPayload(null);
-                                }}
-                            >
-                                Close
-                            </button>
-                        }
                     >
                         {viewLoading ? (
-                            <ShimmerTextBlock lines={6} />
+                            <ShimmerTextBlock lines={8} />
                         ) : viewPayload?.error ? (
                             <p style={{ margin: 0, color: '#B91C1C' }}>{viewPayload.error}</p>
+                        ) : viewPayload?.invoice ? (
+                            <WorkshopPurchaseInvoiceView
+                                variant="supplier_sales"
+                                detail={mapSupplierSalesInvoiceToWorkshopDetail(viewPayload.invoice)}
+                                listRow={mapSupplierSalesInvoiceToWorkshopListRow(viewPayload.invoice)}
+                            />
                         ) : (
-                            (() => {
-                                const inv = viewPayload?.invoice;
-                                if (!inv)
-                                    return <p style={{ margin: 0 }}>No data.</p>;
-                                return (
-                                    <div style={{ fontSize: '0.875rem' }}>
-                                        <p style={{ fontWeight: 800, margin: '0 0 8px 0', fontSize: '1rem' }}>
-                                            {inv.invoiceNo}
-                                        </p>
-                                        <table className="ws-table" style={{ marginBottom: 12 }}>
-                                            <tbody>
-                                                <tr>
-                                                    <td style={{ color: 'var(--color-text-muted)' }}>Branch</td>
-                                                    <td>{inv.branch?.name ?? '—'}</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style={{ color: 'var(--color-text-muted)' }}>Dates</td>
-                                                    <td>
-                                                        {inv.invoiceDate} → due {inv.dueDate}
-                                                    </td>
-                                                </tr>
-                                                <tr>
-                                                    <td style={{ color: 'var(--color-text-muted)' }}>Status</td>
-                                                    <td>{String(inv.status || '').replace(/_/g, ' ')}</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style={{ color: 'var(--color-text-muted)' }}>Totals</td>
-                                                    <td>
-                                                        SAR{' '}
-                                                        {(Number(inv.grandTotal) || 0).toLocaleString()} (paid SAR{' '}
-                                                        {(Number(inv.paid) || 0).toLocaleString()}, outstanding SAR{' '}
-                                                        {(Number(inv.outstanding) || 0).toLocaleString()})
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                        <strong style={{ fontSize: '0.75rem' }}>Line items</strong>
-                                        <table className="ws-table" style={{ marginTop: 8 }}>
-                                            <thead>
-                                                <tr>
-                                                    <th>Product</th>
-                                                    <th>Qty</th>
-                                                    <th>Unit</th>
-                                                    <th>VAT %</th>
-                                                    <th>Line total</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {(inv.items || []).map((it) => (
-                                                    <tr key={it.id}>
-                                                        <td>{it.productName}</td>
-                                                        <td>{Number(it.qty)}</td>
-                                                        <td>SAR {Number(it.unitPrice).toLocaleString()}</td>
-                                                        <td>{Number(it.vatRate)}%</td>
-                                                        <td>SAR {Number(it.lineTotal).toLocaleString()}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                );
-                            })()
+                            <p style={{ margin: 0 }}>No data.</p>
                         )}
                     </Modal>
                 )}
