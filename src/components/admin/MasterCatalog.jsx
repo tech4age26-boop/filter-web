@@ -24,6 +24,8 @@ import {
     getDepartments,
     getProducts,
     getServices,
+    getDepartmentProducts,
+    getDepartmentServices,
     updateCategory,
     updateDepartment,
     updateProduct,
@@ -283,6 +285,8 @@ export default function MasterCatalog() {
     const [editingCat, setEditingCat] = useState(null);
     const [products, setProducts] = useState([]);
     const [services, setServices] = useState([]);
+    const [departmentProducts, setDepartmentProducts] = useState([]);
+    const [departmentServices, setDepartmentServices] = useState([]);
     const [departments, setDepartments] = useState([]);
     const [categories, setCategories] = useState([]);
     const [kpis, setKpis] = useState(null);
@@ -301,6 +305,7 @@ export default function MasterCatalog() {
     const [selectedBulkServiceFile, setSelectedBulkServiceFile] = useState(null);
     const [bulkServiceImporting, setBulkServiceImporting] = useState(false);
     const [bulkServiceImportResult, setBulkServiceImportResult] = useState(null);
+    const [serviceToggleBusyKey, setServiceToggleBusyKey] = useState('');
 
     // ── Duplication Review ────────────────────────────────────────
     const [dupGroups, setDupGroups] = useState([]);
@@ -333,6 +338,8 @@ export default function MasterCatalog() {
     const [prActionBusy, setPrActionBusy] = useState(false);
     /** Services tab status chips (separate from master product `statusFilter`). */
     const [serviceStatusFilter, setServiceStatusFilter] = useState('Approved');
+    const [selectedProductDepartment, setSelectedProductDepartment] = useState('');
+    const [selectedServiceDepartment, setSelectedServiceDepartment] = useState('');
 
     const [toast, setToast] = useState(null);
     const showToast = (message, kind = 'success') => {
@@ -388,7 +395,7 @@ export default function MasterCatalog() {
                   String(c.departmentId) === String(editingProduct.departmentId),
           )
         : [];
-    const filteredProducts = products.filter((p) => {
+    const productMatchesFilters = (p) => {
         const kmStr =
             p.kmTypeValue != null && p.kmTypeValue !== ''
                 ? String(p.kmTypeValue)
@@ -401,8 +408,8 @@ export default function MasterCatalog() {
         const status = p.isActive === false ? 'Rejected' : 'Approved';
         const matchesStatus = statusFilter === 'All' || statusFilter === status;
         return matchesSearch && matchesStatus;
-    });
-    const filteredServices = services.filter((s) => {
+    };
+    const serviceMatchesFilters = (s) => {
         const matchesSvcStatus =
             serviceStatusFilter === 'All' || serviceStatusFilter === 'Pending'
                 ? true
@@ -419,7 +426,9 @@ export default function MasterCatalog() {
         return [s.name, s.arabicName, s.sku, s.categoryName, vatStr, catIdStr, createdFmt, createdRaw].some((v) =>
             (v || '').includes(q),
         );
-    });
+    };
+    const filteredProducts = products.filter(productMatchesFilters);
+    const filteredServices = services.filter(serviceMatchesFilters);
     /** Newest created first (descending by `createdAt`); rows with no date sort last. */
     const sortedFilteredServices = [...filteredServices].sort((a, b) => {
         const ta = catalogCreatedAtSortMs(a.createdAt ?? a.created_at);
@@ -431,6 +440,43 @@ export default function MasterCatalog() {
         if (bMissing) return -1;
         return tb - ta;
     });
+    const groupedFilteredProducts = departmentProducts
+        .map((dept) => ({
+            ...dept,
+            products: (Array.isArray(dept.products) ? dept.products : []).filter(productMatchesFilters),
+        }))
+        .filter((dept) => dept.products.length > 0);
+    const groupedFilteredServices = departmentServices
+        .map((dept) => ({
+            ...dept,
+            services: (Array.isArray(dept.services) ? dept.services : [])
+                .filter(serviceMatchesFilters)
+                .sort((a, b) => {
+                    const ta = catalogCreatedAtSortMs(a.createdAt ?? a.created_at);
+                    const tb = catalogCreatedAtSortMs(b.createdAt ?? b.created_at);
+                    const aMissing = !(ta > 0);
+                    const bMissing = !(tb > 0);
+                    if (aMissing && bMissing) return 0;
+                    if (aMissing) return 1;
+                    if (bMissing) return -1;
+                    return tb - ta;
+                }),
+        }))
+        .filter((dept) => dept.services.length > 0);
+    const productDepartmentOptions = departmentProducts.map((dept) => ({
+        id: String(dept.departmentId ?? ''),
+        name: dept.departmentName || `Department ${dept.departmentId}`,
+    }));
+    const serviceDepartmentOptions = departmentServices.map((dept) => ({
+        id: String(dept.departmentId ?? ''),
+        name: dept.departmentName || `Department ${dept.departmentId}`,
+    }));
+    const displayedProducts = selectedProductDepartment
+        ? (groupedFilteredProducts.find((d) => String(d.departmentId) === selectedProductDepartment)?.products ?? [])
+        : groupedFilteredProducts.flatMap((d) => d.products);
+    const displayedServices = selectedServiceDepartment
+        ? (groupedFilteredServices.find((d) => String(d.departmentId) === selectedServiceDepartment)?.services ?? [])
+        : groupedFilteredServices.flatMap((d) => d.services);
     const _q = searchQuery.trim().toLowerCase();
     const filteredDepartments = !_q
         ? departments
@@ -460,16 +506,35 @@ export default function MasterCatalog() {
     const loadCatalog = async () => {
         setLoading(true);
         try {
-            const [productsRes, servicesRes, departmentsRes, categoriesRes] = await Promise.all([
+            const [
+                productsRes,
+                servicesRes,
+                departmentsRes,
+                categoriesRes,
+                departmentProductsRes,
+                departmentServicesRes,
+            ] = await Promise.all([
                 getProducts().catch(() => ({ products: [] })),
                 getServices().catch(() => ({ services: [] })),
                 getDepartments().catch(() => ({ departments: [] })),
                 getCategories().catch(() => ({ categories: [] })),
+                getDepartmentProducts().catch(() => ({ departments: [] })),
+                getDepartmentServices().catch(() => ({ departments: [] })),
             ]);
-            setProducts(Array.isArray(productsRes) ? productsRes : (productsRes?.products ?? []));
-            setServices(Array.isArray(servicesRes) ? servicesRes : (servicesRes?.services ?? []));
-            setDepartments(Array.isArray(departmentsRes) ? departmentsRes : (departmentsRes?.departments ?? []));
-            setCategories(Array.isArray(categoriesRes) ? categoriesRes : (categoriesRes?.categories ?? []));
+            const productsData = Array.isArray(productsRes) ? productsRes : (productsRes?.products ?? []);
+            const servicesData = Array.isArray(servicesRes) ? servicesRes : (servicesRes?.services ?? []);
+            const departmentsData = Array.isArray(departmentsRes) ? departmentsRes : (departmentsRes?.departments ?? []);
+            const categoriesData = Array.isArray(categoriesRes) ? categoriesRes : (categoriesRes?.categories ?? []);
+            setProducts(productsData);
+            setServices(servicesData);
+            setDepartments(departmentsData);
+            setCategories(categoriesData);
+            setDepartmentProducts(
+                Array.isArray(departmentProductsRes?.departments) ? departmentProductsRes.departments : [],
+            );
+            setDepartmentServices(
+                Array.isArray(departmentServicesRes?.departments) ? departmentServicesRes.departments : [],
+            );
         } finally {
             setLoading(false);
         }
@@ -901,6 +966,26 @@ export default function MasterCatalog() {
         }
     };
 
+    const handleToggleServiceField = async (service, field, nextValue) => {
+        if (!service?.id) return;
+        const busyKey = `${service.id}:${field}`;
+        setServiceToggleBusyKey(busyKey);
+        try {
+            await updateService(service.id, { [field]: nextValue });
+            setServices((prev) =>
+                prev.map((item) => (item.id === service.id ? { ...item, [field]: nextValue } : item)),
+            );
+            setEditingService((prev) =>
+                prev && prev.id === service.id ? { ...prev, [field]: nextValue } : prev,
+            );
+            await loadKpis({ silent: true });
+        } catch (e) {
+            alert(e?.message || 'Failed to update service');
+        } finally {
+            setServiceToggleBusyKey((current) => (current === busyKey ? '' : current));
+        }
+    };
+
     const handleEditDeptClick = (dept) => {
         setEditingDept(dept);
         setIsEditDeptModalOpen(true);
@@ -1158,19 +1243,19 @@ export default function MasterCatalog() {
 
                 <div className="mc-filter-selects">
                     <div className="mc-select-wrapper">
-                        <select>
-                            <option>All Types</option>
-                        </select>
-                        <ChevronDown size={14} />
-                    </div>
-                    <div className="mc-select-wrapper">
-                        <select>
-                            <option>All Categories</option>
+                        <select
+                            value={selectedProductDepartment}
+                            onChange={(e) => setSelectedProductDepartment(e.target.value)}
+                        >
+                            <option value="">All Departments</option>
+                            {productDepartmentOptions.map((dept) => (
+                                <option key={dept.id} value={dept.id}>{dept.name}</option>
+                            ))}
                         </select>
                         <ChevronDown size={14} />
                     </div>
                     <span className="mc-items-count">
-                        {searchQuery ? `${filteredProducts.length} of ${products.length}` : `${products.length} items`}
+                        {searchQuery ? `${displayedProducts.length} of ${products.length}` : `${displayedProducts.length} items`}
                     </span>
                 </div>
             </div>
@@ -1180,50 +1265,50 @@ export default function MasterCatalog() {
                     <div className="mc-empty-icon"><RefreshCw size={28} className="spin" /></div>
                     <p>Loading products…</p>
                 </div>
-            ) : filteredProducts.length === 0 ? (
+            ) : displayedProducts.length === 0 ? (
                 <div className="mc-empty-state">
                     <div className="mc-empty-icon"><Package size={44} opacity={0.18} /></div>
                     <p>{searchQuery ? `No products matching "${searchQuery}"` : 'No products yet'}</p>
                 </div>
             ) : (
                 <div className="mc-products-grid">
-                    {filteredProducts.map((p) => {
+                    {displayedProducts.map((p) => {
                         const createdRaw = p.createdAt ?? p.created_at;
                         const createdLabel = formatCatalogCreatedAt(createdRaw);
                         return (
-                        <div key={p.id} className="mc-product-card" onClick={() => handleEditClick(p)}>
-                            <div className="mc-pc-header">
-                                <div className="mc-pc-icon"><Edit3 size={18} /></div>
-                                <span className={`mc-pc-status ${p.isActive === false ? 'rejected' : 'approved'}`}>
-                                    {p.isActive === false ? 'Rejected' : 'Approved'}
-                                </span>
-                            </div>
-                            <div className="mc-pc-body">
-                                <h3 className="mc-pc-name">{p.name}</h3>
-                                <p className="mc-pc-sku">{p.sku || 'No SKU'}</p>
-                                {createdLabel ? (
-                                    <p className="mc-pc-created" title={String(createdRaw)}>
-                                        Created {createdLabel}
-                                    </p>
-                                ) : null}
-                                <div className="mc-pc-tags">
-                                    <span className="mc-pc-tag">Product</span>
-                                    <span className="mc-pc-tag">{p.unit || 'pcs'}</span>
-                                    <span className="mc-pc-tag">{p.categoryName || '—'}</span>
-                                    {p.kmTypeValue != null && String(p.kmTypeValue).trim() !== '' && (
-                                        <span className="mc-pc-tag" title="KM type value">
-                                            KM {p.kmTypeValue}
-                                        </span>
-                                    )}
+                            <div key={p.id} className="mc-product-card" onClick={() => handleEditClick(p)}>
+                                <div className="mc-pc-header">
+                                    <div className="mc-pc-icon"><Edit3 size={18} /></div>
+                                    <span className={`mc-pc-status ${p.isActive === false ? 'rejected' : 'approved'}`}>
+                                        {p.isActive === false ? 'Rejected' : 'Approved'}
+                                    </span>
                                 </div>
-                                <div className="mc-pc-footer">
-                                    <span className="mc-pc-price">SAR {p.salePrice ?? 0}</span>
-                                    <button className="mc-pc-edit-btn" onClick={(e) => { e.stopPropagation(); handleEditClick(p); }}>
-                                        <Edit3 size={14} />
-                                    </button>
+                                <div className="mc-pc-body">
+                                    <h3 className="mc-pc-name">{p.name}</h3>
+                                    <p className="mc-pc-sku">{p.sku || 'No SKU'}</p>
+                                    {createdLabel ? (
+                                        <p className="mc-pc-created" title={String(createdRaw)}>
+                                            Created {createdLabel}
+                                        </p>
+                                    ) : null}
+                                    <div className="mc-pc-tags">
+                                        <span className="mc-pc-tag">Product</span>
+                                        <span className="mc-pc-tag">{p.unit || 'pcs'}</span>
+                                        <span className="mc-pc-tag">{p.categoryName || '—'}</span>
+                                        {p.kmTypeValue != null && String(p.kmTypeValue).trim() !== '' && (
+                                            <span className="mc-pc-tag" title="KM type value">
+                                                KM {p.kmTypeValue}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="mc-pc-footer">
+                                        <span className="mc-pc-price">SAR {p.salePrice ?? 0}</span>
+                                        <button className="mc-pc-edit-btn" onClick={(e) => { e.stopPropagation(); handleEditClick(p); }}>
+                                            <Edit3 size={14} />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
                         );
                     })}
                 </div>
@@ -1746,6 +1831,18 @@ export default function MasterCatalog() {
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                     </div>
+                    <div className="mc-select-wrapper">
+                        <select
+                            value={selectedServiceDepartment}
+                            onChange={(e) => setSelectedServiceDepartment(e.target.value)}
+                        >
+                            <option value="">All Departments</option>
+                            {serviceDepartmentOptions.map((dept) => (
+                                <option key={dept.id} value={dept.id}>{dept.name}</option>
+                            ))}
+                        </select>
+                        <ChevronDown size={14} />
+                    </div>
                 </div>
             </div>
 
@@ -1771,7 +1868,7 @@ export default function MasterCatalog() {
                     </div>
                     <p>Loading services…</p>
                 </div>
-            ) : sortedFilteredServices.length === 0 ? (
+            ) : displayedServices.length === 0 ? (
                 <div className="mc-empty-state">
                     <div className="mc-empty-icon">
                         <Layers size={44} opacity={0.18} />
@@ -1786,10 +1883,13 @@ export default function MasterCatalog() {
                 </div>
             ) : (
                 <div className="mc-services-grid">
-                    {sortedFilteredServices.map((p) => {
+                    {displayedServices.map((p) => {
+                        const isActive = p.isActive !== false;
                         const priceEditable = toBoolPriceEditable(p);
                         const createdRaw = p.createdAt ?? p.created_at;
                         const createdLabel = formatCatalogCreatedAt(createdRaw);
+                        const activeBusy = serviceToggleBusyKey === `${p.id}:isActive`;
+                        const priceBusy = serviceToggleBusyKey === `${p.id}:isPriceEditable`;
                         return (
                             <div
                                 key={p.id}
@@ -1808,8 +1908,8 @@ export default function MasterCatalog() {
                                     <div className="mc-sc-icon">
                                         <Edit3 size={16} />
                                     </div>
-                                    <span className={`mc-pc-status ${p.isActive === false ? 'rejected' : 'approved'}`}>
-                                        {p.isActive === false ? 'Rejected' : 'Approved'}
+                                    <span className={`mc-pc-status ${isActive ? 'approved' : 'rejected'}`}>
+                                        {isActive ? 'Active' : 'Inactive'}
                                     </span>
                                 </div>
                                 <div className="mc-sc-body">
@@ -1832,14 +1932,55 @@ export default function MasterCatalog() {
                                     <div className="mc-sc-price">Sale: SAR {p.sellingPrice ?? 0}</div>
                                 </div>
                                 <div className="mc-sc-footer">
-                                    <div className="mc-sc-toggle-group">
-                                        <div className="mc-toggle-label">
-                                            <strong>Cashier Price Edit</strong>
-                                            <span className={priceEditable ? 'mc-toggle-state--on' : ''}>
-                                                {priceEditable ? 'Editable' : 'Fixed price'}
-                                            </span>
+                                    <div
+                                        style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'max-content max-content',
+                                            columnGap: 8,
+                                            width: '100%',
+                                            justifyContent: 'start',
+                                        }}
+                                    >
+                                        <div className="mc-sc-toggle-group" style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0 }}>
+                                            <div className="mc-toggle-label">
+                                                <strong>Status</strong>
+                                                <span className={isActive ? 'mc-toggle-state--on' : ''}>
+                                                    {activeBusy ? 'Updating...' : isActive ? 'Active' : 'Inactive'}
+                                                </span>
+                                            </div>
+                                            <div
+                                                className={`mc-toggle-switch${isActive ? ' active' : ''}`}
+                                                role="button"
+                                                aria-label={`Toggle ${p.name} active status`}
+                                                aria-pressed={isActive}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (activeBusy) return;
+                                                    handleToggleServiceField(p, 'isActive', !isActive);
+                                                }}
+                                                style={{ opacity: activeBusy ? 0.65 : 1, pointerEvents: activeBusy ? 'none' : 'auto' }}
+                                            />
                                         </div>
-                                        <div className={`mc-toggle-switch${priceEditable ? ' active' : ''}`} />
+                                        <div className="mc-sc-toggle-group" style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0 }}>
+                                            <div className="mc-toggle-label">
+                                                <strong>Price Editable</strong>
+                                                <span className={priceEditable ? 'mc-toggle-state--on' : ''}>
+                                                    {priceBusy ? 'Updating...' : priceEditable ? 'Editable' : 'Fixed price'}
+                                                </span>
+                                            </div>
+                                            <div
+                                                className={`mc-toggle-switch${priceEditable ? ' active' : ''}`}
+                                                role="button"
+                                                aria-label={`Toggle ${p.name} price editable`}
+                                                aria-pressed={priceEditable}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (priceBusy) return;
+                                                    handleToggleServiceField(p, 'isPriceEditable', !priceEditable);
+                                                }}
+                                                style={{ opacity: priceBusy ? 0.65 : 1, pointerEvents: priceBusy ? 'none' : 'auto' }}
+                                            />
+                                        </div>
                                     </div>
                                     <Edit3
                                         size={14}
@@ -2412,22 +2553,39 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-row">
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={editingService.isPriceEditable}
-                                        onChange={(e) => setEditingService((prev) => ({ ...prev, isPriceEditable: e.target.checked }))}
+                                <div className="mc-toggle-box yellow">
+                                    <div className="mc-toggle-info">
+                                        <strong>Service Status</strong>
+                                        <span>{editingService.isActive ? 'Active' : 'Inactive'}</span>
+                                    </div>
+                                    <div
+                                        className={`mc-toggle-switch small${editingService.isActive ? ' active' : ''}`}
+                                        role="button"
+                                        aria-label="Toggle service active status"
+                                        aria-pressed={!!editingService.isActive}
+                                        onClick={() =>
+                                            setEditingService((prev) => ({ ...prev, isActive: !prev.isActive }))
+                                        }
                                     />
-                                    Price Editable
-                                </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={editingService.isActive}
-                                        onChange={(e) => setEditingService((prev) => ({ ...prev, isActive: e.target.checked }))}
+                                </div>
+                                <div className="mc-toggle-box yellow">
+                                    <div className="mc-toggle-info">
+                                        <strong>Price Editable</strong>
+                                        <span>{editingService.isPriceEditable ? 'Editable by cashier' : 'Fixed price'}</span>
+                                    </div>
+                                    <div
+                                        className={`mc-toggle-switch small${editingService.isPriceEditable ? ' active' : ''}`}
+                                        role="button"
+                                        aria-label="Toggle price editable"
+                                        aria-pressed={!!editingService.isPriceEditable}
+                                        onClick={() =>
+                                            setEditingService((prev) => ({
+                                                ...prev,
+                                                isPriceEditable: !prev.isPriceEditable,
+                                            }))
+                                        }
                                     />
-                                    Active
-                                </label>
+                                </div>
                             </div>
 
                             <div className="mc-modal-footer row">

@@ -82,6 +82,12 @@ export const getMasterCatalogDepartmentKpis = () =>
 export const getMasterCatalogCategoryKpis = () =>
     apiFetch('/super-admin/master-catalog/kpis/categories');
 
+export const getDepartmentProducts = () =>
+    apiFetch('/super-admin/master-catalog/departments/products');
+
+export const getDepartmentServices = () =>
+    apiFetch('/super-admin/master-catalog/departments/services');
+
 // ─── Workshops ────────────────────────────────────────────────────────────────
 
 export const getWorkshops = ({ status, limit, offset } = {}) =>
