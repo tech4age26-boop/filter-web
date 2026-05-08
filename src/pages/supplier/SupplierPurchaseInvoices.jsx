@@ -674,6 +674,10 @@ export default function SupplierPurchaseInvoices() {
         }
         const grandTotal = roundMoney2(Math.max(0, grossBeforeInvDisc - invDisc));
 
+        const freightIn = roundMoney2(Math.max(0, freightNum));
+        const invoiceDiscountSar = roundMoney2(Math.max(0, invDisc));
+        const invPctDisplayed = Math.min(100, Math.max(0, invRaw));
+
         return {
             subtotal: subtotalEx.toLocaleString(undefined, {
                 minimumFractionDigits: 2,
@@ -688,8 +692,22 @@ export default function SupplierPurchaseInvoices() {
                 maximumFractionDigits: 2,
             }),
             rawGrandTotal: grandTotal,
-            freightIn: roundMoney2(Math.max(0, freightNum)),
-            invoiceDiscount: roundMoney2(Math.max(0, invDisc)),
+            freightIn,
+            freightInFormatted: freightIn.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }),
+            showFreightRow: freightIn > 0,
+            invoiceDiscount: invoiceDiscountSar,
+            invoiceDiscountFormatted: invoiceDiscountSar.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }),
+            showInvoiceDiscountRow: invoiceDiscountSar > 0,
+            invoiceDiscountSummaryLabel:
+                invoiceDiscountMode === 'percent'
+                    ? `Invoice discount (${invPctDisplayed}%):`
+                    : 'Invoice discount (fixed SAR):',
         };
     };
     const summary = getSummary();
@@ -2479,7 +2497,13 @@ export default function SupplierPurchaseInvoices() {
                                         <label>Freight-in (SAR)</label>
                                         <input
                                             type="text"
-                                            value={freightCharges}
+                                            inputMode="decimal"
+                                            autoComplete="off"
+                                            value={
+                                                freightCharges != null
+                                                    ? String(freightCharges)
+                                                    : ''
+                                            }
                                             onChange={(e) =>
                                                 setFreightCharges(e.target.value)
                                             }
@@ -2528,6 +2552,20 @@ export default function SupplierPurchaseInvoices() {
                                             <span>Subtotal:</span>
                                             <span>SAR {summary.subtotal}</span>
                                         </div>
+                                        {summary.showFreightRow ? (
+                                            <div className="pi-summary-row">
+                                                <span>Freight-in (SAR):</span>
+                                                <span>SAR {summary.freightInFormatted}</span>
+                                            </div>
+                                        ) : null}
+                                        {summary.showInvoiceDiscountRow ? (
+                                            <div className="pi-summary-row">
+                                                <span>{summary.invoiceDiscountSummaryLabel}</span>
+                                                <span style={{ color: '#B91C1C' }}>
+                                                    − SAR {summary.invoiceDiscountFormatted}
+                                                </span>
+                                            </div>
+                                        ) : null}
                                         <div className="pi-summary-row">
                                             <span>Total Tax (VAT):</span>
                                             <span>SAR {summary.totalTax}</span>

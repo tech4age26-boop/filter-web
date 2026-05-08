@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
     FileText,
@@ -22,6 +23,7 @@ import {
     getSupplierInventoryStockBalances,
     getSupplierSalesInvoiceCustomerBranches,
     listSupplierInvoices,
+    listSupplierCashBankAccounts,
     patchSupplierInvoicePaymentStatus,
     updateSupplierInvoice,
 } from '../../services/supplierApi';
@@ -36,6 +38,10 @@ const SALES_INVOICE_FROM_ALERT_KEY = 'salesInvoiceFromAlert';
 /** Map GET `/supplier/invoices/:id` → WorkshopPurchaseInvoiceView detail (same bilingual layout as workshop PI). */
 function mapSupplierSalesInvoiceToWorkshopDetail(inv) {
     if (!inv || typeof inv !== 'object') return {};
+    const meta =
+        inv.salesInvoiceMeta != null && typeof inv.salesInvoiceMeta === 'object'
+            ? inv.salesInvoiceMeta
+            : {};
     const branchName = inv.branch?.name ?? inv.workshop?.name ?? '';
     const refLabel =
         inv.deliveryNoteUrl != null && String(inv.deliveryNoteUrl).trim() !== ''
@@ -67,6 +73,10 @@ function mapSupplierSalesInvoiceToWorkshopDetail(inv) {
         balance: inv.outstanding,
         paymentStatus:
             Number(inv.paid) >= Number(inv.grandTotal) && Number(inv.grandTotal) > 0 ? 'paid' : 'unpaid',
+        payments: Array.isArray(inv.payments) ? inv.payments : [],
+        salesInvoiceMeta: inv.salesInvoiceMeta ?? null,
+        cashBankAccount:
+            typeof meta.cashBankAccount === 'string' ? meta.cashBankAccount.trim() : '',
         notes: inv.internalNotes ?? inv.internal_notes ?? inv.notes ?? '',
         description: refLabel,
         items: (inv.items || []).map((it) => ({
@@ -106,9 +116,44 @@ const SALES_INVOICE_PAYMENT_OPTIONS = [
     { value: 'paid', label: 'Paid' },
 ];
 
+/** Stored on `supplier_payments.method` when marking invoice paid from portal. */
+const MARK_PAID_METHOD_OPTIONS = [
+    { value: 'cash', label: 'Cash' },
+    { value: 'bank_transfer', label: 'Bank transfer' },
+    { value: 'card', label: 'Card' },
+    { value: 'cheque', label: 'Cheque' },
+    { value: 'other', label: 'Other' },
+];
+
 /** Align select value with balance (outstanding). */
 function salesInvoicePaymentSelectValue(balance) {
     return Number(balance || 0) > 0 ? 'unpaid' : 'paid';
+}
+
+/** Backend `GET /supplier/cash-bank/accounts` uses `accountType` (cash | bank), not `type`. */
+function extractSupplierAccountsPayload(res) {
+    if (!res || typeof res !== 'object') return [];
+    if (Array.isArray(res)) return res;
+    for (const k of ['accounts', 'list', 'items', 'data']) {
+        if (Array.isArray(res[k])) return res[k];
+    }
+    return [];
+}
+
+/** Same shaping as SupplierCashBank `mapAccountsFromApi` for stable labels / PATCH text. */
+function mapSupplierCashBankAccountForPickers(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const id = raw.id ?? raw.accountId;
+    if (id == null || id === '') return null;
+    const rawType = String(raw.accountType ?? raw.type ?? 'bank').toLowerCase();
+    const typeLabel = rawType === 'cash' ? 'Cash' : 'Bank';
+    const nameBaseRaw = raw.name ?? raw.accountName;
+    const nameBase =
+        nameBaseRaw != null && String(nameBaseRaw).trim() !== ''
+            ? String(nameBaseRaw).trim()
+            : 'Account';
+    const optionLabel = `${nameBase} (${typeLabel})`;
+    return { id: String(id), nameBase, typeLabel, optionLabel, cashBankLabel: optionLabel, raw };
 }
 
 function mapSupplierInvoicesListFromResponse(invRes) {
@@ -353,38 +398,6 @@ function nextLineId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function formatInvoicePayloadForPdf(payload) {
-    const inv = payload?.invoice ?? payload;
-    if (!inv) return '';
-    const rows =
-        Array.isArray(inv.items) && inv.items.length
-            ? inv.items
-                  .map(
-                      (it) =>
-                          `<tr><td>${escapeHtml(it.productName)}</td><td style="text-align:right">${Number(it.qty)}</td><td style="text-align:right">${Number(it.unitPrice).toFixed(2)}</td><td style="text-align:right">${Number(it.vatRate ?? 15)}%</td><td style="text-align:right">${Number(it.lineTotal).toFixed(2)}</td></tr>`
-                  )
-                  .join('')
-            : '';
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${escapeHtml(inv.invoiceNo)}</title></head><body style="font-family:system-ui,sans-serif;padding:24px;max-width:720px;margin:auto">
-<h1 style="margin-bottom:4px">Sales Invoice</h1>
-<p style="color:#64748b;margin-top:0">${escapeHtml(inv.invoiceNo)}</p>
-<table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px">
-<tr><td><strong>Branch</strong></td><td>${escapeHtml(inv.branch?.name || '—')}</td></tr>
-<tr><td><strong>Invoice date</strong></td><td>${escapeHtml(inv.invoiceDate || '')}</td></tr>
-<tr><td><strong>Due date</strong></td><td>${escapeHtml(inv.dueDate || '')}</td></tr>
-<tr><td><strong>Status</strong></td><td>${escapeHtml(inv.status || '')}</td></tr>
-<tr><td><strong>Grand total</strong></td><td>SAR ${Number(inv.grandTotal ?? 0).toLocaleString()}</td></tr>
-</table>
-<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:1px solid #e2e8f0;text-align:left"><th>Product</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit</th><th style="text-align:right">VAT%</th><th style="text-align:right">Line</th></tr></thead><tbody>${rows}</tbody></table>
-<p style="margin-top:16px;font-size:13px">Outstanding: SAR ${Number(inv.outstanding ?? 0).toLocaleString()} · Paid: SAR ${Number(inv.paid ?? 0).toLocaleString()}</p>
-</body></html>`;
-}
-
-function escapeHtml(s) {
-    if (s == null || s === '') return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
 export default function SupplierSalesInvoices() {
     const [invoices, setInvoices] = useState([]);
     const [modalOpen, setModalOpen] = useState(false);
@@ -397,7 +410,18 @@ export default function SupplierSalesInvoices() {
     const [viewOpen, setViewOpen] = useState(false);
     const [viewLoading, setViewLoading] = useState(false);
     const [viewPayload, setViewPayload] = useState(null);
+    /** Off-screen `WorkshopPurchaseInvoiceView` for row-download PDF (same template as View modal). */
+    const salesInvoicePdfRef = useRef(null);
+    const [salesInvoicePdfExport, setSalesInvoicePdfExport] = useState(null);
+    const [salesInvoicePdfBusy, setSalesInvoicePdfBusy] = useState(false);
     const [paymentStatusSavingId, setPaymentStatusSavingId] = useState(null);
+    const [markPaidModalRow, setMarkPaidModalRow] = useState(null);
+    const [markPaidMethod, setMarkPaidMethod] = useState('bank_transfer');
+    const [markPaidAccountChoice, setMarkPaidAccountChoice] = useState('');
+    const [markPaidCustomAccount, setMarkPaidCustomAccount] = useState('');
+    const [markPaidAccounts, setMarkPaidAccounts] = useState([]);
+    const [markPaidModalBusy, setMarkPaidModalBusy] = useState(false);
+    const [markPaidModalErr, setMarkPaidModalErr] = useState('');
     const [editInvoiceLoading, setEditInvoiceLoading] = useState(false);
 
     const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -521,6 +545,9 @@ export default function SupplierSalesInvoices() {
             invDisc = roundMoney2(Math.min(invRaw, grossBeforeInvDisc));
         }
         const grandTotal = roundMoney2(Math.max(0, grossBeforeInvDisc - invDisc));
+        const freightIn = roundMoney2(Math.max(0, freightNum));
+        const invoiceDiscountSar = roundMoney2(Math.max(0, invDisc));
+        const invPctDisplayed = Math.min(100, Math.max(0, invRaw));
 
         return {
             subtotal: subtotalEx.toLocaleString(undefined, {
@@ -536,8 +563,22 @@ export default function SupplierSalesInvoices() {
                 maximumFractionDigits: 2,
             }),
             rawGrandTotal: grandTotal,
-            freightIn: roundMoney2(Math.max(0, freightNum)),
-            invoiceDiscount: roundMoney2(Math.max(0, invDisc)),
+            freightIn,
+            freightInFormatted: freightIn.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }),
+            showFreightRow: freightIn > 0,
+            invoiceDiscount: invoiceDiscountSar,
+            invoiceDiscountFormatted: invoiceDiscountSar.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }),
+            showInvoiceDiscountRow: invoiceDiscountSar > 0,
+            invoiceDiscountSummaryLabel:
+                invoiceDiscountMode === 'percent'
+                    ? `Invoice discount (${invPctDisplayed}%):`
+                    : 'Invoice discount (fixed SAR):',
         };
     };
     const summary = getSummary();
@@ -964,21 +1005,29 @@ export default function SupplierSalesInvoices() {
     };
 
     const handleDownloadInvoice = async (row) => {
+        if (salesInvoicePdfBusy) return;
+        setSalesInvoicePdfBusy(true);
+        setListError('');
         try {
             const res = await getSupplierInvoice(row.id);
-            const html = formatInvoicePayloadForPdf(res);
-            const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${row.invoiceNo || 'invoice'}.html`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
+            const inv = res?.invoice;
+            if (!inv) {
+                throw new Error('Invoice not found.');
+            }
+            flushSync(() => setSalesInvoicePdfExport(inv));
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+            await new Promise((r) => setTimeout(r, 180));
+            const api = salesInvoicePdfRef.current;
+            if (!api?.downloadPdf) {
+                throw new Error('Could not initialize invoice PDF.');
+            }
+            await api.downloadPdf();
         } catch (err) {
             console.error('Download invoice failed:', err);
-            setListError(err?.message || 'Download failed.');
+            setListError(err?.message || 'Could not download invoice PDF.');
+        } finally {
+            flushSync(() => setSalesInvoicePdfExport(null));
+            setSalesInvoicePdfBusy(false);
         }
     };
 
@@ -997,18 +1046,132 @@ export default function SupplierSalesInvoices() {
         }
     };
 
-    const handlePaymentStatusChange = async (row, next) => {
-        const current = salesInvoicePaymentSelectValue(row.balance);
-        if (next === current) return;
+    const applyPaymentPatch = async (row, payload, opts = {}) => {
+        const { showAlert = true } = opts;
         setPaymentStatusSavingId(row.id);
         try {
-            await patchSupplierInvoicePaymentStatus(row.id, { paymentStatus: next });
+            await patchSupplierInvoicePaymentStatus(row.id, payload);
             await loadInvoiceList({ silent: true });
         } catch (err) {
             console.error('Update payment status failed:', err);
-            window.alert(err?.message || 'Could not update payment status.');
+            if (showAlert) {
+                window.alert(err?.message || 'Could not update payment status.');
+            }
+            throw err;
         } finally {
             setPaymentStatusSavingId(null);
+        }
+    };
+
+    const openMarkPaidModal = async (row) => {
+        setMarkPaidModalRow(row);
+        setMarkPaidMethod('bank_transfer');
+        setMarkPaidModalErr('');
+        setMarkPaidAccounts([]);
+        const invoiceAcc = String(row.cashBankAccount || '').trim();
+        let choice = '';
+        let customAcc = '';
+        try {
+            const res = await listSupplierCashBankAccounts();
+            const list = extractSupplierAccountsPayload(res)
+                .map(mapSupplierCashBankAccountForPickers)
+                .filter(Boolean);
+            setMarkPaidAccounts(list);
+            if (invoiceAcc) {
+                const exact = list.find(
+                    (a) =>
+                        a.cashBankLabel === invoiceAcc ||
+                        a.nameBase === invoiceAcc ||
+                        String(a.raw?.name || '').trim() === invoiceAcc,
+                );
+                if (exact) {
+                    choice = String(exact.id);
+                } else {
+                    const partial = list.find(
+                        (a) =>
+                            a.optionLabel.includes(invoiceAcc) ||
+                            invoiceAcc.includes(a.nameBase) ||
+                            String(a.raw?.name || '')
+                                .trim()
+                                .includes(invoiceAcc),
+                    );
+                    if (partial) choice = String(partial.id);
+                }
+            }
+            if (!choice && list.length === 1) {
+                choice = String(list[0].id);
+            }
+            if (list.length === 0) {
+                choice = '__custom__';
+                customAcc = invoiceAcc;
+            }
+        } catch {
+            setMarkPaidAccounts([]);
+            choice = '__custom__';
+            customAcc = invoiceAcc;
+        }
+        setMarkPaidCustomAccount(customAcc);
+        setMarkPaidAccountChoice(choice);
+    };
+
+    const closeMarkPaidModal = () => {
+        if (markPaidModalBusy) return;
+        setMarkPaidModalRow(null);
+        setMarkPaidModalErr('');
+    };
+
+    const confirmMarkPaid = async () => {
+        if (!markPaidModalRow) return;
+        const methodTrim = String(markPaidMethod || '').trim();
+        let accountLabel = '';
+        if (markPaidAccountChoice === '__custom__') {
+            accountLabel = markPaidCustomAccount.trim();
+        } else if (markPaidAccountChoice) {
+            const ac = markPaidAccounts.find((a) => String(a.id) === String(markPaidAccountChoice));
+            accountLabel = String(ac?.cashBankLabel || ac?.optionLabel || ac?.nameBase || '').trim();
+        }
+        if (!methodTrim) {
+            setMarkPaidModalErr('Select a payment method.');
+            return;
+        }
+        if (!accountLabel) {
+            setMarkPaidModalErr('Select receiving account or enter a custom account name.');
+            return;
+        }
+        setMarkPaidModalBusy(true);
+        setMarkPaidModalErr('');
+        try {
+            await applyPaymentPatch(
+                markPaidModalRow,
+                {
+                    paymentStatus: 'paid',
+                    paymentMethod: methodTrim,
+                    cashBankAccount: accountLabel,
+                },
+                { showAlert: false },
+            );
+            setMarkPaidModalRow(null);
+        } catch (err) {
+            setMarkPaidModalErr(err?.message || 'Could not record payment.');
+        } finally {
+            setMarkPaidModalBusy(false);
+        }
+    };
+
+    const handlePaymentStatusChange = async (row, next) => {
+        const current = salesInvoicePaymentSelectValue(row.balance);
+        if (next === current) return;
+        if (current === 'paid' && next === 'unpaid') {
+            return;
+        }
+        if (next === 'paid') {
+            await openMarkPaidModal(row);
+            return;
+        }
+        try {
+            await applyPaymentPatch(row, { paymentStatus: 'unpaid' });
+        } catch {
+            /* applyPaymentPatch already alerted */
         }
     };
 
@@ -1398,6 +1561,8 @@ export default function SupplierSalesInvoices() {
                                         const statusLabel = String(inv.status || '')
                                             .replace(/_/g, ' ')
                                             .trim();
+                                        const rowPaymentSelect = salesInvoicePaymentSelectValue(inv.balance);
+                                        const paymentSelectLockedPaid = rowPaymentSelect === 'paid';
                                         return (
                                             <tr key={inv.id}>
                                                 <td>
@@ -1454,10 +1619,16 @@ export default function SupplierSalesInvoices() {
                                                 <td style={{ minWidth: 132 }}>
                                                     <select
                                                         aria-label={`Payment status for ${inv.invoiceNo || inv.id}`}
-                                                        value={salesInvoicePaymentSelectValue(
-                                                            inv.balance,
-                                                        )}
-                                                        disabled={paymentStatusSavingId === inv.id}
+                                                        value={rowPaymentSelect}
+                                                        disabled={
+                                                            paymentStatusSavingId === inv.id ||
+                                                            paymentSelectLockedPaid
+                                                        }
+                                                        title={
+                                                            paymentSelectLockedPaid
+                                                                ? 'Paid invoices cannot be changed back to unpaid'
+                                                                : undefined
+                                                        }
                                                         onChange={(e) =>
                                                             handlePaymentStatusChange(inv, e.target.value)
                                                         }
@@ -1468,11 +1639,15 @@ export default function SupplierSalesInvoices() {
                                                             padding: '6px 8px',
                                                             borderRadius: 6,
                                                             border: '1px solid #E5E7EB',
-                                                            background: '#fff',
+                                                            background: paymentSelectLockedPaid
+                                                                ? '#F3F4F6'
+                                                                : '#fff',
                                                             cursor:
                                                                 paymentStatusSavingId === inv.id
                                                                     ? 'wait'
-                                                                    : 'pointer',
+                                                                    : paymentSelectLockedPaid
+                                                                      ? 'not-allowed'
+                                                                      : 'pointer',
                                                         }}
                                                     >
                                                         {SALES_INVOICE_PAYMENT_OPTIONS.map((opt) => (
@@ -1529,15 +1704,18 @@ export default function SupplierSalesInvoices() {
                                                         </button>
                                                         <button
                                                             type="button"
+                                                            disabled={salesInvoicePdfBusy}
                                                             onClick={() => handleDownloadInvoice(inv)}
                                                             style={{
                                                                 padding: 6,
                                                                 borderRadius: 6,
                                                                 border: 'none',
-                                                                background: '#F3F4F6',
-                                                                cursor: 'pointer',
+                                                                background:
+                                                                    salesInvoicePdfBusy ? '#E5E7EB' : '#F3F4F6',
+                                                                cursor:
+                                                                    salesInvoicePdfBusy ? 'not-allowed' : 'pointer',
                                                             }}
-                                                            title="Download"
+                                                            title="Download PDF"
                                                         >
                                                             <Download size={14} />
                                                         </button>
@@ -2657,6 +2835,20 @@ export default function SupplierSalesInvoices() {
                                             <span>Subtotal:</span>
                                             <span>SAR {summary.subtotal}</span>
                                         </div>
+                                        {summary.showFreightRow ? (
+                                            <div className="pi-summary-row">
+                                                <span>Freight / Other charges:</span>
+                                                <span>SAR {summary.freightInFormatted}</span>
+                                            </div>
+                                        ) : null}
+                                        {summary.showInvoiceDiscountRow ? (
+                                            <div className="pi-summary-row">
+                                                <span>{summary.invoiceDiscountSummaryLabel}</span>
+                                                <span style={{ color: '#B91C1C' }}>
+                                                    − SAR {summary.invoiceDiscountFormatted}
+                                                </span>
+                                            </div>
+                                        ) : null}
                                         <div className="pi-summary-row">
                                             <span>Total Tax (VAT):</span>
                                             <span>SAR {summary.totalTax}</span>
@@ -2682,6 +2874,127 @@ export default function SupplierSalesInvoices() {
                                 </>
                             )}
                         </div>
+                    </Modal>
+                )}
+            </AnimatePresence>
+            <AnimatePresence>
+                {markPaidModalRow && (
+                    <Modal
+                        title="Record payment"
+                        width="min(440px, 96vw)"
+                        disableClose={markPaidModalBusy}
+                        onClose={closeMarkPaidModal}
+                        footer={
+                            <div className="pi-modal-footer">
+                                <div className="pi-footer-left">
+                                    <button
+                                        type="button"
+                                        className="btn-pi-cancel"
+                                        onClick={closeMarkPaidModal}
+                                        disabled={markPaidModalBusy}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                                <div className="pi-footer-right">
+                                    <button
+                                        type="button"
+                                        className="btn-pi-create"
+                                        onClick={confirmMarkPaid}
+                                        disabled={
+                                            markPaidModalBusy ||
+                                            paymentStatusSavingId === markPaidModalRow?.id
+                                        }
+                                    >
+                                        {markPaidModalBusy ? 'Recording…' : 'Confirm paid'}
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    >
+                        <p style={{ margin: '0 0 14px', fontSize: '0.875rem', color: '#475569' }}>
+                            Invoice <strong>{markPaidModalRow.invoiceNo}</strong>
+                            {' — '}
+                            balance SAR{' '}
+                            <strong>{Number(markPaidModalRow.balance || 0).toFixed(2)}</strong>
+                        </p>
+                        <div className="ws-form-grid">
+                            <div className="ws-field">
+                                <label htmlFor="mark-paid-method">Payment method *</label>
+                                <select
+                                    id="mark-paid-method"
+                                    value={markPaidMethod}
+                                    onChange={(e) => setMarkPaidMethod(e.target.value)}
+                                    disabled={markPaidModalBusy}
+                                >
+                                    {MARK_PAID_METHOD_OPTIONS.map((o) => (
+                                        <option key={o.value} value={o.value}>
+                                            {o.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="ws-field">
+                                <label htmlFor="mark-paid-account">
+                                    Receiving cash / bank account *
+                                </label>
+                                <select
+                                    id="mark-paid-account"
+                                    value={markPaidAccountChoice}
+                                    onChange={(e) =>
+                                        setMarkPaidAccountChoice(e.target.value)
+                                    }
+                                    disabled={markPaidModalBusy}
+                                >
+                                    {markPaidAccounts.length > 0 ? (
+                                        <>
+                                            <option value="">Select account</option>
+                                            {markPaidAccounts.map((acc) => (
+                                                <option key={acc.id} value={acc.id}>
+                                                    {acc.optionLabel}
+                                                </option>
+                                            ))}
+                                            <option value="__custom__">
+                                                Other (enter name)…
+                                            </option>
+                                        </>
+                                    ) : (
+                                        <option value="__custom__">
+                                            Enter account manually
+                                        </option>
+                                    )}
+                                </select>
+                            </div>
+                            {markPaidAccountChoice === '__custom__' && (
+                                <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                    <label htmlFor="mark-paid-account-custom">
+                                        Account name / details *
+                                    </label>
+                                    <input
+                                        id="mark-paid-account-custom"
+                                        type="text"
+                                        value={markPaidCustomAccount}
+                                        onChange={(e) =>
+                                            setMarkPaidCustomAccount(e.target.value)
+                                        }
+                                        placeholder="e.g. Bank — Al Rajhi (current)"
+                                        disabled={markPaidModalBusy}
+                                        autoComplete="off"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                        {markPaidModalErr ? (
+                            <p
+                                style={{
+                                    margin: '14px 0 0',
+                                    fontSize: '0.8125rem',
+                                    color: '#B91C1C',
+                                }}
+                            >
+                                {markPaidModalErr}
+                            </p>
+                        ) : null}
                     </Modal>
                 )}
             </AnimatePresence>
@@ -2713,6 +3026,29 @@ export default function SupplierSalesInvoices() {
                     </Modal>
                 )}
             </AnimatePresence>
+            {salesInvoicePdfExport ? (
+                <div
+                    aria-hidden
+                    className="sales-invoice-pdf-export-mount"
+                    style={{
+                        position: 'fixed',
+                        left: '-12000px',
+                        top: 0,
+                        width: 'min(980px, 99vw)',
+                        pointerEvents: 'none',
+                        zIndex: -1,
+                        overflow: 'hidden',
+                    }}
+                >
+                    <WorkshopPurchaseInvoiceView
+                        ref={salesInvoicePdfRef}
+                        compact
+                        variant="supplier_sales"
+                        detail={mapSupplierSalesInvoiceToWorkshopDetail(salesInvoicePdfExport)}
+                        listRow={mapSupplierSalesInvoiceToWorkshopListRow(salesInvoicePdfExport)}
+                    />
+                </div>
+            ) : null}
         </div>
     );
 }
