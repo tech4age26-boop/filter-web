@@ -1,4 +1,11 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, {
+    forwardRef,
+    useCallback,
+    useImperativeHandle,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import { Download } from 'lucide-react';
 import './WorkshopPurchaseInvoiceView.css';
 
@@ -104,6 +111,30 @@ function fmtStatusLabel(status) {
         .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Portal PATCH stores receiving account prefix on `supplier_payments.reference`. */
+function receivingAccountFromPaymentReference(reference) {
+    const s = String(reference ?? '').trim();
+    const m = /^Recv\s*:\s*(.+)$/is.exec(s);
+    return m ? String(m[1] || '').trim() : '';
+}
+
+/** Values match supplier portal mark-paid PATCH (`cash`, `bank_transfer`, …). */
+function formatPortalPaymentMethodLabel(raw) {
+    const lower = String(raw ?? '').trim().toLowerCase();
+    if (!lower) return '';
+    const presets = {
+        cash: 'Cash',
+        bank_transfer: 'Bank transfer',
+        card: 'Card',
+        cheque: 'Cheque',
+        other: 'Other',
+    };
+    if (presets[lower]) return presets[lower];
+    return String(raw)
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function formatInvoiceDateTime(inv, row) {
     const raw =
         pick(inv, 'createdAt', 'created_at', 'updatedAt', 'updated_at', 'issueDate', 'issue_date') ??
@@ -121,13 +152,16 @@ function formatInvoiceDateTime(inv, row) {
     });
 }
 
-export default function WorkshopPurchaseInvoiceView({
-    detail,
-    listRow,
-    variant = 'workshop',
-    /** Tighter spacing for modal preview (PDF download still uses full layout). */
-    compact = false,
-}) {
+const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceView(
+    {
+        detail,
+        listRow,
+        variant = 'workshop',
+        /** Tighter spacing for modal preview (PDF download still uses full layout). */
+        compact = false,
+    },
+    imperativeRef,
+) {
     const inv = detail && typeof detail === 'object' ? detail : {};
     const row = listRow && typeof listRow === 'object' ? listRow : {};
     const isSuperSupplier = variant === 'super_supplier';
@@ -381,11 +415,59 @@ export default function WorkshopPurchaseInvoiceView({
             ? String(paymentLabelRaw).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
             : '—';
 
-    const handleDownloadPdf = useCallback(async () => {
+    /** Supplier AR: method + receiving account from latest portal payment (`Recv:` reference) or meta. */
+    const supplierArReceiptLabels = useMemo(() => {
+        if (!isSupplierSales) return { method: '—', account: '—' };
+        const list = Array.isArray(inv.payments) ? [...inv.payments] : [];
+        list.sort((a, b) => String(b?.paidAt ?? '').localeCompare(String(a?.paidAt ?? '')));
+
+        let method = '';
+        let account = '';
+        const recvPay = list.find((p) =>
+            /^Recv\s*:/i.test(String(p?.reference ?? '').trim()),
+        );
+
+        const meta =
+            inv.salesInvoiceMeta != null && typeof inv.salesInvoiceMeta === 'object'
+                ? inv.salesInvoiceMeta
+                : null;
+        const metaAcc =
+            meta && typeof meta.cashBankAccount === 'string' ? meta.cashBankAccount.trim() : '';
+        const detailAcc =
+            typeof inv.cashBankAccount === 'string' ? inv.cashBankAccount.trim() : metaAcc;
+
+        const focal =
+            recvPay ?? (paid > 0 && list.length > 0 ? list[0] : null);
+
+        if (focal) {
+            method = formatPortalPaymentMethodLabel(focal.method);
+            account = receivingAccountFromPaymentReference(focal.reference);
+        }
+        if (!account && detailAcc) {
+            account = detailAcc;
+        }
+
+        const methodDisp = method || '—';
+        const accountDisp = account || '—';
+
+        /** Hide misleading labels when unpaid and unset. */
+        if (paid <= 0 && methodDisp === '—' && accountDisp === '—') {
+            return { method: '—', account: '—' };
+        }
+
+        return { method: methodDisp, account: accountDisp };
+    }, [
+        inv.payments,
+        inv.salesInvoiceMeta,
+        inv.cashBankAccount,
+        isSupplierSales,
+        paid,
+    ]);
+
+    /** Same raster → jsPDF pipeline as toolbar "Download PDF" (throws on failure). */
+    const captureInvoicePdf = useCallback(async () => {
         const el = printRootRef.current;
-        if (!el) return;
-        setPdfBusy(true);
-        setPdfError('');
+        if (!el) throw new Error('Invoice preview is not ready.');
         const hadCompact = el.classList.contains('wpi-view--compact');
         if (hadCompact) el.classList.remove('wpi-view--compact');
         el.classList.add('wpi-view--pdf-capture');
@@ -438,15 +520,28 @@ export default function WorkshopPurchaseInvoiceView({
             );
         } catch (err) {
             console.error(err);
+            throw err;
+        } finally {
+            el.classList.remove('wpi-view--pdf-capture');
+            if (hadCompact) el.classList.add('wpi-view--compact');
+        }
+    }, [invoiceNo, isSuperSupplier, isSupplierSales]);
+
+    useImperativeHandle(imperativeRef, () => ({ downloadPdf: captureInvoicePdf }), [captureInvoicePdf]);
+
+    const handleDownloadPdf = useCallback(async () => {
+        setPdfBusy(true);
+        setPdfError('');
+        try {
+            await captureInvoicePdf();
+        } catch (err) {
             setPdfError(
                 'Could not create PDF. Use your browser Print dialog on this page and choose Save as PDF.',
             );
         } finally {
-            el.classList.remove('wpi-view--pdf-capture');
-            if (hadCompact) el.classList.add('wpi-view--compact');
             setPdfBusy(false);
         }
-    }, [invoiceNo, isSuperSupplier, isSupplierSales]);
+    }, [captureInvoicePdf]);
 
     return (
         <div
@@ -596,6 +691,28 @@ export default function WorkshopPurchaseInvoiceView({
                                     <div className="wpi-view__field-value">{paymentLabel}</div>
                                 </div>
                             </div>
+                            {isSupplierSales ? (
+                                <div className="wpi-view__details-grid">
+                                    <div className="wpi-view__field">
+                                        <span className="wpi-view__field-label">Payment method</span>
+                                        <div className="wpi-view__field-value">
+                                            {supplierArReceiptLabels.method}
+                                        </div>
+                                    </div>
+                                    <div className="wpi-view__field">
+                                        <span className="wpi-view__field-label">
+                                            Receiving account
+                                        </span>
+                                        <div
+                                            className="wpi-view__field-value"
+                                            dir="auto"
+                                            style={{ wordBreak: 'break-word' }}
+                                        >
+                                            {supplierArReceiptLabels.account}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
                     </div>
 
@@ -884,4 +1001,6 @@ export default function WorkshopPurchaseInvoiceView({
             </div>
         </div>
     );
-}
+});
+
+export default WorkshopPurchaseInvoiceView;

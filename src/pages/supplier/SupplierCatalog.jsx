@@ -819,27 +819,111 @@ export default function SupplierCatalog() {
                                     border: isSelected
                                         ? '1px solid rgba(245, 158, 11, 0.55)'
                                         : '1px solid var(--color-border)',
-                                    borderRadius: 16,
+                                    borderRadius: 12,
                                     overflow: 'hidden',
                                     display: 'flex',
                                     flexDirection: 'column',
                                     transition: 'all 0.2s ease',
                                     boxShadow: isSelected
-                                        ? '0 10px 24px rgba(245, 158, 11, 0.16)'
-                                        : '0 2px 8px rgba(15, 23, 42, 0.04)',
+                                        ? '0 6px 16px rgba(245, 158, 11, 0.14)'
+                                        : '0 2px 6px rgba(15, 23, 42, 0.04)',
                                     cursor: 'pointer',
                                 }}
                                 className="ws-section"
                                 onClick={() => toggleSelectProduct(item.id)}
                             >
-                                <div style={{ padding: 16, flex: 1 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <div
+                                    style={{
+                                        padding: '8px 10px',
+                                        flex: 1,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 4,
+                                        minHeight: 0,
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'flex-start',
+                                            gap: 8,
+                                        }}
+                                    >
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                            <p
+                                                style={{
+                                                    fontWeight: 700,
+                                                    fontSize: '0.8125rem',
+                                                    color: 'var(--color-text-dark)',
+                                                    margin: 0,
+                                                    lineHeight: 1.25,
+                                                }}
+                                            >
+                                                {item.product_name}
+                                            </p>
+                                            {isSelected ? (
+                                                <div
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        marginTop: 4,
+                                                        fontSize: '0.625rem',
+                                                        fontWeight: 700,
+                                                        color: '#92400E',
+                                                    }}
+                                                >
+                                                    <CheckCircle2 size={11} />
+                                                    Ready to add in inventory
+                                                </div>
+                                            ) : null}
+                                            {item.category ? (
+                                                <span
+                                                    className="ws-badge ws-badge--gray"
+                                                    style={{
+                                                        marginTop: 4,
+                                                        display: 'inline-block',
+                                                        fontSize: '0.625rem',
+                                                        padding: '2px 6px',
+                                                    }}
+                                                >
+                                                    {item.category}
+                                                </span>
+                                            ) : null}
+                                            <p
+                                                style={{
+                                                    fontSize: '0.6875rem',
+                                                    color: 'var(--color-text-muted)',
+                                                    margin: '4px 0 0',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 4,
+                                                    lineHeight: 1.25,
+                                                }}
+                                            >
+                                                <Truck size={11} aria-hidden />
+                                                {sup?.name || item.supplier_name}
+                                            </p>
+                                            {item.description ? (
+                                                <p
+                                                    style={{
+                                                        fontSize: '0.6875rem',
+                                                        color: 'var(--color-text-muted)',
+                                                        margin: '2px 0 0',
+                                                        lineHeight: 1.3,
+                                                    }}
+                                                >
+                                                    {item.description}
+                                                </p>
+                                            ) : null}
+                                        </div>
                                         <label
                                             style={{
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
-                                                gap: 6,
-                                                fontSize: '0.6875rem',
+                                                gap: 4,
+                                                fontSize: '0.625rem',
                                                 fontWeight: 700,
                                                 color: isSelected ? '#B45309' : 'var(--color-text-muted)',
                                                 background: isSelected ? 'rgba(245, 158, 11, 0.12)' : 'transparent',
@@ -847,12 +931,13 @@ export default function SupplierCatalog() {
                                                     ? '1px solid rgba(245, 158, 11, 0.35)'
                                                     : '1px solid var(--color-border-light)',
                                                 borderRadius: 999,
-                                                padding: '3px 8px',
+                                                padding: '2px 6px',
                                                 cursor: 'pointer',
+                                                flexShrink: 0,
                                             }}
                                             onClick={(e) => e.stopPropagation()}
                                         >
-                                            {isSelected ? <CheckCircle2 size={13} /> : <Circle size={13} />}
+                                            {isSelected ? <CheckCircle2 size={11} /> : <Circle size={11} />}
                                             {isSelected ? 'Selected' : 'Select'}
                                             <input
                                                 type="checkbox"
@@ -863,85 +948,31 @@ export default function SupplierCatalog() {
                                             />
                                         </label>
                                     </div>
-                                    <p
-                                        style={{
-                                            fontWeight: 700,
-                                            fontSize: '0.9375rem',
-                                            color: 'var(--color-text-dark)',
-                                            margin: '0 0 8px',
-                                            lineHeight: 1.4,
-                                        }}
-                                    >
-                                        {item.product_name}
-                                    </p>
-                                    {isSelected ? (
-                                        <div
-                                            style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: 6,
-                                                marginBottom: 8,
-                                                fontSize: '0.6875rem',
-                                                fontWeight: 700,
-                                                color: '#92400E',
-                                            }}
-                                        >
-                                            <CheckCircle2 size={12} />
-                                            Ready to add in inventory
-                                        </div>
-                                    ) : null}
-                                    {item.category ? (
-                                        <span
-                                            className="ws-badge ws-badge--gray"
-                                            style={{ marginBottom: 8, display: 'inline-block' }}
-                                        >
-                                            {item.category}
-                                        </span>
-                                    ) : null}
-                                    <p
-                                        style={{
-                                            fontSize: '0.75rem',
-                                            color: 'var(--color-text-muted)',
-                                            margin: '8px 0 0',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 4,
-                                        }}
-                                    >
-                                        <Truck size={12} />
-                                        {sup?.name || item.supplier_name}
-                                    </p>
-                                    {item.description ? (
-                                        <p
-                                            style={{
-                                                fontSize: '0.75rem',
-                                                color: 'var(--color-text-muted)',
-                                                margin: '6px 0 0',
-                                                lineHeight: 1.4,
-                                            }}
-                                        >
-                                            {item.description}
-                                        </p>
-                                    ) : null}
                                 </div>
-                                <div style={{ padding: 14, borderTop: '1px solid var(--color-border-light)' }}>
+                                <div
+                                    style={{
+                                        padding: '6px 10px',
+                                        borderTop: '1px solid var(--color-border-light)',
+                                    }}
+                                >
                                     <div
                                         style={{
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'space-between',
-                                            marginBottom: 10,
+                                            gap: 8,
                                         }}
                                     >
                                         <div>
-                                            <p style={{ fontSize: '1rem', fontWeight: 900, margin: 0 }}>
+                                            <p style={{ fontSize: '0.9375rem', fontWeight: 900, margin: 0, lineHeight: 1.2 }}>
                                                 SAR {(item.sale_price || 0).toLocaleString()}
                                             </p>
                                             <p
                                                 style={{
-                                                    fontSize: '0.6875rem',
+                                                    fontSize: '0.625rem',
                                                     color: 'var(--color-text-muted)',
-                                                    margin: '2px 0 0',
+                                                    margin: '1px 0 0',
+                                                    lineHeight: 1.2,
                                                 }}
                                             >
                                                 per {item.unit} · Min: {item.min_order_qty || 1}
@@ -949,6 +980,7 @@ export default function SupplierCatalog() {
                                         </div>
                                         <span
                                             className={`ws-badge ${inStock ? 'ws-badge--green' : 'ws-badge--red'}`}
+                                            style={{ fontSize: '0.625rem', padding: '2px 6px' }}
                                         >
                                             {inStock ? `${item.stock_qty} in stock` : 'Out'}
                                         </span>
