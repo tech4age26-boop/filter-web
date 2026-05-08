@@ -470,6 +470,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                     <Modal
                         title="Workshop purchase invoice"
                         width="min(980px, 99vw)"
+                        contentClassName="wpi-invoice-preview-modal"
                         onClose={() => {
                             setViewRow(null);
                             setViewDetail(null);
@@ -478,7 +479,11 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                         {viewLoading ? (
                             <ShimmerTextBlock lines={8} />
                         ) : (
-                            <WorkshopPurchaseInvoiceView detail={viewDetail} listRow={viewRow} />
+                            <WorkshopPurchaseInvoiceView
+                                compact
+                                detail={viewDetail}
+                                listRow={viewRow}
+                            />
                         )}
                     </Modal>
                 )}
