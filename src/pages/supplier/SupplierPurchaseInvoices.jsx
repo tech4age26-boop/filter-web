@@ -27,6 +27,7 @@ import {
     createSupplierSuperSupplier,
     listSupplierSuperSupplierAudit,
     listSupplierSuperSupplierPurchases,
+    updateSupplierSuperSupplierPurchase,
 } from '../../services/supplierApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
@@ -111,6 +112,57 @@ function applyLineTotals(line, amountsTaxInclusive) {
     };
 }
 
+/**
+ * API stores exclusive unit price *after* line discount. Rebuild the per-unit list price the form uses
+ * (before discount) so totals match after edit when discount/description are restored.
+ */
+function reconstructSSPUnitPriceInput(it, amountsTaxInclusive, taxCode) {
+    const rate =
+        TAXES.find((t) => t.code === taxCode)?.rate ?? TAXES[0]?.rate ?? 0;
+    const qty = Math.max(
+        0.000001,
+        parseFloat(String(it.qty ?? 1).replace(',', '.')) || 1,
+    );
+    const U_net = Number(it.unitPrice ?? 0);
+    const discRaw = Number(it.lineDiscountValue ?? 0);
+    const discMode =
+        it.lineDiscountMode === 'fixed_sar' ? 'fixed_sar' : 'percent';
+
+    if (!(discRaw > 0)) {
+        if (!amountsTaxInclusive) {
+            return String(roundMoney2(U_net));
+        }
+        return String(roundMoney2(U_net * (1 + rate)));
+    }
+
+    if (!amountsTaxInclusive) {
+        if (discMode === 'percent') {
+            const pct = Math.min(100, Math.max(0, discRaw));
+            const denom = 1 - pct / 100;
+            if (denom <= 0 || denom >= 1) {
+                return String(roundMoney2(U_net));
+            }
+            const U_list_ex = roundMoney2(U_net / denom);
+            return String(U_list_ex);
+        }
+        const fixed = discRaw;
+        const grossLineEx = roundMoney2(U_net * qty + fixed);
+        return String(roundMoney2(grossLineEx / qty));
+    }
+
+    const netIncl = roundMoney2(U_net * qty * (1 + rate));
+    if (discMode === 'percent') {
+        const pct = Math.min(100, Math.max(0, discRaw));
+        const denom = 1 - pct / 100;
+        const grossInclBeforeDisc =
+            denom <= 0 ? netIncl : roundMoney2(netIncl / denom);
+        return String(roundMoney2(grossInclBeforeDisc / qty));
+    }
+    const fixed = discRaw;
+    const grossInclBeforeDisc = roundMoney2(netIncl + fixed);
+    return String(roundMoney2(grossInclBeforeDisc / qty));
+}
+
 function extractArray(res, keys) {
     if (!res || typeof res !== 'object') return [];
     if (Array.isArray(res)) return res;
@@ -136,6 +188,16 @@ function mapPayableToRow(p) {
 
 function nextLineId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Strip auto-appended due line from saved SSP notes (see handleCreateInvoice). */
+function splitSuperSupplierPurchaseNotes(notes) {
+    const s = String(notes ?? '').trim();
+    if (!s) return { userNotes: '', dueIso: null };
+    const m = s.match(/Due date:\s*(\d{4}-\d{2}-\d{2})/);
+    const dueIso = m ? m[1] : null;
+    const userNotes = s.replace(/\n*Due date:\s*\d{4}-\d{2}-\d{2}\s*/g, '').trim();
+    return { userNotes, dueIso };
 }
 
 /** Rows from `/supplier/inventory/stock-balances` only — purchase picker must not mix full catalog / services. */
@@ -234,6 +296,12 @@ export default function SupplierPurchaseInvoices() {
 
     const [createSubmitting, setCreateSubmitting] = useState(false);
     const [createError, setCreateError] = useState('');
+    /** Same modal as New Purchase Invoice — edit loads SSP purchase into identical fields */
+    const [sspPurchaseModalMode, setSspPurchaseModalMode] = useState(
+        /** @type {'create' | 'edit'} */ ('create'),
+    );
+    const [editingSspPurchaseId, setEditingSspPurchaseId] = useState(null);
+    const [sspPurchaseEditLoading, setSspPurchaseEditLoading] = useState(false);
     const [downloadingId, setDownloadingId] = useState(null);
 
     const [superSuppliers, setSuperSuppliers] = useState([]);
@@ -620,6 +688,8 @@ export default function SupplierPurchaseInvoices() {
                 maximumFractionDigits: 2,
             }),
             rawGrandTotal: grandTotal,
+            freightIn: roundMoney2(Math.max(0, freightNum)),
+            invoiceDiscount: roundMoney2(Math.max(0, invDisc)),
         };
     };
     const summary = getSummary();
@@ -735,8 +805,14 @@ export default function SupplierPurchaseInvoices() {
         setDescription('');
         setInternalNotes('');
         setIssueDate(new Date().toISOString().slice(0, 10));
+        setDueDateType('Net');
+        setNetDays(30);
+        setCustomDueDate('');
         setSearchQuery('');
         setCreateError('');
+        setShowLineNum(false);
+        setShowDesc(false);
+        setShowDiscount(false);
         setAmountsTaxInclusive(false);
         setFreightCharges('0');
         setInvoiceDiscountValue('0');
@@ -744,6 +820,117 @@ export default function SupplierPurchaseInvoices() {
         setItemPickerLineId(null);
         setItemPickerInput('');
         setItemPickerFilter('');
+        setSspPurchaseModalMode('create');
+        setEditingSspPurchaseId(null);
+        setSspPurchaseEditLoading(false);
+    };
+
+    const openSuperSupplierPurchaseForEdit = async (purchaseId) => {
+        setCreateError('');
+        setSspPurchaseModalMode('edit');
+        setEditingSspPurchaseId(String(purchaseId));
+        setSspPurchaseEditLoading(true);
+        setModalOpen(true);
+        setApTab('ssp_invoices');
+        try {
+            const res = await getSupplierSuperSupplierPurchase(purchaseId);
+            const p = res?.purchase ?? res?.data ?? res;
+            if (!p?.id) {
+                setCreateError('Could not load purchase for editing.');
+                return;
+            }
+            setIssueDate((p.purchaseDate || '').toString().slice(0, 10));
+            setSuperSupplierId(String(p.superSupplierId ?? ''));
+            setRefNo(String(p.vendorRef ?? p.referenceNo ?? '').trim());
+            setDescription(String(p.description ?? '').trim());
+            const { userNotes, dueIso } = splitSuperSupplierPurchaseNotes(p.notes);
+            setInternalNotes(userNotes);
+            const issue = new Date((p.purchaseDate || '').toString().slice(0, 10));
+            if (!Number.isNaN(issue.getTime()) && dueIso) {
+                const due = new Date(dueIso);
+                if (!Number.isNaN(due.getTime())) {
+                    const diffDays = Math.round((due - issue) / (1000 * 60 * 60 * 24));
+                    if (!Number.isNaN(diffDays) && diffDays >= 0) {
+                        setDueDateType('Net');
+                        setNetDays(diffDays || 30);
+                    } else {
+                        setDueDateType('Custom');
+                        setCustomDueDate(dueIso);
+                    }
+                } else {
+                    setDueDateType('Net');
+                    setNetDays(30);
+                }
+            } else {
+                setDueDateType('Net');
+                setNetDays(30);
+            }
+
+            const m =
+                p.purchaseFormMeta != null && typeof p.purchaseFormMeta === 'object'
+                    ? p.purchaseFormMeta
+                    : {};
+            const taxIncl = !!m.amountsTaxInclusive;
+            setShowLineNum(!!m.showLineNum);
+            setShowDesc(!!m.showDesc);
+            setShowDiscount(!!m.showDiscount);
+            setAmountsTaxInclusive(taxIncl);
+            if (m.invoiceDiscountMode === 'percent') {
+                setInvoiceDiscountMode('percent');
+                if (m.invoiceDiscountInput != null && Number.isFinite(Number(m.invoiceDiscountInput))) {
+                    setInvoiceDiscountValue(String(m.invoiceDiscountInput));
+                } else {
+                    setInvoiceDiscountValue('0');
+                }
+            } else {
+                setInvoiceDiscountMode('fixed_sar');
+                if (m.invoiceDiscountInput != null && Number.isFinite(Number(m.invoiceDiscountInput))) {
+                    setInvoiceDiscountValue(String(m.invoiceDiscountInput));
+                } else {
+                    setInvoiceDiscountValue(String(Number(p.invoiceDiscount ?? 0)));
+                }
+            }
+            setFreightCharges(String(Number(p.freightIn ?? 0)));
+
+            const linesFromApi = Array.isArray(p.items) && p.items.length ? p.items : [];
+            setLineItems(
+                linesFromApi.map((it) => {
+                    const taxCode = 'VAT 15%';
+                    const discVal = Number(it.lineDiscountValue ?? 0);
+                    const discMode =
+                        it.lineDiscountMode === 'fixed_sar' ? 'fixed_sar' : 'percent';
+                    const priceStr = reconstructSSPUnitPriceInput(it, taxIncl, taxCode);
+                    return applyLineTotals(
+                        {
+                            id: nextLineId(),
+                            sku: String(it.sku ?? '').trim(),
+                            item: it.productName || '',
+                            supplierProductId:
+                                it.supplierProductId != null &&
+                                String(it.supplierProductId).trim() !== ''
+                                    ? String(it.supplierProductId).trim()
+                                    : undefined,
+                            account: '1410 - Inventory Asset',
+                            description: String(it.lineDescription ?? '').trim(),
+                            uom: it.unit || 'pcs',
+                            qty: String(it.qty ?? 1),
+                            price: priceStr,
+                            discount: discVal,
+                            discountMode: discMode,
+                            taxCode,
+                            taxAmt: '0.00',
+                            totalFinal: '0.00',
+                            lastSalePrice: Number(it.unitPrice ?? 0),
+                        },
+                        taxIncl,
+                    );
+                }),
+            );
+        } catch (e) {
+            setCreateError(e?.message || 'Could not load purchase for editing.');
+        } finally {
+            setSspPurchaseEditLoading(false);
+        }
     };
 
     useEffect(() => {
@@ -850,39 +1037,73 @@ export default function SupplierPurchaseInvoices() {
             return;
         }
 
-        const items = normalizedLines.map((l) => ({
-            ...(l.sku ? { sku: l.sku } : {}),
-            ...(l.supplierProductId ? { supplierProductId: l.supplierProductId } : {}),
-            productName: l.productName,
-            qty: l.qty,
-            unit: l.unit,
-            unitPrice: Math.round(l.unitPrice * 1e6) / 1e6,
-        }));
+        const totals = getSummary();
+
+        const items = normalizedLines.map((l, idx) => {
+            const row = lineItems[idx];
+            const discRaw =
+                parseFloat(String(row?.discount ?? 0).replace(',', '.')) || 0;
+            const desc = String(row?.description ?? '').trim();
+            const body = {
+                ...(l.sku ? { sku: l.sku } : {}),
+                ...(l.supplierProductId ? { supplierProductId: l.supplierProductId } : {}),
+                productName: l.productName,
+                qty: l.qty,
+                unit: l.unit,
+                unitPrice: Math.round(l.unitPrice * 1e6) / 1e6,
+                lineDiscount: discRaw,
+                lineDiscountMode:
+                    row?.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
+            };
+            if (desc) {
+                body.lineDescription = desc;
+            }
+            return body;
+        });
 
         const due =
             calculatedDueDate === '—' ? '' : calculatedDueDate;
         const notesParts = [internalNotes.trim(), due ? `Due date: ${due}` : ''].filter(Boolean);
 
+        const purchaseFormMeta = {
+            showLineNum,
+            showDesc,
+            showDiscount,
+            amountsTaxInclusive,
+            invoiceDiscountMode,
+            invoiceDiscountInput:
+                parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
+        };
+
+        const payload = {
+            superSupplierId: String(superSupplierId),
+            purchaseDate: issueDate,
+            vendorRef: refNo.trim() || undefined,
+            referenceNo: refNo.trim() || undefined,
+            description: description.trim() || undefined,
+            notes: notesParts.length ? notesParts.join('\n') : undefined,
+            vatAmount: Math.round(vatAmount * 100) / 100,
+            items,
+            freightIn: totals.freightIn,
+            invoiceDiscount: totals.invoiceDiscount,
+            purchaseFormMeta,
+        };
+
         setCreateSubmitting(true);
         try {
-            await createSupplierSuperSupplierPurchase({
-                superSupplierId: String(superSupplierId),
-                purchaseDate: issueDate,
-                vendorRef: refNo.trim() || undefined,
-                referenceNo: refNo.trim() || undefined,
-                description: description.trim() || undefined,
-                notes: notesParts.length ? notesParts.join('\n') : undefined,
-                vatAmount: Math.round(vatAmount * 100) / 100,
-                items,
-            });
+            if (sspPurchaseModalMode === 'edit' && editingSspPurchaseId) {
+                await updateSupplierSuperSupplierPurchase(editingSspPurchaseId, payload);
+            } else {
+                await createSupplierSuperSupplierPurchase(payload);
+            }
             setModalOpen(false);
             resetCreateForm();
             setSspPanelKey((k) => k + 1);
             setApTab('ssp_invoices');
             await Promise.all([loadPayables(), loadSuperSuppliers()]);
         } catch (err) {
-            console.error('Create super supplier purchase failed:', err);
-            setCreateError(err?.message || 'Could not create purchase invoice');
+            console.error('Save super supplier purchase failed:', err);
+            setCreateError(err?.message || 'Could not save purchase invoice');
         } finally {
             setCreateSubmitting(false);
         }
@@ -1001,6 +1222,7 @@ export default function SupplierPurchaseInvoices() {
                         className="btn-save-all"
                         onClick={() => {
                             setCreateError('');
+                            resetCreateForm();
                             setModalOpen(true);
                         }}
                     >
@@ -1275,6 +1497,7 @@ export default function SupplierPurchaseInvoices() {
                     createIntentSupplierId={createSspPurchaseForId}
                     onConsumeCreateIntent={() => setCreateSspPurchaseForId(null)}
                     onPurchasesMutated={loadSuperSuppliers}
+                    onEditPurchase={openSuperSupplierPurchaseForEdit}
                 />
             </div>
 
@@ -1561,7 +1784,10 @@ export default function SupplierPurchaseInvoices() {
                         title={
                             <div className="pi-modal-title">
                                 <span className="pi-breadcrumb">
-                                    Purchase Invoices › <span className="pi-b-active">New</span>
+                                    Purchase Invoices ›{' '}
+                                    <span className="pi-b-active">
+                                        {sspPurchaseModalMode === 'edit' ? 'Edit' : 'New'}
+                                    </span>
                                 </span>
                                 <div className="pi-title-main">
                                     <ShoppingCart className="pi-icon-orange" size={24} />
@@ -1570,7 +1796,7 @@ export default function SupplierPurchaseInvoices() {
                             </div>
                         }
                         onClose={() => {
-                            if (!createSubmitting) {
+                            if (!createSubmitting && !sspPurchaseEditLoading) {
                                 setModalOpen(false);
                                 resetCreateForm();
                             }
@@ -1580,7 +1806,15 @@ export default function SupplierPurchaseInvoices() {
                         footer={
                             <div className="pi-modal-footer">
                                 <div className="pi-footer-left">
-                                    <button type="button" className="btn-pi-cancel" disabled={createSubmitting} onClick={() => { setModalOpen(false); resetCreateForm(); }}>
+                                    <button
+                                        type="button"
+                                        className="btn-pi-cancel"
+                                        disabled={createSubmitting || sspPurchaseEditLoading}
+                                        onClick={() => {
+                                            setModalOpen(false);
+                                            resetCreateForm();
+                                        }}
+                                    >
                                         Cancel
                                     </button>
                                 </div>
@@ -1590,13 +1824,20 @@ export default function SupplierPurchaseInvoices() {
                                         className="btn-pi-create"
                                         disabled={
                                             createSubmitting ||
+                                            sspPurchaseEditLoading ||
                                             lineItems.length === 0 ||
                                             !superSupplierId ||
                                             (!ssLoading && superSuppliers.length === 0)
                                         }
                                         onClick={handleCreateInvoice}
                                     >
-                                        {createSubmitting ? 'Creating…' : 'Create Purchase Invoice'}
+                                        {createSubmitting
+                                            ? sspPurchaseModalMode === 'edit'
+                                                ? 'Saving…'
+                                                : 'Creating…'
+                                            : sspPurchaseModalMode === 'edit'
+                                              ? 'Save changes'
+                                              : 'Create Purchase Invoice'}
                                     </button>
                                 </div>
                             </div>
@@ -1607,6 +1848,24 @@ export default function SupplierPurchaseInvoices() {
                                 {createError}
                             </p>
                         ) : null}
+                        {sspPurchaseEditLoading ? (
+                            <div style={{ padding: '12px 0 24px' }}>
+                                <ShimmerTextBlock lines={5} />
+                                <div style={{ marginTop: 18 }}>
+                                    <ShimmerTable rows={6} columns={8} />
+                                </div>
+                                <p
+                                    style={{
+                                        marginTop: 16,
+                                        fontSize: '0.8125rem',
+                                        color: '#64748B',
+                                        textAlign: 'center',
+                                    }}
+                                >
+                                    Loading purchase…
+                                </p>
+                            </div>
+                        ) : (
                         <div className="pi-form-container">
                             <div className="pi-header-grid">
                                 <div className="pi-field">
@@ -1648,6 +1907,7 @@ export default function SupplierPurchaseInvoices() {
                                 <label>Super supplier *</label>
                                 <select
                                     value={superSupplierId}
+                                    disabled={sspPurchaseModalMode === 'edit'}
                                     onChange={(e) => setSuperSupplierId(e.target.value)}
                                     style={{
                                         width: '100%',
@@ -1951,7 +2211,19 @@ export default function SupplierPurchaseInvoices() {
                                         </div>
                                         {showDesc && (
                                             <div className="pi-col-desc">
-                                                <input type="text" defaultValue={line.description} className="pi-row-input" />
+                                                <input
+                                                    type="text"
+                                                    value={line.description ?? ''}
+                                                    className="pi-row-input"
+                                                    placeholder="Description"
+                                                    onChange={(e) =>
+                                                        updateLineItem(
+                                                            line.id,
+                                                            'description',
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                />
                                             </div>
                                         )}
                                         <div className="pi-col-uom">
@@ -2275,6 +2547,7 @@ export default function SupplierPurchaseInvoices() {
                                 </div>
                             </div>
                         </div>
+                        )}
                     </Modal>
                 )}
             </AnimatePresence>

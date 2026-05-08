@@ -21,6 +21,7 @@ import { ShimmerKpiGrid, ShimmerTable } from '../../../components/supplier/Shimm
 import {
     computeStaffRoleKpis,
     emptyStaffForm,
+    formatStaffCreatedAt,
     listRowFromApiStaff,
     mapStaffRow,
     roleVisualVariant,
@@ -403,7 +404,7 @@ export default function SupplierEmployeesPage() {
                 <>
                     <ShimmerKpiGrid cards={5} />
                     <div className="ws-section" style={{ padding: 0, overflow: 'hidden' }}>
-                        <ShimmerTable rows={8} columns={7} />
+                        <ShimmerTable rows={8} columns={8} />
                     </div>
                 </>
             ) : (
@@ -444,6 +445,7 @@ export default function SupplierEmployeesPage() {
                                             <th>Vehicle plate</th>
                                             <th>Availability</th>
                                             <th>Status</th>
+                                            <th>Created</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
@@ -469,6 +471,20 @@ export default function SupplierEmployeesPage() {
                                                     >
                                                         {s.status}
                                                     </span>
+                                                </td>
+                                                <td
+                                                    style={{
+                                                        fontSize: '0.8125rem',
+                                                        color: 'var(--color-text-muted)',
+                                                        whiteSpace: 'nowrap',
+                                                    }}
+                                                    title={
+                                                        s.createdAt
+                                                            ? new Date(s.createdAt).toISOString()
+                                                            : undefined
+                                                    }
+                                                >
+                                                    {formatStaffCreatedAt(s.createdAt)}
                                                 </td>
                                                 <td>
                                                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
