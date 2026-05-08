@@ -675,7 +675,34 @@ export default function WorkshopPurchaseInvoiceView({
                                     items.map((line, i) => (
                                         <tr key={line.id ?? line.lineId ?? i}>
                                             <td>{i + 1}</td>
-                                            <td dir="auto">{lineDesc(line)}</td>
+                                            <td dir="auto">
+                                                <div>{lineDesc(line)}</div>
+                                                {isSuperSupplier &&
+                                                ((line.sku != null && String(line.sku).trim() !== '') ||
+                                                    (line.lineDescription != null &&
+                                                        String(line.lineDescription).trim() !== '')) ? (
+                                                    <div
+                                                        style={{
+                                                            fontSize: '0.75rem',
+                                                            color: '#64748b',
+                                                            marginTop: 4,
+                                                            lineHeight: 1.35,
+                                                        }}
+                                                    >
+                                                        {[
+                                                            line.sku != null && String(line.sku).trim() !== ''
+                                                                ? `SKU ${String(line.sku).trim()}`
+                                                                : null,
+                                                            line.lineDescription != null &&
+                                                            String(line.lineDescription).trim() !== ''
+                                                                ? String(line.lineDescription).trim()
+                                                                : null,
+                                                        ]
+                                                            .filter(Boolean)
+                                                            .join(' · ')}
+                                                    </div>
+                                                ) : null}
+                                            </td>
                                             <td className="wpi-view__td-num">
                                                 {lineQty(line)} {lineUom(line)}
                                             </td>

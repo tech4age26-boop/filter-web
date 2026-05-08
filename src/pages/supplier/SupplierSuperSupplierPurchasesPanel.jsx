@@ -360,11 +360,23 @@ export default function SupplierSuperSupplierPurchasesPanel({
                             </tr>
                         ) : (
                             rows.map((r) => (
-                                <tr key={r.id}>
+                                <tr
+                                    key={r.id}
+                                    style={{ cursor: 'pointer' }}
+                                    title={
+                                        (r.moreLines ?? 0) > 0 || (r.itemCount ?? 0) > 1
+                                            ? 'Click to view all products and line details'
+                                            : 'Click to view invoice details'
+                                    }
+                                    onClick={() => openView(r)}
+                                >
                                     <td>
                                         <button
                                             type="button"
-                                            onClick={() => openView(r)}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                openView(r);
+                                            }}
                                             style={{
                                                 background: 'none',
                                                 border: 'none',
@@ -454,7 +466,10 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                             <button
                                                 type="button"
                                                 title="View"
-                                                onClick={() => openView(r)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openView(r);
+                                                }}
                                                 style={{
                                                     padding: 6,
                                                     borderRadius: 6,
@@ -468,7 +483,10 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                             <button
                                                 type="button"
                                                 title="Edit purchase & lines"
-                                                onClick={() => openEdit(r)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openEdit(r);
+                                                }}
                                                 disabled={saving}
                                                 style={{
                                                     padding: 6,
