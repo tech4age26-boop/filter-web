@@ -108,8 +108,11 @@ export default function SupplierStockInventory() {
             .join(' · ');
     };
 
-    const loadStock = useCallback(async () => {
-        setLoading(true);
+    const loadStock = useCallback(async (opts = {}) => {
+        const silent = !!opts.silent;
+        if (!silent) {
+            setLoading(true);
+        }
         setApiError('');
         try {
             const res = await getSupplierInventoryStockBalances({ limit: 200, historyLimit: 200 });
@@ -138,11 +141,15 @@ export default function SupplierStockInventory() {
             setMovementEntries(mapSupplierHistoryToTimelineEntries(hist));
         } catch (err) {
             console.error('Supplier stock API failed:', err);
-            setStock([]);
-            setMovementEntries([]);
-            setApiError(err?.message || 'Failed to load stock');
+            if (!silent) {
+                setStock([]);
+                setMovementEntries([]);
+                setApiError(err?.message || 'Failed to load stock');
+            }
         } finally {
-            setLoading(false);
+            if (!silent) {
+                setLoading(false);
+            }
         }
     }, []);
 
@@ -239,7 +246,7 @@ export default function SupplierStockInventory() {
             setAdjustItem(null);
             setAdjustQty('');
             setAdjustNotes('');
-            await loadStock();
+            await loadStock({ silent: true });
             if (timelineOpen && timelineProduct && String(timelineProduct.id) === String(savedId)) {
                 await refreshTimelineForProduct(savedId);
             }

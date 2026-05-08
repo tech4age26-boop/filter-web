@@ -33,6 +33,7 @@ export function listRowFromApiStaff(apiStaff, prevRow = null) {
         status: apiStaff?.status ?? prevRow?.status ?? 'active',
         dutyStatus: apiStaff?.dutyStatus ?? prevRow?.dutyStatus ?? null,
         vehiclePlate: apiStaff?.vehiclePlate ?? prevRow?.vehiclePlate ?? null,
+        createdAt: apiStaff?.createdAt ?? prevRow?.createdAt ?? null,
     };
     return mapStaffRow(merged);
 }
@@ -55,7 +56,22 @@ export function mapStaffRow(r) {
         status: r.status ?? (r.isActive === false ? 'inactive' : 'active'),
         dutyStatus: r.dutyStatus ?? r.duty_status ?? null,
         vehiclePlate: r.vehiclePlate ?? r.vehicle_plate ?? null,
+        createdAt: r.createdAt ?? r.created_at ?? null,
     };
+}
+
+/** ISO string → short local date/time for Staff table */
+export function formatStaffCreatedAt(iso) {
+    if (iso == null || String(iso).trim() === '') return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
 }
 
 /** Maps employee role label → KPI bucket id (warehouse | order | driver | accountant | supervisor | other). */

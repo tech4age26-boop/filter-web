@@ -130,6 +130,9 @@ function mapSupplierInvoicesListFromResponse(invRes) {
         productLabel: inv.productLabel ?? '—',
         quantityLabel: inv.quantityLabel ?? '—',
         unitLabel: inv.unitLabel ?? '—',
+        cashBankAccount: inv.cashBankAccount || '',
+        freightIn: Number(inv.freightIn ?? 0),
+        invoiceDiscount: Number(inv.invoiceDiscount ?? 0),
     }));
 }
 
@@ -253,6 +256,54 @@ function applyLineTotals(line, amountsTaxInclusive) {
     };
 }
 
+/** Stored `unitPrice` is exclusive per unit after line discount — rebuild list price for the form. */
+function reconstructSalesInvoiceUnitPriceInput(it, amountsTaxInclusive, taxCode) {
+    const rate =
+        TAXES.find((t) => t.code === taxCode)?.rate ?? TAXES[0]?.rate ?? 0;
+    const qty = Math.max(
+        0.000001,
+        parseFloat(String(it.qty ?? 1).replace(',', '.')) || 1,
+    );
+    const U_net = Number(it.unitPrice ?? 0);
+    const discRaw = Number(it.lineDiscountValue ?? 0);
+    const discMode =
+        it.lineDiscountMode === 'fixed_sar' ? 'fixed_sar' : 'percent';
+
+    if (!(discRaw > 0)) {
+        if (!amountsTaxInclusive) {
+            return String(roundMoney2(U_net));
+        }
+        return String(roundMoney2(U_net * (1 + rate)));
+    }
+
+    if (!amountsTaxInclusive) {
+        if (discMode === 'percent') {
+            const pct = Math.min(100, Math.max(0, discRaw));
+            const denom = 1 - pct / 100;
+            if (denom <= 0 || denom >= 1) {
+                return String(roundMoney2(U_net));
+            }
+            const U_list_ex = roundMoney2(U_net / denom);
+            return String(U_list_ex);
+        }
+        const fixed = discRaw;
+        const grossLineEx = roundMoney2(U_net * qty + fixed);
+        return String(roundMoney2(grossLineEx / qty));
+    }
+
+    const netIncl = roundMoney2(U_net * qty * (1 + rate));
+    if (discMode === 'percent') {
+        const pct = Math.min(100, Math.max(0, discRaw));
+        const denom = 1 - pct / 100;
+        const grossInclBeforeDisc =
+            denom <= 0 ? netIncl : roundMoney2(netIncl / denom);
+        return String(roundMoney2(grossInclBeforeDisc / qty));
+    }
+    const fixed = discRaw;
+    const grossInclBeforeDisc = roundMoney2(netIncl + fixed);
+    return String(roundMoney2(grossInclBeforeDisc / qty));
+}
+
 function mergeInventoryLists(stockRows, fallback) {
     const map = new Map();
     (stockRows || []).forEach((entry) => {
@@ -347,6 +398,7 @@ export default function SupplierSalesInvoices() {
     const [viewLoading, setViewLoading] = useState(false);
     const [viewPayload, setViewPayload] = useState(null);
     const [paymentStatusSavingId, setPaymentStatusSavingId] = useState(null);
+    const [editInvoiceLoading, setEditInvoiceLoading] = useState(false);
 
     const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [dueDateType, setDueDateType] = useState('Net');
@@ -484,6 +536,8 @@ export default function SupplierSalesInvoices() {
                 maximumFractionDigits: 2,
             }),
             rawGrandTotal: grandTotal,
+            freightIn: roundMoney2(Math.max(0, freightNum)),
+            invoiceDiscount: roundMoney2(Math.max(0, invDisc)),
         };
     };
     const summary = getSummary();
@@ -626,6 +680,9 @@ export default function SupplierSalesInvoices() {
         setSearchResults([]);
         setShowDropdown(false);
         setSelectedIndex(-1);
+        setShowLineNum(false);
+        setShowDesc(false);
+        setShowDiscount(false);
         setAmountsTaxInclusive(false);
         setFreightCharges('0');
         setInvoiceDiscountValue('0');
@@ -638,6 +695,7 @@ export default function SupplierSalesInvoices() {
     const openNewInvoiceModal = () => {
         setInvoiceModalMode('create');
         setEditingInvoiceId(null);
+        setEditInvoiceLoading(false);
         resetInvoiceForm();
         setModalOpen(true);
     };
@@ -646,6 +704,7 @@ export default function SupplierSalesInvoices() {
         setModalOpen(false);
         setInvoiceModalMode('create');
         setEditingInvoiceId(null);
+        setEditInvoiceLoading(false);
         resetInvoiceForm();
     };
 
@@ -713,14 +772,40 @@ export default function SupplierSalesInvoices() {
         setSaving(true);
         const due =
             calculatedDueDate === '—' ? issueDate : calculatedDueDate;
-        const itemsPayload = normalizedLines.map((line) => ({
-            productName: line.productName,
-            qty: line.qty,
-            unitPrice: line.unitPrice,
-            vatRate: line.vatRate,
-            unit: line.unit,
-            ...(line.sku ? { sku: line.sku } : {}),
-        }));
+        const itemsPayload = normalizedLines.map((line, idx) => {
+            const row = lineItems[idx];
+            const discRaw =
+                parseFloat(String(row?.discount ?? 0).replace(',', '.')) || 0;
+            const body = {
+                productName: line.productName,
+                qty: line.qty,
+                unitPrice: line.unitPrice,
+                vatRate: line.vatRate,
+                unit: line.unit,
+                ...(line.sku ? { sku: line.sku } : {}),
+                lineDiscount: discRaw,
+                lineDiscountMode:
+                    row?.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
+            };
+            const desc = String(row?.description ?? '').trim();
+            if (desc) {
+                body.lineDescription = desc;
+            }
+            return body;
+        });
+        const fin = getSummary();
+        const salesInvoiceMeta = {
+            ...(cashAccount.trim()
+                ? { cashBankAccount: cashAccount.trim() }
+                : {}),
+            showLineNum,
+            showDesc,
+            showDiscount,
+            amountsTaxInclusive,
+            invoiceDiscountMode,
+            invoiceDiscountInput:
+                parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
+        };
         try {
             if (invoiceModalMode === 'edit' && editingInvoiceId) {
                 await updateSupplierInvoice(editingInvoiceId, {
@@ -731,6 +816,9 @@ export default function SupplierSalesInvoices() {
                         ? { deliveryNoteUrl: description.trim() }
                         : {}),
                     internalNotes: internalNotes.trim(),
+                    freightIn: fin.freightIn,
+                    invoiceDiscount: fin.invoiceDiscount,
+                    salesInvoiceMeta,
                     items: itemsPayload,
                 });
             } else {
@@ -745,6 +833,9 @@ export default function SupplierSalesInvoices() {
                     ...(internalNotes.trim()
                         ? { internalNotes: internalNotes.trim() }
                         : {}),
+                    freightIn: fin.freightIn,
+                    invoiceDiscount: fin.invoiceDiscount,
+                    salesInvoiceMeta,
                     items: itemsPayload,
                 });
             }
@@ -765,11 +856,15 @@ export default function SupplierSalesInvoices() {
         setSaveError('');
         setInvoiceModalMode('edit');
         setEditingInvoiceId(row.id);
+        setEditInvoiceLoading(true);
         setModalOpen(true);
         try {
             const res = await getSupplierInvoice(row.id);
             const inv = res?.invoice;
-            if (!inv) return;
+            if (!inv) {
+                setSaveError('Invoice not found.');
+                return;
+            }
             setIssueDate(inv.invoiceDate || issueDate);
             setBranch(inv.branch?.id != null ? String(inv.branch.id) : '');
             setDescription(inv.deliveryNoteUrl || '');
@@ -782,35 +877,74 @@ export default function SupplierSalesInvoices() {
                 setDueDateType('Net');
                 setNetDays(diffDays || 30);
             }
+
+            const m =
+                inv.salesInvoiceMeta != null && typeof inv.salesInvoiceMeta === 'object'
+                    ? inv.salesInvoiceMeta
+                    : {};
+            const taxIncl = !!m.amountsTaxInclusive;
+            setCashAccount(typeof m.cashBankAccount === 'string' ? m.cashBankAccount : '');
+            setShowLineNum(!!m.showLineNum);
+            setShowDesc(!!m.showDesc);
+            setShowDiscount(!!m.showDiscount);
+            setAmountsTaxInclusive(taxIncl);
+            if (m.invoiceDiscountMode === 'percent') {
+                setInvoiceDiscountMode('percent');
+                if (m.invoiceDiscountInput != null && Number.isFinite(Number(m.invoiceDiscountInput))) {
+                    setInvoiceDiscountValue(String(m.invoiceDiscountInput));
+                } else {
+                    setInvoiceDiscountValue('0');
+                }
+            } else {
+                setInvoiceDiscountMode('fixed_sar');
+                if (m.invoiceDiscountInput != null && Number.isFinite(Number(m.invoiceDiscountInput))) {
+                    setInvoiceDiscountValue(String(m.invoiceDiscountInput));
+                } else {
+                    setInvoiceDiscountValue(String(Number(inv.invoiceDiscount ?? 0)));
+                }
+            }
+            setFreightCharges(String(Number(inv.freightIn ?? 0)));
+
             setLineItems(
-                (inv.items || []).map((it) =>
-                    applyLineTotals(
+                (inv.items || []).map((it) => {
+                    const taxCode =
+                        TAXES.find(
+                            (t) => Math.abs(t.percent - Number(it.vatRate)) < 0.01,
+                        )?.code || 'VAT 15%';
+                    const discVal = Number(it.lineDiscountValue ?? 0);
+                    const discMode =
+                        it.lineDiscountMode === 'fixed_sar' ? 'fixed_sar' : 'percent';
+                    const priceStr = reconstructSalesInvoiceUnitPriceInput(
+                        it,
+                        taxIncl,
+                        taxCode,
+                    );
+                    return applyLineTotals(
                         {
                             id: nextLineId(),
                             sku: String(it.sku ?? '').trim(),
                             item: it.productName,
                             account: '4100 - Sales Revenue',
-                            description: '',
+                            description: String(it.lineDescription ?? '').trim(),
                             uom: it.unit || 'pcs',
                             qty: String(it.qty),
-                            price: String(it.unitPrice),
-                            discount: 0,
-                            discountMode: 'percent',
-                            taxCode:
-                                TAXES.find(
-                                    (t) => Math.abs(t.percent - Number(it.vatRate)) < 0.01,
-                                )?.code || 'VAT 15%',
+                            price: priceStr,
+                            discount: discVal,
+                            discountMode: discMode,
+                            taxCode,
                             taxAmt: '0.00',
                             totalFinal: '0.00',
                             lastSalePrice: Number(it.unitPrice),
                         },
-                        false,
-                    ),
-                ),
+                        taxIncl,
+                    );
+                }),
             );
         } catch (err) {
             console.error('Load invoice for edit failed:', err);
             setSaveError(err?.message || 'Could not load invoice.');
+        } finally {
+            setEditInvoiceLoading(false);
         }
     };
 
@@ -1199,7 +1333,7 @@ export default function SupplierSalesInvoices() {
             <div className="ws-section">
                 <div style={{ overflowX: 'auto' }}>
                     {listLoading && list.length === 0 ? (
-                        <ShimmerTable rows={8} columns={9} />
+                        <ShimmerTable rows={8} columns={13} />
                     ) : (
                         <table className="ws-table">
                             <thead>
@@ -1213,6 +1347,9 @@ export default function SupplierSalesInvoices() {
                                     <th>Balance</th>
                                     <th>Status</th>
                                     <th>Payment</th>
+                                    <th>Cash / Bank</th>
+                                    <th>Freight</th>
+                                    <th>Discount</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -1220,7 +1357,7 @@ export default function SupplierSalesInvoices() {
                                 {!listLoading && list.length === 0 ? (
                                     <tr>
                                         <td
-                                            colSpan={10}
+                                            colSpan={13}
                                             style={{
                                                 textAlign: 'center',
                                                 padding: 40,
@@ -1345,6 +1482,35 @@ export default function SupplierSalesInvoices() {
                                                         ))}
                                                     </select>
                                                 </td>
+                                                <td
+                                                    style={{
+                                                        fontSize: '0.8125rem',
+                                                        maxWidth: 140,
+                                                        color: 'var(--color-text-body)',
+                                                    }}
+                                                    title={inv.cashBankAccount || ''}
+                                                >
+                                                    {inv.cashBankAccount ? (
+                                                        <span
+                                                            style={{
+                                                                display: 'block',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                whiteSpace: 'nowrap',
+                                                            }}
+                                                        >
+                                                            {inv.cashBankAccount}
+                                                        </span>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--color-text-muted)' }}>—</span>
+                                                    )}
+                                                </td>
+                                                <td style={{ fontSize: '0.8125rem' }}>
+                                                    SAR {(inv.freightIn || 0).toLocaleString()}
+                                                </td>
+                                                <td style={{ fontSize: '0.8125rem' }}>
+                                                    SAR {(inv.invoiceDiscount || 0).toLocaleString()}
+                                                </td>
                                                 <td>
                                                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                                         <button
@@ -1456,6 +1622,7 @@ export default function SupplierSalesInvoices() {
                                         onClick={handleSaveInvoice}
                                         disabled={
                                             saving ||
+                                            editInvoiceLoading ||
                                             !branch ||
                                             lineItems.length === 0 ||
                                             (invoiceModalMode === 'create' &&
@@ -1473,7 +1640,8 @@ export default function SupplierSalesInvoices() {
                         }
                     >
                         <div className="pi-form-container">
-                            {invoiceModalMode === 'create' && !inventoryInitialLoadDone ? (
+                            {(invoiceModalMode === 'create' && !inventoryInitialLoadDone) ||
+                            (invoiceModalMode === 'edit' && editInvoiceLoading) ? (
                                 <div style={{ padding: '12px 0 24px' }}>
                                     <ShimmerTextBlock lines={5} />
                                     <div style={{ marginTop: 18 }}>
@@ -1487,7 +1655,9 @@ export default function SupplierSalesInvoices() {
                                             textAlign: 'center',
                                         }}
                                     >
-                                        Loading warehouse catalog and branches…
+                                        {invoiceModalMode === 'edit'
+                                            ? 'Loading invoice…'
+                                            : 'Loading warehouse catalog and branches…'}
                                     </p>
                                 </div>
                             ) : (
@@ -2027,8 +2197,16 @@ export default function SupplierSalesInvoices() {
                                             <div className="pi-col-desc">
                                                 <input
                                                     type="text"
-                                                    defaultValue={line.description}
+                                                    value={line.description ?? ''}
                                                     className="pi-row-input"
+                                                    placeholder="Description"
+                                                    onChange={(e) =>
+                                                        updateLineItem(
+                                                            line.id,
+                                                            'description',
+                                                            e.target.value,
+                                                        )
+                                                    }
                                                 />
                                             </div>
                                         )}

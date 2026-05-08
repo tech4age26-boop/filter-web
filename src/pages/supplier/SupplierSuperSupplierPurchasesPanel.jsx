@@ -37,6 +37,21 @@ function parseNum(v) {
     return Number.isFinite(n) ? n : 0;
 }
 
+function sarFmt(v) {
+    const n = Number(v ?? 0);
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function purchaseMetaSummary(meta) {
+    if (meta == null || typeof meta !== 'object') return '';
+    const parts = [];
+    if (meta.showLineNum) parts.push('Line #');
+    if (meta.showDesc) parts.push('Desc');
+    if (meta.showDiscount) parts.push('Disc');
+    if (meta.amountsTaxInclusive) parts.push('Tax incl.');
+    return parts.join(' · ');
+}
+
 /**
  * Supplier-side list + detail + full line-item composer for upstream (super supplier) purchases.
  */
@@ -45,6 +60,8 @@ export default function SupplierSuperSupplierPurchasesPanel({
     createIntentSupplierId = null,
     onConsumeCreateIntent,
     onPurchasesMutated,
+    /** Opens parent Purchase Invoices modal — same full form as &quot;New Purchase Invoice&quot; */
+    onEditPurchase,
 }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -148,53 +165,13 @@ export default function SupplierSuperSupplierPurchasesPanel({
         }
     };
 
-    const openEdit = async (r) => {
+    const openEdit = (r) => {
         setComposerErr('');
-        setViewLoading(false);
-        setComposer(null);
-        setSaving(true);
-        try {
-            const d = await getSupplierSuperSupplierPurchase(r.id);
-            const p = d?.purchase ?? d?.data ?? d;
-            if (!p?.id) {
-                setComposerErr('Could not load purchase for editing.');
-                return;
-            }
-            const linesSrc = Array.isArray(p.items) && p.items.length ? p.items : [];
-            const lines =
-                linesSrc.length > 0
-                    ? linesSrc.map((it) => ({
-                          uid: `${it.id}-${Math.random().toString(36).slice(2)}`,
-                          productName: it.productName || '',
-                          sku: it.sku || '',
-                          supplierProductId:
-                              it.supplierProductId != null && String(it.supplierProductId) !== ''
-                                  ? String(it.supplierProductId)
-                                  : undefined,
-                          qty: String(it.qty ?? 1),
-                          unit: it.unit || 'pcs',
-                          unitPrice: String(it.unitPrice ?? ''),
-                      }))
-                    : [newLineRow()];
-            setComposer({
-                mode: 'edit',
-                purchaseId: String(p.id),
-                superSupplierId: String(p.superSupplierId ?? r.superSupplierId),
-                purchaseDate:
-                    (p.purchaseDate || '').toString().slice(0, 10) ||
-                    new Date().toISOString().slice(0, 10),
-                vendorRef:
-                    String(p.vendorRef ?? p.referenceNo ?? '').trim(),
-                description: String(p.description ?? '').trim(),
-                notes: String(p.notes ?? '').trim(),
-                vatAmount: String(p.vatAmount ?? '0'),
-                lines,
-            });
-        } catch (e) {
-            setComposerErr(e?.message || 'Could not load for edit.');
-        } finally {
-            setSaving(false);
+        if (onEditPurchase) {
+            onEditPurchase(String(r.id));
+            return;
         }
+        setComposerErr('Edit is not wired.');
     };
 
     const summary = useMemo(() => {
@@ -359,6 +336,9 @@ export default function SupplierSuperSupplierPurchasesPanel({
                             <th>Qty / Unit</th>
                             <th>Unit price</th>
                             <th>Lines</th>
+                            <th>Freight</th>
+                            <th>Discount</th>
+                            <th>Form options</th>
                             <th>Total</th>
                             <th>Status</th>
                             <th>Actions</th>
@@ -367,13 +347,13 @@ export default function SupplierSuperSupplierPurchasesPanel({
                     <tbody>
                         {loading && rows.length === 0 ? (
                             <tr>
-                                <td colSpan={11} style={{ padding: 16, verticalAlign: 'top' }}>
-                                    <ShimmerTable rows={8} columns={11} />
+                                <td colSpan={14} style={{ padding: 16, verticalAlign: 'top' }}>
+                                    <ShimmerTable rows={8} columns={14} />
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={11} style={{ textAlign: 'center', padding: 36, color: 'var(--color-text-muted)' }}>
+                                <td colSpan={14} style={{ textAlign: 'center', padding: 36, color: 'var(--color-text-muted)' }}>
                                     No purchases yet — use{' '}
                                     <strong>&quot;Record purchase&quot;</strong> beside a vendor.
                                 </td>
@@ -446,6 +426,23 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                         )}
                                     </td>
                                     <td style={{ fontSize: '0.8125rem' }}>{r.itemCount ?? 0}</td>
+                                    <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
+                                        SAR {sarFmt(r.freightIn)}
+                                    </td>
+                                    <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
+                                        SAR {sarFmt(r.invoiceDiscount)}
+                                    </td>
+                                    <td
+                                        style={{
+                                            fontSize: '0.6875rem',
+                                            color: 'var(--color-text-muted)',
+                                            maxWidth: 160,
+                                            lineHeight: 1.35,
+                                        }}
+                                        title={purchaseMetaSummary(r.purchaseFormMeta) || undefined}
+                                    >
+                                        {purchaseMetaSummary(r.purchaseFormMeta) || '—'}
+                                    </td>
                                     <td>
                                         <strong>SAR {(r.total ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
                                     </td>
