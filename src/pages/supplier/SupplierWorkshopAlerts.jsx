@@ -119,21 +119,30 @@ export default function SupplierWorkshopAlerts() {
     const totalAlertLines = rows.length;
     const filteredCount = filteredRows.length;
 
-    const openSalesInvoiceForBranch = (branchId) => {
-        try {
-            sessionStorage.setItem('supplier_open_new_sales_invoice', '1');
-            if (branchId != null && String(branchId) !== '') {
-                sessionStorage.setItem(
-                    'supplier_sales_invoice_preset_branch_id',
-                    String(branchId),
-                );
-            } else {
-                sessionStorage.removeItem('supplier_sales_invoice_preset_branch_id');
-            }
-        } catch {
-            /* ignore */
-        }
-        navigate('/supplier/sales_invoices');
+    /** Must match `SALES_INVOICE_FROM_ALERT_KEY` in SupplierSalesInvoices.jsx */
+    const SALES_INVOICE_FROM_ALERT_KEY = 'salesInvoiceFromAlert';
+
+    const openSalesInvoiceForAlert = (alert) => {
+        const branchId = alert?.branchId;
+        const supplierPid =
+            alert?.supplierProductId != null && String(alert.supplierProductId).trim() !== ''
+                ? String(alert.supplierProductId).trim()
+                : '';
+        const line = {
+            productName: alert?.productName || '',
+            sku: alert?.sku != null ? String(alert.sku) : '',
+            unit: alert?.unit || '',
+            ...(supplierPid ? { supplierProductId: supplierPid } : {}),
+        };
+        navigate('/supplier/sales_invoices', {
+            state: {
+                [SALES_INVOICE_FROM_ALERT_KEY]: {
+                    branchId:
+                        branchId != null && String(branchId) !== '' ? String(branchId) : '',
+                    line,
+                },
+            },
+        });
     };
 
     return (
@@ -429,9 +438,7 @@ export default function SupplierWorkshopAlerts() {
                                                         gap: 6,
                                                         whiteSpace: 'nowrap',
                                                     }}
-                                                    onClick={() =>
-                                                        openSalesInvoiceForBranch(a.branchId)
-                                                    }
+                                                    onClick={() => openSalesInvoiceForAlert(a)}
                                                 >
                                                     <FileText size={14} />
                                                     Sales invoice

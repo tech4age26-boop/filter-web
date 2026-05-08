@@ -499,6 +499,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                     <Modal
                         title="Super supplier purchase invoice"
                         width="min(980px, 99vw)"
+                        contentClassName="wpi-invoice-preview-modal"
                         onClose={() => {
                             setViewRow(null);
                             setViewDetail(null);
@@ -508,6 +509,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                             <ShimmerTextBlock lines={8} />
                         ) : (
                             <WorkshopPurchaseInvoiceView
+                                compact
                                 variant="super_supplier"
                                 detail={viewDetail}
                                 listRow={viewRow}

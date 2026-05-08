@@ -121,7 +121,13 @@ function formatInvoiceDateTime(inv, row) {
     });
 }
 
-export default function WorkshopPurchaseInvoiceView({ detail, listRow, variant = 'workshop' }) {
+export default function WorkshopPurchaseInvoiceView({
+    detail,
+    listRow,
+    variant = 'workshop',
+    /** Tighter spacing for modal preview (PDF download still uses full layout). */
+    compact = false,
+}) {
     const inv = detail && typeof detail === 'object' ? detail : {};
     const row = listRow && typeof listRow === 'object' ? listRow : {};
     const isSuperSupplier = variant === 'super_supplier';
@@ -213,6 +219,18 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow, variant =
 
     const description = pick(inv, 'description', 'title') ?? '';
     const notes = pick(inv, 'notes', 'internalNotes', 'internal_notes') ?? row.notes ?? '';
+
+    /** Supplier “internal notes” for print: hide system line we append on create (due date is already in the header). */
+    const notesForPolicy = (() => {
+        const raw = String(notes || '').trim();
+        if (!raw) return '';
+        return raw
+            .split('\n')
+            .map((l) => l.trimEnd())
+            .filter((l) => !/^Due date:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\s*$/i.test(l.trim()))
+            .join('\n')
+            .trim();
+    })();
 
     const dueDateFromNotes =
         isSuperSupplier && notes
@@ -368,6 +386,8 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow, variant =
         if (!el) return;
         setPdfBusy(true);
         setPdfError('');
+        const hadCompact = el.classList.contains('wpi-view--compact');
+        if (hadCompact) el.classList.remove('wpi-view--compact');
         el.classList.add('wpi-view--pdf-capture');
         try {
             const [{ toPng }, { jsPDF }] = await Promise.all([
@@ -412,7 +432,7 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow, variant =
                 }
             }
 
-            const safe = String(invoiceNo).replace(/[^\w.\-]+/g, '_').replace(/^_|_$/g, '').slice(0, 96) || 'invoice';
+            const safe = String(invoiceNo).replace(/[^\w.-]+/g, '_').replace(/^_|_$/g, '').slice(0, 96) || 'invoice';
             pdf.save(
                 `${isSuperSupplier ? 'Filter-SSP' : isSupplierSales ? 'Filter-SINV' : 'Filter-WPI'}-${safe}.pdf`,
             );
@@ -423,12 +443,16 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow, variant =
             );
         } finally {
             el.classList.remove('wpi-view--pdf-capture');
+            if (hadCompact) el.classList.add('wpi-view--compact');
             setPdfBusy(false);
         }
     }, [invoiceNo, isSuperSupplier, isSupplierSales]);
 
     return (
-        <div className="wpi-view" ref={printRootRef}>
+        <div
+            className={`wpi-view${compact ? ' wpi-view--compact' : ''}`}
+            ref={printRootRef}
+        >
             <div className="wpi-view__toolbar">
                 <button
                     type="button"
@@ -540,31 +564,37 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow, variant =
 
                         <div className="wpi-view__panel">
                             <h3 className="wpi-view__panel-title">Invoice details · تفاصيل الفاتورة</h3>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Invoice no.</span>
-                                <div className="wpi-view__field-value" style={{ fontWeight: 800 }}>
-                                    {invoiceNo}
+                            <div className="wpi-view__details-grid">
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Invoice no.</span>
+                                    <div className="wpi-view__field-value" style={{ fontWeight: 800 }}>
+                                        {invoiceNo}
+                                    </div>
+                                </div>
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Due date</span>
+                                    <div className="wpi-view__field-value">{dueDateDisplay || '—'}</div>
                                 </div>
                             </div>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Date &amp; time</span>
-                                <div className="wpi-view__field-value">{invoiceDateDisplay}</div>
+                            <div className="wpi-view__details-grid">
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Date &amp; time</span>
+                                    <div className="wpi-view__field-value">{invoiceDateDisplay}</div>
+                                </div>
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Vendor reference</span>
+                                    <div className="wpi-view__field-value">{vendorRef || '—'}</div>
+                                </div>
                             </div>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Issue date</span>
-                                <div className="wpi-view__field-value">{issueDate || '—'}</div>
-                            </div>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Due date</span>
-                                <div className="wpi-view__field-value">{dueDateDisplay || '—'}</div>
-                            </div>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Vendor reference</span>
-                                <div className="wpi-view__field-value">{vendorRef || '—'}</div>
-                            </div>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Payment</span>
-                                <div className="wpi-view__field-value">{paymentLabel}</div>
+                            <div className="wpi-view__details-grid">
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Issue date</span>
+                                    <div className="wpi-view__field-value">{issueDate || '—'}</div>
+                                </div>
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Payment</span>
+                                    <div className="wpi-view__field-value">{paymentLabel}</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -663,13 +693,25 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow, variant =
 
                     <div className="wpi-view__bottom-grid">
                         <div className="wpi-view__policy">
-                            <strong>Returns · الإرجاع</strong>
-                            Return of products is allowed within <strong>7 days</strong> from the invoice date with the
-                            original invoice; products must be in good condition. Subject to supplier approval.
-                            <div className="wpi-view__policy-ar" dir="rtl">
-                                يُسمح بإرجاع المنتجات خلال <strong>7 أيام</strong> من تاريخ الفاتورة مع الفاتورة
-                                الأصلية، ويشترط أن تكون البضاعة بحالة سليمة — وفق سياسة المورد المعتمد.
-                            </div>
+                            {notesForPolicy ? (
+                                <>
+                                    <strong>Notes · ملاحظات</strong>
+                                    <div className="wpi-view__policy-notes" dir="auto">
+                                        {notesForPolicy}
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <strong>Returns · الإرجاع</strong>
+                                    Return of products is allowed within <strong>7 days</strong> from the invoice date
+                                    with the original invoice; products must be in good condition. Subject to supplier
+                                    approval.
+                                    <div className="wpi-view__policy-ar" dir="rtl">
+                                        يُسمح بإرجاع المنتجات خلال <strong>7 أيام</strong> من تاريخ الفاتورة مع
+                                        الفاتورة الأصلية، ويشترط أن تكون البضاعة بحالة سليمة — وفق سياسة المورد المعتمد.
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         <div className="wpi-view__qr-block wpi-view__qr-visual">

@@ -21,6 +21,7 @@ import {
     listSupplierProductRequests,
     listSupplierProducts,
     setSupplierStock,
+    updateSupplierProduct,
 } from '../../services/supplierApi';
 import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 
@@ -318,6 +319,29 @@ export default function SupplierCatalog() {
         });
     };
 
+    /** All products matching current filters (all pages — same set as shown in “N products”). */
+    const selectAllFiltered = () => {
+        setSelectedProductIds(
+            new Set(filteredRaw.map((p) => String(p?.id ?? '')).filter(Boolean)),
+        );
+    };
+
+    const clearProductSelection = () => {
+        setSelectedProductIds(new Set());
+    };
+
+    const filteredIdsSelectedCount = useMemo(() => {
+        let n = 0;
+        filteredRaw.forEach((p) => {
+            const id = String(p?.id ?? '');
+            if (id && selectedProductIds.has(id)) n += 1;
+        });
+        return n;
+    }, [filteredRaw, selectedProductIds]);
+
+    const allFilteredSelected =
+        filteredRaw.length > 0 && filteredIdsSelectedCount === filteredRaw.length;
+
     const openAddToInventoryModal = async () => {
         if (selectedProductIds.size === 0) return;
         setInventoryError('');
@@ -354,6 +378,7 @@ export default function SupplierCatalog() {
             defaults[id] = {
                 openingQty: '0',
                 stockQty: '0',
+                criticalStockLevel: '',
             };
         });
         setInventoryQtyForm(defaults);
@@ -367,6 +392,7 @@ export default function SupplierCatalog() {
             [id]: {
                 openingQty: prev[id]?.openingQty ?? '0',
                 stockQty: prev[id]?.stockQty ?? '0',
+                criticalStockLevel: prev[id]?.criticalStockLevel ?? '',
                 [key]: value,
             },
         }));
@@ -389,15 +415,33 @@ export default function SupplierCatalog() {
 
             for (const master of selectedMasterProducts) {
                 const id = String(master.id);
-                const row = inventoryQtyForm[id] || { openingQty: '0', stockQty: '0' };
+                const row = inventoryQtyForm[id] || {
+                    openingQty: '0',
+                    stockQty: '0',
+                    criticalStockLevel: '',
+                };
                 const openingQty = Math.max(0, Number(row.openingQty || 0));
                 const stockQty = Math.max(0, Number(row.stockQty || 0));
+
+                const critRaw = row.criticalStockLevel;
+                let criticalStockAlert;
+                if (
+                    critRaw !== '' &&
+                    critRaw !== undefined &&
+                    critRaw !== null
+                ) {
+                    const n = Number(critRaw);
+                    if (Number.isFinite(n) && n >= 0) {
+                        criticalStockAlert = n;
+                    }
+                }
 
                 const skuKey = String(master.sku || '').trim().toLowerCase();
                 const nameKey = String(master.name || '').trim().toLowerCase();
 
                 let supplierProductId =
                     bySku.get(skuKey)?.id || byName.get(nameKey)?.id || null;
+                const wasExistingSupplierProduct = !!supplierProductId;
 
                 if (!supplierProductId) {
                     const created = await createSupplierProduct({
@@ -410,6 +454,9 @@ export default function SupplierCatalog() {
                             master.purchasePrice ?? master.salePrice ?? 0,
                         ),
                         reorderLevel: openingQty,
+                        ...(criticalStockAlert !== undefined
+                            ? { criticalStockAlert }
+                            : {}),
                     });
                     supplierProductId = created?.product?.id;
                     if (!supplierProductId) {
@@ -422,6 +469,15 @@ export default function SupplierCatalog() {
                     ...(autoLocationId ? { supplierLocationId: String(autoLocationId) } : {}),
                     currentQuantity: stockQty,
                 });
+
+                if (
+                    wasExistingSupplierProduct &&
+                    criticalStockAlert !== undefined
+                ) {
+                    await updateSupplierProduct(String(supplierProductId), {
+                        criticalStockAlert,
+                    });
+                }
             }
 
             setInventorySuccess(
@@ -575,6 +631,52 @@ export default function SupplierCatalog() {
                     ))}
                 </select>
             </div>
+
+            {!loading && !apiError && cardRows.length > 0 ? (
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        flexWrap: 'wrap',
+                        marginBottom: 14,
+                        padding: '10px 12px',
+                        background: '#F8FAFC',
+                        borderRadius: 10,
+                        border: '1px solid var(--color-border-light, #e2e8f0)',
+                    }}
+                >
+                    <button
+                        type="button"
+                        className="btn-portal-outline"
+                        disabled={filteredRaw.length === 0}
+                        onClick={
+                            allFilteredSelected ? clearProductSelection : selectAllFiltered
+                        }
+                    >
+                        {allFilteredSelected ? 'Deselect all' : 'Select all'}
+                        {filteredRaw.length > 0 ? ` (${filteredRaw.length})` : ''}
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-portal-outline"
+                        disabled={selectedProductIds.size === 0}
+                        onClick={clearProductSelection}
+                    >
+                        Clear selection
+                        {selectedProductIds.size > 0 ? ` (${selectedProductIds.size})` : ''}
+                    </button>
+                    <span
+                        style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--color-text-muted)',
+                            marginLeft: 'auto',
+                        }}
+                    >
+                        Applies to the full filtered list (all pages), not only this page.
+                    </span>
+                </div>
+            ) : null}
 
             {loading ? (
                 <div className="ws-section" style={{ padding: 20 }}>
@@ -1165,7 +1267,7 @@ export default function SupplierCatalog() {
                 {addInventoryOpen && (
                     <Modal
                         title="Add Selected Products to Inventory"
-                        width="760px"
+                        width="920px"
                         onClose={() => setAddInventoryOpen(false)}
                         footer={
                             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -1221,11 +1323,16 @@ export default function SupplierCatalog() {
                                         <th>Unit</th>
                                         <th>Opening Qty</th>
                                         <th>Stock Qty</th>
+                                        <th>Critical stock level</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {selectedMasterProducts.map((p) => {
-                                        const row = inventoryQtyForm[String(p.id)] || { openingQty: '0', stockQty: '0' };
+                                        const row = inventoryQtyForm[String(p.id)] || {
+                                            openingQty: '0',
+                                            stockQty: '0',
+                                            criticalStockLevel: '',
+                                        };
                                         return (
                                             <tr key={p.id}>
                                                 <td>{p.name}</td>
@@ -1246,6 +1353,29 @@ export default function SupplierCatalog() {
                                                         value={row.stockQty}
                                                         onChange={(e) => updateInventoryQty(p.id, 'stockQty', e.target.value)}
                                                         style={{ width: 110, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)' }}
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="1"
+                                                        placeholder="Optional"
+                                                        value={row.criticalStockLevel}
+                                                        onChange={(e) =>
+                                                            updateInventoryQty(
+                                                                p.id,
+                                                                'criticalStockLevel',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        title="When warehouse stock ≤ this value, alerts show as critical (supplierProduct.criticalStockAlert)."
+                                                        style={{
+                                                            width: 120,
+                                                            padding: '6px 8px',
+                                                            borderRadius: 6,
+                                                            border: '1px solid var(--color-border)',
+                                                        }}
                                                     />
                                                 </td>
                                             </tr>

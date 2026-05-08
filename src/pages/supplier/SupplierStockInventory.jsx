@@ -1,5 +1,15 @@
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
-import { AlertTriangle, Package, TrendingUp, Pencil, History, Search } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import {
+    AlertTriangle,
+    FileSpreadsheet,
+    FileText,
+    History,
+    Package,
+    Pencil,
+    Search,
+    TrendingUp,
+} from 'lucide-react';
 import { ShimmerStatStrip, ShimmerTable } from '../../components/supplier/Shimmer';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -8,6 +18,14 @@ import {
     mapSupplierHistoryToTimelineEntries,
     formatSupplierTimelineSourceRef,
 } from './supplierInventoryTimelineUtils';
+import {
+    exportMovementsExcel,
+    exportMovementsPdf,
+    exportStockInventoryExcel,
+    exportStockInventoryPdf,
+    exportTimelineExcel,
+    exportTimelinePdf,
+} from './supplierInventoryExport';
 
 function fmtQty(n) {
     if (n == null || !Number.isFinite(Number(n))) return '—';
@@ -24,7 +42,26 @@ function fmtDelta(d) {
     return fmtQty(n);
 }
 
+/** Purchase Invoices (AP) consumes this to open “New Purchase Invoice” with one line preset. */
+const PI_PRESET_FROM_STOCK_FLAG = 'supplier_pi_open_from_stock';
+const PI_PRESET_STOCK_LINE = 'supplier_pi_preset_stock_line';
+
+const exportToolbarBtnStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '8px 14px',
+    borderRadius: 8,
+    border: '1px solid var(--color-border)',
+    background: '#fff',
+    fontSize: '0.8125rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    color: 'var(--color-text-dark)',
+};
+
 export default function SupplierStockInventory() {
+    const navigate = useNavigate();
     const [stock, setStock] = useState([]);
     const [movementEntries, setMovementEntries] = useState([]);
     const [activeTab, setActiveTab] = useState('inventory');
@@ -148,8 +185,24 @@ export default function SupplierStockInventory() {
         setTimelineError('');
     };
 
-    const openEdit = (s) => {
-        openAdjust(s);
+    const navigateToPurchaseWithProduct = (s) => {
+        try {
+            sessionStorage.setItem(PI_PRESET_FROM_STOCK_FLAG, '1');
+            sessionStorage.setItem(
+                PI_PRESET_STOCK_LINE,
+                JSON.stringify({
+                    supplierProductId: String(s.id),
+                    name: s.name || '',
+                    sku: !s.sku || s.sku === '-' ? '' : String(s.sku),
+                    unit: s.unit || 'pcs',
+                    price: Number(s.price) || 0,
+                }),
+            );
+        } catch {
+            sessionStorage.removeItem(PI_PRESET_FROM_STOCK_FLAG);
+            sessionStorage.removeItem(PI_PRESET_STOCK_LINE);
+        }
+        navigate('/supplier/purchase_invoices');
     };
 
     const openAdjust = (s) => {
@@ -449,6 +502,80 @@ export default function SupplierStockInventory() {
                         >
                             Click a <strong>row</strong> to open <strong>Inventory stock timeline</strong> (audit log).
                         </p>
+                        {!loading ? (
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    alignItems: 'center',
+                                    gap: 10,
+                                    marginTop: 10,
+                                }}
+                            >
+                                <span
+                                    style={{
+                                        fontSize: '0.75rem',
+                                        fontWeight: 700,
+                                        color: 'var(--color-text-muted)',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.04em',
+                                    }}
+                                >
+                                    Export
+                                </span>
+                                <button
+                                    type="button"
+                                    disabled={filteredList.length === 0}
+                                    title={
+                                        filteredList.length === 0
+                                            ? 'Nothing to export for the current filters'
+                                            : 'Download spreadsheet (.xlsx)'
+                                    }
+                                    onClick={() => {
+                                        exportStockInventoryExcel(filteredList, 'supplier-stock-inventory');
+                                    }}
+                                    style={{
+                                        ...exportToolbarBtnStyle,
+                                        opacity: filteredList.length === 0 ? 0.5 : 1,
+                                        cursor:
+                                            filteredList.length === 0 ? 'not-allowed' : 'pointer',
+                                    }}
+                                >
+                                    <FileSpreadsheet size={14} aria-hidden /> Excel
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={filteredList.length === 0}
+                                    title={
+                                        filteredList.length === 0
+                                            ? 'Nothing to export'
+                                            : 'Download PDF'
+                                    }
+                                    onClick={() => {
+                                        exportStockInventoryPdf(filteredList, 'supplier-stock-inventory');
+                                    }}
+                                    style={{
+                                        ...exportToolbarBtnStyle,
+                                        opacity: filteredList.length === 0 ? 0.5 : 1,
+                                        cursor:
+                                            filteredList.length === 0 ? 'not-allowed' : 'pointer',
+                                    }}
+                                >
+                                    <FileText size={14} aria-hidden /> PDF
+                                </button>
+                                {search.trim() ? (
+                                    <span
+                                        style={{
+                                            fontSize: '0.75rem',
+                                            color: 'var(--color-text-muted)',
+                                        }}
+                                    >
+                                        ({filteredList.length} row{filteredList.length !== 1 ? 's' : ''}{' '}
+                                        match search)
+                                    </span>
+                                ) : null}
+                            </div>
+                        ) : null}
                     </div>
 
                     {criticalItems.length > 0 && (
@@ -601,7 +728,7 @@ export default function SupplierStockInventory() {
                                                             type="button"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                openEdit(s);
+                                                                navigateToPurchaseWithProduct(s);
                                                             }}
                                                             style={{
                                                                 marginLeft: 6,
@@ -657,6 +784,65 @@ export default function SupplierStockInventory() {
                     </div>
                 ) : (
                     <div className="ws-section">
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                alignItems: 'center',
+                                gap: 10,
+                                marginBottom: 14,
+                            }}
+                        >
+                            <span
+                                style={{
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    color: 'var(--color-text-muted)',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.04em',
+                                }}
+                            >
+                                Export
+                            </span>
+                            <button
+                                type="button"
+                                disabled={movementEntries.length === 0}
+                                title={
+                                    movementEntries.length === 0
+                                        ? 'No movements to export'
+                                        : 'Download spreadsheet (.xlsx)'
+                                }
+                                onClick={() => {
+                                    exportMovementsExcel(movementEntries, 'supplier-stock-movements');
+                                }}
+                                style={{
+                                    ...exportToolbarBtnStyle,
+                                    opacity: movementEntries.length === 0 ? 0.5 : 1,
+                                    cursor:
+                                        movementEntries.length === 0 ? 'not-allowed' : 'pointer',
+                                }}
+                            >
+                                <FileSpreadsheet size={14} aria-hidden /> Excel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={movementEntries.length === 0}
+                                title={
+                                    movementEntries.length === 0 ? 'No movements' : 'Download PDF'
+                                }
+                                onClick={() => {
+                                    exportMovementsPdf(movementEntries, 'supplier-stock-movements');
+                                }}
+                                style={{
+                                    ...exportToolbarBtnStyle,
+                                    opacity: movementEntries.length === 0 ? 0.5 : 1,
+                                    cursor:
+                                        movementEntries.length === 0 ? 'not-allowed' : 'pointer',
+                                }}
+                            >
+                                <FileText size={14} aria-hidden /> PDF
+                            </button>
+                        </div>
                         <div style={{ overflowX: 'auto' }}>
                             <table className="ws-table">
                                 <thead>
@@ -787,6 +973,97 @@ export default function SupplierStockInventory() {
                                 <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                                     {locationSummary(timelineProduct)}
                                 </p>
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        gap: 8,
+                                        marginTop: 12,
+                                    }}
+                                >
+                                    <button
+                                        type="button"
+                                        disabled={
+                                            timelineLoading ||
+                                            timelineError ||
+                                            !timelineEntries.length
+                                        }
+                                        title={
+                                            timelineLoading
+                                                ? 'Loading…'
+                                                : timelineError
+                                                  ? 'Fix load error before export'
+                                                  : !timelineEntries.length
+                                                    ? 'No timeline rows to export'
+                                                    : 'Download spreadsheet (.xlsx)'
+                                        }
+                                        onClick={() => {
+                                            exportTimelineExcel(
+                                                timelineProduct,
+                                                timelineEntries,
+                                                `timeline-${String(timelineProduct.name || 'product').replace(/\s+/g, '-')}`,
+                                            );
+                                        }}
+                                        style={{
+                                            ...exportToolbarBtnStyle,
+                                            opacity:
+                                                timelineLoading ||
+                                                timelineError ||
+                                                !timelineEntries.length
+                                                    ? 0.5
+                                                    : 1,
+                                            cursor:
+                                                timelineLoading ||
+                                                timelineError ||
+                                                !timelineEntries.length
+                                                    ? 'not-allowed'
+                                                    : 'pointer',
+                                        }}
+                                    >
+                                        <FileSpreadsheet size={14} aria-hidden /> Excel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={
+                                            timelineLoading ||
+                                            timelineError ||
+                                            !timelineEntries.length
+                                        }
+                                        title={
+                                            timelineLoading
+                                                ? 'Loading…'
+                                                : timelineError
+                                                  ? 'Fix load error before export'
+                                                  : !timelineEntries.length
+                                                    ? 'No timeline rows to export'
+                                                    : 'Download PDF'
+                                        }
+                                        onClick={() => {
+                                            exportTimelinePdf(
+                                                timelineProduct,
+                                                timelineEntries,
+                                                `timeline-${String(timelineProduct.name || 'product').replace(/\s+/g, '-')}`,
+                                            );
+                                        }}
+                                        style={{
+                                            ...exportToolbarBtnStyle,
+                                            opacity:
+                                                timelineLoading ||
+                                                timelineError ||
+                                                !timelineEntries.length
+                                                    ? 0.5
+                                                    : 1,
+                                            cursor:
+                                                timelineLoading ||
+                                                timelineError ||
+                                                !timelineEntries.length
+                                                    ? 'not-allowed'
+                                                    : 'pointer',
+                                        }}
+                                    >
+                                        <FileText size={14} aria-hidden /> PDF
+                                    </button>
+                                </div>
                             </div>
                             {timelineError ? (
                                 <p

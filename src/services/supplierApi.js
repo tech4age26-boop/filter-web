@@ -126,6 +126,12 @@ export const updateSupplierInvoice = (id, body) =>
         method: 'PATCH',
         body: JSON.stringify(body),
     });
+/** Mark sales invoice paid (records receipt) or unpaid (clears payments) — see backend PATCH .../payment-status */
+export const patchSupplierInvoicePaymentStatus = (id, body) =>
+    apiFetch(`/supplier/invoices/${id}/payment-status`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
 export const deleteSupplierInvoice = (id) =>
     apiFetch(`/supplier/invoices/${id}`, { method: 'DELETE' });
 export const getSupplierInvoicePdfData = (id) =>
