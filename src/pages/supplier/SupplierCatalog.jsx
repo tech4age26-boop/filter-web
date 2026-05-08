@@ -98,6 +98,8 @@ export default function SupplierCatalog() {
     const [inventorySuccess, setInventorySuccess] = useState('');
     const [existingSupplierProducts, setExistingSupplierProducts] = useState([]);
     const [requests, setRequests] = useState([]);
+    /** `browse` = master catalog grid; `requests` = My Product Requests list */
+    const [catalogTab, setCatalogTab] = useState('browse');
     const [requestSubmitting, setRequestSubmitting] = useState(false);
     const [requestError, setRequestError] = useState('');
     const [reqForm, setReqForm] = useState({
@@ -286,6 +288,7 @@ export default function SupplierCatalog() {
                 { id: requestId, ...form },
                 ...prev,
             ]);
+            setCatalogTab('requests');
             setShowRequestForm(false);
             setReqForm({
                 product_name: '',
@@ -526,6 +529,90 @@ export default function SupplierCatalog() {
                     </button>
                 </div>
             </div>
+
+            <div
+                role="tablist"
+                aria-label="Catalog sections"
+                style={{
+                    display: 'flex',
+                    gap: 4,
+                    marginBottom: 20,
+                    borderBottom: '2px solid var(--color-border-light, #e2e8f0)',
+                }}
+            >
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={catalogTab === 'browse'}
+                    id="catalog-tab-browse"
+                    onClick={() => setCatalogTab('browse')}
+                    style={{
+                        padding: '10px 18px',
+                        fontWeight: 700,
+                        fontSize: '0.875rem',
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        color:
+                            catalogTab === 'browse'
+                                ? 'var(--color-text-dark)'
+                                : 'var(--color-text-muted)',
+                        borderBottom:
+                            catalogTab === 'browse'
+                                ? '2px solid #2563EB'
+                                : '2px solid transparent',
+                        marginBottom: -2,
+                        borderRadius: '8px 8px 0 0',
+                    }}
+                >
+                    <Package size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                    Browse catalog
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={catalogTab === 'requests'}
+                    id="catalog-tab-requests"
+                    onClick={() => setCatalogTab('requests')}
+                    style={{
+                        padding: '10px 18px',
+                        fontWeight: 700,
+                        fontSize: '0.875rem',
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        color:
+                            catalogTab === 'requests'
+                                ? 'var(--color-text-dark)'
+                                : 'var(--color-text-muted)',
+                        borderBottom:
+                            catalogTab === 'requests'
+                                ? '2px solid #2563EB'
+                                : '2px solid transparent',
+                        marginBottom: -2,
+                        borderRadius: '8px 8px 0 0',
+                    }}
+                >
+                    <Send size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                    My Product Requests
+                    {requests.length > 0 ? (
+                        <span
+                            style={{
+                                marginLeft: 8,
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                background: catalogTab === 'requests' ? '#DBEAFE' : '#F1F5F9',
+                                color: '#1D4ED8',
+                            }}
+                        >
+                            {requests.length}
+                        </span>
+                    ) : null}
+                </button>
+            </div>
+
             {inventorySuccess ? (
                 <div
                     className="ws-section"
@@ -562,7 +649,9 @@ export default function SupplierCatalog() {
                 </div>
             ) : null}
 
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+            {catalogTab === 'browse' ? (
+                <>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
                 <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
                     <Search
                         size={16}
@@ -630,9 +719,9 @@ export default function SupplierCatalog() {
                         </option>
                     ))}
                 </select>
-            </div>
+                    </div>
 
-            {!loading && !apiError && cardRows.length > 0 ? (
+                    {!loading && !apiError && cardRows.length > 0 ? (
                 <div
                     style={{
                         display: 'flex',
@@ -902,62 +991,110 @@ export default function SupplierCatalog() {
                     </button>
                 </div>
             ) : null}
-
-            {requests.length > 0 && (
-                <div className="ws-section" style={{ marginTop: 24 }}>
+                </>
+            ) : (
+                <div className="ws-section">
                     <div style={{ padding: 16 }}>
-                        <h3
-                            style={{
-                                fontSize: '0.9375rem',
-                                fontWeight: 700,
-                                color: 'var(--color-text-dark)',
-                                margin: '0 0 12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                            }}
-                        >
-                            <Send size={16} style={{ color: '#2563EB' }} /> My Product Requests
-                        </h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {requests.map((req) => (
-                                <div
-                                    key={req.id}
+                        {requests.length === 0 ? (
+                            <div
+                                style={{
+                                    textAlign: 'center',
+                                    padding: '40px 24px',
+                                    color: 'var(--color-text-muted)',
+                                }}
+                            >
+                                <Send
+                                    size={44}
                                     style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        padding: 12,
-                                        background: 'var(--color-bg-muted)',
-                                        borderRadius: 10,
+                                        opacity: 0.35,
+                                        margin: '0 auto 14px',
+                                        display: 'block',
+                                        color: '#2563EB',
+                                    }}
+                                />
+                                <p
+                                    style={{
+                                        margin: 0,
+                                        fontWeight: 700,
+                                        fontSize: '1rem',
+                                        color: 'var(--color-text-dark)',
                                     }}
                                 >
-                                    <div>
-                                        <p style={{ fontWeight: 600, margin: 0 }}>{req.product_name}</p>
-                                        <p
+                                    No product requests yet
+                                </p>
+                                <p
+                                    style={{
+                                        margin: '10px auto 18px',
+                                        fontSize: '0.875rem',
+                                        maxWidth: 420,
+                                    }}
+                                >
+                                    Use <strong>Request New Product</strong> in the header to ask for a new SKU.
+                                </p>
+                                <button
+                                    type="button"
+                                    className="btn-portal"
+                                    onClick={() => setShowRequestForm(true)}
+                                >
+                                    <Plus size={15} /> Request New Product
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <h3
+                                    style={{
+                                        fontSize: '0.9375rem',
+                                        fontWeight: 700,
+                                        color: 'var(--color-text-dark)',
+                                        margin: '0 0 12px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                    }}
+                                >
+                                    <Send size={16} style={{ color: '#2563EB' }} /> My Product Requests
+                                </h3>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {requests.map((req) => (
+                                        <div
+                                            key={req.id}
                                             style={{
-                                                fontSize: '0.75rem',
-                                                color: 'var(--color-text-muted)',
-                                                margin: '2px 0 0',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                padding: 12,
+                                                background: 'var(--color-bg-muted)',
+                                                borderRadius: 10,
                                             }}
                                         >
-                                            Qty: {req.quantity_needed} {req.unit}
-                                        </p>
-                                    </div>
-                                    <span
-                                        className={`ws-badge ${
-                                            req.status === 'pending'
-                                                ? 'ws-badge--yellow'
-                                                : req.status === 'fulfilled'
-                                                  ? 'ws-badge--green'
-                                                  : 'ws-badge--blue'
-                                        }`}
-                                    >
-                                        {req.status}
-                                    </span>
+                                            <div>
+                                                <p style={{ fontWeight: 600, margin: 0 }}>{req.product_name}</p>
+                                                <p
+                                                    style={{
+                                                        fontSize: '0.75rem',
+                                                        color: 'var(--color-text-muted)',
+                                                        margin: '2px 0 0',
+                                                    }}
+                                                >
+                                                    Qty: {req.quantity_needed} {req.unit}
+                                                </p>
+                                            </div>
+                                            <span
+                                                className={`ws-badge ${
+                                                    req.status === 'pending'
+                                                        ? 'ws-badge--yellow'
+                                                        : req.status === 'fulfilled'
+                                                          ? 'ws-badge--green'
+                                                          : 'ws-badge--blue'
+                                                }`}
+                                            >
+                                                {req.status}
+                                            </span>
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
