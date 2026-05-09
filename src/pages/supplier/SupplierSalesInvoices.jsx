@@ -2811,7 +2811,7 @@ export default function SupplierSalesInvoices() {
                                                             fontWeight: 500,
                                                         }}
                                                     >
-                                                        No previous sale
+                                                        No previous sale in selected workshop
                                                     </span>
                                                 );
                                             })()}
