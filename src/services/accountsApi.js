@@ -38,6 +38,10 @@ export const getAccountsBranches = () =>
 
 export const getAccountById = (id) => apiFetch(`/accounts/${encodeURIComponent(id)}`);
 
+/** General ledger lines for one COA account (optional dateFrom, dateTo, branchId, limit). */
+export const getAccountLedger = (id, params = {}) =>
+    apiFetch(withQuery(`/accounts/${encodeURIComponent(id)}/ledger`, { ...params, _t: Date.now() }));
+
 export const createAccount = (body) =>
     apiFetch('/accounts', { method: 'POST', body: JSON.stringify(body) });
 

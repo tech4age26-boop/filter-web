@@ -409,6 +409,33 @@ export const deleteWorkshopCashier = async (id) => {
 
 export const getWorkshopBranches = () => apiFetch('/workshop-staff/branches');
 
+/** Cash/bank registers — each row is auto-linked to a Current Asset COA account for the workshop. */
+export const listWorkshopCashBankAccounts = (params = {}) =>
+    apiFetch(`/workshop-staff/cash-bank/accounts${qs(params)}`);
+
+export const createWorkshopCashBankAccount = (body) =>
+    apiFetch('/workshop-staff/cash-bank/accounts', {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+    });
+
+export const updateWorkshopCashBankAccount = (id, body) =>
+    apiFetch(`/workshop-staff/cash-bank/accounts/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body ?? {}),
+    });
+
+/** SoftPOS terminals — for linking a cash/bank register as settlement account (same branch). */
+export const listWorkshopCashBankPosTerminals = () =>
+    apiFetch('/workshop-staff/cash-bank/pos-terminals');
+
+/** Internal transfer between two workshop registers (debit + credit, same reference). */
+export const internalTransferWorkshopCashBank = (body) =>
+    apiFetch('/workshop-staff/cash-bank/internal-transfer', {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+    });
+
 /** Normalize GET /workshop-staff/branches payloads (top-level or nested). */
 export function unwrapWorkshopBranchesResponse(res) {
     if (!res || typeof res !== 'object') return [];
@@ -614,6 +641,18 @@ export const linkSuppliersToWorkshop = (supplierIds = []) =>
     apiFetch('/workshop-staff/suppliers/link', {
         method: 'POST',
         body: JSON.stringify({ supplierIds: (supplierIds || []).map(String) }),
+    });
+
+/**
+ * Create a new supplier and link them to the current workshop (workshop JWT).
+ * POST /workshop-staff/supplier/create
+ * Use workshopLocalOnly: true for a workshop-scoped vendor with no supplier portal login.
+ * Onboarded suppliers: omit workshopLocalOnly (or false), email required, portal user + email sent.
+ */
+export const createWorkshopSupplier = (body) =>
+    apiFetch('/workshop-staff/supplier/create', {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
     });
 
 /** Workshop — create supplier purchase invoice (starts pending; no stock until supplier approves). */

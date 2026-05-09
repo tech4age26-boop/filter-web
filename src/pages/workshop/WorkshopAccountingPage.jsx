@@ -1,14 +1,65 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { Plus, Shield, X, Wallet, Landmark, Banknote, Settings, Trash2, Calendar, FileText, ArrowLeftRight, Search, Filter, CreditCard, DollarSign, Book, CheckCircle, Eye, Printer, AlertTriangle, ChevronDown, ShoppingCart, Zap, Users, UserPlus, Clock, Activity, Coins, BookOpen, Save, Percent, Calculator } from 'lucide-react';
+import { Plus, Shield, X, Wallet, Landmark, Banknote, Settings, Trash2, Calendar, FileText, ArrowLeftRight, Search, Filter, CreditCard, DollarSign, Book, CheckCircle, Eye, Printer, AlertTriangle, ChevronDown, ShoppingCart, Zap, Users, UserPlus, Clock, Activity, Coins, BookOpen, Save, Percent, Calculator, RefreshCw } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import AccountDetailModal from '../../components/AccountDetailModal';
 import WorkshopCOAView from '../../components/accounting/WorkshopCOAView';
 import { apiFetch } from '../../services/api';
+import {
+  listWorkshopCashBankAccounts,
+  createWorkshopCashBankAccount,
+  updateWorkshopCashBankAccount,
+  listWorkshopCashBankPosTerminals,
+  internalTransferWorkshopCashBank,
+} from '../../services/workshopStaffApi';
 import '../../styles/admin/AccountingPage.css';
 
 const CASH_BANK_TABS = ['All Accounts', 'Cash', 'Bank', 'Petty Cash'];
+
+function uiCashBankTypeToApi(ui) {
+  if (ui === 'Bank') return 'BANK';
+  if (ui === 'Petty Cash') return 'PETTY_CASH';
+  return 'CASH';
+}
+
+function apiCashBankTypeToUi(api) {
+  const u = String(api || '').toUpperCase();
+  if (u === 'BANK') return 'Bank';
+  if (u === 'PETTY_CASH') return 'Petty Cash';
+  return 'Cash';
+}
+
+function normalizeWorkshopCashBankRow(raw) {
+  const coa = raw.coaAccount;
+  const coaLink = coa ? `${coa.code} · ${coa.name}` : '—';
+  const linked = Array.isArray(raw.linkedPosTerminals) ? raw.linkedPosTerminals : [];
+  const posTerminalId = linked[0]?.id != null ? String(linked[0].id) : '';
+  const posLinkLabel = linked.length
+    ? linked.map((t) => `${t.branchName || '—'}: ${t.label || t.terminalCode || ''}`).join(' · ')
+    : 'Shared';
+  return {
+    id: String(raw.id),
+    name: raw.name || '',
+    type: apiCashBankTypeToUi(raw.type),
+    apiType: raw.type,
+    branch: raw.branch?.name ?? '—',
+    branchId: raw.branchId ? String(raw.branchId) : '',
+    coaLink,
+    posLinkLabel,
+    posTerminalId,
+    openingBalance: Number(raw.openingBalance ?? 0),
+    currentBalance: Number(raw.currentBalance ?? 0),
+    status: raw.status || 'active',
+    _raw: raw,
+  };
+}
+
+function formatSarAmount(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '0';
+  return x.toLocaleString('en-SA', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
 
 const COA_TABS = ['Chart of Accounts', 'Trial Balance', 'P&L', 'Balance Sheet'];
 const COA_SECTIONS = [
@@ -1284,32 +1335,259 @@ function PurchasesView({ taxes }) {
         </div>
     );
 }
-function CashBankView() {
+function CashBankView({ branches = [] }) {
     const [accountTab, setAccountTab] = useState('All Accounts');
     const [accounts, setAccounts] = useState([]);
+    const [accountsLoading, setAccountsLoading] = useState(false);
+    const [accountsError, setAccountsError] = useState('');
+    const [saveError, setSaveError] = useState('');
+    const [saving, setSaving] = useState(false);
     const [newAccountOpen, setNewAccountOpen] = useState(false);
     const [editAccountOpen, setEditAccountOpen] = useState(false);
     const [editingAccount, setEditingAccount] = useState(null);
-    const [cashBankOpeningBalanceDate, setCashBankOpeningBalanceDate] = useState(todayIsoDate);
+    const [cashBankOpeningBalanceDate, setCashBankOpeningBalanceDate] = useState(() => todayIsoDate());
+    const [newAccountName, setNewAccountName] = useState('');
+    const [newAccountType, setNewAccountType] = useState('Cash');
+    const [newAccountBranchId, setNewAccountBranchId] = useState('');
+    const [newAccountOpeningBalance, setNewAccountOpeningBalance] = useState('0');
+    const [newAccountStatus, setNewAccountStatus] = useState('active');
+    const [newPosTerminalId, setNewPosTerminalId] = useState('');
+    const [posTerminals, setPosTerminals] = useState([]);
+    const [xferFromId, setXferFromId] = useState('');
+    const [xferToId, setXferToId] = useState('');
+    const [xferAmount, setXferAmount] = useState('');
+    const [xferDate, setXferDate] = useState(() => todayIsoDate());
+    const [xferNote, setXferNote] = useState('');
+    const [xferError, setXferError] = useState('');
+    const [xferSubmitting, setXferSubmitting] = useState(false);
+    const [editPosInitial, setEditPosInitial] = useState('');
+
+    const loadAccounts = useCallback(async () => {
+        setAccountsLoading(true);
+        setAccountsError('');
+        try {
+            const res = await listWorkshopCashBankAccounts();
+            const list = Array.isArray(res?.accounts)
+                ? res.accounts
+                : Array.isArray(res?.data?.accounts)
+                  ? res.data.accounts
+                  : [];
+            setAccounts(list.map(normalizeWorkshopCashBankRow));
+        } catch (e) {
+            setAccounts([]);
+            setAccountsError(e?.message || 'Could not load cash & bank accounts.');
+        } finally {
+            setAccountsLoading(false);
+        }
+    }, []);
+
+    const loadPosTerminals = useCallback(async () => {
+        try {
+            const res = await listWorkshopCashBankPosTerminals();
+            const list = Array.isArray(res?.terminals)
+                ? res.terminals
+                : Array.isArray(res?.data?.terminals)
+                  ? res.data.terminals
+                  : [];
+            setPosTerminals(list);
+        } catch {
+            setPosTerminals([]);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadAccounts();
+    }, [loadAccounts]);
+
+    useEffect(() => {
+        loadPosTerminals();
+    }, [loadPosTerminals]);
+
+    useEffect(() => {
+        if (!newPosTerminalId) return;
+        const ok = posTerminals.some(
+            (t) => String(t.branchId) === String(newAccountBranchId) && String(t.id) === String(newPosTerminalId),
+        );
+        if (!ok) setNewPosTerminalId('');
+    }, [newAccountBranchId, newPosTerminalId, posTerminals]);
+
+    const terminalsForSelectedNewBranch = useMemo(
+        () => posTerminals.filter((t) => String(t.branchId) === String(newAccountBranchId)),
+        [posTerminals, newAccountBranchId],
+    );
+
+    const visibleAccounts = useMemo(() => {
+        if (accountTab === 'All Accounts') return accounts;
+        const want = accountTab === 'Cash' ? 'CASH' : accountTab === 'Bank' ? 'BANK' : 'PETTY_CASH';
+        return accounts.filter((a) => a.apiType === want);
+    }, [accounts, accountTab]);
+
+    const stats = useMemo(() => {
+        const sum = (t) => accounts.filter((a) => a.apiType === t).reduce((s, a) => s + a.currentBalance, 0);
+        return {
+            cash: sum('CASH'),
+            bank: sum('BANK'),
+            petty: sum('PETTY_CASH'),
+            nCash: accounts.filter((a) => a.apiType === 'CASH').length,
+            nBank: accounts.filter((a) => a.apiType === 'BANK').length,
+            nPetty: accounts.filter((a) => a.apiType === 'PETTY_CASH').length,
+        };
+    }, [accounts]);
+
+    const branchLabel = (branchId) => {
+        if (branchId == null || String(branchId).trim() === '') return '';
+        const b = branches.find((x) => String(x.id) === String(branchId));
+        return b?.name ?? '';
+    };
 
     const closeCashBankNewModal = () => {
         setNewAccountOpen(false);
+        setSaveError('');
         setCashBankOpeningBalanceDate(todayIsoDate());
+        setNewAccountName('');
+        setNewAccountType('Cash');
+        setNewAccountBranchId('');
+        setNewAccountOpeningBalance('0');
+        setNewAccountStatus('active');
+        setNewPosTerminalId('');
     };
 
-    const handleSaveNew = () => {
-        setAccounts((prev) => [...prev, { id: Date.now(), name: 'New Account', type: 'Cash', branch: '', coaLink: '', openingBalance: '0', currentBalance: '0', status: 'active' }]);
-        closeCashBankNewModal();
+    const openNewAccountModal = () => {
+        setSaveError('');
+        setNewPosTerminalId('');
+        setNewAccountOpen(true);
     };
+
+    const handleSaveNew = async () => {
+        setSaveError('');
+        const name = newAccountName.trim();
+        if (!name) {
+            setSaveError('Account name is required.');
+            return;
+        }
+        if (!String(newAccountBranchId).trim()) {
+            setSaveError('Select a branch.');
+            return;
+        }
+        setSaving(true);
+        try {
+            const body = {
+                name,
+                type: uiCashBankTypeToApi(newAccountType),
+                branchId: String(newAccountBranchId),
+                openingBalance: Number(newAccountOpeningBalance) || 0,
+                status: newAccountStatus,
+            };
+            if (String(newPosTerminalId).trim()) {
+                body.posTerminalId = String(newPosTerminalId).trim();
+            }
+            await createWorkshopCashBankAccount(body);
+            await loadAccounts();
+            closeCashBankNewModal();
+        } catch (e) {
+            setSaveError(e?.message || 'Could not create account.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const openEdit = (a) => {
-        setEditingAccount({ ...a });
+        let bid = a.branchId != null && String(a.branchId).trim() !== '' ? String(a.branchId) : '';
+        if (!bid && a.branch) {
+            const match = branches.find((b) => b.name === a.branch);
+            if (match?.id != null) bid = String(match.id);
+        }
+        setSaveError('');
+        const pt = a.posTerminalId || '';
+        setEditPosInitial(pt);
+        setEditingAccount({
+            ...a,
+            branchId: bid,
+            openingBalance: String(a.openingBalance ?? ''),
+            posTerminalId: pt,
+        });
         setEditAccountOpen(true);
     };
-    const handleSaveEdit = () => {
-        if (editingAccount) {
-            setAccounts((prev) => prev.map((a) => (a.id === editingAccount.id ? { ...editingAccount } : a)));
-            setEditAccountOpen(false);
-            setEditingAccount(null);
+
+    const closeEditModal = () => {
+        setEditAccountOpen(false);
+        setEditingAccount(null);
+        setEditPosInitial('');
+        setSaveError('');
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editingAccount) return;
+        const name = (editingAccount.name || '').trim();
+        if (!name) {
+            setSaveError('Account name is required.');
+            return;
+        }
+        if (!String(editingAccount.branchId || '').trim()) {
+            setSaveError('Select a branch.');
+            return;
+        }
+        setSaving(true);
+        setSaveError('');
+        try {
+            const curPos = String(editingAccount.posTerminalId || '').trim();
+            const iniPos = String(editPosInitial || '').trim();
+            const body = {
+                name,
+                type: uiCashBankTypeToApi(editingAccount.type),
+                branchId: String(editingAccount.branchId),
+                openingBalance: Number(editingAccount.openingBalance) || 0,
+                status: editingAccount.status,
+            };
+            if (curPos !== iniPos) {
+                body.posTerminalId = curPos;
+            }
+            await updateWorkshopCashBankAccount(editingAccount.id, body);
+            await loadAccounts();
+            closeEditModal();
+        } catch (e) {
+            setSaveError(e?.message || 'Could not save changes.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const terminalsForEditBranch = useMemo(() => {
+        if (!editingAccount?.branchId) return [];
+        return posTerminals.filter((t) => String(t.branchId) === String(editingAccount.branchId));
+    }, [posTerminals, editingAccount?.branchId]);
+
+    const handleInternalTransfer = async () => {
+        setXferError('');
+        if (!xferFromId || !xferToId) {
+            setXferError('Select both source and destination accounts.');
+            return;
+        }
+        if (xferFromId === xferToId) {
+            setXferError('Source and destination must be different.');
+            return;
+        }
+        const amt = Number(xferAmount);
+        if (!Number.isFinite(amt) || amt <= 0) {
+            setXferError('Enter a valid amount greater than zero.');
+            return;
+        }
+        setXferSubmitting(true);
+        try {
+            await internalTransferWorkshopCashBank({
+                fromAccountId: xferFromId,
+                toAccountId: xferToId,
+                amount: amt,
+                entryDate: xferDate,
+                description: xferNote.trim() || undefined,
+            });
+            setXferAmount('');
+            setXferNote('');
+            await loadAccounts();
+        } catch (e) {
+            setXferError(e?.message || 'Transfer failed.');
+        } finally {
+            setXferSubmitting(false);
         }
     };
 
@@ -1317,31 +1595,39 @@ function CashBankView() {
         <div className="cash-bank-view">
             <header className="cash-bank-header">
                 <h2 className="cash-bank-title">Cash, Bank & Petty Cash</h2>
-                <p className="cash-bank-desc">Manage all financial accounts and balances — linked to Chart of Accounts</p>
+                <p className="cash-bank-desc">
+                    Manage registers and balances. Each account is linked automatically to Chart of Accounts (Current Asset).
+                    Optionally link a register to one SoftPOS terminal for settlements, or keep it shared. Use internal transfer to move funds between registers.
+                </p>
             </header>
+            {accountsError ? (
+                <p className="form-help-text" style={{ color: '#B45309', marginBottom: 12 }} role="alert">
+                    {accountsError}
+                </p>
+            ) : null}
             <div className="cash-bank-stats">
                 <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Banknote size={24} /></div>
                     <div>
                         <p className="cash-bank-stat-label">Cash on Hand</p>
-                        <p className="cash-bank-stat-value">SAR 0</p>
-                        <p className="cash-bank-stat-meta">{accounts.filter((a) => a.type === 'Cash').length} accounts</p>
+                        <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.cash)}</p>
+                        <p className="cash-bank-stat-meta">{stats.nCash} accounts</p>
                     </div>
                 </div>
                 <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Landmark size={24} /></div>
                     <div>
                         <p className="cash-bank-stat-label">Bank Balance</p>
-                        <p className="cash-bank-stat-value">SAR 0</p>
-                        <p className="cash-bank-stat-meta">{accounts.filter((a) => a.type === 'Bank').length} accounts</p>
+                        <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.bank)}</p>
+                        <p className="cash-bank-stat-meta">{stats.nBank} accounts</p>
                     </div>
                 </div>
                 <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Wallet size={24} /></div>
                     <div>
                         <p className="cash-bank-stat-label">Petty Cash</p>
-                        <p className="cash-bank-stat-value">SAR 0</p>
-                        <p className="cash-bank-stat-meta">{accounts.filter((a) => a.type === 'Petty Cash').length} accounts</p>
+                        <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.petty)}</p>
+                        <p className="cash-bank-stat-meta">{stats.nPetty} accounts</p>
                     </div>
                 </div>
             </div>
@@ -1350,9 +1636,114 @@ function CashBankView() {
                     <button key={t} type="button" className={`cash-bank-tab ${accountTab === t ? 'active' : ''}`} onClick={() => setAccountTab(t)}>{t}</button>
                 ))}
             </div>
-            <div className="cash-bank-actions">
-                <button type="button" className="btn-portal" onClick={() => setNewAccountOpen(true)}><Plus size={16} /> New Account</button>
+            <div className="cash-bank-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button type="button" className="btn-portal" onClick={openNewAccountModal}><Plus size={16} /> New Account</button>
+                <button
+                    type="button"
+                    className="btn-portal-outline"
+                    disabled={accountsLoading}
+                    onClick={() => loadAccounts()}
+                    title="Reload list"
+                >
+                    <RefreshCw size={16} style={{ marginRight: 6, opacity: accountsLoading ? 0.5 : 1 }} />
+                    Refresh
+                </button>
             </div>
+
+            <section
+                className="cash-bank-internal-xfer"
+                style={{
+                    marginBottom: 20,
+                    padding: '16px 18px',
+                    borderRadius: 12,
+                    border: '1px solid rgba(0,0,0,0.08)',
+                    background: 'var(--accounting-card-bg, #fafafa)',
+                }}
+            >
+                <h3 className="cash-bank-title" style={{ fontSize: '1.05rem', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <ArrowLeftRight size={20} aria-hidden />
+                    Internal fund transfer
+                </h3>
+                <p className="form-help-text" style={{ marginBottom: 12 }}>
+                    Move SAR between two registers in this workshop. Records a debit on the source and a credit on the destination (same reference).
+                </p>
+                {xferError ? (
+                    <p className="form-help-text" style={{ color: '#B45309', marginBottom: 10 }} role="alert">{xferError}</p>
+                ) : null}
+                <div className="modal-form-grid" style={{ alignItems: 'end' }}>
+                    <div className="form-group">
+                        <label className="form-label">From account *</label>
+                        <select
+                            className="form-input-field"
+                            value={xferFromId}
+                            onChange={(e) => setXferFromId(e.target.value)}
+                        >
+                            <option value="">Select source</option>
+                            {accounts.map((acc) => (
+                                <option key={acc.id} value={acc.id}>
+                                    {acc.name} — {acc.branch} (SAR {formatSarAmount(acc.currentBalance)})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">To account *</label>
+                        <select
+                            className="form-input-field"
+                            value={xferToId}
+                            onChange={(e) => setXferToId(e.target.value)}
+                        >
+                            <option value="">Select destination</option>
+                            {accounts.map((acc) => (
+                                <option key={acc.id} value={acc.id}>
+                                    {acc.name} — {acc.branch} (SAR {formatSarAmount(acc.currentBalance)})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">Amount (SAR) *</label>
+                        <input
+                            type="number"
+                            className="form-input-field"
+                            min="0"
+                            step="0.01"
+                            value={xferAmount}
+                            onChange={(e) => setXferAmount(e.target.value)}
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">Date *</label>
+                        <input
+                            type="date"
+                            className="form-input-field"
+                            value={xferDate}
+                            onChange={(e) => setXferDate(e.target.value)}
+                        />
+                    </div>
+                    <div className="form-group form-group-full">
+                        <label className="form-label">Note (optional)</label>
+                        <input
+                            type="text"
+                            className="form-input-field"
+                            placeholder="e.g. Cash moved to main safe"
+                            value={xferNote}
+                            onChange={(e) => setXferNote(e.target.value)}
+                        />
+                    </div>
+                    <div className="form-group form-group-full" style={{ marginTop: 4 }}>
+                        <button
+                            type="button"
+                            className="btn-submit btn-dark"
+                            disabled={xferSubmitting || accounts.length < 2}
+                            onClick={handleInternalTransfer}
+                        >
+                            {xferSubmitting ? 'Transferring…' : 'Transfer funds'}
+                        </button>
+                    </div>
+                </div>
+            </section>
+
             <section className="premium-table cash-bank-table">
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
@@ -1360,6 +1751,7 @@ function CashBankView() {
                             <th className="table-th">Account</th>
                             <th className="table-th">Type</th>
                             <th className="table-th">Branch</th>
+                            <th className="table-th">POS / SoftPOS</th>
                             <th className="table-th">COA Link</th>
                             <th className="table-th">Opening Balance</th>
                             <th className="table-th">Current Balance</th>
@@ -1368,19 +1760,24 @@ function CashBankView() {
                         </tr>
                     </thead>
                     <tbody>
-                        {accounts.length === 0 ? (
+                        {accountsLoading ? (
                             <tr>
-                                <td colSpan={8} className="table-cell table-empty">No accounts found</td>
+                                <td colSpan={9} className="table-cell table-empty">Loading accounts…</td>
+                            </tr>
+                        ) : visibleAccounts.length === 0 ? (
+                            <tr>
+                                <td colSpan={9} className="table-cell table-empty">No accounts found</td>
                             </tr>
                         ) : (
-                            accounts.map((a) => (
+                            visibleAccounts.map((a) => (
                                 <tr key={a.id}>
                                     <td className="table-cell cell-main-text">{a.name}</td>
                                     <td className="table-cell">{a.type}</td>
                                     <td className="table-cell">{a.branch}</td>
+                                    <td className="table-cell">{a.posLinkLabel}</td>
                                     <td className="table-cell">{a.coaLink}</td>
-                                    <td className="table-cell">SAR {a.openingBalance}</td>
-                                    <td className="table-cell">SAR {a.currentBalance}</td>
+                                    <td className="table-cell">SAR {formatSarAmount(a.openingBalance)}</td>
+                                    <td className="table-cell">SAR {formatSarAmount(a.currentBalance)}</td>
                                     <td className="table-cell"><span className="status-badge status-completed">{a.status}</span></td>
                                     <td className="table-cell"><button type="button" className="btn-edit-zone" onClick={() => openEdit(a)}>Edit</button></td>
                                 </tr>
@@ -1397,33 +1794,93 @@ function CashBankView() {
                         onClose={closeCashBankNewModal}
                         footer={
                             <>
-                                <button type="button" className="btn-secondary" onClick={closeCashBankNewModal}>Cancel</button>
-                                <button type="button" className="btn-submit btn-dark" onClick={handleSaveNew}>Create Account</button>
+                                <button type="button" className="btn-secondary" onClick={closeCashBankNewModal} disabled={saving}>Cancel</button>
+                                <button type="button" className="btn-submit btn-dark" onClick={handleSaveNew} disabled={saving}>{saving ? 'Creating…' : 'Create Account'}</button>
                             </>
                         }
                     >
                         <div className="modal-form-grid">
+                            {saveError ? (
+                                <p className="form-group form-group-full form-help-text" style={{ color: '#B45309' }} role="alert">{saveError}</p>
+                            ) : null}
                             <div className="form-group">
                                 <label className="form-label">Account Name *</label>
-                                <input type="text" className="form-input-field" placeholder="e.g. Main Cash" />
+                                <input
+                                    type="text"
+                                    className="form-input-field"
+                                    placeholder="e.g. Main Cash"
+                                    value={newAccountName}
+                                    onChange={(e) => setNewAccountName(e.target.value)}
+                                />
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Type *</label>
-                                <select className="form-input-field">
+                                <select
+                                    className="form-input-field"
+                                    value={newAccountType}
+                                    onChange={(e) => setNewAccountType(e.target.value)}
+                                >
                                     <option value="Cash">Cash</option>
                                     <option value="Bank">Bank</option>
                                     <option value="Petty Cash">Petty Cash</option>
                                 </select>
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Branch</label>
-                                <select className="form-input-field">
-                                    <option>Select branch</option>
+                                <label className="form-label">Branch *</label>
+                                <select
+                                    className="form-input-field"
+                                    value={newAccountBranchId}
+                                    onChange={(e) => setNewAccountBranchId(e.target.value)}
+                                >
+                                    <option value="">Select branch</option>
+                                    {branches.map((b) => (
+                                        <option key={String(b.id)} value={String(b.id)}>
+                                            {b.name}
+                                        </option>
+                                    ))}
                                 </select>
+                                {branches.length === 0 ? (
+                                    <p className="form-help-text" style={{ color: '#B45309' }}>
+                                        No branches loaded yet. Ensure your workshop has branches in Branches, then refresh
+                                        the page.
+                                    </p>
+                                ) : null}
+                            </div>
+                            <div className="form-group form-group-full">
+                                <label className="form-label">SoftPOS link (optional)</label>
+                                <select
+                                    className="form-input-field"
+                                    value={newPosTerminalId}
+                                    onChange={(e) => setNewPosTerminalId(e.target.value)}
+                                    disabled={!newAccountBranchId}
+                                >
+                                    <option value="">Shared register — not tied to one terminal</option>
+                                    {terminalsForSelectedNewBranch.map((t) => (
+                                        <option key={String(t.id)} value={String(t.id)}>
+                                            {t.branchName}: {t.label}
+                                            {t.linkedCashBankAccountId
+                                                ? ' (already linked — will reassign)'
+                                                : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="form-help-text">
+                                    If you pick a terminal, this register becomes that terminal&apos;s settlement/bank account. Terminal must belong to the branch selected above. Leave as shared for a general workshop register.
+                                </p>
+                                {newAccountBranchId && terminalsForSelectedNewBranch.length === 0 ? (
+                                    <p className="form-help-text" style={{ color: '#6B7280' }}>
+                                        No SoftPOS terminals for this branch yet (add terminals in admin SoftPOS) — only shared mode applies.
+                                    </p>
+                                ) : null}
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Opening Balance (SAR)</label>
-                                <input type="number" className="form-input-field" defaultValue="0" />
+                                <input
+                                    type="number"
+                                    className="form-input-field"
+                                    value={newAccountOpeningBalance}
+                                    onChange={(e) => setNewAccountOpeningBalance(e.target.value)}
+                                />
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Opening balance date</label>
@@ -1433,18 +1890,15 @@ function CashBankView() {
                                     value={cashBankOpeningBalanceDate}
                                     onChange={(e) => setCashBankOpeningBalanceDate(e.target.value)}
                                 />
-                                <p className="form-help-text">Effective date for the opening balance (as-of).</p>
-                            </div>
-                            <div className="form-group form-group-full">
-                                <label className="form-label">Link to Chart of Account (Current Asset)</label>
-                                <select className="form-input-field">
-                                    <option>Auto-create if not selected</option>
-                                </select>
-                                <p className="form-help-text">Leave blank to auto-create a new Current Asset account in COA</p>
+                                <p className="form-help-text">For your records only — not sent to the server yet.</p>
                             </div>
                             <div className="form-group form-group-full">
                                 <label className="form-label">Status</label>
-                                <select className="form-input-field">
+                                <select
+                                    className="form-input-field"
+                                    value={newAccountStatus}
+                                    onChange={(e) => setNewAccountStatus(e.target.value)}
+                                >
                                     <option value="active">Active</option>
                                     <option value="inactive">Inactive</option>
                                 </select>
@@ -1456,14 +1910,17 @@ function CashBankView() {
                 {editAccountOpen && editingAccount && (
                     <Modal
                         title="Edit Account"
-                        onClose={() => { setEditAccountOpen(false); setEditingAccount(null); }}
+                        onClose={closeEditModal}
                         footer={
                             <>
-                                <button type="button" className="btn-secondary" onClick={() => { setEditAccountOpen(false); setEditingAccount(null); }}>Cancel</button>
-                                <button type="button" className="btn-submit" onClick={handleSaveEdit}>Save Changes</button>
+                                <button type="button" className="btn-secondary" onClick={closeEditModal} disabled={saving}>Cancel</button>
+                                <button type="button" className="btn-submit" onClick={handleSaveEdit} disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
                             </>
                         }
                     >
+                        {saveError ? (
+                            <p className="form-help-text" style={{ color: '#B45309', marginBottom: 12 }} role="alert">{saveError}</p>
+                        ) : null}
                         <div className="form-group">
                             <label className="form-label">Account Name</label>
                             <input type="text" className="form-input-field" value={editingAccount.name} onChange={(e) => setEditingAccount((p) => ({ ...p, name: e.target.value }))} />
@@ -1475,16 +1932,65 @@ function CashBankView() {
                             </select>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Branch</label>
-                            <input type="text" className="form-input-field" value={editingAccount.branch} onChange={(e) => setEditingAccount((p) => ({ ...p, branch: e.target.value }))} />
+                            <label className="form-label">Branch *</label>
+                            <select
+                                className="form-input-field"
+                                value={editingAccount.branchId != null ? String(editingAccount.branchId) : ''}
+                                onChange={(e) => {
+                                    const id = e.target.value;
+                                    const name = branchLabel(id);
+                                    setEditingAccount((p) => {
+                                        const next = {
+                                            ...p,
+                                            branchId: id,
+                                            branch: name || p.branch || '',
+                                        };
+                                        const stillOk = posTerminals.some(
+                                            (t) => String(t.branchId) === String(id) && String(t.id) === String(p.posTerminalId),
+                                        );
+                                        if (!stillOk) next.posTerminalId = '';
+                                        return next;
+                                    });
+                                }}
+                            >
+                                <option value="">Select branch</option>
+                                {branches.map((b) => (
+                                    <option key={String(b.id)} value={String(b.id)}>
+                                        {b.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="form-group form-group-full">
+                            <label className="form-label">SoftPOS link</label>
+                            <select
+                                className="form-input-field"
+                                value={editingAccount.posTerminalId != null ? String(editingAccount.posTerminalId) : ''}
+                                onChange={(e) => setEditingAccount((p) => ({ ...p, posTerminalId: e.target.value }))}
+                                disabled={!editingAccount.branchId}
+                            >
+                                <option value="">Shared register — not tied to one terminal</option>
+                                {terminalsForEditBranch.map((t) => (
+                                    <option key={String(t.id)} value={String(t.id)}>
+                                        {t.branchName}: {t.label}
+                                        {t.linkedCashBankAccountId && String(t.linkedCashBankAccountId) !== String(editingAccount.id)
+                                            ? ' (linked to another register)'
+                                            : ''}
+                                    </option>
+                                ))}
+                            </select>
+                            <p className="form-help-text">
+                                Same branch as this register. Change only when you want to attach or detach a terminal; saving without changing this keeps the current link.
+                            </p>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">COA Link</label>
-                            <input type="text" className="form-input-field" value={editingAccount.coaLink} onChange={(e) => setEditingAccount((p) => ({ ...p, coaLink: e.target.value }))} />
+                            <label className="form-label">COA link (read-only)</label>
+                            <input type="text" className="form-input-field" readOnly value={editingAccount.coaLink || '—'} />
+                            <p className="form-help-text">Created automatically with this register; shown in Chart of Accounts.</p>
                         </div>
                         <div className="form-group">
                             <label className="form-label">Opening Balance (SAR)</label>
-                            <input type="text" className="form-input-field" value={editingAccount.openingBalance} onChange={(e) => setEditingAccount((p) => ({ ...p, openingBalance: e.target.value }))} />
+                            <input type="number" className="form-input-field" value={editingAccount.openingBalance} onChange={(e) => setEditingAccount((p) => ({ ...p, openingBalance: e.target.value }))} />
                         </div>
                         <div className="form-group">
                             <label className="form-label">Status</label>
@@ -2602,7 +3108,7 @@ function EmployeeAdvancesView() {
     );
 }
 
-export default function WorkshopAccountingPage({ activeTab }) {
+export default function WorkshopAccountingPage({ activeTab, branches = [] }) {
     const { subTab: paramsSubTab } = useParams();
     
     // Normalize activeSub to match the internal view keys
@@ -2635,7 +3141,7 @@ export default function WorkshopAccountingPage({ activeTab }) {
     return (
         <div className="accounting-page module-container">
             {activeSub === 'chart-of-accounts' && <ChartOfAccountsView />}
-            {activeSub === 'cash-bank' && <CashBankView />}
+            {activeSub === 'cash-bank' && <CashBankView branches={branches} />}
             {activeSub === 'payments' && <PaymentsView />}
             {activeSub === 'transactions' && <TransactionEntryView />}
             {activeSub === 'journal-entries' && <GeneralJournalView />}
