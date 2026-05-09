@@ -30,8 +30,11 @@ export const getAccounts = (params = {}) => {
     return apiFetch(withQuery('/accounts', query)).then(parseArr);
 };
 
-export const getAccountsTree = () =>
-    apiFetch(`/accounts/tree?_t=${Date.now()}`).then(parseArr);
+export const getAccountsTree = (params = {}) =>
+    apiFetch(withQuery('/accounts/tree', { ...params, _t: Date.now() })).then(parseArr);
+
+export const getAccountsBranches = () =>
+    apiFetch(`/accounts/branches?_t=${Date.now()}`).then(parseArr);
 
 export const getAccountById = (id) => apiFetch(`/accounts/${encodeURIComponent(id)}`);
 

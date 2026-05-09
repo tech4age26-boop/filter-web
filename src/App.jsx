@@ -19,6 +19,7 @@ import FleetManagementPage from './pages/admin/FleetManagementPage';
 import WarehousePortalPage from './pages/admin/WarehousePortalPage';
 import LockerManagementPage from './pages/admin/LockerManagementPage';
 import ReferralCommissionsPage from './pages/admin/ReferralCommissionsPage';
+import SoftPosSettlement from './pages/admin/SoftPosSettlement';
 import MarketingPortalPage from './pages/admin/MarketingPortalPage';
 import WorkshopManagementPage from './pages/admin/WorkshopManagementPage';
 import ReportingPage from './pages/admin/ReportingPage';
@@ -113,6 +114,7 @@ function App() {
               <Route path="sales/:subTab" element={<SalesPage />} />
               <Route path="accounting" element={<Navigate to="/admin/accounting/cash-bank" replace />} />
               <Route path="accounting/:subTab" element={<AccountingPage />} />
+              <Route path="softpos-settlement" element={<SoftPosSettlement />} />
               <Route path="fleet-management" element={<FleetManagementPage />} />
               <Route path="warehouse-portal" element={<WarehousePortalPage />} />
               <Route path="locker-management" element={<LockerManagementPage />} />

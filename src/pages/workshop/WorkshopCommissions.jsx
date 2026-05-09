@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, CheckCircle, Users, Wallet, Calendar, AlertCircle } from 'lucide-react';
 import Modal from '../../components/Modal';
+import WorkshopCommissionRules from '../../components/commissions/WorkshopCommissionRules';
 import {
     getWorkshopCommissionsSummary,
     getWorkshopCommissionsPendingByEmployee,
@@ -118,6 +119,7 @@ function applyCommissionDashboardSettled(settled, setters) {
 }
 
 export default function WorkshopCommissions({ selectedBranchId = 'all', branches = [] }) {
+    const [activeTab, setActiveTab] = useState('ledger'); // 'ledger' | 'rules'
     const [summary, setSummary] = useState({ totalAccrued: 0, totalPaid: 0, pendingEmployeeCount: 0 });
     const [pendingByEmployee, setPendingByEmployee] = useState([]);
     const [commissionRows, setCommissionRows] = useState([]);
@@ -348,8 +350,52 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
         );
     };
 
+    const openIndividualPayout = (row) => {
+        setSelectedIds(new Set([row.id]));
+        setPayoutModalOpen(true);
+    };
+
     return (
         <div className="ws-commissions">
+            <div
+                style={{
+                    display: 'flex',
+                    gap: 16,
+                    borderBottom: '1px solid #e5e7eb',
+                    marginBottom: 14,
+                    paddingBottom: 0,
+                }}
+            >
+                {[
+                    { key: 'ledger', label: 'Ledger' },
+                    { key: 'rules', label: 'Rules' },
+                ].map((tab) => {
+                    const active = activeTab === tab.key;
+                    return (
+                        <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setActiveTab(tab.key)}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: active ? '#111827' : '#6b7280',
+                                fontWeight: active ? 700 : 500,
+                                padding: '8px 0',
+                                cursor: 'pointer',
+                                borderBottom: active ? '3px solid #D4A017' : '3px solid transparent',
+                            }}
+                        >
+                            {tab.label}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {activeTab === 'rules' ? (
+                <WorkshopCommissionRules />
+            ) : (
+            <>
             <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                 Scope · <strong>{branchLabel}</strong>
             </p>
@@ -399,8 +445,34 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
                         const amount = Number(emp.pending_amount ?? emp.pendingAmount ?? 0) || 0;
                         const avatarUrl = emp.avatar_url ?? emp.avatarUrl;
                         const { color, textColor } = chipColorsForKey(String(key));
+                        const isActive = String(filterEmployeeId) === String(key);
                         return (
-                            <div key={String(key)} className="ws-emp-chip">
+                            <div
+                                key={String(key)}
+                                className="ws-emp-chip"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => {
+                                    setFilterEmployeeId((prev) =>
+                                        String(prev) === String(key) ? '' : String(key),
+                                    );
+                                    setFilterStatus('accrued');
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        setFilterEmployeeId((prev) =>
+                                            String(prev) === String(key) ? '' : String(key),
+                                        );
+                                        setFilterStatus('accrued');
+                                    }
+                                }}
+                                style={{
+                                    cursor: 'pointer',
+                                    outline: isActive ? '2px solid #D4A017' : 'none',
+                                    outlineOffset: 2,
+                                }}
+                            >
                                 <div
                                     className="ws-emp-avatar"
                                     style={{
@@ -519,18 +591,19 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
                             <th>RATE</th>
                             <th>AMOUNT</th>
                             <th>STATUS</th>
+                            <th>ACTION</th>
                         </tr>
                     </thead>
                     <tbody>
                         {isLoading && commissionRows.length === 0 ? (
                             <tr>
-                                <td colSpan={8} className="ws-text-dim" style={{ padding: 24, textAlign: 'center' }}>
+                                <td colSpan={9} className="ws-text-dim" style={{ padding: 24, textAlign: 'center' }}>
                                     Loading…
                                 </td>
                             </tr>
                         ) : commissionRows.length === 0 ? (
                             <tr>
-                                <td colSpan={8} className="ws-text-dim" style={{ padding: 24, textAlign: 'center' }}>
+                                <td colSpan={9} className="ws-text-dim" style={{ padding: 24, textAlign: 'center' }}>
                                     No commission lines match these filters.
                                 </td>
                             </tr>
@@ -573,6 +646,31 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
                                             {c.status === 'accrued' ? <Clock size={12} /> : <CheckCircle size={12} />}
                                             {c.status}
                                         </span>
+                                    </td>
+                                    <td>
+                                        {c.status === 'accrued' ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => openIndividualPayout(c)}
+                                                style={{
+                                                    border: '1px solid #16a34a',
+                                                    background: '#fff',
+                                                    color: '#16a34a',
+                                                    borderRadius: 6,
+                                                    padding: '4px 10px',
+                                                    fontSize: 12,
+                                                    fontWeight: 600,
+                                                    cursor: 'pointer',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: 4,
+                                                }}
+                                            >
+                                                <Wallet size={12} /> Pay
+                                            </button>
+                                        ) : (
+                                            <span className="ws-text-dim" style={{ fontSize: 12 }}>—</span>
+                                        )}
                                     </td>
                                 </tr>
                             ))
@@ -704,6 +802,8 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
                         </div>
                     </div>
                 </Modal>
+            )}
+            </>
             )}
         </div>
     );

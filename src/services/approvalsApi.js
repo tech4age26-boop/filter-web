@@ -48,9 +48,25 @@ export function details(entityType, id) {
     return apiFetch(`/super-admin/approvals/${entityType}/${encodeURIComponent(id)}`);
 }
 
-/** Approve a request. `remarks` is optional. */
-export function approve(entityType, id, remarks) {
-    const body = remarks && remarks.trim() ? { remarks: remarks.trim() } : {};
+/**
+ * Approve a request.
+ * Pass a string `remarks` or an object `{ remarks?, selectedStoreIds? }` (corporate_registration).
+ */
+export function approve(entityType, id, remarksOrPayload = {}) {
+    let payload = remarksOrPayload;
+    if (typeof remarksOrPayload === 'string') {
+        const t = remarksOrPayload.trim();
+        payload = t ? { remarks: t } : {};
+    }
+    const body = {};
+    if (payload.remarks?.trim?.()) body.remarks = payload.remarks.trim();
+    if (
+        entityType === 'corporate_registration' &&
+        Array.isArray(payload.selectedStoreIds) &&
+        payload.selectedStoreIds.length > 0
+    ) {
+        body.selectedStoreIds = payload.selectedStoreIds.map(String);
+    }
     return apiFetch(`/super-admin/approvals/${entityType}/${encodeURIComponent(id)}/approve`, {
         method: 'PATCH',
         body: JSON.stringify(body),
@@ -74,5 +90,6 @@ export const getPendingApprovals = ({ entityType } = {}) => list({ status: 'pend
 export const getApprovedApprovals = ({ entityType } = {}) => list({ status: 'approved', entityType });
 export const getRejectedApprovals = ({ entityType } = {}) => list({ status: 'rejected', entityType });
 export const getApprovalDetails = (entityType, id) => details(entityType, id);
-export const approveRequest = (entityType, id, body = {}) => approve(entityType, id, body?.remarks);
+export const approveRequest = (entityType, id, body = {}) =>
+    approve(entityType, id, body);
 export const rejectRequest = (entityType, id, body = {}) => reject(entityType, id, body?.reason);

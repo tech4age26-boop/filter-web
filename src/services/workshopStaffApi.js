@@ -994,8 +994,11 @@ export const getWorkshopCorporateCustomers = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/corporate-customers${qs(params)}`, options);
 
 /**
- * Register a corporate customer (workshop admin). Uses workshop Bearer from apiFetch.
- * Typical backend: POST /auth/corporate/register. If your API uses POST /workshop-staff/corporate-register, swap the path here.
+ * Register a corporate customer (workshop JWT). Sends only branches from this workshop; super admin can add more on approval.
+ * Body: companyName, vatNumber?, contactPerson, email, password, selectedStoreIds[], referralId?, mobile?
  */
 export const postCorporateRegister = (body) =>
-    apiFetch('/auth/corporate/register', { method: 'POST', body: JSON.stringify(body) });
+    apiFetch('/workshop-staff/corporate-register', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });

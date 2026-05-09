@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     Check, X, Tag, User, Calendar, DollarSign, Package, ShoppingCart,
     RefreshCcw, ArrowRightLeft, FileText, Eye, Users, Settings, CreditCard,
@@ -13,6 +13,7 @@ import {
 import {
     approveSuperAdminCorporatePriceQuotation,
     rejectSuperAdminCorporatePriceQuotation,
+    getBranches,
 } from '../../services/superAdminApi';
 import Modal from '../../components/Modal';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
@@ -256,6 +257,184 @@ function ApproveModal({ item, busy, onCancel, onConfirm }) {
     );
 }
 
+/** Super-admin: approve corporate_registration with final branch/store list (any workshop). */
+function CorporateApproveModal({ item, busy, onCancel, onConfirm }) {
+    const [remarks, setRemarks] = useState('');
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [branchSearch, setBranchSearch] = useState('');
+    const [allBranches, setAllBranches] = useState([]);
+    const [branchLoadErr, setBranchLoadErr] = useState('');
+
+    const resetSelectionFromItem = useCallback(() => {
+        const raw = item?.meta?.selectedBranchIds ?? item?.meta?.selected_branch_ids ?? [];
+        const arr = Array.isArray(raw) ? raw : [];
+        setSelectedIds(arr.map((x) => String(x)));
+    }, [item]);
+
+    useEffect(() => {
+        resetSelectionFromItem();
+        setRemarks('');
+    }, [item, resetSelectionFromItem]);
+
+    useEffect(() => {
+        let cancelled = false;
+        setBranchLoadErr('');
+        getBranches({})
+            .then((res) => {
+                if (cancelled) return;
+                const list = Array.isArray(res?.branches) ? res.branches : [];
+                setAllBranches(list);
+            })
+            .catch((e) => {
+                if (!cancelled) setBranchLoadErr(e.message || 'Failed to load branches');
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const filteredBranches = useMemo(() => {
+        const q = branchSearch.trim().toLowerCase();
+        const list = allBranches.filter((b) => {
+            if (b?.approvalStatus && String(b.approvalStatus).toLowerCase() !== 'approved') return false;
+            if (String(b?.isActive) === 'false' || b?.status === 'inactive') return false;
+            if (!q) return true;
+            const idStr = String(b.id ?? '');
+            const nm = `${b.name || ''} ${b.workshopName || ''}`.toLowerCase();
+            return nm.includes(q) || idStr.includes(q);
+        });
+        return list.sort((a, b) => {
+            const wa = String(a.workshopName || '').localeCompare(String(b.workshopName || ''));
+            if (wa !== 0) return wa;
+            return String(a.name || '').localeCompare(String(b.name || ''));
+        });
+    }, [allBranches, branchSearch]);
+
+    const toggleBranch = (id) => {
+        const sid = String(id);
+        setSelectedIds((prev) =>
+            (prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid]),
+        );
+    };
+
+    const canSubmit = selectedIds.length > 0 && !busy;
+
+    return (
+        <Modal
+            title="Approve Corporate Registration"
+            onClose={busy ? undefined : onCancel}
+            width={560}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-approve"
+                        disabled={!canSubmit}
+                        onClick={() =>
+                            canSubmit &&
+                            onConfirm({
+                                remarks: remarks.trim(),
+                                selectedStoreIds: selectedIds.map(String),
+                            })}
+                    >
+                        {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
+                        Approve &amp; activate
+                    </button>
+                </>
+            )}
+        >
+            <p className="approval-modal-lead">
+                Approve <strong>{item.title}</strong>. Adjust linked branches/stores across workshops if needed —
+                these IDs are saved on the corporate account before activation.
+            </p>
+            {branchLoadErr && (
+                <p style={{ color: '#B91C1C', fontSize: '0.875rem', marginBottom: 8 }}>{branchLoadErr}</p>
+            )}
+            <label className="approval-modal-label" htmlFor="corp-branch-filter">
+                Search branches
+            </label>
+            <input
+                id="corp-branch-filter"
+                className="approval-modal-textarea"
+                style={{ minHeight: 0 }}
+                placeholder="Branch name, workshop, or ID"
+                value={branchSearch}
+                onChange={(e) => setBranchSearch(e.target.value)}
+                disabled={busy}
+            />
+
+            <div
+                style={{
+                    maxHeight: 240,
+                    overflowY: 'auto',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: 8,
+                    padding: 8,
+                    marginTop: 10,
+                    marginBottom: 12,
+                    background: '#FAFAFA',
+                }}
+            >
+                {filteredBranches.length === 0 ? (
+                    <p className="empty-desc" style={{ margin: 8 }}>No matching branches.</p>
+                ) : (
+                    filteredBranches.map((b) => {
+                        const idStr = String(b.id);
+                        const checked = selectedIds.includes(idStr);
+                        return (
+                            <label
+                                key={idStr}
+                                style={{
+                                    display: 'flex',
+                                    gap: 10,
+                                    padding: '8px 6px',
+                                    cursor: busy ? 'not-allowed' : 'pointer',
+                                    borderRadius: 6,
+                                    background: checked ? 'rgba(220,252,231,0.6)' : 'transparent',
+                                }}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={busy}
+                                    onChange={() => toggleBranch(b.id)}
+                                />
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{b.name || idStr}</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#6B7280' }}>
+                                        {b.workshopName || 'Workshop'}{' '}
+                                        <span style={{ fontFamily: 'monospace' }}>({idStr})</span>
+                                    </div>
+                                </div>
+                            </label>
+                        );
+                    })
+                )}
+            </div>
+
+            <p style={{ fontSize: '0.75rem', color: '#6B7280', marginBottom: 8 }}>
+                {selectedIds.length} branch(es) selected. At least one is required.
+            </p>
+
+            <label className="approval-modal-label" htmlFor="approve-remarks-corporate">
+                Remarks <span className="approval-modal-optional">(optional)</span>
+            </label>
+            <textarea
+                id="approve-remarks-corporate"
+                className="approval-modal-textarea"
+                rows={3}
+                placeholder="Audit note."
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                disabled={busy}
+            />
+        </Modal>
+    );
+}
+
 function RejectModal({ item, busy, onCancel, onConfirm }) {
     const [reason, setReason] = useState('');
     const [touched, setTouched] = useState(false);
@@ -401,13 +580,17 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const isCorporatePriceQuotation = (et) =>
         et === 'corporate_price_quotation' || et === 'corporate_price_quotations';
 
-    const handleApproveConfirm = async (item, remarks) => {
+    const handleApproveConfirm = async (item, remarksOrPayload) => {
         setActionLoading(item.id);
         try {
+            const payload =
+                typeof remarksOrPayload === 'string'
+                    ? (remarksOrPayload.trim() ? { remarks: remarksOrPayload.trim() } : {})
+                    : (remarksOrPayload && typeof remarksOrPayload === 'object' ? remarksOrPayload : {});
             if (isCorporatePriceQuotation(item.entityType)) {
                 await approveSuperAdminCorporatePriceQuotation(item.id);
             } else {
-                await approveApi(item.entityType, item.id, remarks);
+                await approveApi(item.entityType, item.id, payload);
             }
             removeFromList(item.id);
             setApproveTarget(null);
@@ -678,12 +861,34 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     onClose={() => setDetailsTarget(null)}
                     actionDisabled={actionLoading === detailsTarget.id}
                     onApprove={(data) => {
-                        const target = detailsTarget.item ?? {
-                            id: toStringId(data?.requestId ?? data?.id),
+                        const idStr = toStringId(
+                            data?.requestId ?? data?.id ?? detailsTarget.id,
+                        );
+                        const existing = detailsTarget.item;
+                        const title =
+                            data?.corporateAccount?.companyName ??
+                            data?.title ??
+                            existing?.title ??
+                            data?.meta?.companyName ??
+                            'this request';
+                        const branchesRaw =
+                            data?.corporateAccount?.selectedBranchIds ??
+                            existing?.meta?.selectedBranchIds ??
+                            data?.meta?.selectedBranchIds ??
+                            [];
+                        const selectedBranchIds = Array.isArray(branchesRaw)
+                            ? branchesRaw.map((x) => String(x))
+                            : [];
+                        setApproveTarget({
+                            id: idStr,
                             entityType: detailsTarget.entityType,
-                            title: data?.title ?? data?.meta?.companyName ?? data?.meta?.name ?? 'this request',
-                        };
-                        setApproveTarget(target);
+                            title,
+                            meta: {
+                                ...(existing?.meta || {}),
+                                ...(data?.meta || {}),
+                                selectedBranchIds,
+                            },
+                        });
                     }}
                     onReject={(data) => {
                         const target = detailsTarget.item ?? {
@@ -696,14 +901,21 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 />
             )}
 
-            {approveTarget && (
+            {approveTarget && approveTarget.entityType === 'corporate_registration' ? (
+                <CorporateApproveModal
+                    item={approveTarget}
+                    busy={actionLoading === approveTarget.id}
+                    onCancel={() => setApproveTarget(null)}
+                    onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
+                />
+            ) : approveTarget ? (
                 <ApproveModal
                     item={approveTarget}
                     busy={actionLoading === approveTarget.id}
                     onCancel={() => setApproveTarget(null)}
                     onConfirm={(remarks) => handleApproveConfirm(approveTarget, remarks)}
                 />
-            )}
+            ) : null}
 
             {rejectTarget && (
                 <RejectModal
