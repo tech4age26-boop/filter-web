@@ -7,7 +7,7 @@ import {
     Bell, Search, ChevronDown, ChevronRight,
     Shield, Map, Truck, Building, UserCheck, Receipt, ArrowLeftRight, FileSpreadsheet,
     Landmark, FileText, Car, Warehouse, Box, ShoppingCart, UserPlus, Globe, Megaphone, Trophy,
-    Menu, X, Percent, Wrench, GitBranch, Radio, BarChart2, ClipboardList
+    Menu, X, Percent, Wrench, GitBranch, Radio, BarChart2, ClipboardList, CreditCard
 } from 'lucide-react';
 import '../styles/AdminLayout.css';
 
@@ -28,6 +28,7 @@ const TRANSLATIONS = {
             'cash-bank': 'Cash & Bank',
             'sales-reports': 'Sales Reports', 'sales-orders': 'Sales Orders',
             transactions: 'Transactions', 'journal-entries': 'Journal Entries', purchases: 'Purchases', expenses: 'Expenses', payments: 'Payments', advances: 'Advances', ledger: 'Ledger',
+            'softpos-settlement': 'SoftPOS Settlement',
             marketing: 'Marketing',
             'fleet-management': 'Fleet Management', 'warehouse-portal': 'Warehouse Portal', 'locker-management': 'Locker Management',
             'workshop-portal': 'Filter Admin Workshop Portal', 'locker-portal': 'Filter Locker Portal', 'supplier-portal': 'Filter Supplier Portal', 'corporate-portal': 'Filter Corporate Portal', 'referrer-portal': 'Filter Referrer Portal', 'technician-app': 'Filter Technician Portal', 'pos-portal': 'Filter POS Portal'
@@ -54,6 +55,7 @@ const TRANSLATIONS = {
             'cash-bank': 'النقد والبنك',
             'sales-reports': 'تقارير المبيعات', 'sales-orders': 'طلبات المبيعات',
             transactions: 'المعاملات', 'journal-entries': 'قيد اليومية', purchases: 'المشتريات', expenses: 'المصروفات', payments: 'المدفوعات', advances: 'السلف', ledger: 'دفتر الأستاذ',
+            'softpos-settlement': 'تسوية SoftPOS',
             marketing: 'التسويق',
             'fleet-management': 'إدارة الأسطول', 'warehouse-portal': 'بوابة المستودع', 'locker-management': 'إدارة الخزائن',
             'workshop-portal': 'بوابة فلتر لورشة العمل', 'locker-portal': 'بوابة فلتر للخزائن', 'supplier-portal': 'بوابة فلتر للموردين', 'corporate-portal': 'بوابة فلتر للمؤسسات', 'referrer-portal': 'بوابة فلتر للإحالة', 'technician-app': 'بوابة فلتر للفنيين', 'pos-portal': 'بوابة فلتر لنقاط البيع'
@@ -142,6 +144,7 @@ const NAV_CONFIG = [
                     { label: 'Ledger', path: 'ledger', icon: BookOpen },
                 ],
             },
+            { label: 'SoftPOS Settlement', path: 'softpos-settlement', icon: CreditCard },
         ],
     },
     {

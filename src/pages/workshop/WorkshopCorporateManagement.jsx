@@ -285,9 +285,8 @@ function RegisterCorporateModal({ branches, selectedBranchId, onClose, onSuccess
         mobile: '',
         email: '',
         password: '',
-        taxId: '',
-        address: '',
-        creditLimit: '',
+        vatNumber: '',
+        referralId: '',
         selectedBranchIds: defaultBranches,
     });
     const [saving, setSaving] = useState(false);
@@ -300,9 +299,8 @@ function RegisterCorporateModal({ branches, selectedBranchId, onClose, onSuccess
             mobile: '',
             email: '',
             password: '',
-            taxId: '',
-            address: '',
-            creditLimit: '',
+            vatNumber: '',
+            referralId: '',
             selectedBranchIds: defaultBranches,
         });
         setSaveError('');
@@ -325,6 +323,8 @@ function RegisterCorporateModal({ branches, selectedBranchId, onClose, onSuccess
         const mobile = form.mobile.trim();
         const email = form.email.trim();
         const password = form.password;
+        const vatNumber = form.vatNumber.trim();
+        const referralId = form.referralId.trim();
         if (!companyName || !contactPerson || !mobile || !email || !password) {
             setSaveError('Company, contact, mobile, email, and password are required.');
             return;
@@ -340,21 +340,20 @@ function RegisterCorporateModal({ branches, selectedBranchId, onClose, onSuccess
         setSaving(true);
         setSaveError('');
         try {
-            const creditLimit = toNumber(form.creditLimit);
             const payload = {
                 companyName,
                 contactPerson,
-                customerName: contactPerson,
-                address: form.address.trim(),
-                creditLimit: Number.isFinite(creditLimit) && creditLimit >= 0 ? creditLimit : 0,
                 mobile,
-                taxId: form.taxId.trim(),
-                vatNumber: form.taxId.trim(),
                 email,
                 password,
-                selectedBranchIds: form.selectedBranchIds.map(String),
+                selectedStoreIds: form.selectedBranchIds.map(String),
             };
-            await postCorporateRegister(payload);
+            if (vatNumber) payload.vatNumber = vatNumber;
+            if (referralId) payload.referralId = referralId;
+            const res = await postCorporateRegister(payload);
+            if (res && res.success === false) {
+                throw new Error(res.message || 'Registration failed.');
+            }
             onSuccess?.();
             onClose();
         } catch (e) {
@@ -375,15 +374,15 @@ function RegisterCorporateModal({ branches, selectedBranchId, onClose, onSuccess
                         Cancel
                     </button>
                     <button type="button" className="btn-portal" onClick={handleSubmit} disabled={saving}>
-                        {saving ? 'Submitting...' : 'Create corporate account'}
+                        {saving ? 'Submitting...' : 'Submit for approval'}
                     </button>
                 </>
             }
         >
             <div style={{ fontSize: '0.875rem' }}>
                 <p style={{ margin: '0 0 16px', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
-                    Creates a corporate account linked to your workshop via the corporate register API. The first portal
-                    user uses the email and password below.
+                    Sends a signup request for super-admin approval. You can link only branches in your workshop here;
+                    the administrator can attach additional branches when approving.
                 </p>
                 {saveError && (
                     <p style={{ margin: '0 0 12px', color: '#B91C1C', fontSize: '0.8125rem' }}>{saveError}</p>
@@ -431,29 +430,22 @@ function RegisterCorporateModal({ branches, selectedBranchId, onClose, onSuccess
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={FileText} label="VAT / Tax ID">
+                <FieldRow icon={FileText} label="VAT number">
                     <input
                         type="text"
-                        value={form.taxId}
-                        onChange={(e) => setForm((f) => ({ ...f, taxId: e.target.value }))}
+                        value={form.vatNumber}
+                        onChange={(e) => setForm((f) => ({ ...f, vatNumber: e.target.value }))}
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={Building2} label="Address">
+                <FieldRow icon={User} label="Referral ID (optional)">
                     <input
                         type="text"
-                        value={form.address}
-                        onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
-                    />
-                </FieldRow>
-                <FieldRow icon={FileText} label="Credit limit (SAR)">
-                    <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={form.creditLimit}
-                        onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value }))}
+                        inputMode="numeric"
+                        value={form.referralId}
+                        onChange={(e) =>
+                            setForm((f) => ({ ...f, referralId: e.target.value.replace(/\D/g, '') }))}
+                        placeholder="Referral row ID"
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
@@ -768,7 +760,9 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                                     </td>
                                 </tr>
                             ) : (
-                                visibleCustomers.map((row) => (
+                                visibleCustomers.map((row) => {
+                                    const isPending = String(row.status || '').toLowerCase() === 'pending';
+                                    return (
                                     <tr key={row.id ?? row.corporate_account_id ?? row.companyName}>
                                         <td><strong>{row.companyName || row.customer?.name || '—'}</strong></td>
                                         <td>{row.contactPerson || '—'}</td>
@@ -799,6 +793,12 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                                                     className="btn-portal-outline"
                                                     style={{ padding: '6px 10px', fontSize: '0.75rem' }}
                                                     onClick={() => setAddUserFor(row)}
+                                                    disabled={isPending}
+                                                    title={
+                                                        isPending
+                                                            ? 'Available after super admin approves registration'
+                                                            : undefined
+                                                    }
                                                 >
                                                     <UserPlus size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
                                                     Add user
@@ -808,6 +808,12 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                                                     className="btn-portal-outline"
                                                     style={{ padding: '6px 10px', fontSize: '0.75rem' }}
                                                     onClick={() => setEditing(row)}
+                                                    disabled={isPending}
+                                                    title={
+                                                        isPending
+                                                            ? 'Edit after super admin approval'
+                                                            : undefined
+                                                    }
                                                 >
                                                     <Pencil size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
                                                     Edit
@@ -815,7 +821,8 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                                             </div>
                                         </td>
                                     </tr>
-                                ))
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
