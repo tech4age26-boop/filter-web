@@ -19,6 +19,7 @@ import FleetManagementPage from './pages/admin/FleetManagementPage';
 import WarehousePortalPage from './pages/admin/WarehousePortalPage';
 import LockerManagementPage from './pages/admin/LockerManagementPage';
 import ReferralCommissionsPage from './pages/admin/ReferralCommissionsPage';
+import SoftPosSettlement from './pages/admin/SoftPosSettlement';
 import MarketingPortalPage from './pages/admin/MarketingPortalPage';
 import WorkshopManagementPage from './pages/admin/WorkshopManagementPage';
 import ReportingPage from './pages/admin/ReportingPage';
@@ -57,6 +58,8 @@ import ReferrerSettings from './pages/referrer-portal/ReferrerSettings';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicWpiVerifyPage from './pages/PublicWpiVerifyPage';
+import PublicSinvVerifyPage from './pages/PublicSinvVerifyPage';
+import PublicSspVerifyPage from './pages/PublicSspVerifyPage';
 
 function App() {
   return (
@@ -66,6 +69,8 @@ function App() {
           <Routes>
             <Route path="/" element={<PortalHubPage />} />
             <Route path="/verify/wpi/:id" element={<PublicWpiVerifyPage />} />
+            <Route path="/verify/sinv/:id" element={<PublicSinvVerifyPage />} />
+            <Route path="/verify/ssp/:id" element={<PublicSspVerifyPage />} />
             <Route path="/admin/login" element={<SignInPage />} />
             <Route path="/:portalId/login" element={<PortalLoginPage />} />
             <Route path="/:portalId/signup" element={<PortalSignupPage />} />
@@ -109,6 +114,7 @@ function App() {
               <Route path="sales/:subTab" element={<SalesPage />} />
               <Route path="accounting" element={<Navigate to="/admin/accounting/cash-bank" replace />} />
               <Route path="accounting/:subTab" element={<AccountingPage />} />
+              <Route path="softpos-settlement" element={<SoftPosSettlement />} />
               <Route path="fleet-management" element={<FleetManagementPage />} />
               <Route path="warehouse-portal" element={<WarehousePortalPage />} />
               <Route path="locker-management" element={<LockerManagementPage />} />

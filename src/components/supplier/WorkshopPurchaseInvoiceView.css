@@ -379,6 +379,19 @@
     word-break: break-word;
 }
 
+.wpi-view__details-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 24px;
+}
+
+@media (max-width: 640px) {
+    .wpi-view__details-grid {
+        grid-template-columns: 1fr;
+        column-gap: 0;
+    }
+}
+
 /* Table */
 .wpi-view__table-wrap {
     margin-bottom: 16px;
@@ -482,6 +495,12 @@
     color: var(--tx-green-dark);
     margin-bottom: 6px;
     font-size: 11px;
+}
+
+.wpi-view__policy-notes {
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--tx-body, #334155);
 }
 
 .wpi-view__policy-ar {
@@ -690,4 +709,238 @@
         box-shadow: none;
         border: none;
     }
+}
+
+/* ─── Compact layout (e.g. supplier sales invoice modal) ─── */
+.wpi-view--compact {
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.wpi-view--compact .wpi-view__toolbar {
+    padding: 0 0 8px;
+    gap: 8px;
+}
+
+.wpi-view--compact .wpi-view__btn-download {
+    padding: 6px 12px;
+    font-size: 11px;
+}
+
+.wpi-view--compact .wpi-view__badge {
+    padding: 4px 10px;
+    font-size: 10px;
+}
+
+.wpi-view--compact .wpi-view__surface {
+    padding: 12px 14px 0;
+}
+
+.wpi-view--compact .wpi-view__corp-header {
+    gap: 8px;
+    padding-bottom: 8px;
+}
+
+.wpi-view--compact .wpi-view__corp-name,
+.wpi-view--compact .wpi-view__corp-name-ar {
+    font-size: 13px;
+    margin: 0 0 4px;
+}
+
+.wpi-view--compact .wpi-view__corp-tagline,
+.wpi-view--compact .wpi-view__corp-tagline-ar {
+    margin: 0 0 4px;
+    font-size: 10px;
+}
+
+.wpi-view--compact .wpi-view__corp-vat {
+    font-size: 11px;
+}
+
+.wpi-view--compact .wpi-view__corp-vat-ar {
+    margin: 2px 0 0;
+    font-size: 10px;
+}
+
+.wpi-view--compact .wpi-view__corp-logo-ring {
+    width: 56px;
+    height: 56px;
+    border-width: 2px;
+}
+
+.wpi-view--compact .wpi-view__corp-logo-letter {
+    font-size: 22px;
+}
+
+.wpi-view--compact .wpi-view__brands {
+    padding: 6px 4px 8px;
+    gap: 4px;
+}
+
+.wpi-view--compact .wpi-view__brand-pill {
+    padding: 2px 6px;
+    font-size: 8px;
+}
+
+.wpi-view--compact .wpi-view__title-ribbon {
+    margin: 8px auto 10px;
+    padding: 5px 12px;
+    max-width: 380px;
+}
+
+.wpi-view--compact .wpi-view__title-ribbon-ar {
+    font-size: 15px;
+}
+
+.wpi-view--compact .wpi-view__title-ribbon-en {
+    font-size: 10px;
+}
+
+.wpi-view--compact .wpi-view__meta-split {
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.wpi-view--compact .wpi-view__panel {
+    padding: 8px 10px;
+}
+
+.wpi-view--compact .wpi-view__panel-title {
+    margin: 0 0 6px;
+    padding-bottom: 4px;
+    font-size: 9px;
+}
+
+.wpi-view--compact .wpi-view__field {
+    margin-bottom: 5px;
+    font-size: 11px;
+}
+
+.wpi-view--compact .wpi-view__field-label,
+.wpi-view--compact .wpi-view__field-label-bi-en,
+.wpi-view--compact .wpi-view__field-label-bi-ar {
+    font-size: 9px;
+}
+
+.wpi-view--compact .wpi-view__details-grid {
+    column-gap: 14px;
+}
+
+.wpi-view--compact .wpi-view__table-wrap {
+    margin-bottom: 10px;
+}
+
+.wpi-view--compact .wpi-view__table-wrap table {
+    font-size: 11px;
+}
+
+.wpi-view--compact .wpi-view__table-wrap th {
+    padding: 6px 6px;
+    font-size: 9px;
+}
+
+.wpi-view--compact .wpi-view__th-sub {
+    margin-top: 2px;
+    font-size: 8px;
+}
+
+.wpi-view--compact .wpi-view__table-wrap td {
+    padding: 6px 6px;
+    font-size: 11px;
+}
+
+.wpi-view--compact .wpi-view__table-empty {
+    padding: 16px;
+}
+
+.wpi-view--compact .wpi-view__bottom-grid {
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.wpi-view--compact .wpi-view__policy {
+    padding: 8px;
+    font-size: 10px;
+    line-height: 1.45;
+}
+
+.wpi-view--compact .wpi-view__policy strong {
+    margin-bottom: 4px;
+    font-size: 10px;
+}
+
+.wpi-view--compact .wpi-view__qr-block {
+    padding: 6px;
+}
+
+.wpi-view--compact .wpi-view__qr-block img,
+.wpi-view--compact .wpi-view__qr-fallback {
+    width: 96px;
+    height: 96px;
+}
+
+.wpi-view--compact .wpi-view__qr-caption {
+    margin-top: 4px;
+    font-size: 8px;
+}
+
+.wpi-view--compact .wpi-view__verify-link {
+    margin-top: 4px;
+    font-size: 8px;
+}
+
+.wpi-view--compact .wpi-view__sum-row {
+    padding: 6px 10px;
+    font-size: 11px;
+    gap: 8px;
+}
+
+.wpi-view--compact .wpi-view__sum-row--net {
+    padding: 8px 10px;
+}
+
+.wpi-view--compact .wpi-view__sum-row--net .wpi-view__sum-row-val {
+    font-size: 14px;
+}
+
+.wpi-view--compact .wpi-view__sum-words {
+    padding: 6px 10px 8px;
+    font-size: 10px;
+}
+
+.wpi-view--compact .wpi-view__memo-inline {
+    margin: 8px 0;
+    padding: 6px 10px;
+    font-size: 10px;
+}
+
+.wpi-view--compact .wpi-view__signatures {
+    gap: 16px;
+    padding: 10px 0 8px;
+    margin-top: 2px;
+}
+
+.wpi-view--compact .wpi-view__sig-line {
+    margin-top: 20px;
+}
+
+.wpi-view--compact .wpi-view__corp-footer {
+    padding: 10px 14px;
+    font-size: 10px;
+    line-height: 1.45;
+}
+
+.wpi-view--compact .wpi-view__corp-footer-inner {
+    gap: 8px;
+}
+
+.wpi-view--compact .wpi-view__corp-footer-qr-small img {
+    width: 48px;
+    height: 48px;
+}
+
+/* Invoice preview modals (sales / workshop PI / etc.): slightly tighter modal padding */
+.app-modal-content.wpi-invoice-preview-modal .app-modal-body {
+    padding-top: 8px;
+    padding-bottom: 14px;
 }

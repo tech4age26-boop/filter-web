@@ -1,4 +1,11 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, {
+    forwardRef,
+    useCallback,
+    useImperativeHandle,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import { Download } from 'lucide-react';
 import './WorkshopPurchaseInvoiceView.css';
 
@@ -104,6 +111,30 @@ function fmtStatusLabel(status) {
         .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Portal PATCH stores receiving account prefix on `supplier_payments.reference`. */
+function receivingAccountFromPaymentReference(reference) {
+    const s = String(reference ?? '').trim();
+    const m = /^Recv\s*:\s*(.+)$/is.exec(s);
+    return m ? String(m[1] || '').trim() : '';
+}
+
+/** Values match supplier portal mark-paid PATCH (`cash`, `bank_transfer`, …). */
+function formatPortalPaymentMethodLabel(raw) {
+    const lower = String(raw ?? '').trim().toLowerCase();
+    if (!lower) return '';
+    const presets = {
+        cash: 'Cash',
+        bank_transfer: 'Bank transfer',
+        card: 'Card',
+        cheque: 'Cheque',
+        other: 'Other',
+    };
+    if (presets[lower]) return presets[lower];
+    return String(raw)
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function formatInvoiceDateTime(inv, row) {
     const raw =
         pick(inv, 'createdAt', 'created_at', 'updatedAt', 'updated_at', 'issueDate', 'issue_date') ??
@@ -121,19 +152,43 @@ function formatInvoiceDateTime(inv, row) {
     });
 }
 
-export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
+const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceView(
+    {
+        detail,
+        listRow,
+        variant = 'workshop',
+        /** Tighter spacing for modal preview (PDF download still uses full layout). */
+        compact = false,
+    },
+    imperativeRef,
+) {
     const inv = detail && typeof detail === 'object' ? detail : {};
     const row = listRow && typeof listRow === 'object' ? listRow : {};
+    const isSuperSupplier = variant === 'super_supplier';
+    const isSupplierSales = variant === 'supplier_sales';
 
     const invoiceNo =
-        pick(inv, 'invoiceNumber', 'invoice_number', 'reference') ??
+        pick(inv, 'invoiceNumber', 'invoice_number', 'invoiceNo', 'reference') ??
         row.invoice_number ??
+        row.invoiceNo ??
         '—';
 
     const status = String(pick(inv, 'status', 'state') ?? row.status ?? '—').toLowerCase();
 
     const issueDate = (
-        pick(inv, 'issueDate', 'issue_date', 'createdAt', 'created_at') ?? row.date ?? ''
+        pick(
+            inv,
+            'issueDate',
+            'issue_date',
+            'invoiceDate',
+            'invoice_date',
+            'purchaseDate',
+            'createdAt',
+            'created_at',
+        ) ??
+        row.date ??
+        row.purchaseDate ??
+        ''
     )
         .toString()
         .slice(0, 10);
@@ -141,23 +196,32 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
     const dueDate = (pick(inv, 'dueDate', 'due_date') ?? row.due_date ?? '').toString().slice(0, 10);
 
     const vendorRef =
-        pick(inv, 'vendorInvoiceRef', 'vendor_invoice_ref', 'vendorRef', 'ref_number') ??
-        row.vendor_invoice_ref ??
-        '';
-
-    const workshopLabel =
         pick(
             inv,
-            'workshopName',
-            'workshop_name',
-            'branchName',
-            'branch_name',
-            'workshopBranchName',
+            'vendorInvoiceRef',
+            'vendor_invoice_ref',
+            'vendorRef',
+            'referenceNo',
+            'ref_number',
         ) ??
-        inv?.branch?.name ??
-        inv?.workshop?.name ??
-        inv?.workshop?.branchName ??
+        row.vendor_invoice_ref ??
+        row.vendorRef ??
         '';
+
+    const workshopLabel = isSuperSupplier
+        ? pick(inv, 'superSupplierName', 'super_supplier_name') ?? row.superSupplierName ?? ''
+        : pick(
+              inv,
+              'workshopName',
+              'workshop_name',
+              'branchName',
+              'branch_name',
+              'workshopBranchName',
+          ) ??
+          inv?.branch?.name ??
+          inv?.workshop?.name ??
+          inv?.workshop?.branchName ??
+          '';
 
     const supplierLabel =
         pick(inv, 'supplierLegalName', 'supplier_name', 'supplierName', 'vendorName', 'vendor_name') ??
@@ -190,22 +254,51 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
     const description = pick(inv, 'description', 'title') ?? '';
     const notes = pick(inv, 'notes', 'internalNotes', 'internal_notes') ?? row.notes ?? '';
 
-    const workshopVat =
-        pick(
-            inv,
-            'workshopVatNumber',
-            'workshop_vat_number',
-            'buyerVatNumber',
-            'buyer_vat_number',
-            'customerVat',
-            'customer_vat',
-            'branchVat',
-            'branch_vat',
-        ) ??
-        inv?.branch?.vatNumber ??
-        inv?.branch?.vat_number ??
-        inv?.workshop?.vatNumber ??
-        '';
+    /** Supplier “internal notes” for print: hide system line we append on create (due date is already in the header). */
+    const notesForPolicy = (() => {
+        const raw = String(notes || '').trim();
+        if (!raw) return '';
+        return raw
+            .split('\n')
+            .map((l) => l.trimEnd())
+            .filter((l) => !/^Due date:\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\s*$/i.test(l.trim()))
+            .join('\n')
+            .trim();
+    })();
+
+    const dueDateFromNotes =
+        isSuperSupplier && notes
+            ? String(notes).match(/Due date:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/i)?.[1] ?? ''
+            : '';
+    const dueDateDisplay =
+        dueDate && String(dueDate).trim() !== ''
+            ? dueDate
+            : dueDateFromNotes || dueDate;
+
+    const workshopVat = isSuperSupplier
+        ? pick(
+              inv,
+              'superSupplierVatNumber',
+              'super_supplier_vat_number',
+              'upstreamVendorVat',
+          ) ??
+          row.superSupplierVatNumber ??
+          ''
+        : pick(
+              inv,
+              'workshopVatNumber',
+              'workshop_vat_number',
+              'buyerVatNumber',
+              'buyer_vat_number',
+              'customerVat',
+              'customer_vat',
+              'branchVat',
+              'branch_vat',
+          ) ??
+          inv?.branch?.vatNumber ??
+          inv?.branch?.vat_number ??
+          inv?.workshop?.vatNumber ??
+          '';
 
     const supplierVat =
         pick(inv, 'supplierVatNumber', 'supplier_vat_number', 'vendorVat', 'sellerVatNumber') ??
@@ -213,27 +306,34 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
         inv?.supplier?.vat_number ??
         '';
 
-    const workshopMobile =
-        pick(
-            inv,
-            'workshopMobile',
-            'workshop_mobile',
-            'buyerMobile',
-            'branchPhone',
-            'branch_phone',
-        ) ??
-        inv?.branch?.phone ??
-        inv?.branch?.mobile ??
-        inv?.workshop?.mobile ??
-        inv?.workshop?.phone ??
-        '';
+    const workshopMobile = isSuperSupplier
+        ? pick(inv, 'superSupplierMobile', 'super_supplier_mobile') ?? ''
+        : pick(
+              inv,
+              'workshopMobile',
+              'workshop_mobile',
+              'buyerMobile',
+              'branchPhone',
+              'branch_phone',
+          ) ??
+          inv?.branch?.phone ??
+          inv?.branch?.mobile ??
+          inv?.workshop?.mobile ??
+          inv?.workshop?.phone ??
+          '';
 
     const items = Array.isArray(inv.items) ? inv.items : Array.isArray(inv.lines) ? inv.lines : [];
 
     const subtotalEx = Number(
-        pick(inv, 'subtotalExVat', 'subtotal_ex_vat', 'subtotalExcludingVat', 'subtotal') ??
-            row.subtotal ??
-            0,
+        pick(
+            inv,
+            'subtotalExVat',
+            'subtotal_ex_vat',
+            'subtotalExcludingVat',
+            'subtotal',
+            'subtotalLines',
+            'amount',
+        ) ?? row.subtotal ?? row.amount ?? 0,
     );
     const totalVatFromApi = Number(
         pick(inv, 'totalVat', 'total_vat', 'vatAmount', 'vat_amount') ?? row.vat_amount ?? 0,
@@ -279,8 +379,14 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
         const internalId = pick(inv, 'id') ?? row.id;
         if (internalId == null || String(internalId).trim() === '') return '';
         if (typeof window === 'undefined') return '';
+        if (isSuperSupplier) {
+            return `${window.location.origin}/verify/ssp/${encodeURIComponent(String(internalId))}`;
+        }
+        if (isSupplierSales) {
+            return `${window.location.origin}/verify/sinv/${encodeURIComponent(String(internalId))}`;
+        }
         return `${window.location.origin}/verify/wpi/${encodeURIComponent(String(internalId))}`;
-    }, [inv, row.id]);
+    }, [inv, row.id, isSuperSupplier, isSupplierSales]);
 
     const qrSrcLarge = verifyUrl
         ? `https://api.qrserver.com/v1/create-qr-code/?size=132x132&margin=1&data=${encodeURIComponent(verifyUrl)}`
@@ -309,11 +415,61 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
             ? String(paymentLabelRaw).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
             : '—';
 
-    const handleDownloadPdf = useCallback(async () => {
+    /** Supplier AR: method + receiving account from latest portal payment (`Recv:` reference) or meta. */
+    const supplierArReceiptLabels = useMemo(() => {
+        if (!isSupplierSales) return { method: '—', account: '—' };
+        const list = Array.isArray(inv.payments) ? [...inv.payments] : [];
+        list.sort((a, b) => String(b?.paidAt ?? '').localeCompare(String(a?.paidAt ?? '')));
+
+        let method = '';
+        let account = '';
+        const recvPay = list.find((p) =>
+            /^Recv\s*:/i.test(String(p?.reference ?? '').trim()),
+        );
+
+        const meta =
+            inv.salesInvoiceMeta != null && typeof inv.salesInvoiceMeta === 'object'
+                ? inv.salesInvoiceMeta
+                : null;
+        const metaAcc =
+            meta && typeof meta.cashBankAccount === 'string' ? meta.cashBankAccount.trim() : '';
+        const detailAcc =
+            typeof inv.cashBankAccount === 'string' ? inv.cashBankAccount.trim() : metaAcc;
+
+        const focal =
+            recvPay ?? (paid > 0 && list.length > 0 ? list[0] : null);
+
+        if (focal) {
+            method = formatPortalPaymentMethodLabel(focal.method);
+            account = receivingAccountFromPaymentReference(focal.reference);
+        }
+        if (!account && detailAcc) {
+            account = detailAcc;
+        }
+
+        const methodDisp = method || '—';
+        const accountDisp = account || '—';
+
+        /** Hide misleading labels when unpaid and unset. */
+        if (paid <= 0 && methodDisp === '—' && accountDisp === '—') {
+            return { method: '—', account: '—' };
+        }
+
+        return { method: methodDisp, account: accountDisp };
+    }, [
+        inv.payments,
+        inv.salesInvoiceMeta,
+        inv.cashBankAccount,
+        isSupplierSales,
+        paid,
+    ]);
+
+    /** Same raster → jsPDF pipeline as toolbar "Download PDF" (throws on failure). */
+    const captureInvoicePdf = useCallback(async () => {
         const el = printRootRef.current;
-        if (!el) return;
-        setPdfBusy(true);
-        setPdfError('');
+        if (!el) throw new Error('Invoice preview is not ready.');
+        const hadCompact = el.classList.contains('wpi-view--compact');
+        if (hadCompact) el.classList.remove('wpi-view--compact');
         el.classList.add('wpi-view--pdf-capture');
         try {
             const [{ toPng }, { jsPDF }] = await Promise.all([
@@ -358,21 +514,40 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
                 }
             }
 
-            const safe = String(invoiceNo).replace(/[^\w.\-]+/g, '_').replace(/^_|_$/g, '').slice(0, 96) || 'invoice';
-            pdf.save(`Filter-WPI-${safe}.pdf`);
+            const safe = String(invoiceNo).replace(/[^\w.-]+/g, '_').replace(/^_|_$/g, '').slice(0, 96) || 'invoice';
+            pdf.save(
+                `${isSuperSupplier ? 'Filter-SSP' : isSupplierSales ? 'Filter-SINV' : 'Filter-WPI'}-${safe}.pdf`,
+            );
         } catch (err) {
             console.error(err);
+            throw err;
+        } finally {
+            el.classList.remove('wpi-view--pdf-capture');
+            if (hadCompact) el.classList.add('wpi-view--compact');
+        }
+    }, [invoiceNo, isSuperSupplier, isSupplierSales]);
+
+    useImperativeHandle(imperativeRef, () => ({ downloadPdf: captureInvoicePdf }), [captureInvoicePdf]);
+
+    const handleDownloadPdf = useCallback(async () => {
+        setPdfBusy(true);
+        setPdfError('');
+        try {
+            await captureInvoicePdf();
+        } catch (err) {
             setPdfError(
                 'Could not create PDF. Use your browser Print dialog on this page and choose Save as PDF.',
             );
         } finally {
-            el.classList.remove('wpi-view--pdf-capture');
             setPdfBusy(false);
         }
-    }, [invoiceNo]);
+    }, [captureInvoicePdf]);
 
     return (
-        <div className="wpi-view" ref={printRootRef}>
+        <div
+            className={`wpi-view${compact ? ' wpi-view--compact' : ''}`}
+            ref={printRootRef}
+        >
             <div className="wpi-view__toolbar">
                 <button
                     type="button"
@@ -442,12 +617,16 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
 
                     <div className="wpi-view__meta-split">
                         <div className="wpi-view__panel">
-                            <h3 className="wpi-view__panel-title">Customer · العميل</h3>
+                            <h3 className="wpi-view__panel-title">
+                                {isSuperSupplier ? 'Vendor · المورّد' : 'Customer · العميل'}
+                            </h3>
                             <div className="wpi-view__field">
                                 <div className="wpi-view__field-label-bi">
-                                    <span className="wpi-view__field-label-bi-en">Customer name</span>
+                                    <span className="wpi-view__field-label-bi-en">
+                                        {isSuperSupplier ? 'Vendor name' : 'Customer name'}
+                                    </span>
                                     <span className="wpi-view__field-label-bi-ar" dir="rtl">
-                                        اسم العميل
+                                        {isSuperSupplier ? 'اسم المورّد' : 'اسم العميل'}
                                     </span>
                                 </div>
                                 <div className="wpi-view__field-value" dir="auto">
@@ -456,18 +635,22 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
                             </div>
                             <div className="wpi-view__field">
                                 <div className="wpi-view__field-label-bi">
-                                    <span className="wpi-view__field-label-bi-en">Customer mobile</span>
+                                    <span className="wpi-view__field-label-bi-en">
+                                        {isSuperSupplier ? 'Vendor mobile' : 'Customer mobile'}
+                                    </span>
                                     <span className="wpi-view__field-label-bi-ar" dir="rtl">
-                                        جوال العميل
+                                        {isSuperSupplier ? 'جوال المورّد' : 'جوال العميل'}
                                     </span>
                                 </div>
                                 <div className="wpi-view__field-value">{workshopMobile || '—'}</div>
                             </div>
                             <div className="wpi-view__field">
                                 <div className="wpi-view__field-label-bi">
-                                    <span className="wpi-view__field-label-bi-en">Customer VAT no.</span>
+                                    <span className="wpi-view__field-label-bi-en">
+                                        {isSuperSupplier ? 'Vendor VAT no.' : 'Customer VAT no.'}
+                                    </span>
                                     <span className="wpi-view__field-label-bi-ar" dir="rtl">
-                                        الرقم الضريبي للعميل
+                                        {isSuperSupplier ? 'الرقم الضريبي للمورّد' : 'الرقم الضريبي للعميل'}
                                     </span>
                                 </div>
                                 <div className="wpi-view__field-value">{workshopVat || '—'}</div>
@@ -476,32 +659,60 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
 
                         <div className="wpi-view__panel">
                             <h3 className="wpi-view__panel-title">Invoice details · تفاصيل الفاتورة</h3>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Invoice no.</span>
-                                <div className="wpi-view__field-value" style={{ fontWeight: 800 }}>
-                                    {invoiceNo}
+                            <div className="wpi-view__details-grid">
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Invoice no.</span>
+                                    <div className="wpi-view__field-value" style={{ fontWeight: 800 }}>
+                                        {invoiceNo}
+                                    </div>
+                                </div>
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Due date</span>
+                                    <div className="wpi-view__field-value">{dueDateDisplay || '—'}</div>
                                 </div>
                             </div>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Date &amp; time</span>
-                                <div className="wpi-view__field-value">{invoiceDateDisplay}</div>
+                            <div className="wpi-view__details-grid">
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Date &amp; time</span>
+                                    <div className="wpi-view__field-value">{invoiceDateDisplay}</div>
+                                </div>
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Vendor reference</span>
+                                    <div className="wpi-view__field-value">{vendorRef || '—'}</div>
+                                </div>
                             </div>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Issue date</span>
-                                <div className="wpi-view__field-value">{issueDate || '—'}</div>
+                            <div className="wpi-view__details-grid">
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Issue date</span>
+                                    <div className="wpi-view__field-value">{issueDate || '—'}</div>
+                                </div>
+                                <div className="wpi-view__field">
+                                    <span className="wpi-view__field-label">Payment</span>
+                                    <div className="wpi-view__field-value">{paymentLabel}</div>
+                                </div>
                             </div>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Due date</span>
-                                <div className="wpi-view__field-value">{dueDate || '—'}</div>
-                            </div>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Vendor reference</span>
-                                <div className="wpi-view__field-value">{vendorRef || '—'}</div>
-                            </div>
-                            <div className="wpi-view__field">
-                                <span className="wpi-view__field-label">Payment</span>
-                                <div className="wpi-view__field-value">{paymentLabel}</div>
-                            </div>
+                            {isSupplierSales ? (
+                                <div className="wpi-view__details-grid">
+                                    <div className="wpi-view__field">
+                                        <span className="wpi-view__field-label">Payment method</span>
+                                        <div className="wpi-view__field-value">
+                                            {supplierArReceiptLabels.method}
+                                        </div>
+                                    </div>
+                                    <div className="wpi-view__field">
+                                        <span className="wpi-view__field-label">
+                                            Receiving account
+                                        </span>
+                                        <div
+                                            className="wpi-view__field-value"
+                                            dir="auto"
+                                            style={{ wordBreak: 'break-word' }}
+                                        >
+                                            {supplierArReceiptLabels.account}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
                     </div>
 
@@ -581,7 +792,34 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
                                     items.map((line, i) => (
                                         <tr key={line.id ?? line.lineId ?? i}>
                                             <td>{i + 1}</td>
-                                            <td dir="auto">{lineDesc(line)}</td>
+                                            <td dir="auto">
+                                                <div>{lineDesc(line)}</div>
+                                                {isSuperSupplier &&
+                                                ((line.sku != null && String(line.sku).trim() !== '') ||
+                                                    (line.lineDescription != null &&
+                                                        String(line.lineDescription).trim() !== '')) ? (
+                                                    <div
+                                                        style={{
+                                                            fontSize: '0.75rem',
+                                                            color: '#64748b',
+                                                            marginTop: 4,
+                                                            lineHeight: 1.35,
+                                                        }}
+                                                    >
+                                                        {[
+                                                            line.sku != null && String(line.sku).trim() !== ''
+                                                                ? `SKU ${String(line.sku).trim()}`
+                                                                : null,
+                                                            line.lineDescription != null &&
+                                                            String(line.lineDescription).trim() !== ''
+                                                                ? String(line.lineDescription).trim()
+                                                                : null,
+                                                        ]
+                                                            .filter(Boolean)
+                                                            .join(' · ')}
+                                                    </div>
+                                                ) : null}
+                                            </td>
                                             <td className="wpi-view__td-num">
                                                 {lineQty(line)} {lineUom(line)}
                                             </td>
@@ -599,13 +837,25 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
 
                     <div className="wpi-view__bottom-grid">
                         <div className="wpi-view__policy">
-                            <strong>Returns · الإرجاع</strong>
-                            Return of products is allowed within <strong>7 days</strong> from the invoice date with the
-                            original invoice; products must be in good condition. Subject to supplier approval.
-                            <div className="wpi-view__policy-ar" dir="rtl">
-                                يُسمح بإرجاع المنتجات خلال <strong>7 أيام</strong> من تاريخ الفاتورة مع الفاتورة
-                                الأصلية، ويشترط أن تكون البضاعة بحالة سليمة — وفق سياسة المورد المعتمد.
-                            </div>
+                            {notesForPolicy ? (
+                                <>
+                                    <strong>Notes · ملاحظات</strong>
+                                    <div className="wpi-view__policy-notes" dir="auto">
+                                        {notesForPolicy}
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <strong>Returns · الإرجاع</strong>
+                                    Return of products is allowed within <strong>7 days</strong> from the invoice date
+                                    with the original invoice; products must be in good condition. Subject to supplier
+                                    approval.
+                                    <div className="wpi-view__policy-ar" dir="rtl">
+                                        يُسمح بإرجاع المنتجات خلال <strong>7 أيام</strong> من تاريخ الفاتورة مع
+                                        الفاتورة الأصلية، ويشترط أن تكون البضاعة بحالة سليمة — وفق سياسة المورد المعتمد.
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         <div className="wpi-view__qr-block wpi-view__qr-visual">
@@ -697,16 +947,49 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
                 <footer className="wpi-view__corp-footer">
                     <div className="wpi-view__corp-footer-inner">
                         <div className="wpi-view__corp-footer-contact">
-                            <strong>Filter — workshop purchase invoice</strong>
+                            <strong>
+                                Filter —{' '}
+                                {isSuperSupplier
+                                    ? 'super supplier purchase invoice'
+                                    : isSupplierSales
+                                      ? 'sales invoice (accounts receivable)'
+                                      : 'workshop purchase invoice'}
+                            </strong>
                             <br />
-                            Digital document issued through Filter supplier portal · verify via QR above.
-                            <br />
-                            Support: hello@filter.app · الإصدار الإلكتروني عبر منصّة فِلتر
+                            {isSuperSupplier ? (
+                                <>
+                                    Purchase recorded through Filter supplier portal · verify via QR above.
+                                    <br />
+                                    الإصدار الإلكتروني عبر منصّة فِلتر — امسح الرمز للتحقق من فاتورة المورّد الرئيسي.
+                                </>
+                            ) : isSupplierSales ? (
+                                <>
+                                    Sales invoice issued through Filter supplier portal · verify via QR above.
+                                    <br />
+                                    فاتورة مبيعات للورشة عبر منصّة المورد — امسح الرمز للتحقق.
+                                </>
+                            ) : (
+                                <>
+                                    Digital document issued through Filter supplier portal · verify via QR above.
+                                    <br />
+                                    Support: hello@filter.app · الإصدار الإلكتروني عبر منصّة فِلتر
+                                </>
+                            )}
                         </div>
                         <div className="wpi-view__corp-footer-contact-ar">
-                            هذا المستند صادر إلكترونيًا وفق عملية التوريد بين الورشة والمورد.
-                            <br />
-                            لمزيد من المعلومات يُرجى التواصل عبر بوابة فِلتر.
+                            {isSupplierSales ? (
+                                <>
+                                    مستند مبيعات إلكتروني بين المورد وفرع الورشة في منصّة فِلتر.
+                                    <br />
+                                    للاستفسارات يُرجى التواصل عبر بوابة المورد.
+                                </>
+                            ) : (
+                                <>
+                                    هذا المستند صادر إلكترونيًا وفق عملية التوريد بين الورشة والمورد.
+                                    <br />
+                                    لمزيد من المعلومات يُرجى التواصل عبر بوابة فِلتر.
+                                </>
+                            )}
                         </div>
                         {verifyUrl && qrSrcSmall && !qrBroken ? (
                             <div className="wpi-view__corp-footer-qr-small">
@@ -718,4 +1001,6 @@ export default function WorkshopPurchaseInvoiceView({ detail, listRow }) {
             </div>
         </div>
     );
-}
+});
+
+export default WorkshopPurchaseInvoiceView;

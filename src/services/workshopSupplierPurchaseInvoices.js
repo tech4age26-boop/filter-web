@@ -244,6 +244,35 @@ export function workshopInvoiceQtyUnitSummary(items) {
 }
 
 /**
+ * First line unit price (ex VAT when present) for supplier list column.
+ * Multi-line invoices show the first line’s unit price (same convention as product summary).
+ */
+export function workshopInvoicePrimaryUnitPriceSummary(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return { primary_unit_price: null };
+    }
+    const line = items[0];
+    const direct = Number(
+        line.unitPriceExVat ??
+            line.unit_price_ex_vat ??
+            line.unitPrice ??
+            line.unit_price ??
+            NaN,
+    );
+    if (Number.isFinite(direct)) {
+        return { primary_unit_price: money2(direct) };
+    }
+    const qty = Number(line.qty ?? line.quantity ?? 0);
+    const lineTotal = Number(
+        line.lineTotal ?? line.line_total ?? line.subtotalExVat ?? line.subtotal_ex_vat ?? 0,
+    );
+    if (qty > 0 && Number.isFinite(lineTotal)) {
+        return { primary_unit_price: money2(lineTotal / qty) };
+    }
+    return { primary_unit_price: null };
+}
+
+/**
  * Merge workshop purchase-invoice `ui` flags for list/detail (GET).
  * Backend `formatWorkshopSupplierPurchaseInvoice` includes top-level `ui` when present (from stored create payload).
  * Legacy rows: read `payload.ui` when `payload` is JSON string or object.
@@ -332,6 +361,7 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         ) || status === 'approved';
     const { quantity_label, unit_label } = workshopInvoiceQtyUnitSummary(items);
     const { product_label } = workshopInvoiceProductNameSummary(items);
+    const { primary_unit_price } = workshopInvoicePrimaryUnitPriceSummary(items);
     const totalsObj = inv.totals && typeof inv.totals === 'object' ? inv.totals : null;
     const freightIn = money2(
         inv.freightIn ?? inv.freight_in ?? totalsObj?.freight_in ?? totalsObj?.freightIn ?? 0,
@@ -376,6 +406,7 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         quantity_label,
         unit_label,
         product_label,
+        primary_unit_price,
         items,
         _raw: inv,
     };

@@ -11,6 +11,7 @@ import {
     listSupplierProducts,
 } from '../../services/supplierApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
+import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 
 function unwrapProducts(res) {
     if (!res || typeof res !== 'object') return [];
@@ -24,6 +25,7 @@ function newLineRow() {
         uid: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         productName: '',
         sku: '',
+        supplierProductId: undefined,
         qty: '1',
         unit: 'pcs',
         unitPrice: '',
@@ -35,6 +37,21 @@ function parseNum(v) {
     return Number.isFinite(n) ? n : 0;
 }
 
+function sarFmt(v) {
+    const n = Number(v ?? 0);
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function purchaseMetaSummary(meta) {
+    if (meta == null || typeof meta !== 'object') return '';
+    const parts = [];
+    if (meta.showLineNum) parts.push('Line #');
+    if (meta.showDesc) parts.push('Desc');
+    if (meta.showDiscount) parts.push('Disc');
+    if (meta.amountsTaxInclusive) parts.push('Tax incl.');
+    return parts.join(' · ');
+}
+
 /**
  * Supplier-side list + detail + full line-item composer for upstream (super supplier) purchases.
  */
@@ -43,6 +60,8 @@ export default function SupplierSuperSupplierPurchasesPanel({
     createIntentSupplierId = null,
     onConsumeCreateIntent,
     onPurchasesMutated,
+    /** Opens parent Purchase Invoices modal — same full form as &quot;New Purchase Invoice&quot; */
+    onEditPurchase,
 }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -146,49 +165,13 @@ export default function SupplierSuperSupplierPurchasesPanel({
         }
     };
 
-    const openEdit = async (r) => {
+    const openEdit = (r) => {
         setComposerErr('');
-        setViewLoading(false);
-        setComposer(null);
-        setSaving(true);
-        try {
-            const d = await getSupplierSuperSupplierPurchase(r.id);
-            const p = d?.purchase ?? d?.data ?? d;
-            if (!p?.id) {
-                setComposerErr('Could not load purchase for editing.');
-                return;
-            }
-            const linesSrc = Array.isArray(p.items) && p.items.length ? p.items : [];
-            const lines =
-                linesSrc.length > 0
-                    ? linesSrc.map((it) => ({
-                          uid: `${it.id}-${Math.random().toString(36).slice(2)}`,
-                          productName: it.productName || '',
-                          sku: it.sku || '',
-                          qty: String(it.qty ?? 1),
-                          unit: it.unit || 'pcs',
-                          unitPrice: String(it.unitPrice ?? ''),
-                      }))
-                    : [newLineRow()];
-            setComposer({
-                mode: 'edit',
-                purchaseId: String(p.id),
-                superSupplierId: String(p.superSupplierId ?? r.superSupplierId),
-                purchaseDate:
-                    (p.purchaseDate || '').toString().slice(0, 10) ||
-                    new Date().toISOString().slice(0, 10),
-                vendorRef:
-                    String(p.vendorRef ?? p.referenceNo ?? '').trim(),
-                description: String(p.description ?? '').trim(),
-                notes: String(p.notes ?? '').trim(),
-                vatAmount: String(p.vatAmount ?? '0'),
-                lines,
-            });
-        } catch (e) {
-            setComposerErr(e?.message || 'Could not load for edit.');
-        } finally {
-            setSaving(false);
+        if (onEditPurchase) {
+            onEditPurchase(String(r.id));
+            return;
         }
+        setComposerErr('Edit is not wired.');
     };
 
     const summary = useMemo(() => {
@@ -217,6 +200,10 @@ export default function SupplierSuperSupplierPurchasesPanel({
             .map((l) => ({
                 productName: (l.productName || '').trim(),
                 sku: (l.sku || '').trim() || undefined,
+                ...(l.supplierProductId != null &&
+                String(l.supplierProductId).trim() !== ''
+                    ? { supplierProductId: String(l.supplierProductId).trim() }
+                    : {}),
                 qty: parseNum(l.qty) || 0,
                 unit: (l.unit || 'pcs').trim() || 'pcs',
                 unitPrice: parseNum(l.unitPrice),
@@ -268,6 +255,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                               uid: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
                               productName: p.name,
                               sku: p.sku || '',
+                              supplierProductId: p.id,
                               qty: '1',
                               unit: p.unit || 'pcs',
                               unitPrice: String(p.price ?? ''),
@@ -284,8 +272,6 @@ export default function SupplierSuperSupplierPurchasesPanel({
         if (x === 'draft') return 'ws-badge--yellow';
         return 'ws-badge--green';
     };
-
-    const itemsDetail = Array.isArray(viewDetail?.items) ? viewDetail.items : [];
 
     return (
         <div className="ws-section" style={{ marginTop: 24, overflow: 'hidden' }}>
@@ -348,7 +334,11 @@ export default function SupplierSuperSupplierPurchasesPanel({
                             <th>Issue date</th>
                             <th>Product</th>
                             <th>Qty / Unit</th>
+                            <th>Unit price</th>
                             <th>Lines</th>
+                            <th>Freight</th>
+                            <th>Discount</th>
+                            <th>Form options</th>
                             <th>Total</th>
                             <th>Status</th>
                             <th>Actions</th>
@@ -357,24 +347,36 @@ export default function SupplierSuperSupplierPurchasesPanel({
                     <tbody>
                         {loading && rows.length === 0 ? (
                             <tr>
-                                <td colSpan={10} style={{ padding: 16, verticalAlign: 'top' }}>
-                                    <ShimmerTable rows={8} columns={10} />
+                                <td colSpan={14} style={{ padding: 16, verticalAlign: 'top' }}>
+                                    <ShimmerTable rows={8} columns={14} />
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={10} style={{ textAlign: 'center', padding: 36, color: 'var(--color-text-muted)' }}>
+                                <td colSpan={14} style={{ textAlign: 'center', padding: 36, color: 'var(--color-text-muted)' }}>
                                     No purchases yet — use{' '}
                                     <strong>&quot;Record purchase&quot;</strong> beside a vendor.
                                 </td>
                             </tr>
                         ) : (
                             rows.map((r) => (
-                                <tr key={r.id}>
+                                <tr
+                                    key={r.id}
+                                    style={{ cursor: 'pointer' }}
+                                    title={
+                                        (r.moreLines ?? 0) > 0 || (r.itemCount ?? 0) > 1
+                                            ? 'Click to view all products and line details'
+                                            : 'Click to view invoice details'
+                                    }
+                                    onClick={() => openView(r)}
+                                >
                                     <td>
                                         <button
                                             type="button"
-                                            onClick={() => openView(r)}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                openView(r);
+                                            }}
                                             style={{
                                                 background: 'none',
                                                 border: 'none',
@@ -413,7 +415,46 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                             ? `${r.primaryQty} ${r.primaryUnit || ''}`
                                             : '—'}
                                     </td>
+                                    <td
+                                        style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}
+                                        title="Unit price for the first line (per quantity / per piece)"
+                                    >
+                                        {r.primaryUnitPrice != null && Number.isFinite(Number(r.primaryUnitPrice)) ? (
+                                            <>
+                                                SAR{' '}
+                                                {Number(r.primaryUnitPrice).toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}
+                                                {r.primaryUnit ? (
+                                                    <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                                                        {' '}
+                                                        / {r.primaryUnit}
+                                                    </span>
+                                                ) : null}
+                                            </>
+                                        ) : (
+                                            '—'
+                                        )}
+                                    </td>
                                     <td style={{ fontSize: '0.8125rem' }}>{r.itemCount ?? 0}</td>
+                                    <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
+                                        SAR {sarFmt(r.freightIn)}
+                                    </td>
+                                    <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
+                                        SAR {sarFmt(r.invoiceDiscount)}
+                                    </td>
+                                    <td
+                                        style={{
+                                            fontSize: '0.6875rem',
+                                            color: 'var(--color-text-muted)',
+                                            maxWidth: 160,
+                                            lineHeight: 1.35,
+                                        }}
+                                        title={purchaseMetaSummary(r.purchaseFormMeta) || undefined}
+                                    >
+                                        {purchaseMetaSummary(r.purchaseFormMeta) || '—'}
+                                    </td>
                                     <td>
                                         <strong>SAR {(r.total ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
                                     </td>
@@ -425,7 +466,10 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                             <button
                                                 type="button"
                                                 title="View"
-                                                onClick={() => openView(r)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openView(r);
+                                                }}
                                                 style={{
                                                     padding: 6,
                                                     borderRadius: 6,
@@ -439,7 +483,10 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                             <button
                                                 type="button"
                                                 title="Edit purchase & lines"
-                                                onClick={() => openEdit(r)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openEdit(r);
+                                                }}
                                                 disabled={saving}
                                                 style={{
                                                     padding: 6,
@@ -465,110 +512,23 @@ export default function SupplierSuperSupplierPurchasesPanel({
             <AnimatePresence>
                 {viewRow && (
                     <Modal
-                        title={`Invoice ${viewRow.invoiceNo ?? `SSP-${viewRow.id}`}`}
-                        width="760px"
+                        title="Super supplier purchase invoice"
+                        width="min(980px, 99vw)"
+                        contentClassName="wpi-invoice-preview-modal"
                         onClose={() => {
                             setViewRow(null);
                             setViewDetail(null);
                         }}
-                        footer={
-                            <button type="button" className="btn-portal-outline" onClick={() => setViewRow(null)}>
-                                Close
-                            </button>
-                        }
                     >
                         {viewLoading ? (
-                            <ShimmerTextBlock lines={6} />
+                            <ShimmerTextBlock lines={8} />
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Vendor</span>
-                                    <strong>{viewDetail?.superSupplierName ?? viewRow.superSupplierName}</strong>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Vendor ref #</span>
-                                    <span>{viewDetail?.vendorRef || viewDetail?.referenceNo || '—'}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Issue date</span>
-                                    <span>{viewDetail?.purchaseDate ?? viewRow.purchaseDate}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Description</span>
-                                    <span style={{ textAlign: 'right', maxWidth: '70%' }}>{viewDetail?.description || '—'}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Notes</span>
-                                    <span style={{ textAlign: 'right', maxWidth: '70%', whiteSpace: 'pre-wrap' }}>
-                                        {viewDetail?.notes || '—'}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Subtotal (lines)</span>
-                                    <span>
-                                        SAR{' '}
-                                        {(viewDetail?.subtotalLines ?? viewDetail?.amount ?? 0).toLocaleString(undefined, {
-                                            minimumFractionDigits: 2,
-                                        })}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>VAT</span>
-                                    <span>
-                                        SAR{' '}
-                                        {(viewDetail?.vatAmount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Grand total</span>
-                                    <strong>
-                                        SAR{' '}
-                                        {(viewDetail?.total ?? viewRow.total ?? 0).toLocaleString(undefined, {
-                                            minimumFractionDigits: 2,
-                                        })}
-                                    </strong>
-                                </div>
-                                <p style={{ fontSize: '0.75rem', fontWeight: 700, margin: '8px 0 4px' }}>Lines</p>
-                                <table className="ws-table" style={{ fontSize: '0.8125rem' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>#</th>
-                                            <th>Product name</th>
-                                            <th>SKU</th>
-                                            <th>Qty</th>
-                                            <th>Unit</th>
-                                            <th>Unit price</th>
-                                            <th>Line total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {itemsDetail.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={7} style={{ padding: 16 }}>
-                                                    No line breakdown (legacy total only).
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            itemsDetail.map((it, i) => (
-                                                <tr key={String(it.id || i)}>
-                                                    <td>{i + 1}</td>
-                                                    <td>{it.productName}</td>
-                                                    <td>{it.sku || '—'}</td>
-                                                    <td>{Number(it.qty ?? 0).toLocaleString()}</td>
-                                                    <td>{it.unit ?? 'pcs'}</td>
-                                                    <td>SAR {(it.unitPrice ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                                                    <td>
-                                                        <strong>
-                                                            SAR{' '}
-                                                            {(it.lineTotal ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                                        </strong>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
+                            <WorkshopPurchaseInvoiceView
+                                compact
+                                variant="super_supplier"
+                                detail={viewDetail}
+                                listRow={viewRow}
+                            />
                         )}
                     </Modal>
                 )}

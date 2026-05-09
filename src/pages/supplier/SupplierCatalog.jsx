@@ -21,6 +21,7 @@ import {
     listSupplierProductRequests,
     listSupplierProducts,
     setSupplierStock,
+    updateSupplierProduct,
 } from '../../services/supplierApi';
 import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 
@@ -97,6 +98,8 @@ export default function SupplierCatalog() {
     const [inventorySuccess, setInventorySuccess] = useState('');
     const [existingSupplierProducts, setExistingSupplierProducts] = useState([]);
     const [requests, setRequests] = useState([]);
+    /** `browse` = master catalog grid; `requests` = My Product Requests list */
+    const [catalogTab, setCatalogTab] = useState('browse');
     const [requestSubmitting, setRequestSubmitting] = useState(false);
     const [requestError, setRequestError] = useState('');
     const [reqForm, setReqForm] = useState({
@@ -285,6 +288,7 @@ export default function SupplierCatalog() {
                 { id: requestId, ...form },
                 ...prev,
             ]);
+            setCatalogTab('requests');
             setShowRequestForm(false);
             setReqForm({
                 product_name: '',
@@ -317,6 +321,29 @@ export default function SupplierCatalog() {
             return next;
         });
     };
+
+    /** All products matching current filters (all pages — same set as shown in “N products”). */
+    const selectAllFiltered = () => {
+        setSelectedProductIds(
+            new Set(filteredRaw.map((p) => String(p?.id ?? '')).filter(Boolean)),
+        );
+    };
+
+    const clearProductSelection = () => {
+        setSelectedProductIds(new Set());
+    };
+
+    const filteredIdsSelectedCount = useMemo(() => {
+        let n = 0;
+        filteredRaw.forEach((p) => {
+            const id = String(p?.id ?? '');
+            if (id && selectedProductIds.has(id)) n += 1;
+        });
+        return n;
+    }, [filteredRaw, selectedProductIds]);
+
+    const allFilteredSelected =
+        filteredRaw.length > 0 && filteredIdsSelectedCount === filteredRaw.length;
 
     const openAddToInventoryModal = async () => {
         if (selectedProductIds.size === 0) return;
@@ -354,6 +381,7 @@ export default function SupplierCatalog() {
             defaults[id] = {
                 openingQty: '0',
                 stockQty: '0',
+                criticalStockLevel: '',
             };
         });
         setInventoryQtyForm(defaults);
@@ -367,6 +395,7 @@ export default function SupplierCatalog() {
             [id]: {
                 openingQty: prev[id]?.openingQty ?? '0',
                 stockQty: prev[id]?.stockQty ?? '0',
+                criticalStockLevel: prev[id]?.criticalStockLevel ?? '',
                 [key]: value,
             },
         }));
@@ -389,15 +418,33 @@ export default function SupplierCatalog() {
 
             for (const master of selectedMasterProducts) {
                 const id = String(master.id);
-                const row = inventoryQtyForm[id] || { openingQty: '0', stockQty: '0' };
+                const row = inventoryQtyForm[id] || {
+                    openingQty: '0',
+                    stockQty: '0',
+                    criticalStockLevel: '',
+                };
                 const openingQty = Math.max(0, Number(row.openingQty || 0));
                 const stockQty = Math.max(0, Number(row.stockQty || 0));
+
+                const critRaw = row.criticalStockLevel;
+                let criticalStockAlert;
+                if (
+                    critRaw !== '' &&
+                    critRaw !== undefined &&
+                    critRaw !== null
+                ) {
+                    const n = Number(critRaw);
+                    if (Number.isFinite(n) && n >= 0) {
+                        criticalStockAlert = n;
+                    }
+                }
 
                 const skuKey = String(master.sku || '').trim().toLowerCase();
                 const nameKey = String(master.name || '').trim().toLowerCase();
 
                 let supplierProductId =
                     bySku.get(skuKey)?.id || byName.get(nameKey)?.id || null;
+                const wasExistingSupplierProduct = !!supplierProductId;
 
                 if (!supplierProductId) {
                     const created = await createSupplierProduct({
@@ -410,6 +457,9 @@ export default function SupplierCatalog() {
                             master.purchasePrice ?? master.salePrice ?? 0,
                         ),
                         reorderLevel: openingQty,
+                        ...(criticalStockAlert !== undefined
+                            ? { criticalStockAlert }
+                            : {}),
                     });
                     supplierProductId = created?.product?.id;
                     if (!supplierProductId) {
@@ -422,6 +472,15 @@ export default function SupplierCatalog() {
                     ...(autoLocationId ? { supplierLocationId: String(autoLocationId) } : {}),
                     currentQuantity: stockQty,
                 });
+
+                if (
+                    wasExistingSupplierProduct &&
+                    criticalStockAlert !== undefined
+                ) {
+                    await updateSupplierProduct(String(supplierProductId), {
+                        criticalStockAlert,
+                    });
+                }
             }
 
             setInventorySuccess(
@@ -470,6 +529,90 @@ export default function SupplierCatalog() {
                     </button>
                 </div>
             </div>
+
+            <div
+                role="tablist"
+                aria-label="Catalog sections"
+                style={{
+                    display: 'flex',
+                    gap: 4,
+                    marginBottom: 20,
+                    borderBottom: '2px solid var(--color-border-light, #e2e8f0)',
+                }}
+            >
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={catalogTab === 'browse'}
+                    id="catalog-tab-browse"
+                    onClick={() => setCatalogTab('browse')}
+                    style={{
+                        padding: '10px 18px',
+                        fontWeight: 700,
+                        fontSize: '0.875rem',
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        color:
+                            catalogTab === 'browse'
+                                ? 'var(--color-text-dark)'
+                                : 'var(--color-text-muted)',
+                        borderBottom:
+                            catalogTab === 'browse'
+                                ? '2px solid #2563EB'
+                                : '2px solid transparent',
+                        marginBottom: -2,
+                        borderRadius: '8px 8px 0 0',
+                    }}
+                >
+                    <Package size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                    Browse catalog
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={catalogTab === 'requests'}
+                    id="catalog-tab-requests"
+                    onClick={() => setCatalogTab('requests')}
+                    style={{
+                        padding: '10px 18px',
+                        fontWeight: 700,
+                        fontSize: '0.875rem',
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        color:
+                            catalogTab === 'requests'
+                                ? 'var(--color-text-dark)'
+                                : 'var(--color-text-muted)',
+                        borderBottom:
+                            catalogTab === 'requests'
+                                ? '2px solid #2563EB'
+                                : '2px solid transparent',
+                        marginBottom: -2,
+                        borderRadius: '8px 8px 0 0',
+                    }}
+                >
+                    <Send size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                    My Product Requests
+                    {requests.length > 0 ? (
+                        <span
+                            style={{
+                                marginLeft: 8,
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                background: catalogTab === 'requests' ? '#DBEAFE' : '#F1F5F9',
+                                color: '#1D4ED8',
+                            }}
+                        >
+                            {requests.length}
+                        </span>
+                    ) : null}
+                </button>
+            </div>
+
             {inventorySuccess ? (
                 <div
                     className="ws-section"
@@ -506,7 +649,9 @@ export default function SupplierCatalog() {
                 </div>
             ) : null}
 
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+            {catalogTab === 'browse' ? (
+                <>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
                 <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
                     <Search
                         size={16}
@@ -574,7 +719,53 @@ export default function SupplierCatalog() {
                         </option>
                     ))}
                 </select>
-            </div>
+                    </div>
+
+                    {!loading && !apiError && cardRows.length > 0 ? (
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        flexWrap: 'wrap',
+                        marginBottom: 14,
+                        padding: '10px 12px',
+                        background: '#F8FAFC',
+                        borderRadius: 10,
+                        border: '1px solid var(--color-border-light, #e2e8f0)',
+                    }}
+                >
+                    <button
+                        type="button"
+                        className="btn-portal-outline"
+                        disabled={filteredRaw.length === 0}
+                        onClick={
+                            allFilteredSelected ? clearProductSelection : selectAllFiltered
+                        }
+                    >
+                        {allFilteredSelected ? 'Deselect all' : 'Select all'}
+                        {filteredRaw.length > 0 ? ` (${filteredRaw.length})` : ''}
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-portal-outline"
+                        disabled={selectedProductIds.size === 0}
+                        onClick={clearProductSelection}
+                    >
+                        Clear selection
+                        {selectedProductIds.size > 0 ? ` (${selectedProductIds.size})` : ''}
+                    </button>
+                    <span
+                        style={{
+                            fontSize: '0.75rem',
+                            color: 'var(--color-text-muted)',
+                            marginLeft: 'auto',
+                        }}
+                    >
+                        Applies to the full filtered list (all pages), not only this page.
+                    </span>
+                </div>
+            ) : null}
 
             {loading ? (
                 <div className="ws-section" style={{ padding: 20 }}>
@@ -628,27 +819,111 @@ export default function SupplierCatalog() {
                                     border: isSelected
                                         ? '1px solid rgba(245, 158, 11, 0.55)'
                                         : '1px solid var(--color-border)',
-                                    borderRadius: 16,
+                                    borderRadius: 12,
                                     overflow: 'hidden',
                                     display: 'flex',
                                     flexDirection: 'column',
                                     transition: 'all 0.2s ease',
                                     boxShadow: isSelected
-                                        ? '0 10px 24px rgba(245, 158, 11, 0.16)'
-                                        : '0 2px 8px rgba(15, 23, 42, 0.04)',
+                                        ? '0 6px 16px rgba(245, 158, 11, 0.14)'
+                                        : '0 2px 6px rgba(15, 23, 42, 0.04)',
                                     cursor: 'pointer',
                                 }}
                                 className="ws-section"
                                 onClick={() => toggleSelectProduct(item.id)}
                             >
-                                <div style={{ padding: 16, flex: 1 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <div
+                                    style={{
+                                        padding: '8px 10px',
+                                        flex: 1,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 4,
+                                        minHeight: 0,
+                                    }}
+                                >
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'flex-start',
+                                            gap: 8,
+                                        }}
+                                    >
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                            <p
+                                                style={{
+                                                    fontWeight: 700,
+                                                    fontSize: '0.8125rem',
+                                                    color: 'var(--color-text-dark)',
+                                                    margin: 0,
+                                                    lineHeight: 1.25,
+                                                }}
+                                            >
+                                                {item.product_name}
+                                            </p>
+                                            {isSelected ? (
+                                                <div
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        marginTop: 4,
+                                                        fontSize: '0.625rem',
+                                                        fontWeight: 700,
+                                                        color: '#92400E',
+                                                    }}
+                                                >
+                                                    <CheckCircle2 size={11} />
+                                                    Ready to add in inventory
+                                                </div>
+                                            ) : null}
+                                            {item.category ? (
+                                                <span
+                                                    className="ws-badge ws-badge--gray"
+                                                    style={{
+                                                        marginTop: 4,
+                                                        display: 'inline-block',
+                                                        fontSize: '0.625rem',
+                                                        padding: '2px 6px',
+                                                    }}
+                                                >
+                                                    {item.category}
+                                                </span>
+                                            ) : null}
+                                            <p
+                                                style={{
+                                                    fontSize: '0.6875rem',
+                                                    color: 'var(--color-text-muted)',
+                                                    margin: '4px 0 0',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 4,
+                                                    lineHeight: 1.25,
+                                                }}
+                                            >
+                                                <Truck size={11} aria-hidden />
+                                                {sup?.name || item.supplier_name}
+                                            </p>
+                                            {item.description ? (
+                                                <p
+                                                    style={{
+                                                        fontSize: '0.6875rem',
+                                                        color: 'var(--color-text-muted)',
+                                                        margin: '2px 0 0',
+                                                        lineHeight: 1.3,
+                                                    }}
+                                                >
+                                                    {item.description}
+                                                </p>
+                                            ) : null}
+                                        </div>
                                         <label
                                             style={{
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
-                                                gap: 6,
-                                                fontSize: '0.6875rem',
+                                                gap: 4,
+                                                fontSize: '0.625rem',
                                                 fontWeight: 700,
                                                 color: isSelected ? '#B45309' : 'var(--color-text-muted)',
                                                 background: isSelected ? 'rgba(245, 158, 11, 0.12)' : 'transparent',
@@ -656,12 +931,13 @@ export default function SupplierCatalog() {
                                                     ? '1px solid rgba(245, 158, 11, 0.35)'
                                                     : '1px solid var(--color-border-light)',
                                                 borderRadius: 999,
-                                                padding: '3px 8px',
+                                                padding: '2px 6px',
                                                 cursor: 'pointer',
+                                                flexShrink: 0,
                                             }}
                                             onClick={(e) => e.stopPropagation()}
                                         >
-                                            {isSelected ? <CheckCircle2 size={13} /> : <Circle size={13} />}
+                                            {isSelected ? <CheckCircle2 size={11} /> : <Circle size={11} />}
                                             {isSelected ? 'Selected' : 'Select'}
                                             <input
                                                 type="checkbox"
@@ -672,85 +948,31 @@ export default function SupplierCatalog() {
                                             />
                                         </label>
                                     </div>
-                                    <p
-                                        style={{
-                                            fontWeight: 700,
-                                            fontSize: '0.9375rem',
-                                            color: 'var(--color-text-dark)',
-                                            margin: '0 0 8px',
-                                            lineHeight: 1.4,
-                                        }}
-                                    >
-                                        {item.product_name}
-                                    </p>
-                                    {isSelected ? (
-                                        <div
-                                            style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: 6,
-                                                marginBottom: 8,
-                                                fontSize: '0.6875rem',
-                                                fontWeight: 700,
-                                                color: '#92400E',
-                                            }}
-                                        >
-                                            <CheckCircle2 size={12} />
-                                            Ready to add in inventory
-                                        </div>
-                                    ) : null}
-                                    {item.category ? (
-                                        <span
-                                            className="ws-badge ws-badge--gray"
-                                            style={{ marginBottom: 8, display: 'inline-block' }}
-                                        >
-                                            {item.category}
-                                        </span>
-                                    ) : null}
-                                    <p
-                                        style={{
-                                            fontSize: '0.75rem',
-                                            color: 'var(--color-text-muted)',
-                                            margin: '8px 0 0',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 4,
-                                        }}
-                                    >
-                                        <Truck size={12} />
-                                        {sup?.name || item.supplier_name}
-                                    </p>
-                                    {item.description ? (
-                                        <p
-                                            style={{
-                                                fontSize: '0.75rem',
-                                                color: 'var(--color-text-muted)',
-                                                margin: '6px 0 0',
-                                                lineHeight: 1.4,
-                                            }}
-                                        >
-                                            {item.description}
-                                        </p>
-                                    ) : null}
                                 </div>
-                                <div style={{ padding: 14, borderTop: '1px solid var(--color-border-light)' }}>
+                                <div
+                                    style={{
+                                        padding: '6px 10px',
+                                        borderTop: '1px solid var(--color-border-light)',
+                                    }}
+                                >
                                     <div
                                         style={{
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'space-between',
-                                            marginBottom: 10,
+                                            gap: 8,
                                         }}
                                     >
                                         <div>
-                                            <p style={{ fontSize: '1rem', fontWeight: 900, margin: 0 }}>
+                                            <p style={{ fontSize: '0.9375rem', fontWeight: 900, margin: 0, lineHeight: 1.2 }}>
                                                 SAR {(item.sale_price || 0).toLocaleString()}
                                             </p>
                                             <p
                                                 style={{
-                                                    fontSize: '0.6875rem',
+                                                    fontSize: '0.625rem',
                                                     color: 'var(--color-text-muted)',
-                                                    margin: '2px 0 0',
+                                                    margin: '1px 0 0',
+                                                    lineHeight: 1.2,
                                                 }}
                                             >
                                                 per {item.unit} · Min: {item.min_order_qty || 1}
@@ -758,6 +980,7 @@ export default function SupplierCatalog() {
                                         </div>
                                         <span
                                             className={`ws-badge ${inStock ? 'ws-badge--green' : 'ws-badge--red'}`}
+                                            style={{ fontSize: '0.625rem', padding: '2px 6px' }}
                                         >
                                             {inStock ? `${item.stock_qty} in stock` : 'Out'}
                                         </span>
@@ -800,62 +1023,110 @@ export default function SupplierCatalog() {
                     </button>
                 </div>
             ) : null}
-
-            {requests.length > 0 && (
-                <div className="ws-section" style={{ marginTop: 24 }}>
+                </>
+            ) : (
+                <div className="ws-section">
                     <div style={{ padding: 16 }}>
-                        <h3
-                            style={{
-                                fontSize: '0.9375rem',
-                                fontWeight: 700,
-                                color: 'var(--color-text-dark)',
-                                margin: '0 0 12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                            }}
-                        >
-                            <Send size={16} style={{ color: '#2563EB' }} /> My Product Requests
-                        </h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {requests.map((req) => (
-                                <div
-                                    key={req.id}
+                        {requests.length === 0 ? (
+                            <div
+                                style={{
+                                    textAlign: 'center',
+                                    padding: '40px 24px',
+                                    color: 'var(--color-text-muted)',
+                                }}
+                            >
+                                <Send
+                                    size={44}
                                     style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        padding: 12,
-                                        background: 'var(--color-bg-muted)',
-                                        borderRadius: 10,
+                                        opacity: 0.35,
+                                        margin: '0 auto 14px',
+                                        display: 'block',
+                                        color: '#2563EB',
+                                    }}
+                                />
+                                <p
+                                    style={{
+                                        margin: 0,
+                                        fontWeight: 700,
+                                        fontSize: '1rem',
+                                        color: 'var(--color-text-dark)',
                                     }}
                                 >
-                                    <div>
-                                        <p style={{ fontWeight: 600, margin: 0 }}>{req.product_name}</p>
-                                        <p
+                                    No product requests yet
+                                </p>
+                                <p
+                                    style={{
+                                        margin: '10px auto 18px',
+                                        fontSize: '0.875rem',
+                                        maxWidth: 420,
+                                    }}
+                                >
+                                    Use <strong>Request New Product</strong> in the header to ask for a new SKU.
+                                </p>
+                                <button
+                                    type="button"
+                                    className="btn-portal"
+                                    onClick={() => setShowRequestForm(true)}
+                                >
+                                    <Plus size={15} /> Request New Product
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <h3
+                                    style={{
+                                        fontSize: '0.9375rem',
+                                        fontWeight: 700,
+                                        color: 'var(--color-text-dark)',
+                                        margin: '0 0 12px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                    }}
+                                >
+                                    <Send size={16} style={{ color: '#2563EB' }} /> My Product Requests
+                                </h3>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {requests.map((req) => (
+                                        <div
+                                            key={req.id}
                                             style={{
-                                                fontSize: '0.75rem',
-                                                color: 'var(--color-text-muted)',
-                                                margin: '2px 0 0',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                padding: 12,
+                                                background: 'var(--color-bg-muted)',
+                                                borderRadius: 10,
                                             }}
                                         >
-                                            Qty: {req.quantity_needed} {req.unit}
-                                        </p>
-                                    </div>
-                                    <span
-                                        className={`ws-badge ${
-                                            req.status === 'pending'
-                                                ? 'ws-badge--yellow'
-                                                : req.status === 'fulfilled'
-                                                  ? 'ws-badge--green'
-                                                  : 'ws-badge--blue'
-                                        }`}
-                                    >
-                                        {req.status}
-                                    </span>
+                                            <div>
+                                                <p style={{ fontWeight: 600, margin: 0 }}>{req.product_name}</p>
+                                                <p
+                                                    style={{
+                                                        fontSize: '0.75rem',
+                                                        color: 'var(--color-text-muted)',
+                                                        margin: '2px 0 0',
+                                                    }}
+                                                >
+                                                    Qty: {req.quantity_needed} {req.unit}
+                                                </p>
+                                            </div>
+                                            <span
+                                                className={`ws-badge ${
+                                                    req.status === 'pending'
+                                                        ? 'ws-badge--yellow'
+                                                        : req.status === 'fulfilled'
+                                                          ? 'ws-badge--green'
+                                                          : 'ws-badge--blue'
+                                                }`}
+                                            >
+                                                {req.status}
+                                            </span>
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
@@ -1165,7 +1436,7 @@ export default function SupplierCatalog() {
                 {addInventoryOpen && (
                     <Modal
                         title="Add Selected Products to Inventory"
-                        width="760px"
+                        width="920px"
                         onClose={() => setAddInventoryOpen(false)}
                         footer={
                             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -1221,11 +1492,16 @@ export default function SupplierCatalog() {
                                         <th>Unit</th>
                                         <th>Opening Qty</th>
                                         <th>Stock Qty</th>
+                                        <th>Critical stock level</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {selectedMasterProducts.map((p) => {
-                                        const row = inventoryQtyForm[String(p.id)] || { openingQty: '0', stockQty: '0' };
+                                        const row = inventoryQtyForm[String(p.id)] || {
+                                            openingQty: '0',
+                                            stockQty: '0',
+                                            criticalStockLevel: '',
+                                        };
                                         return (
                                             <tr key={p.id}>
                                                 <td>{p.name}</td>
@@ -1246,6 +1522,29 @@ export default function SupplierCatalog() {
                                                         value={row.stockQty}
                                                         onChange={(e) => updateInventoryQty(p.id, 'stockQty', e.target.value)}
                                                         style={{ width: 110, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)' }}
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="1"
+                                                        placeholder="Optional"
+                                                        value={row.criticalStockLevel}
+                                                        onChange={(e) =>
+                                                            updateInventoryQty(
+                                                                p.id,
+                                                                'criticalStockLevel',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        title="When warehouse stock ≤ this value, alerts show as critical (supplierProduct.criticalStockAlert)."
+                                                        style={{
+                                                            width: 120,
+                                                            padding: '6px 8px',
+                                                            borderRadius: 6,
+                                                            border: '1px solid var(--color-border)',
+                                                        }}
                                                     />
                                                 </td>
                                             </tr>

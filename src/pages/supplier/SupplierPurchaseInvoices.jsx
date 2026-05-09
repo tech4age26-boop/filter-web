@@ -1,5 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Calendar, ShoppingCart, Search, Zap, Eye, Download, Building2, History } from 'lucide-react';
+import {
+    Plus,
+    Calendar,
+    ShoppingCart,
+    Search,
+    Zap,
+    Eye,
+    Download,
+    Building2,
+    History,
+    ChevronDown,
+    Trash2,
+} from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import SupplierSuperSupplierPurchasesPanel from './SupplierSuperSupplierPurchasesPanel';
@@ -15,6 +27,7 @@ import {
     createSupplierSuperSupplier,
     listSupplierSuperSupplierAudit,
     listSupplierSuperSupplierPurchases,
+    updateSupplierSuperSupplierPurchase,
 } from '../../services/supplierApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
@@ -33,6 +46,122 @@ const TAXES = [
     { id: 3, name: 'VAT 0%', percent: 0, code: 'VAT 0%', rate: 0 },
     { id: 4, name: 'Exempt', percent: 0, code: 'Exempt', rate: 0 },
 ];
+
+function roundMoney2(n) {
+    return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Same VAT / discount semantics as Supplier Sales Invoice (Warehouse → Workshop). */
+function computeLineFinancials(line, amountsTaxInclusive) {
+    const qty = parseFloat(String(line.qty).replace(',', '.')) || 0;
+    const unitInput = parseFloat(String(line.price).replace(',', '.')) || 0;
+    const discRaw = parseFloat(String(line.discount ?? 0).replace(',', '.')) || 0;
+    const discMode = line.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent';
+    const rate =
+        TAXES.find((t) => t.code === line.taxCode)?.rate ?? TAXES[0]?.rate ?? 0;
+
+    let lineEx = 0;
+    let taxAmt = 0;
+    let grandIncl = 0;
+
+    if (amountsTaxInclusive) {
+        const grossInclBeforeDisc = roundMoney2(qty * unitInput);
+        let netIncl = grossInclBeforeDisc;
+        if (discMode === 'percent') {
+            const pct = Math.min(100, Math.max(0, discRaw));
+            netIncl = roundMoney2(grossInclBeforeDisc * (1 - pct / 100));
+        } else {
+            netIncl = roundMoney2(Math.max(0, grossInclBeforeDisc - discRaw));
+        }
+        lineEx =
+            netIncl > 0 && rate > 0
+                ? roundMoney2(netIncl / (1 + rate))
+                : roundMoney2(netIncl);
+        grandIncl = netIncl;
+        taxAmt = roundMoney2(Math.max(0, grandIncl - lineEx));
+    } else {
+        const grossExBeforeDisc = roundMoney2(qty * unitInput);
+        let lineExAdj = grossExBeforeDisc;
+        if (discMode === 'percent') {
+            const pct = Math.min(100, Math.max(0, discRaw));
+            lineExAdj = roundMoney2(grossExBeforeDisc * (1 - pct / 100));
+        } else {
+            lineExAdj = roundMoney2(Math.max(0, grossExBeforeDisc - discRaw));
+        }
+        lineEx = lineExAdj;
+        taxAmt = roundMoney2(lineEx * rate);
+        grandIncl = roundMoney2(lineEx + taxAmt);
+    }
+
+    return {
+        lineEx,
+        taxAmt,
+        grandIncl,
+        taxAmtStr: taxAmt.toFixed(2),
+        grandInclStr: grandIncl.toFixed(2),
+        lineExStr: lineEx.toFixed(2),
+    };
+}
+
+function applyLineTotals(line, amountsTaxInclusive) {
+    const f = computeLineFinancials(line, amountsTaxInclusive);
+    return {
+        ...line,
+        taxAmt: f.taxAmtStr,
+        totalFinal: f.grandInclStr,
+    };
+}
+
+/**
+ * API stores exclusive unit price *after* line discount. Rebuild the per-unit list price the form uses
+ * (before discount) so totals match after edit when discount/description are restored.
+ */
+function reconstructSSPUnitPriceInput(it, amountsTaxInclusive, taxCode) {
+    const rate =
+        TAXES.find((t) => t.code === taxCode)?.rate ?? TAXES[0]?.rate ?? 0;
+    const qty = Math.max(
+        0.000001,
+        parseFloat(String(it.qty ?? 1).replace(',', '.')) || 1,
+    );
+    const U_net = Number(it.unitPrice ?? 0);
+    const discRaw = Number(it.lineDiscountValue ?? 0);
+    const discMode =
+        it.lineDiscountMode === 'fixed_sar' ? 'fixed_sar' : 'percent';
+
+    if (!(discRaw > 0)) {
+        if (!amountsTaxInclusive) {
+            return String(roundMoney2(U_net));
+        }
+        return String(roundMoney2(U_net * (1 + rate)));
+    }
+
+    if (!amountsTaxInclusive) {
+        if (discMode === 'percent') {
+            const pct = Math.min(100, Math.max(0, discRaw));
+            const denom = 1 - pct / 100;
+            if (denom <= 0 || denom >= 1) {
+                return String(roundMoney2(U_net));
+            }
+            const U_list_ex = roundMoney2(U_net / denom);
+            return String(U_list_ex);
+        }
+        const fixed = discRaw;
+        const grossLineEx = roundMoney2(U_net * qty + fixed);
+        return String(roundMoney2(grossLineEx / qty));
+    }
+
+    const netIncl = roundMoney2(U_net * qty * (1 + rate));
+    if (discMode === 'percent') {
+        const pct = Math.min(100, Math.max(0, discRaw));
+        const denom = 1 - pct / 100;
+        const grossInclBeforeDisc =
+            denom <= 0 ? netIncl : roundMoney2(netIncl / denom);
+        return String(roundMoney2(grossInclBeforeDisc / qty));
+    }
+    const fixed = discRaw;
+    const grossInclBeforeDisc = roundMoney2(netIncl + fixed);
+    return String(roundMoney2(grossInclBeforeDisc / qty));
+}
 
 function extractArray(res, keys) {
     if (!res || typeof res !== 'object') return [];
@@ -59,6 +188,16 @@ function mapPayableToRow(p) {
 
 function nextLineId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Strip auto-appended due line from saved SSP notes (see handleCreateInvoice). */
+function splitSuperSupplierPurchaseNotes(notes) {
+    const s = String(notes ?? '').trim();
+    if (!s) return { userNotes: '', dueIso: null };
+    const m = s.match(/Due date:\s*(\d{4}-\d{2}-\d{2})/);
+    const dueIso = m ? m[1] : null;
+    const userNotes = s.replace(/\n*Due date:\s*\d{4}-\d{2}-\d{2}\s*/g, '').trim();
+    return { userNotes, dueIso };
 }
 
 /** Rows from `/supplier/inventory/stock-balances` only — purchase picker must not mix full catalog / services. */
@@ -93,6 +232,10 @@ const SEARCH_MAX_RESULTS_PI = 40;
 /** Max purchases to load line detail for in super-supplier history modal (avoids huge parallel GET bursts). */
 const SSP_HISTORY_DETAIL_CAP = 50;
 
+/** Hydrated when navigating from Stock Inventory → Adjust via Purchase */
+const PI_PRESET_FROM_STOCK_FLAG = 'supplier_pi_open_from_stock';
+const PI_PRESET_STOCK_LINE = 'supplier_pi_preset_stock_line';
+
 /** @typedef {'payables'|'super_suppliers'|'ssp_invoices'} ApTabId */
 
 function statusBadgeClass(status) {
@@ -110,6 +253,10 @@ export default function SupplierPurchaseInvoices() {
     const [showLineNum, setShowLineNum] = useState(false);
     const [showDesc, setShowDesc] = useState(false);
     const [showDiscount, setShowDiscount] = useState(false);
+    const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(false);
+    const [freightCharges, setFreightCharges] = useState('0');
+    const [invoiceDiscountValue, setInvoiceDiscountValue] = useState('0');
+    const [invoiceDiscountMode, setInvoiceDiscountMode] = useState('fixed_sar');
 
     const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [dueDateType, setDueDateType] = useState('Net');
@@ -127,6 +274,11 @@ export default function SupplierPurchaseInvoices() {
     const [showDropdown, setShowDropdown] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
     const piSearchWrapRef = useRef(null);
+    const lineItemPickerWrapRef = useRef(null);
+    const itemPickerInputRef = useRef('');
+    const [itemPickerLineId, setItemPickerLineId] = useState(null);
+    const [itemPickerInput, setItemPickerInput] = useState('');
+    const [itemPickerFilter, setItemPickerFilter] = useState('');
 
     const [sspPanelKey, setSspPanelKey] = useState(0);
     /** @type {[ApTabId, React.Dispatch<React.SetStateAction<ApTabId>>]} */
@@ -144,6 +296,12 @@ export default function SupplierPurchaseInvoices() {
 
     const [createSubmitting, setCreateSubmitting] = useState(false);
     const [createError, setCreateError] = useState('');
+    /** Same modal as New Purchase Invoice — edit loads SSP purchase into identical fields */
+    const [sspPurchaseModalMode, setSspPurchaseModalMode] = useState(
+        /** @type {'create' | 'edit'} */ ('create'),
+    );
+    const [editingSspPurchaseId, setEditingSspPurchaseId] = useState(null);
+    const [sspPurchaseEditLoading, setSspPurchaseEditLoading] = useState(false);
     const [downloadingId, setDownloadingId] = useState(null);
 
     const [superSuppliers, setSuperSuppliers] = useState([]);
@@ -406,73 +564,196 @@ export default function SupplierPurchaseInvoices() {
         return () => document.removeEventListener('mousedown', close);
     }, [modalOpen, showDropdown]);
 
+    useEffect(() => {
+        itemPickerInputRef.current = itemPickerInput;
+    }, [itemPickerInput]);
+
+    useEffect(() => {
+        if (!modalOpen || itemPickerLineId == null) return undefined;
+        const openLineId = itemPickerLineId;
+        const onDocMouseDown = (e) => {
+            const el = lineItemPickerWrapRef.current;
+            if (el && !el.contains(e.target)) {
+                const text = String(itemPickerInputRef.current ?? '').trim();
+                setLineItems((prev) =>
+                    prev.map((l) =>
+                        l.id === openLineId ? { ...l, item: text } : l,
+                    ),
+                );
+                setItemPickerLineId(null);
+                setItemPickerInput('');
+                setItemPickerFilter('');
+            }
+        };
+        document.addEventListener('mousedown', onDocMouseDown);
+        return () => document.removeEventListener('mousedown', onDocMouseDown);
+    }, [modalOpen, itemPickerLineId]);
+
+    /** Apply stock row to an existing line — same source as “Search stock inventory”. */
+    const applyCatalogPurchaseItemToLine = (lineId, catItem) => {
+        const unitPrice = Number(catItem.price) || 0;
+        const catalogId =
+            catItem?.id != null && String(catItem.id).trim() !== ''
+                ? String(catItem.id).trim()
+                : undefined;
+        setLineItems((prev) =>
+            prev.map((line) => {
+                if (line.id !== lineId) return line;
+                const raw = {
+                    ...line,
+                    sku: catItem.sku || '',
+                    item: catItem.name,
+                    supplierProductId: catalogId,
+                    account:
+                        catItem.type === 'Stock'
+                            ? '1410 - Inventory Asset'
+                            : '5100 - Cost of Goods Sold',
+                    uom: catItem.unit || line.uom || 'pcs',
+                    price: unitPrice,
+                };
+                return applyLineTotals(raw, amountsTaxInclusive);
+            }),
+        );
+        setItemPickerLineId(null);
+        setItemPickerInput('');
+        setItemPickerFilter('');
+    };
+
+    const removePurchaseLine = (lineId) => {
+        setLineItems((prev) => prev.filter((l) => l.id !== lineId));
+        setItemPickerLineId((cur) => (cur === lineId ? null : cur));
+    };
+
     const updateLineItem = (id, field, value) => {
+        const recalc = new Set(['qty', 'price', 'taxCode', 'discount', 'discountMode']);
         setLineItems((prev) =>
             prev.map((line) => {
                 if (line.id !== id) return line;
                 const updated = { ...line, [field]: value };
-                if (field === 'qty' || field === 'price' || field === 'taxCode') {
-                    const qty = parseFloat(field === 'qty' ? value : line.qty) || 0;
-                    const price = parseFloat(field === 'price' ? value : line.price) || 0;
-                    const taxRate = TAXES.find((t) => t.code === (field === 'taxCode' ? value : line.taxCode))?.rate || 0;
-                    const subtotal = qty * price;
-                    const taxAmt = subtotal * taxRate;
-                    updated.taxAmt = taxAmt.toFixed(2);
-                    updated.totalFinal = (subtotal + taxAmt).toFixed(2);
-                }
-                return updated;
+                return recalc.has(field)
+                    ? applyLineTotals(updated, amountsTaxInclusive)
+                    : updated;
             }),
         );
     };
 
+    useEffect(() => {
+        setLineItems((prev) =>
+            prev.length
+                ? prev.map((line) => applyLineTotals(line, amountsTaxInclusive))
+                : prev,
+        );
+    }, [amountsTaxInclusive]);
+
     const getSummary = () => {
-        const subtotal = lineItems.reduce((acc, line) => acc + (parseFloat(line.qty) * parseFloat(line.price) || 0), 0);
-        const totalTax = lineItems.reduce((acc, line) => acc + parseFloat(line.taxAmt || 0), 0);
-        const grandTotal = subtotal + totalTax;
+        let subtotalEx = 0;
+        let totalTax = 0;
+        let linesGrandSum = 0;
+        for (const line of lineItems) {
+            const f = computeLineFinancials(line, amountsTaxInclusive);
+            subtotalEx += f.lineEx;
+            totalTax += f.taxAmt;
+            linesGrandSum += f.grandIncl;
+        }
+        subtotalEx = roundMoney2(subtotalEx);
+        totalTax = roundMoney2(totalTax);
+        const freightNum =
+            parseFloat(String(freightCharges).replace(',', '.')) || 0;
+        const grossBeforeInvDisc = roundMoney2(linesGrandSum + freightNum);
+
+        let invDisc = 0;
+        const invRaw =
+            parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0;
+        if (invoiceDiscountMode === 'percent') {
+            invDisc = roundMoney2(
+                (grossBeforeInvDisc * Math.min(100, Math.max(0, invRaw))) /
+                    100,
+            );
+        } else {
+            invDisc = roundMoney2(Math.min(invRaw, grossBeforeInvDisc));
+        }
+        const grandTotal = roundMoney2(Math.max(0, grossBeforeInvDisc - invDisc));
+
+        const freightIn = roundMoney2(Math.max(0, freightNum));
+        const invoiceDiscountSar = roundMoney2(Math.max(0, invDisc));
+        const invPctDisplayed = Math.min(100, Math.max(0, invRaw));
+
         return {
-            subtotal: subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-            totalTax: totalTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-            grandTotal: grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            subtotal: subtotalEx.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }),
+            totalTax: totalTax.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }),
+            grandTotal: grandTotal.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }),
+            rawGrandTotal: grandTotal,
+            freightIn,
+            freightInFormatted: freightIn.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }),
+            showFreightRow: freightIn > 0,
+            invoiceDiscount: invoiceDiscountSar,
+            invoiceDiscountFormatted: invoiceDiscountSar.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }),
+            showInvoiceDiscountRow: invoiceDiscountSar > 0,
+            invoiceDiscountSummaryLabel:
+                invoiceDiscountMode === 'percent'
+                    ? `Invoice discount (${invPctDisplayed}%):`
+                    : 'Invoice discount (fixed SAR):',
         };
     };
     const summary = getSummary();
 
     const addEmptyPurchaseLine = () => {
-        setLineItems((prev) => [
-            ...prev,
-            {
-                id: nextLineId(),
-                item: '',
-                sku: '',
-                account: '1410 - Inventory Asset',
-                description: '',
-                uom: 'pcs',
-                qty: 1,
-                price: 0,
-                discount: 0,
-                taxCode: 'VAT 15%',
-                taxAmt: '0.00',
-                totalFinal: '0.00',
-            },
-        ]);
+        const raw = {
+            id: nextLineId(),
+            item: '',
+            sku: '',
+            supplierProductId: undefined,
+            account: '1410 - Inventory Asset',
+            description: '',
+            uom: 'pcs',
+            qty: 1,
+            price: 0,
+            discount: 0,
+            discountMode: 'percent',
+            taxCode: 'VAT 15%',
+            taxAmt: '0.00',
+            totalFinal: '0.00',
+        };
+        const newLine = applyLineTotals(raw, amountsTaxInclusive);
+        setLineItems((prev) => [...prev, newLine]);
     };
 
     const addItemToLines = (item) => {
         const unitPrice = Number(item.price) || 0;
-        const newLine = {
+        const catalogId =
+            item?.id != null && String(item.id).trim() !== '' ? String(item.id).trim() : undefined;
+        const raw = {
             id: nextLineId(),
             sku: item.sku || '',
             item: item.name,
+            supplierProductId: catalogId,
             account: item.type === 'Stock' ? '1410 - Inventory Asset' : '5100 - Cost of Goods Sold',
             description: '',
             uom: item.unit,
             qty: 1,
             price: unitPrice,
             discount: 0,
+            discountMode: 'percent',
             taxCode: 'VAT 15%',
-            taxAmt: (unitPrice * 0.15).toFixed(2),
-            totalFinal: (unitPrice * 1.15).toFixed(2),
+            taxAmt: '0.00',
+            totalFinal: '0.00',
         };
+        const newLine = applyLineTotals(raw, amountsTaxInclusive);
         setLineItems((prev) => [...prev, newLine]);
         setSearchQuery('');
         setShowDropdown(false);
@@ -529,8 +810,9 @@ export default function SupplierPurchaseInvoices() {
         cols.push('2fr', '1.5fr');
         if (showDesc) cols.push('2fr');
         cols.push('0.8fr', '0.8fr', '1fr');
-        if (showDiscount) cols.push('1fr');
+        if (showDiscount) cols.push('minmax(140px, 1.35fr)');
         cols.push('1fr', '1fr', '1fr', '1fr');
+        cols.push('48px');
         return cols.join(' ');
     };
 
@@ -541,14 +823,186 @@ export default function SupplierPurchaseInvoices() {
         setDescription('');
         setInternalNotes('');
         setIssueDate(new Date().toISOString().slice(0, 10));
+        setDueDateType('Net');
+        setNetDays(30);
+        setCustomDueDate('');
         setSearchQuery('');
         setCreateError('');
+        setShowLineNum(false);
+        setShowDesc(false);
+        setShowDiscount(false);
+        setAmountsTaxInclusive(false);
+        setFreightCharges('0');
+        setInvoiceDiscountValue('0');
+        setInvoiceDiscountMode('fixed_sar');
+        setItemPickerLineId(null);
+        setItemPickerInput('');
+        setItemPickerFilter('');
+        setSspPurchaseModalMode('create');
+        setEditingSspPurchaseId(null);
+        setSspPurchaseEditLoading(false);
     };
+
+    const openSuperSupplierPurchaseForEdit = async (purchaseId) => {
+        setCreateError('');
+        setSspPurchaseModalMode('edit');
+        setEditingSspPurchaseId(String(purchaseId));
+        setSspPurchaseEditLoading(true);
+        setModalOpen(true);
+        setApTab('ssp_invoices');
+        try {
+            const res = await getSupplierSuperSupplierPurchase(purchaseId);
+            const p = res?.purchase ?? res?.data ?? res;
+            if (!p?.id) {
+                setCreateError('Could not load purchase for editing.');
+                return;
+            }
+            setIssueDate((p.purchaseDate || '').toString().slice(0, 10));
+            setSuperSupplierId(String(p.superSupplierId ?? ''));
+            setRefNo(String(p.vendorRef ?? p.referenceNo ?? '').trim());
+            setDescription(String(p.description ?? '').trim());
+            const { userNotes, dueIso } = splitSuperSupplierPurchaseNotes(p.notes);
+            setInternalNotes(userNotes);
+            const issue = new Date((p.purchaseDate || '').toString().slice(0, 10));
+            if (!Number.isNaN(issue.getTime()) && dueIso) {
+                const due = new Date(dueIso);
+                if (!Number.isNaN(due.getTime())) {
+                    const diffDays = Math.round((due - issue) / (1000 * 60 * 60 * 24));
+                    if (!Number.isNaN(diffDays) && diffDays >= 0) {
+                        setDueDateType('Net');
+                        setNetDays(diffDays || 30);
+                    } else {
+                        setDueDateType('Custom');
+                        setCustomDueDate(dueIso);
+                    }
+                } else {
+                    setDueDateType('Net');
+                    setNetDays(30);
+                }
+            } else {
+                setDueDateType('Net');
+                setNetDays(30);
+            }
+
+            const m =
+                p.purchaseFormMeta != null && typeof p.purchaseFormMeta === 'object'
+                    ? p.purchaseFormMeta
+                    : {};
+            const taxIncl = !!m.amountsTaxInclusive;
+            setShowLineNum(!!m.showLineNum);
+            setShowDesc(!!m.showDesc);
+            setShowDiscount(!!m.showDiscount);
+            setAmountsTaxInclusive(taxIncl);
+            if (m.invoiceDiscountMode === 'percent') {
+                setInvoiceDiscountMode('percent');
+                if (m.invoiceDiscountInput != null && Number.isFinite(Number(m.invoiceDiscountInput))) {
+                    setInvoiceDiscountValue(String(m.invoiceDiscountInput));
+                } else {
+                    setInvoiceDiscountValue('0');
+                }
+            } else {
+                setInvoiceDiscountMode('fixed_sar');
+                if (m.invoiceDiscountInput != null && Number.isFinite(Number(m.invoiceDiscountInput))) {
+                    setInvoiceDiscountValue(String(m.invoiceDiscountInput));
+                } else {
+                    setInvoiceDiscountValue(String(Number(p.invoiceDiscount ?? 0)));
+                }
+            }
+            setFreightCharges(String(Number(p.freightIn ?? 0)));
+
+            const linesFromApi = Array.isArray(p.items) && p.items.length ? p.items : [];
+            setLineItems(
+                linesFromApi.map((it) => {
+                    const taxCode = 'VAT 15%';
+                    const discVal = Number(it.lineDiscountValue ?? 0);
+                    const discMode =
+                        it.lineDiscountMode === 'fixed_sar' ? 'fixed_sar' : 'percent';
+                    const priceStr = reconstructSSPUnitPriceInput(it, taxIncl, taxCode);
+                    return applyLineTotals(
+                        {
+                            id: nextLineId(),
+                            sku: String(it.sku ?? '').trim(),
+                            item: it.productName || '',
+                            supplierProductId:
+                                it.supplierProductId != null &&
+                                String(it.supplierProductId).trim() !== ''
+                                    ? String(it.supplierProductId).trim()
+                                    : undefined,
+                            account: '1410 - Inventory Asset',
+                            description: String(it.lineDescription ?? '').trim(),
+                            uom: it.unit || 'pcs',
+                            qty: String(it.qty ?? 1),
+                            price: priceStr,
+                            discount: discVal,
+                            discountMode: discMode,
+                            taxCode,
+                            taxAmt: '0.00',
+                            totalFinal: '0.00',
+                            lastSalePrice: Number(it.unitPrice ?? 0),
+                        },
+                        taxIncl,
+                    );
+                }),
+            );
+        } catch (e) {
+            setCreateError(e?.message || 'Could not load purchase for editing.');
+        } finally {
+            setSspPurchaseEditLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        try {
+            if (sessionStorage.getItem(PI_PRESET_FROM_STOCK_FLAG) !== '1') {
+                return undefined;
+            }
+            const raw = sessionStorage.getItem(PI_PRESET_STOCK_LINE);
+            sessionStorage.removeItem(PI_PRESET_FROM_STOCK_FLAG);
+            sessionStorage.removeItem(PI_PRESET_STOCK_LINE);
+
+            resetCreateForm();
+            setModalOpen(true);
+            setApTab('payables');
+
+            if (!raw) {
+                return undefined;
+            }
+            const line = JSON.parse(raw);
+            if (
+                line == null ||
+                typeof line !== 'object' ||
+                String(line.supplierProductId ?? '').trim() === '' ||
+                String(line.name ?? '').trim() === ''
+            ) {
+                return undefined;
+            }
+
+            window.setTimeout(() => {
+                addItemToLines({
+                    id: String(line.supplierProductId).trim(),
+                    sku: String(line.sku || '').trim(),
+                    name: String(line.name || '').trim(),
+                    price: Number(line.price) || 0,
+                    unit: String(line.unit || 'pcs').trim() || 'pcs',
+                    type: 'Stock',
+                });
+            }, 0);
+        } catch {
+            sessionStorage.removeItem(PI_PRESET_FROM_STOCK_FLAG);
+            sessionStorage.removeItem(PI_PRESET_STOCK_LINE);
+        }
+        return undefined;
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot when landing from Stock Inventory
+    }, []);
 
     const handleCreateInvoice = async () => {
         setCreateError('');
         if (!superSupplierId) {
             setCreateError('Select a super supplier from the list.');
+            return;
+        }
+        if (lineItems.length === 0) {
+            setCreateError('Add at least one line item.');
             return;
         }
         const supplierRow = superSuppliers.find((s) => String(s.id) === String(superSupplierId));
@@ -561,15 +1015,26 @@ export default function SupplierPurchaseInvoices() {
             return;
         }
 
-        const normalizedLines = lineItems.map((line, idx) => ({
-            idx,
-            productName: String(line.item || '').trim(),
-            sku: String(line.sku || '').trim() || undefined,
-            qty: parseFloat(line.qty) || 0,
-            unit: String(line.uom || 'pcs').trim() || 'pcs',
-            unitPrice: parseFloat(line.price) || 0,
-            vatLine: parseFloat(line.taxAmt || 0),
-        }));
+        const normalizedLines = lineItems.map((line, idx) => {
+            const fin = computeLineFinancials(line, amountsTaxInclusive);
+            const qtyNum = parseFloat(String(line.qty).replace(',', '.')) || 0;
+            const unitPriceExForApi =
+                qtyNum > 0 ? roundMoney2(fin.lineEx / qtyNum) : 0;
+            return {
+                idx,
+                productName: String(line.item || '').trim(),
+                sku: String(line.sku || '').trim() || undefined,
+                supplierProductId:
+                    line.supplierProductId != null &&
+                    String(line.supplierProductId).trim() !== ''
+                        ? String(line.supplierProductId).trim()
+                        : undefined,
+                qty: qtyNum,
+                unit: String(line.uom || 'pcs').trim() || 'pcs',
+                unitPrice: unitPriceExForApi,
+                vatLine: fin.taxAmt,
+            };
+        });
 
         const bad = normalizedLines.find(
             (l) => !l.productName || !(l.qty > 0) || l.unitPrice < 0,
@@ -579,45 +1044,84 @@ export default function SupplierPurchaseInvoices() {
             return;
         }
 
-        const vatAmount = normalizedLines.reduce((s, l) => s + l.vatLine, 0);
-        const subtotalExVat = normalizedLines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
+        const vatAmount = roundMoney2(
+            normalizedLines.reduce((s, l) => s + l.vatLine, 0),
+        );
+        const subtotalExVat = roundMoney2(
+            normalizedLines.reduce((s, l) => s + l.qty * l.unitPrice, 0),
+        );
         if (!(subtotalExVat + vatAmount > 0)) {
             setCreateError('Invoice total must be greater than zero (check quantities and unit prices).');
             return;
         }
 
-        const items = normalizedLines.map((l) => ({
-            ...(l.sku ? { sku: l.sku } : {}),
-            productName: l.productName,
-            qty: l.qty,
-            unit: l.unit,
-            unitPrice: Math.round(l.unitPrice * 1e6) / 1e6,
-        }));
+        const totals = getSummary();
+
+        const items = normalizedLines.map((l, idx) => {
+            const row = lineItems[idx];
+            const discRaw =
+                parseFloat(String(row?.discount ?? 0).replace(',', '.')) || 0;
+            const desc = String(row?.description ?? '').trim();
+            const body = {
+                ...(l.sku ? { sku: l.sku } : {}),
+                ...(l.supplierProductId ? { supplierProductId: l.supplierProductId } : {}),
+                productName: l.productName,
+                qty: l.qty,
+                unit: l.unit,
+                unitPrice: Math.round(l.unitPrice * 1e6) / 1e6,
+                lineDiscount: discRaw,
+                lineDiscountMode:
+                    row?.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
+            };
+            if (desc) {
+                body.lineDescription = desc;
+            }
+            return body;
+        });
 
         const due =
             calculatedDueDate === '—' ? '' : calculatedDueDate;
         const notesParts = [internalNotes.trim(), due ? `Due date: ${due}` : ''].filter(Boolean);
 
+        const purchaseFormMeta = {
+            showLineNum,
+            showDesc,
+            showDiscount,
+            amountsTaxInclusive,
+            invoiceDiscountMode,
+            invoiceDiscountInput:
+                parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
+        };
+
+        const payload = {
+            superSupplierId: String(superSupplierId),
+            purchaseDate: issueDate,
+            vendorRef: refNo.trim() || undefined,
+            referenceNo: refNo.trim() || undefined,
+            description: description.trim() || undefined,
+            notes: notesParts.length ? notesParts.join('\n') : undefined,
+            vatAmount: Math.round(vatAmount * 100) / 100,
+            items,
+            freightIn: totals.freightIn,
+            invoiceDiscount: totals.invoiceDiscount,
+            purchaseFormMeta,
+        };
+
         setCreateSubmitting(true);
         try {
-            await createSupplierSuperSupplierPurchase({
-                superSupplierId: String(superSupplierId),
-                purchaseDate: issueDate,
-                vendorRef: refNo.trim() || undefined,
-                referenceNo: refNo.trim() || undefined,
-                description: description.trim() || undefined,
-                notes: notesParts.length ? notesParts.join('\n') : undefined,
-                vatAmount: Math.round(vatAmount * 100) / 100,
-                items,
-            });
+            if (sspPurchaseModalMode === 'edit' && editingSspPurchaseId) {
+                await updateSupplierSuperSupplierPurchase(editingSspPurchaseId, payload);
+            } else {
+                await createSupplierSuperSupplierPurchase(payload);
+            }
             setModalOpen(false);
             resetCreateForm();
             setSspPanelKey((k) => k + 1);
             setApTab('ssp_invoices');
             await Promise.all([loadPayables(), loadSuperSuppliers()]);
         } catch (err) {
-            console.error('Create super supplier purchase failed:', err);
-            setCreateError(err?.message || 'Could not create purchase invoice');
+            console.error('Save super supplier purchase failed:', err);
+            setCreateError(err?.message || 'Could not save purchase invoice');
         } finally {
             setCreateSubmitting(false);
         }
@@ -736,6 +1240,7 @@ export default function SupplierPurchaseInvoices() {
                         className="btn-save-all"
                         onClick={() => {
                             setCreateError('');
+                            resetCreateForm();
                             setModalOpen(true);
                         }}
                     >
@@ -1010,6 +1515,7 @@ export default function SupplierPurchaseInvoices() {
                     createIntentSupplierId={createSspPurchaseForId}
                     onConsumeCreateIntent={() => setCreateSspPurchaseForId(null)}
                     onPurchasesMutated={loadSuperSuppliers}
+                    onEditPurchase={openSuperSupplierPurchaseForEdit}
                 />
             </div>
 
@@ -1296,7 +1802,10 @@ export default function SupplierPurchaseInvoices() {
                         title={
                             <div className="pi-modal-title">
                                 <span className="pi-breadcrumb">
-                                    Purchase Invoices › <span className="pi-b-active">New</span>
+                                    Purchase Invoices ›{' '}
+                                    <span className="pi-b-active">
+                                        {sspPurchaseModalMode === 'edit' ? 'Edit' : 'New'}
+                                    </span>
                                 </span>
                                 <div className="pi-title-main">
                                     <ShoppingCart className="pi-icon-orange" size={24} />
@@ -1305,7 +1814,7 @@ export default function SupplierPurchaseInvoices() {
                             </div>
                         }
                         onClose={() => {
-                            if (!createSubmitting) {
+                            if (!createSubmitting && !sspPurchaseEditLoading) {
                                 setModalOpen(false);
                                 resetCreateForm();
                             }
@@ -1315,7 +1824,15 @@ export default function SupplierPurchaseInvoices() {
                         footer={
                             <div className="pi-modal-footer">
                                 <div className="pi-footer-left">
-                                    <button type="button" className="btn-pi-cancel" disabled={createSubmitting} onClick={() => { setModalOpen(false); resetCreateForm(); }}>
+                                    <button
+                                        type="button"
+                                        className="btn-pi-cancel"
+                                        disabled={createSubmitting || sspPurchaseEditLoading}
+                                        onClick={() => {
+                                            setModalOpen(false);
+                                            resetCreateForm();
+                                        }}
+                                    >
                                         Cancel
                                     </button>
                                 </div>
@@ -1325,12 +1842,20 @@ export default function SupplierPurchaseInvoices() {
                                         className="btn-pi-create"
                                         disabled={
                                             createSubmitting ||
+                                            sspPurchaseEditLoading ||
+                                            lineItems.length === 0 ||
                                             !superSupplierId ||
                                             (!ssLoading && superSuppliers.length === 0)
                                         }
                                         onClick={handleCreateInvoice}
                                     >
-                                        {createSubmitting ? 'Creating…' : 'Create Purchase Invoice'}
+                                        {createSubmitting
+                                            ? sspPurchaseModalMode === 'edit'
+                                                ? 'Saving…'
+                                                : 'Creating…'
+                                            : sspPurchaseModalMode === 'edit'
+                                              ? 'Save changes'
+                                              : 'Create Purchase Invoice'}
                                     </button>
                                 </div>
                             </div>
@@ -1341,6 +1866,24 @@ export default function SupplierPurchaseInvoices() {
                                 {createError}
                             </p>
                         ) : null}
+                        {sspPurchaseEditLoading ? (
+                            <div style={{ padding: '12px 0 24px' }}>
+                                <ShimmerTextBlock lines={5} />
+                                <div style={{ marginTop: 18 }}>
+                                    <ShimmerTable rows={6} columns={8} />
+                                </div>
+                                <p
+                                    style={{
+                                        marginTop: 16,
+                                        fontSize: '0.8125rem',
+                                        color: '#64748B',
+                                        textAlign: 'center',
+                                    }}
+                                >
+                                    Loading purchase…
+                                </p>
+                            </div>
+                        ) : (
                         <div className="pi-form-container">
                             <div className="pi-header-grid">
                                 <div className="pi-field">
@@ -1382,6 +1925,7 @@ export default function SupplierPurchaseInvoices() {
                                 <label>Super supplier *</label>
                                 <select
                                     value={superSupplierId}
+                                    disabled={sspPurchaseModalMode === 'edit'}
                                     onChange={(e) => setSuperSupplierId(e.target.value)}
                                     style={{
                                         width: '100%',
@@ -1439,24 +1983,236 @@ export default function SupplierPurchaseInvoices() {
                                     {showDesc && <div className="pi-col-desc">Description</div>}
                                     <div className="pi-col-uom">UOM</div>
                                     <div className="pi-col-qty">Qty</div>
-                                    <div className="pi-col-price">Unit price</div>
+                                    <div className="pi-col-price">
+                                        Unit price
+                                        {amountsTaxInclusive ? (
+                                            <span
+                                                style={{
+                                                    display: 'block',
+                                                    fontWeight: 400,
+                                                    fontSize: 11,
+                                                    color: '#64748b',
+                                                }}
+                                            >
+                                                (incl. VAT)
+                                            </span>
+                                        ) : null}
+                                    </div>
                                     {showDiscount && <div className="pi-col-disc">Discount</div>}
                                     <div className="pi-col-total">Total</div>
                                     <div className="pi-col-tax">Tax Code</div>
                                     <div className="pi-col-tamt">Tax Amt</div>
-                                    <div className="pi-col-total">Total</div>
+                                    <div className="pi-col-total">Grand Total</div>
+                                    <div aria-hidden />
                                 </div>
 
                                 {lineItems.map((line, idx) => (
                                     <div key={line.id} className="pi-lines-header pi-line-data-row" style={{ gridTemplateColumns: getGridColumns() }}>
                                         {showLineNum && <div className="pi-col-hash">{idx + 1}</div>}
-                                        <div className="pi-col-item">
-                                            <input
-                                                type="text"
-                                                value={line.item}
-                                                className="pi-row-input"
-                                                onChange={(e) => updateLineItem(line.id, 'item', e.target.value)}
-                                            />
+                                        <div
+                                            className="pi-col-item"
+                                            style={{
+                                                position: 'relative',
+                                                minWidth: 0,
+                                            }}
+                                        >
+                                            <div
+                                                ref={
+                                                    itemPickerLineId === line.id
+                                                        ? lineItemPickerWrapRef
+                                                        : null
+                                                }
+                                                style={{
+                                                    position: 'relative',
+                                                    width: '100%',
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'stretch',
+                                                        gap: 4,
+                                                        width: '100%',
+                                                    }}
+                                                >
+                                                    <input
+                                                        type="text"
+                                                        className="pi-row-input"
+                                                        style={{
+                                                            flex: 1,
+                                                            minWidth: 0,
+                                                        }}
+                                                        value={
+                                                            itemPickerLineId === line.id
+                                                                ? itemPickerInput
+                                                                : (line.item ?? '')
+                                                        }
+                                                        placeholder="Select from stock…"
+                                                        onFocus={() => {
+                                                            setItemPickerLineId(line.id);
+                                                            setItemPickerInput(String(line.item ?? ''));
+                                                            setItemPickerFilter('');
+                                                        }}
+                                                        onChange={(e) => {
+                                                            const v = e.target.value;
+                                                            setItemPickerLineId(line.id);
+                                                            setItemPickerInput(v);
+                                                            setItemPickerFilter(v);
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            if (
+                                                                e.key === 'Escape' ||
+                                                                e.key === 'Enter'
+                                                            ) {
+                                                                e.preventDefault();
+                                                                const text = String(
+                                                                    itemPickerInputRef.current ?? '',
+                                                                ).trim();
+                                                                setLineItems((prev) =>
+                                                                    prev.map((l) =>
+                                                                        l.id === line.id ? { ...l, item: text } : l,
+                                                                    ),
+                                                                );
+                                                                setItemPickerLineId(null);
+                                                                setItemPickerInput('');
+                                                                setItemPickerFilter('');
+                                                            }
+                                                        }}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        title="Show stock list"
+                                                        aria-label="Open stock item list"
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={() => {
+                                                            if (itemPickerLineId === line.id) {
+                                                                const text = String(
+                                                                    itemPickerInputRef.current ?? '',
+                                                                ).trim();
+                                                                setLineItems((prev) =>
+                                                                    prev.map((l) =>
+                                                                        l.id === line.id ? { ...l, item: text } : l,
+                                                                    ),
+                                                                );
+                                                                setItemPickerLineId(null);
+                                                                setItemPickerInput('');
+                                                                setItemPickerFilter('');
+                                                            } else {
+                                                                setItemPickerLineId(line.id);
+                                                                setItemPickerInput(String(line.item ?? ''));
+                                                                setItemPickerFilter('');
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            flex: '0 0 auto',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            padding: '0 8px',
+                                                            borderRadius: 8,
+                                                            border: '1px solid #e2e8f0',
+                                                            background: '#f8fafc',
+                                                            cursor: 'pointer',
+                                                            color: '#475569',
+                                                        }}
+                                                    >
+                                                        <ChevronDown size={16} />
+                                                    </button>
+                                                </div>
+                                                {itemPickerLineId === line.id ? (
+                                                    <div
+                                                        className="pi-search-results"
+                                                        style={{
+                                                            position: 'absolute',
+                                                            left: 0,
+                                                            right: 0,
+                                                            top: 'calc(100% + 4px)',
+                                                            zIndex: 50,
+                                                            maxHeight: 240,
+                                                            overflowY: 'auto',
+                                                            boxShadow: '0 10px 25px rgba(15,23,42,0.12)',
+                                                        }}
+                                                    >
+                                                        {(() => {
+                                                            const pickerRows =
+                                                                getSearchSuggestionsPi(itemPickerFilter);
+                                                            return pickerRows.length ? (
+                                                                pickerRows.map((invItem, i) => (
+                                                                    <div
+                                                                        key={`${line.id}-${String(invItem.id)}-${i}`}
+                                                                        className="pi-result-item"
+                                                                        onMouseDown={(ev) => {
+                                                                            ev.preventDefault();
+                                                                            applyCatalogPurchaseItemToLine(
+                                                                                line.id,
+                                                                                invItem,
+                                                                            );
+                                                                        }}
+                                                                        role="presentation"
+                                                                    >
+                                                                        <div className="pi-result-info">
+                                                                            <div className="pi-item-name">{invItem.name}</div>
+                                                                            <div
+                                                                                className="pi-item-meta"
+                                                                                style={{
+                                                                                    flexDirection: 'column',
+                                                                                    alignItems: 'flex-start',
+                                                                                    gap: 4,
+                                                                                }}
+                                                                            >
+                                                                                <span
+                                                                                    style={{
+                                                                                        display: 'flex',
+                                                                                        gap: 8,
+                                                                                        flexWrap: 'wrap',
+                                                                                    }}
+                                                                                >
+                                                                                    <span className="pi-item-type">
+                                                                                        {invItem.type === 'Stock'
+                                                                                            ? 'Stock'
+                                                                                            : 'Product'}
+                                                                                    </span>
+                                                                                    {invItem.unit ? (
+                                                                                        <span> • {invItem.unit}</span>
+                                                                                    ) : null}
+                                                                                    {invItem.sku ? (
+                                                                                        <span>SKU {invItem.sku}</span>
+                                                                                    ) : null}
+                                                                                </span>
+                                                                                {invItem.stockHint ? (
+                                                                                    <span
+                                                                                        style={{
+                                                                                            fontSize: 11,
+                                                                                            color: '#64748b',
+                                                                                            lineHeight: 1.35,
+                                                                                        }}
+                                                                                    >
+                                                                                        {invItem.stockHint}
+                                                                                    </span>
+                                                                                ) : null}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="pi-item-price">
+                                                                            <div className="pi-price-val">
+                                                                                SAR {Number(invItem.price || 0).toLocaleString()}
+                                                                            </div>
+                                                                            <div className="pi-price-unit">
+                                                                                per {invItem.unit || 'unit'}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ))
+                                                            ) : (
+                                                                <div style={{ padding: 14, fontSize: 13, color: '#64748b' }}>
+                                                                    {catalogForSearch.length === 0
+                                                                        ? 'No stock inventory items loaded.'
+                                                                        : 'No matching stock items.'}
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                ) : null}
+                                            </div>
                                         </div>
                                         <div className="pi-col-acc">
                                             <select
@@ -1473,10 +2229,36 @@ export default function SupplierPurchaseInvoices() {
                                         </div>
                                         {showDesc && (
                                             <div className="pi-col-desc">
-                                                <input type="text" defaultValue={line.description} className="pi-row-input" />
+                                                <input
+                                                    type="text"
+                                                    value={line.description ?? ''}
+                                                    className="pi-row-input"
+                                                    placeholder="Description"
+                                                    onChange={(e) =>
+                                                        updateLineItem(
+                                                            line.id,
+                                                            'description',
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                />
                                             </div>
                                         )}
-                                        <div className="pi-col-uom">{line.uom}</div>
+                                        <div className="pi-col-uom">
+                                            <input
+                                                type="text"
+                                                className="pi-row-input"
+                                                placeholder="UOM"
+                                                value={line.uom ?? ''}
+                                                onChange={(e) =>
+                                                    updateLineItem(
+                                                        line.id,
+                                                        'uom',
+                                                        e.target.value,
+                                                    )
+                                                }
+                                            />
+                                        </div>
                                         <div className="pi-col-qty">
                                             <input
                                                 type="text"
@@ -1500,11 +2282,82 @@ export default function SupplierPurchaseInvoices() {
                                             />
                                         </div>
                                         {showDiscount && (
-                                            <div className="pi-col-disc">
-                                                <input type="number" defaultValue={line.discount} className="pi-row-input-num" />
+                                            <div
+                                                className="pi-col-disc"
+                                                style={{
+                                                    display: 'flex',
+                                                    gap: 6,
+                                                    alignItems: 'center',
+                                                    minWidth: 0,
+                                                }}
+                                            >
+                                                <input
+                                                    type="text"
+                                                    className="pi-row-input-num pi-math-input"
+                                                    style={{ flex: 1, minWidth: 0 }}
+                                                    value={
+                                                        line.discount === undefined ||
+                                                        line.discount === null
+                                                            ? ''
+                                                            : String(line.discount)
+                                                    }
+                                                    onChange={(e) =>
+                                                        updateLineItem(
+                                                            line.id,
+                                                            'discount',
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                    onKeyDown={(e) =>
+                                                        handleMathKeyDown(
+                                                            e,
+                                                            line.id,
+                                                            'discount',
+                                                        )
+                                                    }
+                                                    onBlur={(e) =>
+                                                        handleMathBlur(
+                                                            e,
+                                                            line.id,
+                                                            'discount',
+                                                        )
+                                                    }
+                                                />
+                                                <select
+                                                    className="pi-row-input"
+                                                    style={{
+                                                        flex: '0 0 auto',
+                                                        maxWidth: 76,
+                                                        padding: '6px 4px',
+                                                        fontSize: 12,
+                                                    }}
+                                                    value={
+                                                        line.discountMode === 'fixed_sar'
+                                                            ? 'fixed_sar'
+                                                            : 'percent'
+                                                    }
+                                                    onChange={(e) =>
+                                                        updateLineItem(
+                                                            line.id,
+                                                            'discountMode',
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                >
+                                                    <option value="percent">%</option>
+                                                    <option value="fixed_sar">SAR</option>
+                                                </select>
                                             </div>
                                         )}
-                                        <div className="pi-col-total">SAR {(parseFloat(line.qty) * parseFloat(line.price) || 0).toFixed(2)}</div>
+                                        <div className="pi-col-total">
+                                            SAR{' '}
+                                            {
+                                                computeLineFinancials(
+                                                    line,
+                                                    amountsTaxInclusive,
+                                                ).lineExStr
+                                            }
+                                        </div>
                                         <div className="pi-col-tax">
                                             <select className="pi-row-input" value={line.taxCode} onChange={(e) => updateLineItem(line.id, 'taxCode', e.target.value)}>
                                                 {TAXES.map((t) => (
@@ -1516,6 +2369,31 @@ export default function SupplierPurchaseInvoices() {
                                         </div>
                                         <div className="pi-col-tamt">SAR {line.taxAmt}</div>
                                         <div className="pi-col-total">SAR {line.totalFinal}</div>
+                                        <div
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}
+                                        >
+                                            <button
+                                                type="button"
+                                                title="Remove line"
+                                                aria-label="Remove line"
+                                                onClick={() => removePurchaseLine(line.id)}
+                                                style={{
+                                                    padding: 6,
+                                                    borderRadius: 8,
+                                                    border: '1px solid #fecaca',
+                                                    background: '#fff',
+                                                    color: '#b91c1c',
+                                                    cursor: 'pointer',
+                                                    lineHeight: 0,
+                                                }}
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
                                     </div>
                                 ))}
 
@@ -1602,7 +2480,14 @@ export default function SupplierPurchaseInvoices() {
                                     <input type="checkbox" checked={showDiscount} onChange={(e) => setShowDiscount(e.target.checked)} /> <span>Column — Discount</span>
                                 </label>
                                 <label className="pi-checkbox">
-                                    <input type="checkbox" /> <span>Amounts are tax inclusive</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={amountsTaxInclusive}
+                                        onChange={(e) =>
+                                            setAmountsTaxInclusive(e.target.checked)
+                                        }
+                                    />{' '}
+                                    <span>Amounts are tax inclusive</span>
                                 </label>
                             </div>
 
@@ -1610,14 +2495,44 @@ export default function SupplierPurchaseInvoices() {
                                 <div className="pi-footer-column">
                                     <div className="pi-field-inline">
                                         <label>Freight-in (SAR)</label>
-                                        <input type="text" defaultValue="0" />
+                                        <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            autoComplete="off"
+                                            value={
+                                                freightCharges != null
+                                                    ? String(freightCharges)
+                                                    : ''
+                                            }
+                                            onChange={(e) =>
+                                                setFreightCharges(e.target.value)
+                                            }
+                                        />
                                     </div>
                                     <div className="pi-field-inline">
                                         <label>Invoice Discount</label>
                                         <div className="pi-discount-group">
-                                            <input type="text" defaultValue="0" />
-                                            <select>
-                                                <option>Fixed (S.. )</option>
+                                            <input
+                                                type="text"
+                                                value={invoiceDiscountValue}
+                                                onChange={(e) =>
+                                                    setInvoiceDiscountValue(
+                                                        e.target.value,
+                                                    )
+                                                }
+                                            />
+                                            <select
+                                                value={invoiceDiscountMode}
+                                                onChange={(e) =>
+                                                    setInvoiceDiscountMode(
+                                                        e.target.value,
+                                                    )
+                                                }
+                                            >
+                                                <option value="fixed_sar">
+                                                    Fixed (SAR)
+                                                </option>
+                                                <option value="percent">%</option>
                                             </select>
                                         </div>
                                     </div>
@@ -1637,6 +2552,20 @@ export default function SupplierPurchaseInvoices() {
                                             <span>Subtotal:</span>
                                             <span>SAR {summary.subtotal}</span>
                                         </div>
+                                        {summary.showFreightRow ? (
+                                            <div className="pi-summary-row">
+                                                <span>Freight-in (SAR):</span>
+                                                <span>SAR {summary.freightInFormatted}</span>
+                                            </div>
+                                        ) : null}
+                                        {summary.showInvoiceDiscountRow ? (
+                                            <div className="pi-summary-row">
+                                                <span>{summary.invoiceDiscountSummaryLabel}</span>
+                                                <span style={{ color: '#B91C1C' }}>
+                                                    − SAR {summary.invoiceDiscountFormatted}
+                                                </span>
+                                            </div>
+                                        ) : null}
                                         <div className="pi-summary-row">
                                             <span>Total Tax (VAT):</span>
                                             <span>SAR {summary.totalTax}</span>
@@ -1656,6 +2585,7 @@ export default function SupplierPurchaseInvoices() {
                                 </div>
                             </div>
                         </div>
+                        )}
                     </Modal>
                 )}
             </AnimatePresence>
