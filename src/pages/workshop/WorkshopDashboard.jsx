@@ -144,7 +144,9 @@ export default function WorkshopDashboard({
         setTechLoadError('');
         try {
             const isAll = !selectedBranchId || selectedBranchId === 'all';
-            const params = isAll ? {} : { branchId: String(selectedBranchId) };
+            const params = isAll
+                ? { isActive: 'true' }
+                : { branchId: String(selectedBranchId) };
             const techRes = await getWorkshopTechnicians(params).catch(() => null);
             if (techRes == null) {
                 setTechnicians([]);
@@ -223,17 +225,28 @@ export default function WorkshopDashboard({
 
     const loadPendingApprovalsCount = useCallback(async () => {
         try {
-            const response = await apiFetch(
-                `/workshop-staff/petty-cash/requests${qs({
-                    limit: 1,
-                    offset: 0,
-                    queue: 'pending',
-                    ...branchScopeParams(selectedBranchId),
-                })}`,
-            );
-            if (response?.success) {
-                setPendingApprovalsCount(Number(response.total) || 0);
-            }
+            const branch = branchScopeParams(selectedBranchId);
+            const [pettyRes, supplierRes] = await Promise.all([
+                apiFetch(
+                    `/workshop-staff/petty-cash/requests${qs({
+                        limit: 1,
+                        offset: 0,
+                        queue: 'all',
+                        status: 'pending',
+                        ...branch,
+                    })}`,
+                ),
+                apiFetch(
+                    `/workshop-staff/supplier-sales-invoices${qs({
+                        limit: 1,
+                        offset: 0,
+                        ...branch,
+                    })}`,
+                ).catch(() => ({ success: false, total: 0 })),
+            ]);
+            const petty = pettyRes?.success ? Number(pettyRes.total) || 0 : 0;
+            const sup = supplierRes?.success ? Number(supplierRes.total) || 0 : 0;
+            setPendingApprovalsCount(petty + sup);
         } catch {
             setPendingApprovalsCount(0);
         }

@@ -369,54 +369,74 @@ function normalizeStockCatalogRow(item) {
     const unitCost =
         qtyWh > 0 ? Number(item.valueWarehouseSar || 0) / qtyWh : 0;
     const price = Number.isFinite(unitCost) ? Math.max(0, unitCost) : 0;
-    const stockHint =
-        qtyWh > 0
-            ? `Warehouse stock: ${qtyWh} • Unit cost SAR ${price.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
-            : qtyWh <= 0
-              ? 'No warehouse qty — edit unit price manually'
-              : '';
-    /** Used for picker key / display only — not POSTed as `productId` (server validates IDs against PO/workshop links and returns "Invalid reference… poId"). */
-    const catalogId =
-        item.productId != null && item.productId !== ''
-            ? item.productId
-            : item.supplierProductId != null && item.supplierProductId !== ''
-              ? item.supplierProductId
-              : undefined;
-    const lastSaleRaw =
-        item && typeof item.lastSale === 'object' && item.lastSale != null
-            ? item.lastSale
-            : null;
-    const hasPreviousSale = !!(
-        lastSaleRaw &&
-        String(lastSaleRaw.invoiceDate || '').trim() !== ''
-    );
-    const lastSalePriceNum = hasPreviousSale
-        ? Number(lastSaleRaw.unitPrice ?? 0)
-        : 0;
-    const saleDateRaw = String(lastSaleRaw?.invoiceDate || '').trim();
-    const buyerWorkshop = String(lastSaleRaw?.buyerWorkshopName || '').trim();
-    const buyerBranch = String(lastSaleRaw?.buyerBranchName || '').trim();
-    const buyerLabel =
-        buyerWorkshop && buyerBranch
-            ? `${buyerWorkshop} — ${buyerBranch}`
-            : buyerWorkshop || buyerBranch || '';
-    const lastSaleMeta =
-        hasPreviousSale && (saleDateRaw || buyerLabel)
-            ? [saleDateRaw, buyerLabel].filter(Boolean).join(' • ')
-            : '';
-    return {
-        id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
-        name: item.productName || 'Product',
-        sku: String(item.sku ?? item.barcode ?? '').trim(),
-        price,
-        unit: item.workshopUnit || item.unitCode || item.unit || 'pcs',
-        lastPrice: lastSalePriceNum,
-        lastSaleMeta,
-        hasPreviousSale,
-        itemType: 'Product',
-        stockHint,
-        catalogProductResolved: catalogId != null && catalogId !== '',
-    };
+const stockHint =
+    qtyWh > 0
+        ? `Warehouse stock: ${qtyWh} • Unit cost SAR ${price.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
+        : qtyWh <= 0
+          ? 'No warehouse qty — edit unit price manually'
+          : '';
+
+/** `stock-balances` row `productId` is supplier_products.id — POST as supplierProductId for workshop catalog resolution. */
+const supplierStockProductId =
+    item.productId != null && item.productId !== ''
+        ? String(item.productId).trim()
+        : '';
+
+/** Used for picker/display */
+const catalogId =
+    supplierStockProductId ||
+    (item.supplierProductId != null && item.supplierProductId !== ''
+        ? String(item.supplierProductId).trim()
+        : undefined);
+
+const lastSaleRaw =
+    item && typeof item.lastSale === 'object' && item.lastSale != null
+        ? item.lastSale
+        : null;
+
+const hasPreviousSale = !!(
+    lastSaleRaw &&
+    String(lastSaleRaw.invoiceDate || '').trim() !== ''
+);
+
+const lastSalePriceNum = hasPreviousSale
+    ? Number(lastSaleRaw.unitPrice ?? 0)
+    : 0;
+
+const saleDateRaw = String(lastSaleRaw?.invoiceDate || '').trim();
+
+const buyerWorkshop = String(lastSaleRaw?.buyerWorkshopName || '').trim();
+
+const buyerBranch = String(lastSaleRaw?.buyerBranchName || '').trim();
+
+const buyerLabel =
+    buyerWorkshop && buyerBranch
+        ? `${buyerWorkshop} — ${buyerBranch}`
+        : buyerWorkshop || buyerBranch || '';
+
+const lastSaleMeta =
+    hasPreviousSale && (saleDateRaw || buyerLabel)
+        ? [saleDateRaw, buyerLabel].filter(Boolean).join(' • ')
+        : '';
+
+return {
+    id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
+    name: item.productName || 'Product',
+    sku: String(item.sku ?? item.barcode ?? '').trim(),
+    price,
+    unit: item.workshopUnit || item.unitCode || item.unit || 'pcs',
+
+    lastPrice: lastSalePriceNum,
+    lastSaleMeta,
+    hasPreviousSale,
+
+    itemType: 'Product',
+    stockHint,
+
+    supplierStockProductId: supplierStockProductId || null,
+
+    catalogProductResolved: Boolean(supplierStockProductId),
+};
 }
 
 function nextLineId() {
@@ -635,6 +655,8 @@ export default function SupplierSalesInvoices() {
             taxCode: 'VAT 15%',
             taxAmt: '0.00',
             totalFinal: '0.00',
+            lastSalePrice: lastSale,
+            supplierStockProductId: item.supplierStockProductId ?? null,
             supplierProductId: catId,
             hasPreviousSale: hasPrev,
             lastSalePrice: lastSaleAmt,
@@ -860,20 +882,26 @@ export default function SupplierSalesInvoices() {
             const row = lineItems[idx];
             const discRaw =
                 parseFloat(String(row?.discount ?? 0).replace(',', '.')) || 0;
-            const body = {
-                productName: line.productName,
-                qty: line.qty,
-                unitPrice: line.unitPrice,
-                vatRate: line.vatRate,
-                unit: line.unit,
-                ...(line.sku ? { sku: line.sku } : {}),
-                ...(row?.supplierProductId
-                    ? { supplierProductId: String(row.supplierProductId).trim() }
-                    : {}),
-                lineDiscount: discRaw,
-                lineDiscountMode:
-                    row?.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
-            };
+    const body = {
+        productName: line.productName,
+        qty: line.qty,
+        unitPrice: line.unitPrice,
+        vatRate: line.vatRate,
+        unit: line.unit,
+        ...(line.sku ? { sku: line.sku } : {}),
+
+        ...(row?.supplierStockProductId
+            ? { supplierProductId: String(row.supplierStockProductId).trim() }
+            : {}),
+
+        ...(row?.workshopCatalogProductId
+            ? { productId: String(row.workshopCatalogProductId) }
+            : {}),
+
+        lineDiscount: discRaw,
+        lineDiscountMode:
+            row?.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
+    };    
             const desc = String(row?.description ?? '').trim();
             if (desc) {
                 body.lineDescription = desc;
@@ -1301,29 +1329,41 @@ export default function SupplierSalesInvoices() {
             String(catalogItem.id).trim() !== ''
                 ? String(catalogItem.id)
                 : '';
-        setLineItems((prev) =>
-            prev.map((line) => {
-                if (line.id !== lineId) return line;
-                const raw = {
-                    ...line,
-                    sku: catalogItem.sku || '',
-                    item: catalogItem.name,
-                    uom: catalogItem.unit || line.uom || 'pcs',
-                    price: unitPrice,
-                    supplierProductId: catId || line.supplierProductId || '',
-                    hasPreviousSale: hasPrev,
-                    lastSalePrice: lastSaleAmt,
-                    lastSaleMeta: hasPrev
-                        ? String(catalogItem.lastSaleMeta || '').trim()
-                        : '',
-                };
-                return applyLineTotals(raw, amountsTaxInclusive);
-            }),
-        );
-        setItemPickerLineId(null);
-        setItemPickerInput('');
-        setItemPickerFilter('');
-    };
+setLineItems((prev) =>
+    prev.map((line) => {
+        if (line.id !== lineId) return line;
+
+        const raw = {
+            ...line,
+            sku: catalogItem.sku || '',
+            item: catalogItem.name,
+            uom: catalogItem.unit || line.uom || 'pcs',
+            price: unitPrice,
+
+            supplierStockProductId:
+                catalogItem.supplierStockProductId ??
+                line.supplierStockProductId ??
+                null,
+
+            supplierProductId:
+                catId || line.supplierProductId || '',
+
+            hasPreviousSale: hasPrev,
+
+            lastSalePrice: hasPrev ? lastSaleAmt : lastSale,
+
+            lastSaleMeta: hasPrev
+                ? String(catalogItem.lastSaleMeta || '').trim()
+                : '',
+        };
+
+        return applyLineTotals(raw, amountsTaxInclusive);
+    }),
+);
+
+setItemPickerLineId(null);
+setItemPickerInput('');
+setItemPickerFilter('');
 
     useEffect(() => {
         let cancelled = false;

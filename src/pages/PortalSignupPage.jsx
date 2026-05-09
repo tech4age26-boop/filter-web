@@ -11,6 +11,7 @@ import {
     workshopRegister,
 } from '../services/authApi';
 import { getBranches, getWorkshopOptions, getWorkshops } from '../services/superAdminApi';
+import { filterPortalVisibleBranches } from '../services/workshopStaffApi';
 
 const SIGNUP_PORTALS = {
     corporate: 'Corporate',
@@ -242,7 +243,9 @@ export default function PortalSignupPage() {
             workshops
                 .map((w) => ({
                     workshop: w,
-                    branches: allBranches.filter((b) => String(b.workshopId) === String(w.id)),
+                    branches: filterPortalVisibleBranches(
+                        allBranches.filter((b) => String(b.workshopId) === String(w.id)),
+                    ),
                 }))
                 .filter((x) => x.branches.length > 0),
         [workshops, allBranches],

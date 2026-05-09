@@ -23,6 +23,7 @@ import {
     getTrialBalance,
     updateAccount,
 } from '../../services/accountsApi';
+import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -206,7 +207,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
             try {
                 const list = await getAccountsBranches();
                 if (cancelled) return;
-                setBranches(parseArr(list));
+                setBranches(filterPortalVisibleBranches(parseArr(list)));
             } catch {
                 /* branches optional */
             }

@@ -8,6 +8,7 @@ import {
     getWorkshopCorporateCustomers,
     postCorporateRegister,
     workshopCorporateCustomersParams,
+    filterPortalVisibleBranches,
 } from '../../services/workshopStaffApi';
 
 const toNumber = (value) => {
@@ -631,7 +632,10 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
     const [registerOpen, setRegisterOpen] = useState(false);
 
     const mergedBranches = useMemo(
-        () => (branchesFromLayout.length > 0 ? branchesFromLayout : branches),
+        () =>
+            filterPortalVisibleBranches(
+                branchesFromLayout.length > 0 ? branchesFromLayout : branches,
+            ),
         [branchesFromLayout, branches],
     );
 
@@ -664,7 +668,7 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
         try {
             const response = await apiFetch('/workshop-staff/branches');
             if (response?.success && Array.isArray(response.branches)) {
-                setBranches(response.branches);
+                setBranches(filterPortalVisibleBranches(response.branches));
             }
         } catch {
             setBranches([]);

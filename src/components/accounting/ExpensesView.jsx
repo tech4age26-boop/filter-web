@@ -23,6 +23,7 @@ import {
     getSummary,
 } from '../../services/expensesApi';
 import { getAccounts } from '../../services/accountsApi';
+import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -66,7 +67,7 @@ export default function ExpensesView({ readOnly = false }) {
         setRows(parseArr(e?.list ?? e));
         setAccounts(parseArr(a));
         setCoaAccounts(parseArr(coa));
-        setBranches(parseArr(b?.branches ?? b));
+        setBranches(filterPortalVisibleBranches(parseArr(b?.branches ?? b)));
     };
     useEffect(() => { load(); }, [search, category, status]);
 

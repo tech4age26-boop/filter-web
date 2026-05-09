@@ -17,6 +17,7 @@ import {
     previewProductDeps,
     previewServiceDeps,
 } from '../../services/workshopCatalogApi';
+import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 
 const PAGE_SIZE = 50;
 
@@ -395,7 +396,10 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
     // tables; workshop JWT). We omit branchId on list calls for full master browse—branchId only
     // affects per-row inBranch on the API, not which rows are returned. Branch pickers here
     // are only inside adopt modals.
-    const branchList = useMemo(() => (Array.isArray(branchesProp) ? branchesProp : []), [branchesProp]);
+    const branchList = useMemo(
+        () => filterPortalVisibleBranches(Array.isArray(branchesProp) ? branchesProp : []),
+        [branchesProp],
+    );
 
     // ─── Departments tab ────────────────────────────────────────────────────
     const [deptRows, setDeptRows] = useState([]);
