@@ -21,7 +21,7 @@ export function branchScopeParams(selectedBranchId) {
 
 /**
  * For GET /workshop-staff/products, /workshop-staff/commissions, etc.:
- * one branch → `branchId`; all branches in the UI → `allBranches=true` (required by the API).
+ * one branch → `branchId`; workshop-wide in the UI → `allBranches=true` (API limits this to **active** branches only).
  */
 export function workshopStaffListScopeQuery(selectedBranchId) {
     if (selectedBranchId == null || selectedBranchId === '' || selectedBranchId === 'all') {
@@ -418,6 +418,26 @@ export function unwrapWorkshopBranchesResponse(res) {
     if (Array.isArray(res.data)) return res.data;
     if (Array.isArray(res)) return res;
     return [];
+}
+
+/** Workshop portal: treat branch as non-selectable / hidden when inactive. */
+export function isWorkshopPortalBranchInactive(b) {
+    if (b == null || typeof b !== 'object') return false;
+    if (String(b.status ?? '').toLowerCase() === 'inactive') return true;
+    if (b.isActive === false) return true;
+    return false;
+}
+
+/**
+ * Drop inactive workshop branches for pickers, labels, and lists.
+ * @param {unknown[]} list
+ * @param {{ includeInactive?: boolean }} [opts] Pass `{ includeInactive: true }` on branch-management screens that must list every branch.
+ */
+export function filterPortalVisibleBranches(list, opts = {}) {
+    const { includeInactive = false } = opts;
+    if (!Array.isArray(list)) return [];
+    if (includeInactive) return list;
+    return list.filter((b) => !isWorkshopPortalBranchInactive(b));
 }
 
 /**
@@ -927,11 +947,16 @@ export function normalizeUnifiedWorkshopEmployeeRow(raw) {
  * @param {string|number} [params.branchId]
  * @param {string} [params.employeeType] staff | technician | cashier
  * @param {boolean|string} [params.isActive]
+ * @param {boolean} [params.includeInactive] When true, do not default workshop-wide lists to active-only.
  * @param {number|string} [params.limit]
  * @param {number|string} [params.offset]
  */
 export async function loadWorkshopEmployeesCombined(params = {}) {
     const query = {};
+    const isWorkshopWide =
+        params.branchId == null ||
+        params.branchId === '' ||
+        String(params.branchId) === 'all';
     if (params.branchId != null && params.branchId !== '' && params.branchId !== 'all') {
         query.branchId = String(params.branchId);
     }
@@ -940,6 +965,9 @@ export async function loadWorkshopEmployeesCombined(params = {}) {
     }
     if (params.isActive != null && params.isActive !== '') {
         query.isActive = String(params.isActive);
+    } else if (isWorkshopWide && !params.includeInactive) {
+        // Portal "all branches": list active staff only (single-branch views still load full branch roster).
+        query.isActive = 'true';
     }
     if (params.limit != null && params.limit !== '') {
         query.limit = String(params.limit);

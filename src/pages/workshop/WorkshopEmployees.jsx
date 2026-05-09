@@ -20,6 +20,7 @@ import {
     unwrapWorkshopStaffDetail,
     unwrapWorkshopPortalStaffDetail,
     unwrapWorkshopBranchesResponse,
+    filterPortalVisibleBranches,
     normalizeWorkshopEmployee,
     buildPortalStaffPatchPayload,
 } from '../../services/workshopStaffApi';
@@ -104,19 +105,21 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
 
     useEffect(() => {
         if (branchesProp?.length) {
-            setBranchList(branchesProp.map(mapBranchOption));
+            setBranchList(filterPortalVisibleBranches(branchesProp).map(mapBranchOption));
             return;
         }
         let cancelled = false;
         getWorkshopBranches()
             .then((r) => {
                 if (cancelled) return;
-                const raw = unwrapWorkshopBranchesResponse(r);
+                const raw = filterPortalVisibleBranches(unwrapWorkshopBranchesResponse(r));
                 if (raw.length > 0) {
                     setBranchList(raw.map(mapBranchOption));
                     return;
                 }
-                if (r?.success && Array.isArray(r.branches)) setBranchList(r.branches.map(mapBranchOption));
+                if (r?.success && Array.isArray(r.branches)) {
+                    setBranchList(filterPortalVisibleBranches(r.branches).map(mapBranchOption));
+                }
             })
             .catch(() => {});
         return () => {

@@ -11,6 +11,7 @@ import {
     getWorkshopSupplierPurchaseInvoice,
     listWorkshopSupplierPurchaseInvoices,
     unwrapWorkshopBranchListResponse,
+    filterPortalVisibleBranches,
 } from '../../services/workshopStaffApi';
 import { getBranchProducts } from '../../services/workshopCatalogApi';
 import {
@@ -385,6 +386,7 @@ function formatViewInvoiceDiscount(raw) {
 }
 
 export default function WorkshopPurchases({ tabState, clearTabState, selectedBranchId, branches = [] }) {
+    const branchesForUi = useMemo(() => filterPortalVisibleBranches(branches), [branches]);
     const [activeTab, setActiveTab] = useState('invoices');
     const [filterSupplier, setFilterSupplier] = useState('all');
     const [filterProduct, setFilterProduct] = useState('all');
@@ -426,8 +428,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
 
     const effectiveBranchId = useMemo(() => {
         if (selectedBranchId && selectedBranchId !== 'all') return selectedBranchId;
-        return branches[0]?.id ?? null;
-    }, [selectedBranchId, branches]);
+        return branchesForUi[0]?.id ?? null;
+    }, [selectedBranchId, branchesForUi]);
 
     const [branchProductOptions, setBranchProductOptions] = useState([]);
     const [branchProductsLoading, setBranchProductsLoading] = useState(false);
@@ -525,7 +527,15 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     }, [effectiveBranchId, modalOpen, invoiceBranchId]);
 
     const loadPurchaseInvoices = useCallback(async () => {
-        if (!effectiveBranchId) {
+        /** Workshop-wide list when sidebar is "All branches"; single branch otherwise (fallback: first visible branch). */
+        const listScope =
+            selectedBranchId === 'all'
+                ? 'all'
+                : selectedBranchId && selectedBranchId !== 'all'
+                  ? selectedBranchId
+                  : branchesForUi[0]?.id ?? null;
+
+        if (listScope !== 'all' && !listScope) {
             setInvoices([]);
             return;
         }
@@ -535,7 +545,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             const res = await listWorkshopSupplierPurchaseInvoices({
                 limit: 100,
                 offset: 0,
-                ...branchScopeParams(effectiveBranchId),
+                ...branchScopeParams(listScope),
             });
             const list = unwrapWorkshopSupplierPurchaseInvoiceList(res);
             setInvoices(list.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean));
@@ -545,7 +555,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         } finally {
             setInvoicesLoading(false);
         }
-    }, [effectiveBranchId]);
+    }, [selectedBranchId, branchesForUi]);
 
     const closeViewInvoiceModal = useCallback(() => {
         setViewModalOpen(false);
@@ -595,16 +605,16 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     /** When opening the composer, default invoice branch from sidebar / first branch (before paint). */
     useLayoutEffect(() => {
         if (!modalOpen) return;
-        if (branches.length === 0) {
+        if (branchesForUi.length === 0) {
             setInvoiceBranchId('');
             return;
         }
         const next =
             selectedBranchId && selectedBranchId !== 'all'
                 ? String(selectedBranchId)
-                : String(branches[0].id);
+                : String(branchesForUi[0].id);
         setInvoiceBranchId((prev) => (prev === next ? prev : next));
-    }, [modalOpen, selectedBranchId, branches]);
+    }, [modalOpen, selectedBranchId, branchesForUi]);
 
     useEffect(() => {
         if (!modalOpen || !invoiceBranchId) return;
@@ -1408,7 +1418,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         }
                     >
                         <div className="pi-form-container">
-                            {branches.length === 0 && (
+                            {branchesForUi.length === 0 && (
                                 <p
                                     style={{
                                         padding: '10px 14px',
@@ -1422,7 +1432,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     Add a workshop branch before creating purchase invoices.
                                 </p>
                             )}
-                            {branches.length > 0 && (
+                            {branchesForUi.length > 0 && (
                                 <div className="pi-field pi-full-width" style={{ marginBottom: 16 }}>
                                     <label>Branch for this invoice *</label>
                                     <select
@@ -1437,7 +1447,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             background: '#f8fafc',
                                         }}
                                     >
-                                        {branches.map((b) => (
+                                        {branchesForUi.map((b) => (
                                             <option key={b.id} value={String(b.id)}>
                                                 {b.name}
                                             </option>
@@ -1449,7 +1459,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     </p>
                                 </div>
                             )}
-                            {!invoiceBranchId && branches.length > 0 && (
+                            {!invoiceBranchId && branchesForUi.length > 0 && (
                                 <p
                                     style={{
                                         padding: '10px 14px',

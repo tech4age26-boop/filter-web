@@ -20,6 +20,7 @@ import {
 } from '../../services/cashBankApi';
 import { getAccounts as getCoaAccounts } from '../../services/accountsApi';
 import { getBranches } from '../../services/superAdminApi';
+import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -142,7 +143,7 @@ export default function CashBankView({ readOnly = false }) {
                 pettyCashCount: Number(summaryRes.pettyCashCount || 0),
             });
             setAccounts(parseArr(accountsRes).map(normalizeAccount));
-            setBranches(parseArr(branchesRes?.branches ?? branchesRes));
+            setBranches(filterPortalVisibleBranches(parseArr(branchesRes?.branches ?? branchesRes)));
             const coaList = parseArr(coaRes).filter(
                 (a) => a.type === 'ASSET' && a.subType === 'CURRENT',
             );

@@ -232,7 +232,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         let cancelled = false;
         (async () => {
             try {
-                const res = await getWorkshopTechnicians(workshopReportsAnalyticsParams(selectedBranchId, {}));
+                const isAll = !selectedBranchId || selectedBranchId === 'all';
+                const res = await getWorkshopTechnicians({
+                    ...workshopReportsAnalyticsParams(selectedBranchId, {}),
+                    ...(isAll ? { isActive: 'true' } : {}),
+                });
                 if (cancelled) return;
                 const rawList = unwrapWorkshopStaffList(res, 'technician');
                 const opts = [];

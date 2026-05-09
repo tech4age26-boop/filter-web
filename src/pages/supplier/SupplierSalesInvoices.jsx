@@ -374,13 +374,10 @@ function normalizeStockCatalogRow(item) {
             : qtyWh <= 0
               ? 'No warehouse qty — edit unit price manually'
               : '';
-    /** Used for picker key / display only — not POSTed as `productId` (server validates IDs against PO/workshop links and returns "Invalid reference… poId"). */
-    const catalogId =
-        item.productId != null && item.productId !== ''
-            ? item.productId
-            : item.supplierProductId != null && item.supplierProductId !== ''
-              ? item.supplierProductId
-              : undefined;
+    /** `stock-balances` row `productId` is supplier_products.id — POST as supplierProductId for workshop catalog resolution. */
+    const supplierStockProductId =
+        item.productId != null && item.productId !== '' ? String(item.productId).trim() : '';
+    const catalogId = supplierStockProductId || undefined;
     return {
         id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
         name: item.productName || 'Product',
@@ -390,7 +387,8 @@ function normalizeStockCatalogRow(item) {
         lastPrice: Number(item.lastWarehouseSalePrice || item.lastSalePrice || price || 0) || price,
         itemType: 'Product',
         stockHint,
-        catalogProductResolved: catalogId != null && catalogId !== '',
+        supplierStockProductId: supplierStockProductId || null,
+        catalogProductResolved: Boolean(supplierStockProductId),
     };
 }
 
@@ -601,6 +599,7 @@ export default function SupplierSalesInvoices() {
             taxAmt: '0.00',
             totalFinal: '0.00',
             lastSalePrice: lastSale,
+            supplierStockProductId: item.supplierStockProductId ?? null,
         };
         const newLine = applyLineTotals(rawLine, amountsTaxInclusive);
         setLineItems((prev) => [...prev, newLine]);
@@ -824,6 +823,12 @@ export default function SupplierSalesInvoices() {
                 vatRate: line.vatRate,
                 unit: line.unit,
                 ...(line.sku ? { sku: line.sku } : {}),
+                ...(row?.supplierStockProductId
+                    ? { supplierProductId: String(row.supplierStockProductId) }
+                    : {}),
+                ...(row?.workshopCatalogProductId
+                    ? { productId: String(row.workshopCatalogProductId) }
+                    : {}),
                 lineDiscount: discRaw,
                 lineDiscountMode:
                     row?.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
@@ -1229,6 +1234,7 @@ export default function SupplierSalesInvoices() {
                     uom: catalogItem.unit || line.uom || 'pcs',
                     price: unitPrice,
                     lastSalePrice: lastSale,
+                    supplierStockProductId: catalogItem.supplierStockProductId ?? line.supplierStockProductId ?? null,
                 };
                 return applyLineTotals(raw, amountsTaxInclusive);
             }),

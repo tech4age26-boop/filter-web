@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Building2, Wallet, Edit, Phone, Mail, MapPin, Loader2 } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
+import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 
 export function EditProfileModal({ profile, onClose, onSave, saving }) {
     const [formData, setFormData] = useState({
@@ -141,7 +142,16 @@ export default function CorporateProfile({ onTabChange }) {
     );
 
     const ca = profile?.corporateAccount;
-    const workshops = profile?.workshops || [];
+    const workshopsForDisplay = useMemo(() => {
+        const w = profile?.workshops;
+        if (!Array.isArray(w)) return [];
+        return w
+            .map((ws) => ({
+                ...ws,
+                branches: filterPortalVisibleBranches(ws.branches || []),
+            }))
+            .filter((ws) => ws.branches.length > 0);
+    }, [profile?.workshops]);
 
     const handleSaveBranches = (corpId, ids) => {
         // Implementation for saving branches if PUT API supported it, 
@@ -191,7 +201,7 @@ export default function CorporateProfile({ onTabChange }) {
                             <p style={{fontSize:'0.75rem',color:'var(--color-text-muted)',margin:0}}>Active Workshops & Branches</p>
                         </div>
                         <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                            {workshops.map(ws => (
+                            {workshopsForDisplay.map(ws => (
                                 <div key={ws.id} style={{padding:12, background:'var(--color-bg-muted)', borderRadius:12}}>
                                     <p style={{fontWeight:700, fontSize:'0.875rem', marginBottom:6, color:'var(--color-primary)'}}>{ws.name}</p>
                                     <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
@@ -201,7 +211,7 @@ export default function CorporateProfile({ onTabChange }) {
                                     </div>
                                 </div>
                             ))}
-                            {workshops.length === 0 && <p style={{fontSize:'0.75rem',color:'var(--color-text-muted)'}}>No active workshops assigned.</p>}
+                            {workshopsForDisplay.length === 0 && <p style={{fontSize:'0.75rem',color:'var(--color-text-muted)'}}>No active workshops assigned.</p>}
                         </div>
                     </div>
                 </div>
