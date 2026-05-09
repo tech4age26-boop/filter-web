@@ -4178,3 +4178,16 @@
     color: #111827;
 }
 
+@keyframes supplier-sales-last-sale-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.supplier-sales-last-sale-spinner {
+    animation: supplier-sales-last-sale-spin 0.75s linear infinite;
+}
+

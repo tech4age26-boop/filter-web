@@ -12,6 +12,7 @@ import {
     Pencil,
     Trash2,
     ChevronDown,
+    Loader2,
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -368,28 +369,74 @@ function normalizeStockCatalogRow(item) {
     const unitCost =
         qtyWh > 0 ? Number(item.valueWarehouseSar || 0) / qtyWh : 0;
     const price = Number.isFinite(unitCost) ? Math.max(0, unitCost) : 0;
-    const stockHint =
-        qtyWh > 0
-            ? `Warehouse stock: ${qtyWh} • Unit cost SAR ${price.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
-            : qtyWh <= 0
-              ? 'No warehouse qty — edit unit price manually'
-              : '';
-    /** `stock-balances` row `productId` is supplier_products.id — POST as supplierProductId for workshop catalog resolution. */
-    const supplierStockProductId =
-        item.productId != null && item.productId !== '' ? String(item.productId).trim() : '';
-    const catalogId = supplierStockProductId || undefined;
-    return {
-        id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
-        name: item.productName || 'Product',
-        sku: String(item.sku ?? item.barcode ?? '').trim(),
-        price,
-        unit: item.workshopUnit || item.unitCode || item.unit || 'pcs',
-        lastPrice: Number(item.lastWarehouseSalePrice || item.lastSalePrice || price || 0) || price,
-        itemType: 'Product',
-        stockHint,
-        supplierStockProductId: supplierStockProductId || null,
-        catalogProductResolved: Boolean(supplierStockProductId),
-    };
+const stockHint =
+    qtyWh > 0
+        ? `Warehouse stock: ${qtyWh} • Unit cost SAR ${price.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
+        : qtyWh <= 0
+          ? 'No warehouse qty — edit unit price manually'
+          : '';
+
+/** `stock-balances` row `productId` is supplier_products.id — POST as supplierProductId for workshop catalog resolution. */
+const supplierStockProductId =
+    item.productId != null && item.productId !== ''
+        ? String(item.productId).trim()
+        : '';
+
+/** Used for picker/display */
+const catalogId =
+    supplierStockProductId ||
+    (item.supplierProductId != null && item.supplierProductId !== ''
+        ? String(item.supplierProductId).trim()
+        : undefined);
+
+const lastSaleRaw =
+    item && typeof item.lastSale === 'object' && item.lastSale != null
+        ? item.lastSale
+        : null;
+
+const hasPreviousSale = !!(
+    lastSaleRaw &&
+    String(lastSaleRaw.invoiceDate || '').trim() !== ''
+);
+
+const lastSalePriceNum = hasPreviousSale
+    ? Number(lastSaleRaw.unitPrice ?? 0)
+    : 0;
+
+const saleDateRaw = String(lastSaleRaw?.invoiceDate || '').trim();
+
+const buyerWorkshop = String(lastSaleRaw?.buyerWorkshopName || '').trim();
+
+const buyerBranch = String(lastSaleRaw?.buyerBranchName || '').trim();
+
+const buyerLabel =
+    buyerWorkshop && buyerBranch
+        ? `${buyerWorkshop} — ${buyerBranch}`
+        : buyerWorkshop || buyerBranch || '';
+
+const lastSaleMeta =
+    hasPreviousSale && (saleDateRaw || buyerLabel)
+        ? [saleDateRaw, buyerLabel].filter(Boolean).join(' • ')
+        : '';
+
+return {
+    id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
+    name: item.productName || 'Product',
+    sku: String(item.sku ?? item.barcode ?? '').trim(),
+    price,
+    unit: item.workshopUnit || item.unitCode || item.unit || 'pcs',
+
+    lastPrice: lastSalePriceNum,
+    lastSaleMeta,
+    hasPreviousSale,
+
+    itemType: 'Product',
+    stockHint,
+
+    supplierStockProductId: supplierStockProductId || null,
+
+    catalogProductResolved: Boolean(supplierStockProductId),
+};
 }
 
 function nextLineId() {
@@ -436,6 +483,8 @@ export default function SupplierSalesInvoices() {
     const [showDesc, setShowDesc] = useState(false);
     const [showDiscount, setShowDiscount] = useState(false);
     const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(false);
+    const amountsTaxInclusiveRef = useRef(amountsTaxInclusive);
+    amountsTaxInclusiveRef.current = amountsTaxInclusive;
     const [freightCharges, setFreightCharges] = useState('0');
     const [invoiceDiscountValue, setInvoiceDiscountValue] = useState('0');
     const [invoiceDiscountMode, setInvoiceDiscountMode] = useState('fixed_sar');
@@ -447,6 +496,9 @@ export default function SupplierSalesInvoices() {
     const [selectedIndex, setSelectedIndex] = useState(-1);
     const [inventoryItems, setInventoryItems] = useState(INVENTORY_ITEMS);
     const [inventoryInitialLoadDone, setInventoryInitialLoadDone] =
+        useState(false);
+    /** True while stock-balances (last-sale hints) refetch runs for the open invoice modal. */
+    const [lastSaleStockRefreshing, setLastSaleStockRefreshing] =
         useState(false);
     const [branches, setBranches] = useState([]);
     /** Set when GET /supplier/invoices/customer-branches fails (network, auth, server). */
@@ -583,7 +635,12 @@ export default function SupplierSalesInvoices() {
 
     const addItemToLines = useCallback((item) => {
         const unitPrice = Number(item.price) || 0;
-        const lastSale = Number(item.lastPrice ?? item.price ?? 0) || unitPrice;
+        const hasPrev = !!item.hasPreviousSale;
+        const lastSaleAmt = hasPrev ? Number(item.lastPrice ?? 0) : 0;
+        const catId =
+            item.catalogProductResolved && item.id != null && String(item.id).trim() !== ''
+                ? String(item.id)
+                : '';
         const rawLine = {
             id: nextLineId(),
             sku: item.sku || '',
@@ -600,6 +657,10 @@ export default function SupplierSalesInvoices() {
             totalFinal: '0.00',
             lastSalePrice: lastSale,
             supplierStockProductId: item.supplierStockProductId ?? null,
+            supplierProductId: catId,
+            hasPreviousSale: hasPrev,
+            lastSalePrice: lastSaleAmt,
+            lastSaleMeta: hasPrev ? String(item.lastSaleMeta || '').trim() : '',
         };
         const newLine = applyLineTotals(rawLine, amountsTaxInclusive);
         setLineItems((prev) => [...prev, newLine]);
@@ -626,7 +687,10 @@ export default function SupplierSalesInvoices() {
             taxCode: 'VAT 15%',
             taxAmt: '0.00',
             totalFinal: '0.00',
+            supplierProductId: '',
+            hasPreviousSale: false,
             lastSalePrice: 0,
+            lastSaleMeta: '',
         };
         const newLine = applyLineTotals(rawLine, amountsTaxInclusive);
         setLineItems((prev) => [...prev, newLine]);
@@ -780,7 +844,9 @@ export default function SupplierSalesInvoices() {
             setSaveError('Add at least one line item.');
             return;
         }
-        const branchRef = branches.find((b) => String(b.id) === String(branch));
+        const branchRef = branches.find(
+            (b) => !b.noBranch && String(b.value || b.id) === String(branch),
+        );
         if (!branchRef?.id) {
             setSaveError('Invalid branch selection. Refresh the page if branches are missing.');
             return;
@@ -816,23 +882,26 @@ export default function SupplierSalesInvoices() {
             const row = lineItems[idx];
             const discRaw =
                 parseFloat(String(row?.discount ?? 0).replace(',', '.')) || 0;
-            const body = {
-                productName: line.productName,
-                qty: line.qty,
-                unitPrice: line.unitPrice,
-                vatRate: line.vatRate,
-                unit: line.unit,
-                ...(line.sku ? { sku: line.sku } : {}),
-                ...(row?.supplierStockProductId
-                    ? { supplierProductId: String(row.supplierStockProductId) }
-                    : {}),
-                ...(row?.workshopCatalogProductId
-                    ? { productId: String(row.workshopCatalogProductId) }
-                    : {}),
-                lineDiscount: discRaw,
-                lineDiscountMode:
-                    row?.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
-            };
+    const body = {
+        productName: line.productName,
+        qty: line.qty,
+        unitPrice: line.unitPrice,
+        vatRate: line.vatRate,
+        unit: line.unit,
+        ...(line.sku ? { sku: line.sku } : {}),
+
+        ...(row?.supplierStockProductId
+            ? { supplierProductId: String(row.supplierStockProductId).trim() }
+            : {}),
+
+        ...(row?.workshopCatalogProductId
+            ? { productId: String(row.workshopCatalogProductId) }
+            : {}),
+
+        lineDiscount: discRaw,
+        lineDiscountMode:
+            row?.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
+    };    
             const desc = String(row?.description ?? '').trim();
             if (desc) {
                 body.lineDescription = desc;
@@ -980,7 +1049,14 @@ export default function SupplierSalesInvoices() {
                             taxCode,
                             taxAmt: '0.00',
                             totalFinal: '0.00',
-                            lastSalePrice: Number(it.unitPrice),
+                            supplierProductId:
+                                it.supplierProductId != null &&
+                                String(it.supplierProductId).trim() !== ''
+                                    ? String(it.supplierProductId).trim()
+                                    : '',
+                            hasPreviousSale: false,
+                            lastSalePrice: 0,
+                            lastSaleMeta: '',
                         },
                         taxIncl,
                     );
@@ -1180,6 +1256,30 @@ export default function SupplierSalesInvoices() {
         }
     };
 
+    /** Stock-balances row wins once loaded so Last Sale shows date / buyer after inventory fetch (incl. edit). */
+    const lastSaleHintForLine = useCallback(
+        (line) => {
+            if (line.supplierProductId) {
+                const inv = inventoryItems.find(
+                    (x) => String(x.id) === String(line.supplierProductId),
+                );
+                if (inv) {
+                    return {
+                        hasPrev: !!inv.hasPreviousSale,
+                        price: Number(inv.lastPrice ?? 0),
+                        meta: String(inv.lastSaleMeta || '').trim(),
+                    };
+                }
+            }
+            return {
+                hasPrev: !!line.hasPreviousSale,
+                price: Number(line.lastSalePrice ?? 0),
+                meta: String(line.lastSaleMeta || '').trim(),
+            };
+        },
+        [inventoryItems],
+    );
+
     const list = invoices || [];
 
     useEffect(() => {
@@ -1221,28 +1321,49 @@ export default function SupplierSalesInvoices() {
 
     const applyCatalogItemToLine = (lineId, catalogItem) => {
         const unitPrice = Number(catalogItem.price) || 0;
-        const lastSale =
-            Number(catalogItem.lastPrice ?? catalogItem.price ?? 0) ||
-            unitPrice;
-        setLineItems((prev) =>
-            prev.map((line) => {
-                if (line.id !== lineId) return line;
-                const raw = {
-                    ...line,
-                    sku: catalogItem.sku || '',
-                    item: catalogItem.name,
-                    uom: catalogItem.unit || line.uom || 'pcs',
-                    price: unitPrice,
-                    lastSalePrice: lastSale,
-                    supplierStockProductId: catalogItem.supplierStockProductId ?? line.supplierStockProductId ?? null,
-                };
-                return applyLineTotals(raw, amountsTaxInclusive);
-            }),
-        );
-        setItemPickerLineId(null);
-        setItemPickerInput('');
-        setItemPickerFilter('');
-    };
+        const hasPrev = !!catalogItem.hasPreviousSale;
+        const lastSaleAmt = hasPrev ? Number(catalogItem.lastPrice ?? 0) : 0;
+        const catId =
+            catalogItem.catalogProductResolved &&
+            catalogItem.id != null &&
+            String(catalogItem.id).trim() !== ''
+                ? String(catalogItem.id)
+                : '';
+setLineItems((prev) =>
+    prev.map((line) => {
+        if (line.id !== lineId) return line;
+
+        const raw = {
+            ...line,
+            sku: catalogItem.sku || '',
+            item: catalogItem.name,
+            uom: catalogItem.unit || line.uom || 'pcs',
+            price: unitPrice,
+
+            supplierStockProductId:
+                catalogItem.supplierStockProductId ??
+                line.supplierStockProductId ??
+                null,
+
+            supplierProductId:
+                catId || line.supplierProductId || '',
+
+            hasPreviousSale: hasPrev,
+
+            lastSalePrice: hasPrev ? lastSaleAmt : lastSale,
+
+            lastSaleMeta: hasPrev
+                ? String(catalogItem.lastSaleMeta || '').trim()
+                : '',
+        };
+
+        return applyLineTotals(raw, amountsTaxInclusive);
+    }),
+);
+
+setItemPickerLineId(null);
+setItemPickerInput('');
+setItemPickerFilter('');
 
     useEffect(() => {
         let cancelled = false;
@@ -1289,13 +1410,25 @@ export default function SupplierSalesInvoices() {
                 if (custBranches.length) {
                     setBranches(
                         custBranches.map((b) => {
+                            const noBranch = !!b.noBranch;
                             const bid = b.branchId ?? b.branch_id ?? b.id;
+                            const branchVal =
+                                bid != null && bid !== '' ? String(bid) : '';
+                            const workshopIdStr =
+                                b.workshopId != null && b.workshopId !== ''
+                                    ? String(b.workshopId)
+                                    : '';
                             return {
-                                id: bid != null && bid !== '' ? String(bid) : '',
+                                /** Stable React key; real branch id when selectable */
+                                id: noBranch
+                                    ? `no-branch-${workshopIdStr || 'x'}`
+                                    : branchVal,
+                                value: noBranch ? '' : branchVal,
                                 name: b.name,
                                 label:
                                     b.label ||
                                     `${b.workshopName || ''} — ${b.name || ''}`.trim(),
+                                noBranch,
                             };
                         }),
                     );
@@ -1328,6 +1461,67 @@ export default function SupplierSalesInvoices() {
             cancelled = true;
         };
     }, []);
+
+    /** Fresh stock + last-sale hints when opening the invoice modal or changing customer branch (no full page reload). */
+    useEffect(() => {
+        if (!modalOpen || !inventoryInitialLoadDone) return undefined;
+        let cancelled = false;
+        const params = { limit: 200 };
+        const bid = String(branch ?? '').trim();
+        if (bid) {
+            params.branchId = bid;
+        }
+        const run = async () => {
+            setLastSaleStockRefreshing(true);
+            try {
+                const stockRes = await getSupplierInventoryStockBalances(params);
+                if (cancelled) return;
+                const normalized = Array.isArray(stockRes?.items)
+                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw))
+                    : [];
+                setInventoryItems((prev) => mergeInventoryLists(normalized, INVENTORY_ITEMS));
+                setLineItems((prev) =>
+                    prev.map((line) => {
+                        if (!line.supplierProductId) return line;
+                        const inv = normalized.find(
+                            (x) => String(x.id) === String(line.supplierProductId),
+                        );
+                        if (!inv) return line;
+                        const hasPrev = !!inv.hasPreviousSale;
+                        return applyLineTotals(
+                            {
+                                ...line,
+                                hasPreviousSale: hasPrev,
+                                lastSalePrice: hasPrev ? Number(inv.lastPrice ?? 0) : 0,
+                                lastSaleMeta: hasPrev
+                                    ? String(inv.lastSaleMeta || '').trim()
+                                    : '',
+                            },
+                            amountsTaxInclusiveRef.current,
+                        );
+                    }),
+                );
+            } catch (err) {
+                if (!cancelled) {
+                    console.error('Sales invoice last-sale refresh failed:', err);
+                }
+            } finally {
+                if (!cancelled) {
+                    setLastSaleStockRefreshing(false);
+                }
+            }
+        };
+        run();
+        return () => {
+            cancelled = true;
+        };
+    }, [modalOpen, inventoryInitialLoadDone, branch]);
+
+    useEffect(() => {
+        if (!modalOpen) {
+            setLastSaleStockRefreshing(false);
+        }
+    }, [modalOpen]);
 
     useEffect(() => {
         const fromAlert = location.state?.[SALES_INVOICE_FROM_ALERT_KEY];
@@ -1950,7 +2144,11 @@ export default function SupplierSalesInvoices() {
                                     >
                                         <option value="">Select workshop / branch</option>
                                         {(branches || []).map((b) => (
-                                            <option key={b.id} value={String(b.id)}>
+                                            <option
+                                                key={b.id}
+                                                value={b.noBranch ? '' : String(b.value ?? b.id)}
+                                                disabled={!!b.noBranch}
+                                            >
                                                 {b.label || b.name}
                                             </option>
                                         ))}
@@ -1970,9 +2168,9 @@ export default function SupplierSalesInvoices() {
                                             className="pi-sub-label"
                                             style={{ color: '#B45309', marginTop: 6, display: 'block' }}
                                         >
-                                            No workshop branches returned. In admin, link this supplier to a workshop
-                                            (workshop_suppliers). Each linked workshop must have at least one branch
-                                            that is not rejected.
+                                            No workshop branches returned. Ensure workshops exist and each has at least
+                                            one branch that is not rejected. If this persists, check your connection and
+                                            backend logs.
                                         </span>
                                     ) : null}
                                 </div>
@@ -2576,12 +2774,87 @@ export default function SupplierSalesInvoices() {
                                                 fontWeight: 600,
                                             }}
                                         >
-                                            {line.lastSalePrice != null &&
-                                            Number(line.lastSalePrice) > 0 ? (
-                                                `SAR ${Number(line.lastSalePrice).toLocaleString()}`
-                                            ) : (
-                                                <span style={{ color: '#94a3b8' }}>—</span>
-                                            )}
+                                            {(() => {
+                                                if (
+                                                    lastSaleStockRefreshing &&
+                                                    line.supplierProductId
+                                                ) {
+                                                    return (
+                                                        <div
+                                                            style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: 8,
+                                                                minHeight: 36,
+                                                            }}
+                                                        >
+                                                            <Loader2
+                                                                size={16}
+                                                                className="supplier-sales-last-sale-spinner"
+                                                                aria-hidden
+                                                                style={{
+                                                                    color: '#64748b',
+                                                                    flexShrink: 0,
+                                                                }}
+                                                            />
+                                                            <span
+                                                                style={{
+                                                                    fontSize: '0.75rem',
+                                                                    color: '#64748b',
+                                                                    fontWeight: 500,
+                                                                }}
+                                                            >
+                                                                Loading…
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                }
+                                                const ls = lastSaleHintForLine(line);
+                                                const show =
+                                                    ls.hasPrev &&
+                                                    Number.isFinite(ls.price) &&
+                                                    ls.price > 0;
+                                                return show ? (
+                                                    <div
+                                                        style={{
+                                                            display: 'flex',
+                                                            flexDirection: 'column',
+                                                            gap: 2,
+                                                            lineHeight: 1.2,
+                                                        }}
+                                                    >
+                                                        <span>
+                                                            SAR{' '}
+                                                            {Number(ls.price).toLocaleString(undefined, {
+                                                                minimumFractionDigits: 2,
+                                                                maximumFractionDigits: 4,
+                                                            })}
+                                                        </span>
+                                                        {ls.meta ? (
+                                                            <span
+                                                                style={{
+                                                                    fontSize: '0.675rem',
+                                                                    color: '#475569',
+                                                                    fontWeight: 500,
+                                                                    whiteSpace: 'normal',
+                                                                }}
+                                                            >
+                                                                {ls.meta}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                ) : (
+                                                    <span
+                                                        style={{
+                                                            color: '#64748b',
+                                                            fontSize: '0.75rem',
+                                                            fontWeight: 500,
+                                                        }}
+                                                    >
+                                                        No previous sale in selected workshop
+                                                    </span>
+                                                );
+                                            })()}
                                         </div>
                                         <div
                                             style={{
