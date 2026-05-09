@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ShoppingCart, Plus, RefreshCw, Loader, AlertCircle } from 'lucide-react';
+import { ShoppingCart, Plus, RefreshCw, Loader, AlertCircle, Eye } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { PI_INVENTORY_ITEMS } from './constants';
@@ -7,10 +7,20 @@ import {
     getWorkshopSuppliers,
     getRegisteredWorkshopSuppliers,
     linkSuppliersToWorkshop,
+    createWorkshopSupplier,
+    listWorkshopSupplierPurchaseInvoices,
+    getWorkshopSupplierPurchaseInvoice,
     branchScopeParams,
 } from '../../services/workshopStaffApi';
+import {
+    normalizeWorkshopSupplierPurchaseInvoiceRow,
+    unwrapWorkshopSupplierPurchaseInvoiceList,
+    unwrapWorkshopStaffSupplierPurchaseInvoiceGet,
+} from '../../services/workshopSupplierPurchaseInvoices';
+import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 
 const SUPPLIERS_PAGE_LIMIT = 500;
+const PURCHASES_PAGE_SIZE = 25;
 
 function unwrapSuppliersResponse(res) {
     if (Array.isArray(res)) return res;
@@ -46,10 +56,15 @@ function normalizeSupplierRow(s) {
             : s.isActive === false
               ? 'inactive'
               : 'active';
+    const regType = s.registrationType ?? s.type ?? '';
+    let category = s.category ?? regType ?? '—';
+    if (regType === 'workshop_local' || category === 'workshop_local') {
+        category = 'Workshop only';
+    }
     return {
         id: String(s.id ?? s._id ?? ''),
         name: s.supplierName ?? s.name ?? '—',
-        category: s.category ?? s.registrationType ?? s.type ?? '—',
+        category,
         vatId: s.vatId ?? s.taxId ?? s.vat_id ?? '',
         crNumber: s.tradeLicenseNo ?? s.crNumber ?? s.cr_no ?? s.commercialRegistration ?? '',
         contactPerson: s.contactPerson ?? s.ownerName ?? '',
@@ -58,6 +73,326 @@ function normalizeSupplierRow(s) {
         status,
         raw: s,
     };
+}
+
+function purchaseInvoiceStatusBadgeClass(status) {
+    const s = String(status || '').toLowerCase();
+    if (['approved', 'received', 'completed', 'stock_applied'].includes(s)) return 'ws-badge--green';
+    if (['rejected', 'cancelled'].includes(s)) return 'ws-badge--red';
+    if (s === 'draft') return 'ws-badge--gray';
+    return 'ws-badge--yellow';
+}
+
+function purchasePaymentBadgeClass(paymentStatus) {
+    const s = String(paymentStatus || '').toLowerCase();
+    if (s === 'paid') return 'ws-badge--green';
+    if (s === 'partially_paid' || s === 'partial') return 'ws-badge--yellow';
+    return 'ws-badge--red';
+}
+
+/** Paginated purchase history + view modal — remounted when branch changes (key on parent) so page resets. */
+function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
+    const [page, setPage] = useState(1);
+    const [rows, setRows] = useState([]);
+    const [total, setTotal] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [viewOpen, setViewOpen] = useState(false);
+    const [viewRow, setViewRow] = useState(null);
+    const [viewDetail, setViewDetail] = useState(null);
+    const [viewLoading, setViewLoading] = useState(false);
+    const [viewError, setViewError] = useState('');
+
+    const offset = (page - 1) * PURCHASES_PAGE_SIZE;
+
+    const load = useCallback(async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const res = await listWorkshopSupplierPurchaseInvoices({
+                limit: PURCHASES_PAGE_SIZE,
+                offset,
+                ...branchScopeParams(selectedBranchId),
+            });
+            const list = unwrapWorkshopSupplierPurchaseInvoiceList(res);
+            const mapped = list.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean);
+            setRows(mapped);
+            const tRaw = res?.total ?? res?.count;
+            const t = tRaw != null ? Number(tRaw) : mapped.length;
+            setTotal(Number.isFinite(t) ? t : mapped.length);
+        } catch (e) {
+            setRows([]);
+            setTotal(null);
+            setError(e.message || 'Could not load purchase history.');
+        } finally {
+            setLoading(false);
+        }
+    }, [selectedBranchId, offset]);
+
+    useEffect(() => {
+        load();
+    }, [load]);
+
+    const totalPages = Math.max(1, Math.ceil(((total ?? 0) || 0) / PURCHASES_PAGE_SIZE));
+
+    const closeView = () => {
+        setViewOpen(false);
+        setViewRow(null);
+        setViewDetail(null);
+        setViewError('');
+        setViewLoading(false);
+    };
+
+    const openView = async (row) => {
+        if (!row?.id) return;
+        setViewOpen(true);
+        setViewRow(row);
+        setViewDetail(null);
+        setViewLoading(true);
+        setViewError('');
+        try {
+            const res = await getWorkshopSupplierPurchaseInvoice(row.id);
+            const inv = unwrapWorkshopStaffSupplierPurchaseInvoiceGet(res);
+            setViewDetail(inv && typeof inv === 'object' ? inv : null);
+            if (!inv) setViewError('Invoice response was empty.');
+        } catch (e) {
+            setViewError(e.message || 'Could not load invoice details.');
+        } finally {
+            setViewLoading(false);
+        }
+    };
+
+    const rangeLabel =
+        total != null && total > 0
+            ? `${offset + 1}–${Math.min(offset + rows.length, total)} of ${total}`
+            : rows.length > 0
+              ? `${offset + 1}–${offset + rows.length}`
+              : '0';
+
+    return (
+        <>
+            <div className="ws-section">
+                <div
+                    style={{
+                        padding: '12px 16px',
+                        display: 'flex',
+                        gap: 12,
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        borderBottom: '1px solid var(--color-border)',
+                    }}
+                >
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', flex: 1, minWidth: 160 }}>
+                        Workshop purchase invoices sent to suppliers
+                        {selectedBranchId && selectedBranchId !== 'all' ? (
+                            <>
+                                {' '}
+                                · Branch filter applies
+                            </>
+                        ) : (
+                            <> · All branches</>
+                        )}
+                        {' · '}
+                        <span style={{ fontWeight: 600, color: 'var(--color-text-body)' }}>{rangeLabel}</span>
+                    </span>
+                    <button
+                        type="button"
+                        className="mc-btn-ghost"
+                        onClick={() => load()}
+                        disabled={loading}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    >
+                        <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                    </button>
+                </div>
+                {error && (
+                    <div
+                        style={{
+                            padding: 12,
+                            margin: '0 16px 12px',
+                            borderRadius: 8,
+                            border: '1px solid #FECACA',
+                            background: '#FEF2F2',
+                            color: '#991B1B',
+                            fontSize: '0.8125rem',
+                        }}
+                    >
+                        {error}
+                    </div>
+                )}
+                <table className="ws-table">
+                    <thead>
+                        <tr>
+                            <th>Invoice #</th>
+                            <th>Vendor</th>
+                            <th>Grand Total</th>
+                            <th>VAT</th>
+                            <th>Status</th>
+                            <th>Payment</th>
+                            <th style={{ width: 88 }}> </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading ? (
+                            <tr>
+                                <td colSpan={7} style={{ textAlign: 'center', padding: 32 }}>
+                                    <Loader className="spin" size={24} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />
+                                    Loading purchase history…
+                                </td>
+                            </tr>
+                        ) : (
+                            rows.map((p) => (
+                                <tr key={p.id}>
+                                    <td style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>
+                                        {p.invoice_number}
+                                    </td>
+                                    <td>{p.vendor_name || '—'}</td>
+                                    <td>
+                                        <strong>
+                                            SAR{' '}
+                                            {Number(p.grand_total || 0).toLocaleString(undefined, {
+                                                minimumFractionDigits: 0,
+                                                maximumFractionDigits: 2,
+                                            })}
+                                        </strong>
+                                    </td>
+                                    <td style={{ color: 'var(--color-text-muted)' }}>
+                                        SAR{' '}
+                                        {Number(p.vat_amount || 0).toLocaleString(undefined, {
+                                            minimumFractionDigits: 0,
+                                            maximumFractionDigits: 2,
+                                        })}
+                                    </td>
+                                    <td>
+                                        <span className={`ws-badge ${purchaseInvoiceStatusBadgeClass(p.status)}`}>
+                                            {p.status}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span className={`ws-badge ${purchasePaymentBadgeClass(p.payment_status)}`}>
+                                            {p.payment_status}
+                                        </span>
+                                    </td>
+                                    <td style={{ textAlign: 'right' }}>
+                                        <button
+                                            type="button"
+                                            className="btn-portal"
+                                            style={{ padding: '5px 10px', fontSize: '0.75rem' }}
+                                            onClick={() => void openView(p)}
+                                        >
+                                            <Eye size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                                            View
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                        {!loading && rows.length === 0 && !error && (
+                            <tr>
+                                <td colSpan={7} style={{ textAlign: 'center', padding: 32 }}>
+                                    No purchase invoices yet. Create them from the Purchases area or supplier actions.
+                                </td>
+                            </tr>
+                        )}
+                        {!loading && rows.length === 0 && error && (
+                            <tr>
+                                <td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--color-text-muted)' }}>
+                                    Could not load rows — see message above.
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+                {!loading && total != null && total > PURCHASES_PAGE_SIZE ? (
+                    <div
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '12px 16px',
+                            borderTop: '1px solid var(--color-border)',
+                            flexWrap: 'wrap',
+                        }}
+                    >
+                        <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                            Page {page} of {totalPages}
+                        </span>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="btn-secondary"
+                                disabled={page <= 1}
+                                onClick={() => setPage((x) => Math.max(1, x - 1))}
+                            >
+                                Previous
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-secondary"
+                                disabled={page >= totalPages}
+                                onClick={() => setPage((x) => Math.min(totalPages, x + 1))}
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
+            </div>
+
+            <AnimatePresence>
+                {viewOpen && (
+                    <Modal
+                        title={
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <Eye size={20} />
+                                Purchase invoice
+                            </span>
+                        }
+                        onClose={closeView}
+                        width="min(1240px, 98vw)"
+                        disableClose={false}
+                        footer={
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button type="button" className="btn-secondary" onClick={closeView}>
+                                    Close
+                                </button>
+                            </div>
+                        }
+                    >
+                        {viewError && (
+                            <div
+                                style={{
+                                    marginBottom: 12,
+                                    padding: '10px 14px',
+                                    borderRadius: 8,
+                                    background: '#FEF2F2',
+                                    border: '1px solid #FECACA',
+                                    color: '#B91C1C',
+                                    fontSize: '0.875rem',
+                                }}
+                            >
+                                {viewError}
+                            </div>
+                        )}
+                        {viewLoading && (
+                            <p style={{ marginBottom: 12, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                                Loading full invoice…
+                            </p>
+                        )}
+                        {!viewLoading && viewDetail ? (
+                            <div style={{ maxHeight: 'min(75vh, 900px)', overflow: 'auto' }}>
+                                <WorkshopPurchaseInvoiceView detail={viewDetail} listRow={viewRow} />
+                            </div>
+                        ) : null}
+                        {!viewLoading && !viewDetail && viewError ? (
+                            <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Unable to display this invoice.</p>
+                        ) : null}
+                    </Modal>
+                )}
+            </AnimatePresence>
+        </>
+    );
 }
 
 export default function WorkshopSuppliers({ selectedBranchId = 'all', branches = [], onTabChange }) {
@@ -83,15 +418,20 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
     const [registeredError, setRegisteredError] = useState('');
     const [linkingSuppliers, setLinkingSuppliers] = useState(false);
     const [selectedRegisteredIds, setSelectedRegisteredIds] = useState([]);
+    const [addSupplierModalView, setAddSupplierModalView] = useState('browse');
+    const [registeringSupplier, setRegisteringSupplier] = useState(false);
+    const [registerSupplierError, setRegisterSupplierError] = useState('');
+    const [newSupplierName, setNewSupplierName] = useState('');
+    const [newSupplierVat, setNewSupplierVat] = useState('');
+    const [newSupplierMobile, setNewSupplierMobile] = useState('');
+    const [newSupplierEmail, setNewSupplierEmail] = useState('');
+    const [newSupplierAddress, setNewSupplierAddress] = useState('');
+    const [newSupplierNotes, setNewSupplierNotes] = useState('');
 
     const [showPurchaseForm, setShowPurchaseForm] = useState(false);
     const [selectedSupplier, setSelectedSupplier] = useState(null);
     const [items, setItems] = useState([{ product_id: '', product_name: '', quantity: 1, unit: 'piece', unit_price: 0, total: 0 }]);
     const [notes, setNotes] = useState('');
-    const [purchases, setPurchases] = useState([
-        { id: '1', invoice_number: 'PI-2026-0041', vendor_name: 'Al-Jazeera Auto Parts', grand_total: 3200, vat_amount: 418, status: 'received', payment_status: 'unpaid' },
-        { id: '2', invoice_number: 'PI-2026-0040', vendor_name: 'Gulf Lubricants Co.', grand_total: 1750, vat_amount: 228, status: 'draft', payment_status: 'unpaid' },
-    ]);
     const products = PI_INVENTORY_ITEMS;
 
     const loadSuppliers = useCallback(async (queryForApi) => {
@@ -225,18 +565,6 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
 
     const submitPurchase = () => {
         if (!selectedSupplier) return;
-        setPurchases((prev) => [
-            {
-                id: String(Date.now()),
-                invoice_number: `PI-${Date.now().toString().slice(-6)}`,
-                vendor_name: selectedSupplier.name,
-                grand_total: Math.round(grandTotal),
-                vat_amount: Math.round(vat),
-                status: 'draft',
-                payment_status: 'unpaid',
-            },
-            ...prev,
-        ]);
         setShowPurchaseForm(false);
         setSelectedSupplier(null);
         setItems([{ product_id: '', product_name: '', quantity: 1, unit: 'piece', unit_price: 0, total: 0 }]);
@@ -287,12 +615,78 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
             setShowAddSupplierModal(false);
             setSelectedRegisteredIds([]);
             setRegisteredSearchInput('');
+            setAddSupplierModalView('browse');
+            setNewSupplierName('');
+            setNewSupplierVat('');
+            setNewSupplierMobile('');
+            setNewSupplierEmail('');
+            setNewSupplierAddress('');
+            setNewSupplierNotes('');
+            setRegisterSupplierError('');
             await loadSuppliers(searchInput);
         } catch (e) {
             setRegisteredError(e.message || 'Failed to add selected suppliers to workshop.');
         } finally {
             setLinkingSuppliers(false);
         }
+    };
+
+    const resetRegisterSupplierForm = () => {
+        setRegisterSupplierError('');
+        setNewSupplierName('');
+        setNewSupplierVat('');
+        setNewSupplierMobile('');
+        setNewSupplierEmail('');
+        setNewSupplierAddress('');
+        setNewSupplierNotes('');
+    };
+
+    const handleRegisterNewSupplier = async () => {
+        const name = newSupplierName.trim();
+        if (!name) {
+            setRegisterSupplierError('Company name is required.');
+            return;
+        }
+        setRegisteringSupplier(true);
+        setRegisterSupplierError('');
+        try {
+            const email = newSupplierEmail.trim();
+            await createWorkshopSupplier({
+                name,
+                workshopLocalOnly: true,
+                ...(email ? { email } : {}),
+                mobile: newSupplierMobile.trim() || undefined,
+                address: newSupplierAddress.trim() || undefined,
+                vatId: newSupplierVat.trim() || undefined,
+                notes: newSupplierNotes.trim() || undefined,
+            });
+            setShowAddSupplierModal(false);
+            setAddSupplierModalView('browse');
+            resetRegisterSupplierForm();
+            await loadSuppliers(searchInput);
+        } catch (e) {
+            setRegisterSupplierError(e.message || 'Could not register supplier.');
+        } finally {
+            setRegisteringSupplier(false);
+        }
+    };
+
+    const inputShell = {
+        width: '100%',
+        padding: '10px 12px',
+        borderRadius: 10,
+        border: '1px solid var(--color-border)',
+        background: '#F8FAFC',
+        fontSize: '0.875rem',
+        boxSizing: 'border-box',
+    };
+
+    const labelStyle = {
+        display: 'block',
+        fontSize: '0.8125rem',
+        fontWeight: 600,
+        color: 'var(--color-text-dark, #0f172a)',
+        marginBottom: 6,
     };
 
     return (
@@ -369,9 +763,17 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 className="btn-portal"
                                 onClick={() => {
                                     setShowAddSupplierModal(true);
+                                    setAddSupplierModalView('browse');
                                     setSelectedRegisteredIds([]);
                                     setRegisteredSearchInput('');
                                     setRegisteredError('');
+                                    setRegisterSupplierError('');
+                                    setNewSupplierName('');
+                                    setNewSupplierVat('');
+                                    setNewSupplierMobile('');
+                                    setNewSupplierEmail('');
+                                    setNewSupplierAddress('');
+                                    setNewSupplierNotes('');
                                 }}
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                             >
@@ -515,179 +917,343 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                 </>
             )}
             {activeTab === 'purchases' && (
-                <div className="ws-section">
-                    <table className="ws-table">
-                        <thead>
-                            <tr>
-                                <th>Invoice #</th>
-                                <th>Vendor</th>
-                                <th>Grand Total</th>
-                                <th>VAT</th>
-                                <th>Status</th>
-                                <th>Payment</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {purchases.map((p) => (
-                                <tr key={p.id}>
-                                    <td style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>{p.invoice_number}</td>
-                                    <td>{p.vendor_name}</td>
-                                    <td>
-                                        <strong>SAR {(p.grand_total || 0).toLocaleString()}</strong>
-                                    </td>
-                                    <td style={{ color: 'var(--color-text-muted)' }}>
-                                        SAR {(p.vat_amount || 0).toLocaleString()}
-                                    </td>
-                                    <td>
-                                        <span
-                                            className={`ws-badge ${p.status === 'received' ? 'ws-badge--green' : 'ws-badge--yellow'}`}
-                                        >
-                                            {p.status}
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span
-                                            className={`ws-badge ${p.payment_status === 'paid' ? 'ws-badge--green' : 'ws-badge--red'}`}
-                                        >
-                                            {p.payment_status}
-                                        </span>
-                                    </td>
-                                </tr>
-                            ))}
-                            {purchases.length === 0 && (
-                                <tr>
-                                    <td colSpan={6} style={{ textAlign: 'center', padding: 32 }}>
-                                        No purchases yet
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                <SuppliersPurchaseHistoryPanel key={String(selectedBranchId)} selectedBranchId={selectedBranchId} />
             )}
 
             <AnimatePresence>
                 {showAddSupplierModal && (
                     <Modal
-                        title="Add Supplier to Workshop"
+                        title={
+                            addSupplierModalView === 'register'
+                                ? 'Add workshop-only supplier'
+                                : 'Add Supplier to Workshop'
+                        }
+                        width={addSupplierModalView === 'register' ? 'min(480px, 100%)' : undefined}
+                        disableClose={linkingSuppliers || registeringSupplier}
                         onClose={() => {
-                            if (!linkingSuppliers) setShowAddSupplierModal(false);
+                            if (linkingSuppliers || registeringSupplier) return;
+                            setShowAddSupplierModal(false);
+                            setAddSupplierModalView('browse');
+                            resetRegisterSupplierForm();
                         }}
                         footer={
-                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                                <button
-                                    type="button"
-                                    className="btn-secondary"
-                                    disabled={linkingSuppliers}
-                                    onClick={() => setShowAddSupplierModal(false)}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn-submit"
-                                    disabled={linkingSuppliers || selectedRegisteredIds.length === 0}
-                                    onClick={handleLinkSelectedSuppliers}
-                                >
-                                    {linkingSuppliers ? 'Adding...' : `Add Selected (${selectedRegisteredIds.length})`}
-                                </button>
-                            </div>
-                        }
-                    >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                            <input
-                                placeholder="Search all registered suppliers..."
-                                value={registeredSearchInput}
-                                onChange={(e) => setRegisteredSearchInput(e.target.value)}
-                                style={{
-                                    width: '100%',
-                                    padding: '9px 12px',
-                                    borderRadius: 8,
-                                    border: '1px solid var(--color-border)',
-                                    fontSize: '0.875rem',
-                                }}
-                            />
-                            {registeredError && (
+                            addSupplierModalView === 'register' ? (
                                 <div
                                     style={{
-                                        padding: 10,
-                                        borderRadius: 8,
-                                        border: '1px solid #FECACA',
-                                        background: '#FEF2F2',
-                                        color: '#991B1B',
-                                        fontSize: '0.8125rem',
+                                        display: 'flex',
+                                        gap: 10,
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        flexWrap: 'wrap',
+                                        width: '100%',
                                     }}
                                 >
-                                    {registeredError}
-                                </div>
-                            )}
-                            {registeredLoading ? (
-                                <div style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem', border: '1px solid var(--color-border)', borderRadius: 10 }}>
-                                    Loading registered suppliers...
-                                </div>
-                            ) : registeredSuppliers.length === 0 ? (
-                                <div style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem', border: '1px solid var(--color-border)', borderRadius: 10 }}>
-                                    No registered suppliers found.
+                                    <button
+                                        type="button"
+                                        className="btn-secondary"
+                                        disabled={registeringSupplier}
+                                        onClick={() => {
+                                            setAddSupplierModalView('browse');
+                                            resetRegisterSupplierForm();
+                                        }}
+                                    >
+                                        Back to list
+                                    </button>
+                                    <div style={{ display: 'flex', gap: 10, marginLeft: 'auto' }}>
+                                        <button
+                                            type="button"
+                                            className="btn-secondary"
+                                            disabled={registeringSupplier}
+                                            onClick={() => {
+                                                setShowAddSupplierModal(false);
+                                                setAddSupplierModalView('browse');
+                                                resetRegisterSupplierForm();
+                                            }}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn-submit"
+                                            disabled={registeringSupplier}
+                                            onClick={handleRegisterNewSupplier}
+                                        >
+                                            {registeringSupplier ? 'Saving…' : 'Add to my workshop'}
+                                        </button>
+                                    </div>
                                 </div>
                             ) : (
-                                <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, overflow: 'hidden' }}>
-                                    <table className="ws-table" style={{ margin: 0 }}>
-                                        <thead>
-                                            <tr>
-                                                <th>Supplier</th>
-                                                <th>Contact</th>
-                                                <th>CR</th>
-                                                <th>VAT</th>
-                                                <th style={{ textAlign: 'right' }}>Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {registeredSuppliers.map((s) => {
-                                                const selected = selectedRegisteredIds.includes(String(s.id));
-                                                return (
-                                                    <tr
-                                                        key={s.id}
-                                                        onClick={() => toggleRegisteredSupplier(s.id)}
-                                                        style={{
-                                                            cursor: 'pointer',
-                                                            background: selected ? '#EFF6FF' : 'transparent',
-                                                        }}
-                                                    >
-                                                        <td>
-                                                            <strong>{s.name}</strong>
-                                                        </td>
-                                                        <td>{s.phone || s.email || '—'}</td>
-                                                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{s.crNumber || '—'}</td>
-                                                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{s.vatId || '—'}</td>
-                                                        <td style={{ textAlign: 'right' }}>
-                                                            <button
-                                                                type="button"
-                                                                className="btn-portal"
-                                                                style={{
-                                                                    padding: '5px 10px',
-                                                                    fontSize: '0.75rem',
-                                                                    background: selected ? '#0F172A' : undefined,
-                                                                    color: selected ? '#fff' : undefined,
-                                                                }}
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    toggleRegisteredSupplier(s.id);
-                                                                }}
-                                                            >
-                                                                {selected ? 'Selected' : 'Select'}
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
+                                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                                    <button
+                                        type="button"
+                                        className="btn-secondary"
+                                        disabled={linkingSuppliers}
+                                        onClick={() => {
+                                            setShowAddSupplierModal(false);
+                                            setAddSupplierModalView('browse');
+                                            resetRegisterSupplierForm();
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn-submit"
+                                        disabled={linkingSuppliers || selectedRegisteredIds.length === 0}
+                                        onClick={handleLinkSelectedSuppliers}
+                                    >
+                                        {linkingSuppliers ? 'Adding...' : `Add Selected (${selectedRegisteredIds.length})`}
+                                    </button>
                                 </div>
-                            )}
-                            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-                                Select suppliers from the table and click "Add Selected".
-                            </p>
-                        </div>
+                            )
+                        }
+                    >
+                        {addSupplierModalView === 'register' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                                {registerSupplierError && (
+                                    <div
+                                        style={{
+                                            padding: 10,
+                                            borderRadius: 8,
+                                            border: '1px solid #FECACA',
+                                            background: '#FEF2F2',
+                                            color: '#991B1B',
+                                            fontSize: '0.8125rem',
+                                        }}
+                                    >
+                                        {registerSupplierError}
+                                    </div>
+                                )}
+                                <div>
+                                    <label style={labelStyle}>
+                                        Name <span style={{ color: '#DC2626' }}>*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="Company name"
+                                        value={newSupplierName}
+                                        onChange={(e) => setNewSupplierName(e.target.value)}
+                                        style={inputShell}
+                                        autoComplete="organization"
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>VAT number</label>
+                                    <input
+                                        type="text"
+                                        value={newSupplierVat}
+                                        onChange={(e) => setNewSupplierVat(e.target.value)}
+                                        style={inputShell}
+                                    />
+                                </div>
+                                <div
+                                    style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                                        gap: 12,
+                                    }}
+                                >
+                                    <div>
+                                        <label style={labelStyle}>Mobile</label>
+                                        <input
+                                            type="text"
+                                            value={newSupplierMobile}
+                                            onChange={(e) => setNewSupplierMobile(e.target.value)}
+                                            style={inputShell}
+                                            autoComplete="tel"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={labelStyle}>Email (optional)</label>
+                                        <input
+                                            type="email"
+                                            placeholder="Contact email — no portal login"
+                                            value={newSupplierEmail}
+                                            onChange={(e) => setNewSupplierEmail(e.target.value)}
+                                            style={inputShell}
+                                            autoComplete="email"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Address</label>
+                                    <input
+                                        type="text"
+                                        value={newSupplierAddress}
+                                        onChange={(e) => setNewSupplierAddress(e.target.value)}
+                                        style={inputShell}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Notes</label>
+                                    <textarea
+                                        value={newSupplierNotes}
+                                        onChange={(e) => setNewSupplierNotes(e.target.value)}
+                                        rows={3}
+                                        style={{
+                                            ...inputShell,
+                                            resize: 'vertical',
+                                            minHeight: 72,
+                                            fontFamily: 'inherit',
+                                        }}
+                                    />
+                                </div>
+                                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                                    This vendor is stored for your workshop only. They are not given a supplier portal
+                                    account. To link an on-platform supplier that can log in, use the list above and
+                                    Add Selected.
+                                </p>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        gap: 10,
+                                        alignItems: 'stretch',
+                                        flexWrap: 'wrap',
+                                    }}
+                                >
+                                    <input
+                                        placeholder="Search all registered suppliers..."
+                                        value={registeredSearchInput}
+                                        onChange={(e) => setRegisteredSearchInput(e.target.value)}
+                                        style={{
+                                            flex: '1 1 200px',
+                                            minWidth: 0,
+                                            padding: '9px 12px',
+                                            borderRadius: 8,
+                                            border: '1px solid var(--color-border)',
+                                            fontSize: '0.875rem',
+                                        }}
+                                    />
+                                    <button
+                                        type="button"
+                                        className="btn-portal"
+                                        onClick={() => {
+                                            setAddSupplierModalView('register');
+                                            setRegisterSupplierError('');
+                                        }}
+                                        style={{
+                                            flex: '0 0 auto',
+                                            whiteSpace: 'nowrap',
+                                            padding: '9px 14px',
+                                            fontSize: '0.8125rem',
+                                        }}
+                                    >
+                                        Workshop-only supplier
+                                    </button>
+                                </div>
+                                {registeredError && (
+                                    <div
+                                        style={{
+                                            padding: 10,
+                                            borderRadius: 8,
+                                            border: '1px solid #FECACA',
+                                            background: '#FEF2F2',
+                                            color: '#991B1B',
+                                            fontSize: '0.8125rem',
+                                        }}
+                                    >
+                                        {registeredError}
+                                    </div>
+                                )}
+                                {registeredLoading ? (
+                                    <div
+                                        style={{
+                                            padding: 16,
+                                            color: 'var(--color-text-muted)',
+                                            fontSize: '0.875rem',
+                                            border: '1px solid var(--color-border)',
+                                            borderRadius: 10,
+                                        }}
+                                    >
+                                        Loading registered suppliers...
+                                    </div>
+                                ) : registeredSuppliers.length === 0 ? (
+                                    <div
+                                        style={{
+                                            padding: 16,
+                                            color: 'var(--color-text-muted)',
+                                            fontSize: '0.875rem',
+                                            border: '1px solid var(--color-border)',
+                                            borderRadius: 10,
+                                        }}
+                                    >
+                                        No registered suppliers found. Use “Workshop-only supplier” to add a vendor for
+                                        this workshop without a platform login.
+                                    </div>
+                                ) : (
+                                    <div
+                                        style={{
+                                            border: '1px solid var(--color-border)',
+                                            borderRadius: 10,
+                                            overflow: 'hidden',
+                                        }}
+                                    >
+                                        <table className="ws-table" style={{ margin: 0 }}>
+                                            <thead>
+                                                <tr>
+                                                    <th>Supplier</th>
+                                                    <th>Contact</th>
+                                                    <th>CR</th>
+                                                    <th>VAT</th>
+                                                    <th style={{ textAlign: 'right' }}>Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {registeredSuppliers.map((s) => {
+                                                    const selected = selectedRegisteredIds.includes(String(s.id));
+                                                    return (
+                                                        <tr
+                                                            key={s.id}
+                                                            onClick={() => toggleRegisteredSupplier(s.id)}
+                                                            style={{
+                                                                cursor: 'pointer',
+                                                                background: selected ? '#EFF6FF' : 'transparent',
+                                                            }}
+                                                        >
+                                                            <td>
+                                                                <strong>{s.name}</strong>
+                                                            </td>
+                                                            <td>{s.phone || s.email || '—'}</td>
+                                                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                                                {s.crNumber || '—'}
+                                                            </td>
+                                                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                                                {s.vatId || '—'}
+                                                            </td>
+                                                            <td style={{ textAlign: 'right' }}>
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn-portal"
+                                                                    style={{
+                                                                        padding: '5px 10px',
+                                                                        fontSize: '0.75rem',
+                                                                        background: selected ? '#0F172A' : undefined,
+                                                                        color: selected ? '#fff' : undefined,
+                                                                    }}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        toggleRegisteredSupplier(s.id);
+                                                                    }}
+                                                                >
+                                                                    {selected ? 'Selected' : 'Select'}
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                                    Pick on-platform suppliers below (they can use the supplier portal), or add a
+                                    workshop-only vendor who has no login.
+                                </p>
+                            </div>
+                        )}
                     </Modal>
                 )}
                 {showPurchaseForm && selectedSupplier && (
