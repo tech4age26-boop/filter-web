@@ -21,10 +21,13 @@ import {
     unwrapWorkshopStaffSupplierPurchaseInvoiceGet,
     unwrapWorkshopSupplierPurchaseInvoiceList,
 } from '../../services/workshopSupplierPurchaseInvoices';
+import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
+import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { PI_ACCOUNT_OPTIONS } from './constants';
 import {
     PURCHASE_INVOICE_VAT_RATE as VAT_RATE,
     PURCHASE_INVOICE_TAX_LABEL as TAX_LABEL,
+    PURCHASE_INVOICE_TAXES as TAXES,
     computeLineAmounts,
     computePurchaseInvoiceTotals,
     buildPurchaseInvoicePayload,
@@ -241,9 +244,93 @@ function createEmptyLine() {
         qty: 1,
         price: 0,
         discount: 0,
+        discountMode: 'percent',
         taxCode: TAX_LABEL,
         taxAmt: '0.00',
         totalFinal: '0.00',
+    };
+}
+
+/**
+ * Map a normalized workshop PI row → shape consumed by `WorkshopPurchaseInvoiceView`
+ * (the same printable invoice template used by Supplier SI). Field aliases are
+ * duplicated (snake + camel) so the template's `pick(...)` helper finds them.
+ */
+function mapWorkshopPurchaseInvoiceForViewDetail(row) {
+    if (!row || typeof row !== 'object') return {};
+    const items = Array.isArray(row.items) ? row.items : [];
+    const totalVat = Number(row.vat_amount ?? row.total_vat ?? 0);
+    const grand = Number(row.grand_total ?? 0);
+    const ex = Number(row.subtotal ?? Math.max(0, grand - totalVat - Number(row.freight_in ?? 0)));
+    const supplierLabel = row.vendor_name ?? row.supplier ?? '';
+    return {
+        id: row.id,
+        invoiceNumber: row.invoice_number ?? row.id,
+        invoiceNo: row.invoice_number ?? row.id,
+        issueDate: row.date,
+        invoiceDate: row.date,
+        dueDate: row.due_date,
+        status: row.status,
+        workshopName: row.branch_name ?? '',
+        branchName: row.branch_name ?? '',
+        branch: row.branch_id ? { id: row.branch_id, name: row.branch_name ?? '' } : undefined,
+        supplierName: supplierLabel,
+        supplierLegalName: supplierLabel,
+        vendorName: supplierLabel,
+        vendor_name: supplierLabel,
+        supplier: row._raw?.supplier ?? undefined,
+        vendorInvoiceRef: row.vendor_invoice_ref ?? '',
+        vendorRef: row.vendor_invoice_ref ?? '',
+        subtotalExVat: ex,
+        subtotal: ex,
+        vatAmount: totalVat,
+        totalVat,
+        grandTotal: grand,
+        total: grand,
+        amountPaid: Number(row.amount_paid ?? 0),
+        paidAmount: Number(row.amount_paid ?? 0),
+        balanceDue: Number(row.balance_due ?? 0),
+        balance: Number(row.balance_due ?? 0),
+        freight: Number(row.freight_in ?? 0),
+        freight_in: Number(row.freight_in ?? 0),
+        paymentStatus: row.payment_status ?? 'unpaid',
+        notes: row.notes ?? '',
+        description: row.description ?? '',
+        items: items.map((it) => {
+            const qty = Number(it.quantity ?? it.qty ?? 0);
+            const unitEx = Number(
+                it.unitPriceExVat ?? it.unit_price_ex_vat ?? it.unitPrice ?? it.unit_price ?? 0,
+            );
+            const taxAmt = Number(it.taxAmount ?? it.tax_amount ?? 0);
+            const lineTotalIncl = Number(it.total ?? it.lineTotalInclVat ?? it.line_total_incl_vat ?? 0);
+            const taxCode = String(it.taxCode ?? it.tax_code ?? TAX_LABEL).trim() || TAX_LABEL;
+            const lineRate = (() => {
+                const m = /([\d.]+)\s*%/.exec(taxCode);
+                if (m) return Number(m[1]) / 100;
+                const r = Number(it.taxRate ?? it.tax_rate ?? it.vatRate ?? it.vat_rate);
+                return Number.isFinite(r) ? r : VAT_RATE;
+            })();
+            return {
+                id: it.id,
+                productName: it.itemName ?? it.item_name ?? it.productName ?? it.product_name ?? '—',
+                product_name: it.itemName ?? it.item_name ?? it.productName ?? it.product_name ?? '—',
+                qty,
+                quantity: qty,
+                unit: String(it.uom ?? it.unit ?? 'piece') || 'piece',
+                uom: String(it.uom ?? it.unit ?? 'piece') || 'piece',
+                unitPrice: unitEx,
+                unit_price: unitEx,
+                unitPriceExVat: unitEx,
+                vatRate: lineRate,
+                vat_rate: lineRate,
+                vatAmount: taxAmt,
+                vat_amount: taxAmt,
+                lineTotal: Number(it.lineTotal ?? it.line_total ?? Math.max(0, lineTotalIncl - taxAmt)),
+                line_total: Number(it.lineTotal ?? it.line_total ?? Math.max(0, lineTotalIncl - taxAmt)),
+                lineTotalInclVat: lineTotalIncl,
+                line_total_incl_vat: lineTotalIncl,
+            };
+        }),
     };
 }
 
@@ -425,6 +512,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [viewInvoiceError, setViewInvoiceError] = useState('');
     /** Branch that receives stock for this invoice (modal); independent of sidebar when user picks another branch. */
     const [invoiceBranchId, setInvoiceBranchId] = useState('');
+    /** Imperative handle for the printable invoice template (Download PDF). */
+    const printableRef = useRef(null);
 
     const effectiveBranchId = useMemo(() => {
         if (selectedBranchId && selectedBranchId !== 'all') return selectedBranchId;
@@ -810,24 +899,34 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         ],
     );
 
-    const getSummary = () => ({
-        subtotal: invoiceTotals.subtotal_ex_vat.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        }),
-        totalTax: invoiceTotals.total_vat.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        }),
-        freight: (invoiceTotals.freight_in ?? 0).toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        }),
-        grandTotal: invoiceTotals.grand_total.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        }),
-    });
+    const getSummary = () => {
+        const fmt2 = (n) =>
+            (Number(n) || 0).toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            });
+        const freightIn = invoiceTotals.freight_in ?? 0;
+        const invoiceDiscountSar = invoiceTotals.invoice_discount_applied_ex_vat ?? 0;
+        const invPctDisplayed = (() => {
+            if (invoiceDiscountMode !== 'percent') return 0;
+            const pct = parseFloat(String(invoiceDiscountValue ?? '').replace(',', '.')) || 0;
+            return Math.max(0, Math.min(100, pct));
+        })();
+        return {
+            subtotal: fmt2(invoiceTotals.lines_taxable_ex_vat),
+            totalTax: fmt2(invoiceTotals.total_vat),
+            freight: fmt2(freightIn),
+            freightInFormatted: fmt2(freightIn),
+            invoiceDiscountFormatted: fmt2(invoiceDiscountSar),
+            grandTotal: fmt2(invoiceTotals.grand_total),
+            showFreightRow: Number(freightIn) > 0,
+            showInvoiceDiscountRow: Number(invoiceDiscountSar) > 0,
+            invoiceDiscountSummaryLabel:
+                invoiceDiscountMode === 'percent'
+                    ? `Invoice discount (${invPctDisplayed}%):`
+                    : 'Invoice discount (fixed SAR):',
+        };
+    };
 
     const addEmptyLine = () => {
         setLineItems((prev) => [...prev, createEmptyLine()]);
@@ -1191,11 +1290,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             </thead>
                             <tbody>
                                 {invoicesLoading && invoices.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={13} style={{ textAlign: 'center', padding: 40 }}>
-                                            Loading purchase invoices…
-                                        </td>
-                                    </tr>
+                                    <ShimmerTableBodyRows rows={8} columns={13} />
                                 ) : null}
                                 {invoices.map((inv) => (
                                     <tr key={inv.id}>
@@ -1619,7 +1714,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                 </th>
                                                 {showDiscount ? (
                                                     <th scope="col" className="ws-pi-th-num">
-                                                        Discount{discountIsPercent ? ' %' : ' (SAR)'}
+                                                        Discount
                                                     </th>
                                                 ) : null}
                                                 <th scope="col" className="ws-pi-th-num">
@@ -1721,20 +1816,42 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         </td>
                                                         {showDiscount ? (
                                                             <td className="ws-pi-td-num">
-                                                                <input
-                                                                    type="text"
-                                                                    className="pi-row-input-num pi-math-input"
-                                                                    defaultValue={line.discount}
-                                                                    key={`disc-${line.id}-${line.discount}`}
-                                                                    onChange={(e) => updateLineItem(line.id, 'discount', e.target.value)}
-                                                                    onKeyDown={(e) => handleMathKeyDown(e, line.id, 'discount')}
-                                                                    onBlur={(e) => handleMathBlur(e, line.id, 'discount')}
-                                                                />
+                                                                <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+                                                                    <input
+                                                                        type="text"
+                                                                        className="pi-row-input-num pi-math-input"
+                                                                        style={{ flex: 1, minWidth: 0 }}
+                                                                        defaultValue={line.discount}
+                                                                        key={`disc-${line.id}-${line.discount}`}
+                                                                        onChange={(e) => updateLineItem(line.id, 'discount', e.target.value)}
+                                                                        onKeyDown={(e) => handleMathKeyDown(e, line.id, 'discount')}
+                                                                        onBlur={(e) => handleMathBlur(e, line.id, 'discount')}
+                                                                    />
+                                                                    <select
+                                                                        className="pi-row-input"
+                                                                        style={{ flex: '0 0 auto', maxWidth: 76, padding: '6px 4px', fontSize: 12 }}
+                                                                        value={line.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent'}
+                                                                        onChange={(e) => updateLineItem(line.id, 'discountMode', e.target.value)}
+                                                                    >
+                                                                        <option value="percent">%</option>
+                                                                        <option value="fixed_sar">SAR</option>
+                                                                    </select>
+                                                                </div>
                                                             </td>
                                                         ) : null}
                                                         <td className="ws-pi-td-num">SAR {amounts.taxableExcl.toFixed(2)}</td>
-                                                        <td className="ws-pi-td-tax" title="Tax code is fixed at VAT 15% for this flow.">
-                                                            {TAX_LABEL}
+                                                        <td className="ws-pi-td-tax">
+                                                            <select
+                                                                className="pi-row-input ws-pi-select"
+                                                                value={line.taxCode || TAX_LABEL}
+                                                                onChange={(e) => updateLineItem(line.id, 'taxCode', e.target.value)}
+                                                            >
+                                                                {TAXES.map((t) => (
+                                                                    <option key={t.code} value={t.code}>
+                                                                        {t.code}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
                                                         </td>
                                                         <td className="ws-pi-td-num">SAR {amounts.taxAmt.toFixed(2)}</td>
                                                         <td className="ws-pi-td-num ws-pi-td-strong">SAR {amounts.totalIncl.toFixed(2)}</td>
@@ -1785,29 +1902,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     />
                                     <span>Unit prices include VAT ({TAX_LABEL})</span>
                                 </label>
-                                {showDiscount && (
-                                    <span className="pi-discount-kind" style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginLeft: 8 }}>
-                                        <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Discount type:</span>
-                                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                            <input
-                                                type="radio"
-                                                name="pi-discount-kind"
-                                                checked={!discountIsPercent}
-                                                onChange={() => setDiscountIsPercent(false)}
-                                            />
-                                            SAR
-                                        </label>
-                                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                            <input
-                                                type="radio"
-                                                name="pi-discount-kind"
-                                                checked={discountIsPercent}
-                                                onChange={() => setDiscountIsPercent(true)}
-                                            />
-                                            %
-                                        </label>
-                                    </span>
-                                )}
                             </div>
 
                             <div className="pi-footer-grid">
@@ -1855,13 +1949,23 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             <span>Subtotal:</span>
                                             <span>SAR {summary.subtotal}</span>
                                         </div>
+                                        {summary.showFreightRow ? (
+                                            <div className="pi-summary-row">
+                                                <span>Freight / Other charges:</span>
+                                                <span>SAR {summary.freightInFormatted}</span>
+                                            </div>
+                                        ) : null}
+                                        {summary.showInvoiceDiscountRow ? (
+                                            <div className="pi-summary-row">
+                                                <span>{summary.invoiceDiscountSummaryLabel}</span>
+                                                <span style={{ color: '#B91C1C' }}>
+                                                    − SAR {summary.invoiceDiscountFormatted}
+                                                </span>
+                                            </div>
+                                        ) : null}
                                         <div className="pi-summary-row">
                                             <span>Total Tax (VAT):</span>
                                             <span>SAR {summary.totalTax}</span>
-                                        </div>
-                                        <div className="pi-summary-row">
-                                            <span>Freight:</span>
-                                            <span>SAR {summary.freight}</span>
                                         </div>
                                         <div className="pi-summary-row pi-grand-total">
                                             <span>Grand Total:</span>
@@ -1901,7 +2005,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             </div>
                         }
                         onClose={closeViewInvoiceModal}
-                        width="1350px"
+                        width="1100px"
                         contentClassName="modal-content-purchase"
                         footer={
                             <div className="pi-modal-footer">
@@ -1913,7 +2017,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             </div>
                         }
                     >
-                        <div className="pi-form-container">
+                        <div className="pi-form-container" data-ws-pi-printable-view="1">
                             {viewInvoiceError && (
                                 <p
                                     style={{
@@ -1929,21 +2033,46 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     {viewInvoiceError}
                                 </p>
                             )}
-                            {viewInvoiceLoading && (
-                                <p style={{ marginBottom: 12, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                                    Loading full invoice…
-                                </p>
-                            )}
                             <div
                                 style={{
                                     display: 'flex',
-                                    flexWrap: 'wrap',
-                                    gap: 12,
-                                    marginBottom: 16,
-                                    alignItems: 'center',
+                                    justifyContent: 'flex-end',
+                                    gap: 8,
+                                    marginBottom: 12,
                                 }}
                             >
-                                <span className={`ws-badge ws-badge--${viewInvoiceRow.status === 'approved' ? 'green' : viewInvoiceRow.status === 'rejected' ? 'red' : 'yellow'}`}>
+                                <button
+                                    type="button"
+                                    className="btn-pi-cancel"
+                                    onClick={() => printableRef.current?.downloadPdf?.()}
+                                    disabled={viewInvoiceLoading}
+                                >
+                                    Download PDF
+                                </button>
+                            </div>
+                            {viewInvoiceLoading ? (
+                                <ShimmerTextBlock lines={10} />
+                            ) : (
+                                <WorkshopPurchaseInvoiceView
+                                    ref={printableRef}
+                                    compact
+                                    variant="workshop"
+                                    detail={mapWorkshopPurchaseInvoiceForViewDetail(viewInvoiceRow)}
+                                    listRow={{
+                                        id: viewInvoiceRow.id,
+                                        invoice_number: viewInvoiceRow.invoice_number,
+                                        invoiceNo: viewInvoiceRow.invoice_number,
+                                        date: viewInvoiceRow.date,
+                                        status: viewInvoiceRow.status,
+                                        grand_total: viewInvoiceRow.grand_total,
+                                        vendor_name: viewInvoiceRow.vendor_name ?? viewInvoiceRow.supplier,
+                                        branch_name: viewInvoiceRow.branch_name,
+                                    }}
+                                />
+                            )}
+                            {false && (<>
+                            <div style={{ display: 'none' }}>
+                                <span>
                                     {viewInvoiceRow.status || '—'}
                                 </span>
                                 <span
@@ -2279,6 +2408,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     </div>
                                 </div>
                             </div>
+                            </>)}
                         </div>
                     </Modal>
                 )}

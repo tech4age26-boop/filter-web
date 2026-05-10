@@ -3,6 +3,7 @@ import { RefreshCw, Plus } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs, branchScopeParams } from '../../services/workshopStaffApi';
 import Modal from '../../components/Modal';
+import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -157,8 +158,10 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                             </tr>
                         </thead>
                         <tbody>
-                            {promoCodes.length === 0 ? (
-                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>{isLoading ? 'Loading promo codes...' : 'No promo codes found'}</td></tr>
+                            {isLoading && promoCodes.length === 0 ? (
+                                <ShimmerTableBodyRows rows={6} columns={6} />
+                            ) : promoCodes.length === 0 ? (
+                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>No promo codes found</td></tr>
                             ) : promoCodes.map((promo) => (
                                 <tr key={promo.id}>
                                     <td><strong>{promo.code}</strong></td>

@@ -3,6 +3,7 @@ import {
     Building2, FileText, Lock, Mail, Pencil, Phone, Plus, RefreshCw, Store, User, UserPlus, ToggleLeft,
 } from 'lucide-react';
 import Modal from '../../components/Modal';
+import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import { apiFetch } from '../../services/api';
 import {
     getWorkshopCorporateCustomers,
@@ -757,10 +758,12 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                             </tr>
                         </thead>
                         <tbody>
-                            {visibleCustomers.length === 0 ? (
+                            {isLoading && visibleCustomers.length === 0 ? (
+                                <ShimmerTableBodyRows rows={6} columns={9} />
+                            ) : visibleCustomers.length === 0 ? (
                                 <tr>
                                     <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                        {isLoading ? 'Loading corporate customers...' : 'No corporate customers found'}
+                                        No corporate customers found
                                     </td>
                                 </tr>
                             ) : (

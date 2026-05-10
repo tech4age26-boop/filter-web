@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -10,8 +10,10 @@ import {
     Share2, 
     Box, 
     ArrowRight,
-    Lock
+    Lock,
+    PackageCheck
 } from 'lucide-react';
+import { publicReceiveSupplierSalesInvoiceWithPassword } from '../services/publicVerifyApi';
 import '../styles/SignInPage.css'; // Reusing branding styles
 
 const PORTALS = [
@@ -68,6 +70,47 @@ const PORTALS = [
 
 export default function PortalHubPage() {
     const navigate = useNavigate();
+    const [receiveOpen, setReceiveOpen] = useState(false);
+    const [receiveInvoiceId, setReceiveInvoiceId] = useState('');
+    const [receivePassword, setReceivePassword] = useState('');
+    const [receiveSubmitting, setReceiveSubmitting] = useState(false);
+    const [receiveError, setReceiveError] = useState('');
+    const [receiveResult, setReceiveResult] = useState(null);
+
+    const closeReceiveModal = () => {
+        if (receiveSubmitting) return;
+        setReceiveOpen(false);
+        setReceiveInvoiceId('');
+        setReceivePassword('');
+        setReceiveError('');
+        setReceiveResult(null);
+    };
+
+    const handleReceiveSubmit = async (e) => {
+        e?.preventDefault?.();
+        if (receiveSubmitting) return;
+        const id = String(receiveInvoiceId || '').trim();
+        if (!id) {
+            setReceiveError('Enter the supplier invoice number / id printed on the invoice.');
+            return;
+        }
+        if (!receivePassword.trim()) {
+            setReceiveError('Enter the workshop or branch password.');
+            return;
+        }
+        setReceiveSubmitting(true);
+        setReceiveError('');
+        setReceiveResult(null);
+        try {
+            const res = await publicReceiveSupplierSalesInvoiceWithPassword(id, receivePassword);
+            setReceiveResult(res);
+            setReceivePassword('');
+        } catch (err) {
+            setReceiveError(err?.message || 'Could not authenticate. Check the invoice id and password.');
+        } finally {
+            setReceiveSubmitting(false);
+        }
+    };
 
     return (
         <div className="signin-container" style={{ overflowY: 'auto', padding: '40px 20px' }}>
@@ -195,31 +238,255 @@ export default function PortalHubPage() {
                         borderTop: '1px solid rgba(0,0,0,0.08)'
                     }}
                 >
-                    <button 
-                        onClick={() => navigate('/admin/login')}
-                        style={{
-                            background: 'transparent',
-                            border: '1px solid #E5E7EB',
-                            padding: '12px 24px',
-                            borderRadius: '12px',
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '10px',
-                            fontSize: '0.875rem',
-                            fontWeight: '600',
-                            color: '#6B7280',
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        <Lock size={14} />
-                        Filter ERP Access
-                    </button>
+                    <div style={{ display: 'inline-flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setReceiveOpen(true);
+                                setReceiveError('');
+                                setReceiveResult(null);
+                            }}
+                            style={{
+                                background: '#059669',
+                                border: '1px solid #047857',
+                                padding: '12px 24px',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                fontSize: '0.875rem',
+                                fontWeight: '700',
+                                color: '#fff',
+                                transition: 'all 0.2s',
+                                boxShadow: '0 6px 16px rgba(5,150,105,0.25)',
+                            }}
+                        >
+                            <PackageCheck size={16} />
+                            Received (workshop)
+                        </button>
+                        <button
+                            onClick={() => navigate('/admin/login')}
+                            style={{
+                                background: 'transparent',
+                                border: '1px solid #E5E7EB',
+                                padding: '12px 24px',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                fontSize: '0.875rem',
+                                fontWeight: '600',
+                                color: '#6B7280',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <Lock size={14} />
+                            Filter ERP Access
+                        </button>
+                    </div>
                     <p style={{ marginTop: '16px', fontSize: '0.75rem', color: '#9CA3AF' }}>
-                        Restricted area for authorized administrative staff only.
+                        “Received” authenticates a workshop password and updates branch inventory for a supplier
+                        invoice. ERP access is restricted to administrative staff only.
                     </p>
                 </motion.div>
             </div>
+
+            {receiveOpen ? (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Workshop receives supplier invoice"
+                    onClick={closeReceiveModal}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(15,23,42,0.55)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 16,
+                        zIndex: 50,
+                    }}
+                >
+                    <form
+                        onClick={(e) => e.stopPropagation()}
+                        onSubmit={handleReceiveSubmit}
+                        style={{
+                            background: '#fff',
+                            borderRadius: 16,
+                            width: '100%',
+                            maxWidth: 420,
+                            padding: 24,
+                            boxShadow: '0 20px 50px rgba(2,6,23,0.35)',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                            <PackageCheck size={22} style={{ color: '#059669' }} />
+                            <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
+                                Mark supplier invoice as received
+                            </h2>
+                        </div>
+                        <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: '#475569', lineHeight: 1.45 }}>
+                            Enter the supplier invoice id (printed on the invoice / QR) and either the branch login
+                            password or workshop owner / admin password. On success, branch inventory is updated.
+                        </p>
+
+                        {receiveResult ? (
+                            <div
+                                style={{
+                                    marginBottom: 14,
+                                    padding: 12,
+                                    borderRadius: 10,
+                                    background: '#ECFDF5',
+                                    border: '1px solid #A7F3D0',
+                                    color: '#065F46',
+                                    fontSize: '0.8125rem',
+                                }}
+                            >
+                                <strong style={{ display: 'block', marginBottom: 4 }}>
+                                    {receiveResult.alreadyReceivedBefore ? 'Already received' : 'Inventory updated'}
+                                </strong>
+                                {receiveResult.message ||
+                                    'Branch inventory has been updated for this invoice.'}
+                                {receiveResult.invoiceNumber ? (
+                                    <div style={{ marginTop: 6, color: '#047857' }}>
+                                        Invoice: <strong>{receiveResult.invoiceNumber}</strong>
+                                        {receiveResult.branchName ? ` · ${receiveResult.branchName}` : ''}
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
+
+                        <label
+                            htmlFor="hub-receive-invoice"
+                            style={{
+                                display: 'block',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                color: '#334155',
+                                marginBottom: 6,
+                            }}
+                        >
+                            Supplier invoice id / number
+                        </label>
+                        <input
+                            id="hub-receive-invoice"
+                            type="text"
+                            value={receiveInvoiceId}
+                            onChange={(e) => setReceiveInvoiceId(e.target.value)}
+                            disabled={receiveSubmitting}
+                            placeholder="e.g. 12345 or SI-2026-0001"
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                borderRadius: 10,
+                                border: '1px solid #cbd5e1',
+                                background: '#f8fafc',
+                                fontSize: '0.9375rem',
+                                outline: 'none',
+                                marginBottom: 12,
+                            }}
+                        />
+
+                        <label
+                            htmlFor="hub-receive-password"
+                            style={{
+                                display: 'block',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                color: '#334155',
+                                marginBottom: 6,
+                            }}
+                        >
+                            Workshop / branch password
+                        </label>
+                        <input
+                            id="hub-receive-password"
+                            type="password"
+                            value={receivePassword}
+                            onChange={(e) => setReceivePassword(e.target.value)}
+                            disabled={receiveSubmitting}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                borderRadius: 10,
+                                border: '1px solid #cbd5e1',
+                                background: '#f8fafc',
+                                fontSize: '0.9375rem',
+                                outline: 'none',
+                                marginBottom: 12,
+                            }}
+                        />
+
+                        {receiveError ? (
+                            <p
+                                style={{
+                                    margin: '0 0 10px',
+                                    fontSize: '0.8125rem',
+                                    color: '#B91C1C',
+                                    background: '#FEF2F2',
+                                    border: '1px solid #FECACA',
+                                    padding: '8px 10px',
+                                    borderRadius: 8,
+                                }}
+                            >
+                                {receiveError}
+                            </p>
+                        ) : null}
+
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                            <button
+                                type="button"
+                                onClick={closeReceiveModal}
+                                disabled={receiveSubmitting}
+                                style={{
+                                    padding: '10px 14px',
+                                    borderRadius: 10,
+                                    border: '1px solid #e2e8f0',
+                                    background: '#f8fafc',
+                                    fontWeight: 600,
+                                    color: '#0f172a',
+                                    cursor: receiveSubmitting ? 'not-allowed' : 'pointer',
+                                }}
+                            >
+                                Close
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={
+                                    receiveSubmitting ||
+                                    !receiveInvoiceId.trim() ||
+                                    !receivePassword.trim()
+                                }
+                                style={{
+                                    padding: '10px 14px',
+                                    borderRadius: 10,
+                                    border: 'none',
+                                    background: '#059669',
+                                    color: '#fff',
+                                    fontWeight: 700,
+                                    cursor:
+                                        receiveSubmitting ||
+                                        !receiveInvoiceId.trim() ||
+                                        !receivePassword.trim()
+                                            ? 'not-allowed'
+                                            : 'pointer',
+                                    opacity:
+                                        receiveSubmitting ||
+                                        !receiveInvoiceId.trim() ||
+                                        !receivePassword.trim()
+                                            ? 0.7
+                                            : 1,
+                                }}
+                            >
+                                {receiveSubmitting ? 'Authenticating…' : 'Confirm & receive'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            ) : null}
         </div>
     );
 }

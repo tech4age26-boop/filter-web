@@ -4,6 +4,7 @@ import './Workshop.css';
 
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import { MOCK_SUPPLIERS_CATALOG } from './constants';
 import { getMyProducts, getBranchProducts, patchBranchProduct } from '../../services/workshopCatalogApi';
 import {
@@ -453,6 +454,19 @@ export default function WorkshopInventory({
 
     useEffect(() => {
         loadInventory();
+    }, [loadInventory]);
+
+    /**
+     * Live-refresh when a workshop approval (or QR receive) just adjusted stock
+     * for any branch. We always reload the open list — backend filters by the
+     * sidebar's selected branch already, so cross-branch noise is fine.
+     */
+    useEffect(() => {
+        const handler = () => {
+            loadInventory();
+        };
+        window.addEventListener('workshop-inventory-updated', handler);
+        return () => window.removeEventListener('workshop-inventory-updated', handler);
     }, [loadInventory]);
 
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -998,11 +1012,7 @@ export default function WorkshopInventory({
                                 </thead>
                                 <tbody>
                                     {isLoading ? (
-                                        <tr>
-                                            <td colSpan={10} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                                                <p style={{ fontWeight: 600 }}>Loading inventory…</p>
-                                            </td>
-                                        </tr>
+                                        <ShimmerTableBodyRows rows={8} columns={10} />
                                     ) : filteredProducts.length === 0 ? (
                                         <tr>
                                             <td colSpan={10} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>

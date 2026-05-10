@@ -1089,7 +1089,14 @@ export default function SupplierSalesInvoices() {
                     items: itemsPayload,
                 });
             } else {
-                const invoiceNo = (refNo && String(refNo).trim()) || `INV-${Date.now()}`;
+                /**
+                 * Default invoice number is short and matches the workshop PI
+                 * prefix so every invoice in Filter starts with `WPI-SI-`.
+                 * Base36 timestamp keeps it ~9 chars instead of 13-digit ms.
+                 */
+                const invoiceNo =
+                    (refNo && String(refNo).trim()) ||
+                    `WPI-SI-${Date.now().toString(36).toUpperCase()}`;
                 await createSupplierInvoice({
                     invoiceNo,
                     invoiceDate: issueDate,
@@ -1594,41 +1601,43 @@ export default function SupplierSalesInvoices() {
             String(catalogItem.id).trim() !== ''
                 ? String(catalogItem.id)
                 : '';
-setLineItems((prev) =>
-    prev.map((line) => {
-        if (line.id !== lineId) return line;
+        setLineItems((prev) =>
+            prev.map((line) => {
+                if (line.id !== lineId) return line;
 
-        const raw = {
-            ...line,
-            sku: catalogItem.sku || '',
-            item: catalogItem.name,
-            uom: catalogItem.unit || line.uom || 'pcs',
-            price: unitPrice,
+                const raw = {
+                    ...line,
+                    sku: catalogItem.sku || '',
+                    item: catalogItem.name,
+                    uom: catalogItem.unit || line.uom || 'pcs',
+                    price: unitPrice,
 
-            supplierStockProductId:
-                catalogItem.supplierStockProductId ??
-                line.supplierStockProductId ??
-                null,
+                    supplierStockProductId:
+                        catalogItem.supplierStockProductId ??
+                        line.supplierStockProductId ??
+                        null,
 
-            supplierProductId:
-                catId || line.supplierProductId || '',
+                    supplierProductId:
+                        catId || line.supplierProductId || '',
 
-            hasPreviousSale: hasPrev,
+                    hasPreviousSale: hasPrev,
 
-            lastSalePrice: hasPrev ? lastSaleAmt : lastSale,
+                    lastSalePrice: hasPrev
+                        ? lastSaleAmt
+                        : Number(line.lastSalePrice ?? 0),
 
-            lastSaleMeta: hasPrev
-                ? String(catalogItem.lastSaleMeta || '').trim()
-                : '',
-        };
+                    lastSaleMeta: hasPrev
+                        ? String(catalogItem.lastSaleMeta || '').trim()
+                        : '',
+                };
 
-        return applyLineTotals(raw, amountsTaxInclusive);
-    }),
-);
+                return applyLineTotals(raw, amountsTaxInclusive);
+            }),
+        );
 
-setItemPickerLineId(null);
-setItemPickerInput('');
-setItemPickerFilter('');
+        setItemPickerLineId(null);
+        setItemPickerInput('');
+        setItemPickerFilter('');
     };
 
     useEffect(() => {

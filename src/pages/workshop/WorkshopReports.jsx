@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, ChevronRight, MoreVertical } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Modal from '../../components/Modal';
+import { ShimmerTextBlock, ShimmerTable } from '../../components/supplier/Shimmer';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import {
     getWorkshopReportsAnalytics,
@@ -1115,7 +1116,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     width="min(980px, 96vw)"
                 >
                     {recentOrderDetailsLoading ? (
-                        <div className="ws-text-dim">Loading details...</div>
+                        <ShimmerTextBlock lines={6} />
                     ) : recentOrderDetailsError ? (
                         <div style={{ color: '#B91C1C' }}>{recentOrderDetailsError}</div>
                     ) : recentOrderDetails ? (
@@ -1158,7 +1159,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     width="min(1620px, 98vw)"
                 >
                     {detailsLoading ? (
-                        <div className="ws-text-dim" style={{ padding: 8 }}>Loading details...</div>
+                        <ShimmerTable rows={8} columns={6} />
                     ) : detailsError ? (
                         <div style={{ padding: 8, color: '#B91C1C' }}>{detailsError}</div>
                     ) : (

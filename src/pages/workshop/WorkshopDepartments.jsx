@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -276,6 +276,14 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     }, [loadProductUnits]);
 
     /** Master catalog departments + UOM when opening Request Product. */
+    // Refs let us read the latest productUnits without re-running the effect
+    // every time `loadProductUnits` resolves (which would visibly re-blink the
+    // master-department dropdown into its loading state right after opening).
+    const productUnitsRef = useRef(productUnits);
+    useEffect(() => {
+        productUnitsRef.current = productUnits;
+    }, [productUnits]);
+
     useEffect(() => {
         if (!showProdForm || !isProductRequestFlow) return undefined;
         let cancelled = false;
@@ -305,7 +313,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 /* catalog UOM route may not exist yet */
             }
             if (cancelled) return;
-            const fallback = productUnits?.length ? productUnits : UNIT_OPTIONS;
+            const fallback = productUnitsRef.current?.length ? productUnitsRef.current : UNIT_OPTIONS;
             setUomSelectOptions(
                 fallback.map((u) => (typeof u === 'string' ? { value: u, label: u } : normalizeUomOption(u))).filter(Boolean),
             );
@@ -314,7 +322,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         return () => {
             cancelled = true;
         };
-    }, [showProdForm, isProductRequestFlow, branchScope, productUnits]);
+    }, [showProdForm, isProductRequestFlow, branchScope]);
 
     /** Master categories for selected master department (product type only). */
     useEffect(() => {
