@@ -441,12 +441,25 @@ const lastSaleMeta =
         ? [saleDateRaw, buyerLabel].filter(Boolean).join(' • ')
         : '';
 
-return {
+/** Workshop-side sellable qty cap (aligned with supplier stock-balances payload). */
+    const stockQtyWorkshop = Number(item.currentBalanceWorkshop ?? NaN);
+    const conversionFactor = Number(item.conversionFactor) || 1;
+
+    return {
     id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
     name: item.productName || 'Product',
     sku: String(item.sku ?? item.barcode ?? '').trim(),
     price,
     unit: item.workshopUnit || item.unitCode || item.unit || 'pcs',
+
+        /** Aggregate warehouse bucket qty (supplier stock units before workshop conversion). */
+        warehouseStockQty: Number(item.currentBalanceWarehouse ?? 0),
+        conversionFactor,
+
+        stockQtyWorkshop:
+            Number.isFinite(stockQtyWorkshop) && stockQtyWorkshop >= 0
+                ? stockQtyWorkshop
+                : null,
 
     lastPrice: lastSalePriceNum,
     lastSaleMeta,
@@ -459,6 +472,46 @@ return {
 
     catalogProductResolved: Boolean(supplierStockProductId),
 };
+}
+
+function salesLineStockKey(line) {
+    const a = String(line?.supplierStockProductId ?? '').trim();
+    if (a) return a;
+    return String(line?.supplierProductId ?? '').trim();
+}
+
+function findInventoryCapsRow(line, inventoryItems) {
+    const sid = String(line?.supplierStockProductId ?? '').trim();
+    const pid = String(line?.supplierProductId ?? '').trim();
+    if (!sid && !pid) return null;
+    return (
+        inventoryItems.find((inv) => {
+            const iss =
+                inv.supplierStockProductId != null
+                    ? String(inv.supplierStockProductId)
+                    : '';
+            const iid = String(inv.id);
+            return (sid && (iss === sid || iid === sid)) || (pid && iid === pid);
+        }) ?? null
+    );
+}
+
+/** Max qty in workshop/stock-balances units for this row (respects sibling lines for same SKU). */
+function maxSellableQtyWorkshopForLine(line, lines, inventoryItems) {
+    const inv = findInventoryCapsRow(line, inventoryItems);
+    if (!inv || inv.stockQtyWorkshop == null || !Number.isFinite(inv.stockQtyWorkshop)) {
+        return null;
+    }
+    const cap = Number(inv.stockQtyWorkshop);
+    const key = salesLineStockKey(line);
+    if (!key) return null;
+    let otherSum = 0;
+    for (const ln of lines) {
+        if (ln.id === line.id) continue;
+        if (salesLineStockKey(ln) !== key) continue;
+        otherSum += parseFloat(String(ln.qty).replace(',', '.')) || 0;
+    }
+    return Math.max(0, roundMoney2(cap - otherSum));
 }
 
 function nextLineId() {
@@ -579,18 +632,31 @@ export default function SupplierSalesInvoices() {
         setSelectedIndex(results.length ? 0 : -1);
     };
 
-    const updateLineItem = (id, field, value) => {
-        const recalc = new Set(['qty', 'price', 'taxCode', 'discount', 'discountMode']);
-        setLineItems((prev) =>
-            prev.map((line) => {
-                if (line.id !== id) return line;
-                const updated = { ...line, [field]: value };
-                return recalc.has(field)
-                    ? applyLineTotals(updated, amountsTaxInclusive)
-                    : updated;
-            }),
-        );
-    };
+    const updateLineItem = useCallback(
+        (id, field, value) => {
+            const recalc = new Set(['qty', 'price', 'taxCode', 'discount', 'discountMode']);
+            setLineItems((prev) =>
+                prev.map((line) => {
+                    if (line.id !== id) return line;
+                    let nextVal = value;
+                    if (field === 'qty') {
+                        const maxW = maxSellableQtyWorkshopForLine(line, prev, inventoryItems);
+                        if (maxW !== null && Number.isFinite(maxW)) {
+                            const q = parseFloat(String(value).replace(',', '.'));
+                            if (!Number.isNaN(q) && q > maxW + 1e-9) {
+                                nextVal = Number.isInteger(maxW) ? String(maxW) : String(roundMoney2(maxW));
+                            }
+                        }
+                    }
+                    const updated = { ...line, [field]: nextVal };
+                    return recalc.has(field)
+                        ? applyLineTotals(updated, amountsTaxInclusive)
+                        : updated;
+                }),
+            );
+        },
+        [amountsTaxInclusive, inventoryItems],
+    );
 
     useEffect(() => {
         setLineItems((prev) =>
@@ -599,6 +665,21 @@ export default function SupplierSalesInvoices() {
                 : prev,
         );
     }, [amountsTaxInclusive]);
+
+    /** When balances refresh while the modal is open, clamp catalog lines down to availability. */
+    useEffect(() => {
+        if (!modalOpen || !inventoryInitialLoadDone) return;
+        setLineItems((prev) =>
+            prev.map((line) => {
+                const maxW = maxSellableQtyWorkshopForLine(line, prev, inventoryItems);
+                if (maxW === null || !Number.isFinite(maxW)) return line;
+                const q = parseFloat(String(line.qty).replace(',', '.')) || 0;
+                if (q <= maxW + 1e-9) return line;
+                const capped = Number.isInteger(maxW) ? String(maxW) : String(roundMoney2(maxW));
+                return applyLineTotals({ ...line, qty: capped }, amountsTaxInclusive);
+            }),
+        );
+    }, [modalOpen, inventoryInitialLoadDone, inventoryItems, amountsTaxInclusive]);
 
     const getSummary = () => {
         let subtotalEx = 0;
@@ -768,6 +849,10 @@ export default function SupplierSalesInvoices() {
 
     const handleMathBlur = (e, lineId, field) => {
         const evaluated = evalMath(e.target.value);
+        if (field === 'qty') {
+            updateLineItem(lineId, field, evaluated);
+            return;
+        }
         if (evaluated !== e.target.value) {
             updateLineItem(lineId, field, evaluated);
         }
@@ -928,6 +1013,18 @@ export default function SupplierSalesInvoices() {
             );
             return;
         }
+        for (let i = 0; i < lineItems.length; i++) {
+            const row = lineItems[i];
+            const maxWs = maxSellableQtyWorkshopForLine(row, lineItems, inventoryItems);
+            if (maxWs == null || !Number.isFinite(maxWs)) continue;
+            const qNum = normalizedLines[i].qty;
+            if (qNum > maxWs + 1e-6) {
+                setSaveError(
+                    `Line ${i + 1}: quantity ${qNum} exceeds available supplier stock (${maxWs} ${normalizedLines[i].unit} max across this invoice).`,
+                );
+                return;
+            }
+        }
         setSaving(true);
         const due =
             calculatedDueDate === '—' ? issueDate : calculatedDueDate;
@@ -943,9 +1040,11 @@ export default function SupplierSalesInvoices() {
         unit: line.unit,
         ...(line.sku ? { sku: line.sku } : {}),
 
-        ...(row?.supplierStockProductId
+        ...(String(row?.supplierStockProductId ?? '').trim()
             ? { supplierProductId: String(row.supplierStockProductId).trim() }
-            : {}),
+            : String(row?.supplierProductId ?? '').trim()
+              ? { supplierProductId: String(row.supplierProductId).trim() }
+              : {}),
 
         ...(row?.workshopCatalogProductId
             ? { productId: String(row.workshopCatalogProductId) }
@@ -1102,6 +1201,11 @@ export default function SupplierSalesInvoices() {
                             taxCode,
                             taxAmt: '0.00',
                             totalFinal: '0.00',
+                            supplierStockProductId:
+                                it.supplierProductId != null &&
+                                String(it.supplierProductId).trim() !== ''
+                                    ? String(it.supplierProductId).trim()
+                                    : '',
                             supplierProductId:
                                 it.supplierProductId != null &&
                                 String(it.supplierProductId).trim() !== ''
@@ -2486,7 +2590,13 @@ setItemPickerFilter('');
                                     <div aria-hidden />
                                 </div>
 
-                                {lineItems.map((line, idx) => (
+                                {lineItems.map((line, idx) => {
+                                    const maxQtyWs = maxSellableQtyWorkshopForLine(
+                                        line,
+                                        lineItems,
+                                        inventoryItems,
+                                    );
+                                    return (
                                     <div
                                         key={line.id}
                                         className="pi-lines-header pi-line-data-row"
@@ -2861,22 +2971,29 @@ setItemPickerFilter('');
                                         <div className="pi-col-qty">
                                             <input
                                                 type="text"
-                                                defaultValue={line.qty}
-                                                key={`qty-${line.id}`}
+                                                aria-label={
+                                                    maxQtyWs != null &&
+                                                    Number.isFinite(maxQtyWs)
+                                                        ? `Quantity. Maximum ${maxQtyWs} ${line.uom || 'pcs'} (supplier stock balance).`
+                                                        : 'Quantity'
+                                                }
+                                                value={line.qty}
+                                                title={
+                                                    maxQtyWs != null &&
+                                                    Number.isFinite(maxQtyWs)
+                                                        ? `Max ${maxQtyWs} ${line.uom || 'pcs'} — supplier warehouse stock`
+                                                        : undefined
+                                                }
                                                 className="pi-row-input-num pi-math-input"
                                                 onChange={(e) =>
                                                     updateLineItem(
                                                         line.id,
                                                         'qty',
-                                                        e.target.value
+                                                        e.target.value,
                                                     )
                                                 }
                                                 onKeyDown={(e) =>
-                                                    handleMathKeyDown(
-                                                        e,
-                                                        line.id,
-                                                        'qty'
-                                                    )
+                                                    handleMathKeyDown(e, line.id, 'qty')
                                                 }
                                                 onBlur={(e) =>
                                                     handleMathBlur(e, line.id, 'qty')
@@ -3135,7 +3252,8 @@ setItemPickerFilter('');
                                             </button>
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
 
                                 <div className="pi-line-row">
                                     <div
