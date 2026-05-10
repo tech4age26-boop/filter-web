@@ -136,6 +136,15 @@ export const deleteSupplierInvoice = (id) =>
     apiFetch(`/supplier/invoices/${id}`, { method: 'DELETE' });
 export const getSupplierInvoicePdfData = (id) =>
     apiFetch(`/supplier/invoices/${id}/pdf`);
+/** List goods returns / credits against a sales invoice (audit trail). */
+export const listSupplierInvoiceReturns = (invoiceId) =>
+    apiFetch(`/supplier/invoices/${encodeURIComponent(invoiceId)}/returns`);
+/** Create a return (reduces collectable AR; stored + supplier_transaction_history). */
+export const createSupplierInvoiceReturn = (invoiceId, body) =>
+    apiFetch(`/supplier/invoices/${encodeURIComponent(invoiceId)}/returns`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
 export const remindSupplierInvoice = (id) =>
     apiFetch(`/supplier/invoices/${id}/remind`, { method: 'POST' });
 export const recordSupplierPayment = (body) =>
