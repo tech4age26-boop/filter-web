@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, Key, Plus, MapPin, Phone, Mail, Users, Edit, RefreshCw } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
-import { loadWorkshopEmployeesCombined, unwrapWorkshopBranchesResponse } from '../../services/workshopStaffApi';
+import {
+    loadWorkshopEmployeesCombined,
+    unwrapWorkshopBranchesResponse,
+    isWorkshopPortalBranchInactive,
+} from '../../services/workshopStaffApi';
 import {
     BRANCH_PERMISSIONS,
     MOCK_ROLE_PERMISSIONS,
@@ -64,11 +68,21 @@ function branchIsApprovedForAccess(branch) {
     return s === '' || s === 'approved';
 }
 
+function branchOperationalActive(branch) {
+    const s = String(branch?.status ?? '').toLowerCase();
+    if (s === 'active') return true;
+    if (s === 'inactive') return false;
+    return branch?.isActive !== false;
+}
+
 function AccessPermissionFormModal({ branches, onClose, onSave }) {
     const [form, setForm] = useState({ branch_id: '', admin_name: '', admin_email: '', permissions: [] });
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
     const selectableBranches = useMemo(
-        () => (branches || []).filter(branchIsApprovedForAccess),
+        () =>
+            (branches || [])
+                .filter((b) => !isWorkshopPortalBranchInactive(b))
+                .filter(branchIsApprovedForAccess),
         [branches],
     );
     const togglePerm = (key) => setForm(f => ({ ...f, permissions: f.permissions.includes(key) ? f.permissions.filter(p => p !== key) : [...f.permissions, key] }));
@@ -131,6 +145,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState('');
     const [isSavingBranch, setIsSavingBranch] = useState(false);
+    const [togglingBranchId, setTogglingBranchId] = useState(null);
     const [employees, setEmployees] = useState([]);
     const getBranchPerm = (branchId) => rolePermissions.find(r => r.role_name === `branch_admin_${branchId}`);
 
@@ -229,10 +244,12 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
             const n = Number(v);
             return Number.isFinite(n) ? n : null;
         };
+        const active = data.status !== 'inactive';
         return {
             name: trim(data.name) || '',
             branchCode: optStr(data.code),
-            status: data.status === 'inactive' ? 'inactive' : 'active',
+            status: active ? 'active' : 'inactive',
+            isActive: active,
             phone: optStr(data.phone),
             email: optStr(data.email),
             gpsLat: optNum(data.gpsLat),
@@ -242,6 +259,38 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
             contactPerson: optStr(data.contact_person),
             address: optStr(data.address),
         };
+    };
+
+    const handleBranchActiveToggle = async (branch, nextActive) => {
+        if (togglingBranchId != null) return;
+        setTogglingBranchId(String(branch.id));
+        setLoadError('');
+        const prev = branches;
+        setBranches((rows) =>
+            rows.map((b) =>
+                String(b.id) === String(branch.id)
+                    ? {
+                          ...b,
+                          status: nextActive ? 'active' : 'inactive',
+                          isActive: nextActive,
+                      }
+                    : b,
+            ),
+        );
+        try {
+            await apiFetch(`/workshop-staff/branch/${encodeURIComponent(branch.id)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ isActive: nextActive }),
+            });
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('workshop-branches-changed'));
+            }
+        } catch (error) {
+            setBranches(prev);
+            setLoadError(error.message || 'Failed to update branch status.');
+        } finally {
+            setTogglingBranchId(null);
+        }
     };
 
     const handleBranchSave = async (data) => {
@@ -336,16 +385,43 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                                                     {branch.code && <p className="ws-branch-code">{branch.code}</p>}
                                                 </div>
                                             </div>
-                                            <span
-                                                className={
-                                                    pendingSuperAdmin
-                                                        ? 'ws-branch-badge-active ws-branch-badge--pending-approval'
-                                                        : 'ws-branch-badge-active'
-                                                }
-                                                title={pendingSuperAdmin ? 'Super admin must approve this branch before it is fully active.' : undefined}
-                                            >
-                                                {pendingSuperAdmin ? 'Pending approval' : branch.status}
-                                            </span>
+                                            {pendingSuperAdmin ? (
+                                                <span
+                                                    className="ws-branch-badge-active ws-branch-badge--pending-approval"
+                                                    title="Super admin must approve this branch before it is fully active."
+                                                >
+                                                    Pending approval
+                                                </span>
+                                            ) : (
+                                                <div
+                                                    className="ws-branch-active-toggle"
+                                                    title={branchOperationalActive(branch) ? 'Branch portal is active' : 'Branch portal is inactive'}
+                                                >
+                                                    <span
+                                                        className={`ws-branch-active-toggle-label ${!branchOperationalActive(branch) ? 'is-on' : ''}`}
+                                                    >
+                                                        Inactive
+                                                    </span>
+                                                    <label
+                                                        className={`ws-duty-toggle ${togglingBranchId != null ? 'ws-duty-toggle--disabled' : ''}`}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={branchOperationalActive(branch)}
+                                                            disabled={togglingBranchId != null}
+                                                            onChange={(e) =>
+                                                                handleBranchActiveToggle(branch, e.target.checked)
+                                                            }
+                                                        />
+                                                        <span className="ws-toggle-slider" />
+                                                    </label>
+                                                    <span
+                                                        className={`ws-branch-active-toggle-label ${branchOperationalActive(branch) ? 'is-on' : ''}`}
+                                                    >
+                                                        Active
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
                                         {pendingSuperAdmin && (
                                             <p className="ws-branch-pending-note">

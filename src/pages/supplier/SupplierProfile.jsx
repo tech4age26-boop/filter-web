@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Building2, Warehouse } from 'lucide-react';
 import { getSupplierLocations, getSupplierProfile, getSupplierReceivables } from '../../services/supplierApi';
+import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 import { ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
 export default function SupplierProfile({ onTabChange }) {
@@ -32,11 +33,14 @@ export default function SupplierProfile({ onTabChange }) {
                       ? locationsRes.list
                       : [];
                 setBranches(
-                    locs.map((l) => ({
-                        id: l.id ?? l.supplierLocationId ?? String(l.name),
-                        name: l.name ?? l.branchName ?? '-',
-                        status: l.status ?? 'active',
-                    })),
+                    filterPortalVisibleBranches(
+                        locs.map((l) => ({
+                            id: l.id ?? l.supplierLocationId ?? String(l.name),
+                            name: l.name ?? l.branchName ?? '-',
+                            status: l.status ?? 'active',
+                            isActive: l.isActive,
+                        })),
+                    ),
                 );
 
                 let totalOutstanding = null;

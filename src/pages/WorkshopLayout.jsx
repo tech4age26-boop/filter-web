@@ -22,7 +22,13 @@ import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
 import { apiFetch } from '../services/api';
 import { workshopLogout } from '../services/authApi';
-import { qs, branchScopeParams, unwrapWorkshopBranchesResponse } from '../services/workshopStaffApi';
+import {
+    qs,
+    branchScopeParams,
+    unwrapWorkshopBranchesResponse,
+    filterPortalVisibleBranches,
+    isWorkshopPortalBranchInactive,
+} from '../services/workshopStaffApi';
 import { useAuth } from '../context/AuthContext';
 import './workshop/Workshop.css';
 import '../styles/admin/AccountingPage.css';
@@ -147,17 +153,28 @@ export default function WorkshopLayout() {
 
     const loadPendingApprovalsCount = useCallback(async () => {
         try {
-            const response = await apiFetch(
-                `/workshop-staff/petty-cash/requests${qs({
-                    limit: 1,
-                    offset: 0,
-                    queue: 'pending',
-                    ...branchScopeParams(selectedBranch),
-                })}`,
-            );
-            if (response?.success) {
-                setPendingApprovals(Number(response.total) || 0);
-            }
+            const branch = branchScopeParams(selectedBranch);
+            const [pettyRes, supplierRes] = await Promise.all([
+                apiFetch(
+                    `/workshop-staff/petty-cash/requests${qs({
+                        limit: 1,
+                        offset: 0,
+                        queue: 'all',
+                        status: 'pending',
+                        ...branch,
+                    })}`,
+                ),
+                apiFetch(
+                    `/workshop-staff/supplier-sales-invoices${qs({
+                        limit: 1,
+                        offset: 0,
+                        ...branch,
+                    })}`,
+                ).catch(() => ({ success: false, total: 0 })),
+            ]);
+            const petty = pettyRes?.success ? Number(pettyRes.total) || 0 : 0;
+            const sup = supplierRes?.success ? Number(supplierRes.total) || 0 : 0;
+            setPendingApprovals(petty + sup);
         } catch {
             setPendingApprovals(0);
         }
@@ -187,10 +204,28 @@ export default function WorkshopLayout() {
         return () => window.removeEventListener('filter-api-loading', handleApiLoading);
     }, []);
 
+    const activeBranches = useMemo(() => filterPortalVisibleBranches(branches), [branches]);
+
+    /** Sidebar + “All Branches” scope only include active branches; inactive stay manageable on Branches page. */
+    useEffect(() => {
+        if (selectedBranch === 'all') return;
+        const sel = branches.find((b) => String(b.id) === String(selectedBranch));
+        if (!sel || isWorkshopPortalBranchInactive(sel)) {
+            setSelectedBranch('all');
+        }
+    }, [branches, selectedBranch]);
+
+    useEffect(() => {
+        if (activeBranches.length > 0) return;
+        if (selectedBranch !== 'all') setSelectedBranch('all');
+    }, [activeBranches.length, selectedBranch]);
+
     const selectedBranchName = useMemo(() => {
         if (selectedBranch === 'all') return 'All Branches';
-        return branches.find((branch) => String(branch.id) === String(selectedBranch))?.name || 'All Branches';
-    }, [branches, selectedBranch]);
+        const b = activeBranches.find((branch) => String(branch.id) === String(selectedBranch));
+        if (!b) return 'All Branches';
+        return b.name ?? 'Branch';
+    }, [activeBranches, selectedBranch]);
 
     useEffect(() => {
         if (activeTab !== 'dashboard') setDashboardLowStockCount(0);
@@ -200,12 +235,12 @@ export default function WorkshopLayout() {
     const inventoryBranchOnly = activeTab === 'inventory';
     useEffect(() => {
         if (!inventoryBranchOnly) return;
-        const hasBranch = branches.some((b) => String(b.id) === String(selectedBranch));
+        const hasBranch = activeBranches.some((b) => String(b.id) === String(selectedBranch));
         if (selectedBranch !== 'all' && hasBranch) return;
-        if (branches.length > 0) {
-            setSelectedBranch(String(branches[0].id));
+        if (activeBranches.length > 0) {
+            setSelectedBranch(String(activeBranches[0].id));
         }
-    }, [inventoryBranchOnly, selectedBranch, branches]);
+    }, [inventoryBranchOnly, selectedBranch, activeBranches]);
 
     const renderContent = () => {
         switch (activeTab) {
@@ -220,17 +255,17 @@ export default function WorkshopLayout() {
             case 'acc-receipts':      
             case 'acc-payments':      
             case 'acc-advances':      
-            case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={branches} />;
+            case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'dashboard':         return (
                 <WorkshopDashboard
                     onTabChange={handleTabChange}
                     selectedBranchId={selectedBranch}
-                    branches={branches}
+                    branches={activeBranches}
                     onLowStockAlertsChange={setDashboardLowStockCount}
                 />
             );
-            case 'employees':   return <WorkshopEmployees selectedBranchId={selectedBranch} branches={branches} />;
-            case 'departments': return <WorkshopDepartments selectedBranchId={selectedBranch} branches={branches} />;
+            case 'employees':   return <WorkshopEmployees selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'departments': return <WorkshopDepartments selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'catalog':
                 return <Navigate to="/workshop/departments" replace />;
             case 'purchases':   return (
@@ -238,24 +273,24 @@ export default function WorkshopLayout() {
                     tabState={tabState}
                     clearTabState={() => setTabState(null)}
                     selectedBranchId={selectedBranch}
-                    branches={branches}
+                    branches={activeBranches}
                 />
             );
-            case 'approvals':   return <WorkshopApprovals selectedBranchId={selectedBranch} branches={branches} />;
-            case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={branches} onTabChange={handleTabChange} />;
-            case 'reports':     return <WorkshopReports selectedBranchId={selectedBranch} branches={branches} />;
-            case 'pos-monitoring': return <WorkshopPosMonitoring selectedBranchId={selectedBranch} branches={branches} />;
+            case 'approvals':   return <WorkshopApprovals selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={activeBranches} onTabChange={handleTabChange} />;
+            case 'reports':     return <WorkshopReports selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'pos-monitoring': return <WorkshopPosMonitoring selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'catalog-new': return (
-                <WorkshopCatalogNew branches={branches} selectedBranchId={selectedBranch} />
+                <WorkshopCatalogNew branches={activeBranches} selectedBranchId={selectedBranch} />
             );
-            case 'promo-codes': return <WorkshopPromoCodes selectedBranchId={selectedBranch} branches={branches} />;
-            case 'corporate-management': return <WorkshopCorporateManagement selectedBranchId={selectedBranch} branches={branches} />;
+            case 'promo-codes': return <WorkshopPromoCodes selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'corporate-management': return <WorkshopCorporateManagement selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'branches':    return <WorkshopBranches selectedBranchId={selectedBranch} />;
-            case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={branches} />;
+            case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'inventory': return (
                 <WorkshopInventory
                     selectedBranchId={selectedBranch}
-                    branches={branches}
+                    branches={activeBranches}
                     selectedProducts={selectedProducts}
                     onTabChange={handleTabChange}
                     updateProductStatus={updateProductStatus}
@@ -265,7 +300,7 @@ export default function WorkshopLayout() {
                 <WorkshopDashboard
                     onTabChange={handleTabChange}
                     selectedBranchId={selectedBranch}
-                    branches={branches}
+                    branches={activeBranches}
                     onLowStockAlertsChange={setDashboardLowStockCount}
                 />
             );
@@ -282,12 +317,14 @@ export default function WorkshopLayout() {
                     <div className="ws-logo-icon"><Building2 size={20}/></div>
                     <div><p className="ws-logo-title">Filter Admin Workshop</p><p className="ws-logo-sub">Portal</p></div>
                 </div>
-                {activeTab !== 'catalog-new' && (
+                {activeTab !== 'catalog-new' && activeBranches.length > 0 && (
                 <div className="ws-branch-selector">
                     <select className="ws-branch-select" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
                         style={{ background: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.1)', color: '#000000' }}>
                         {!inventoryBranchOnly ? <option value="all">All Branches</option> : null}
-                        {branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                        {activeBranches.map((branch) => (
+                            <option key={branch.id} value={branch.id}>{branch.name}</option>
+                        ))}
                     </select>
                 </div>
                 )}

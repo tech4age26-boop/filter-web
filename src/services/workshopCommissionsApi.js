@@ -38,6 +38,30 @@ export const postWorkshopCommissionsPayout = (body) =>
         body: JSON.stringify(body),
     });
 
+/** Commission Rules — workshop-scoped CRUD via /workshop-staff/commissions/rules. */
+export const getWorkshopCommissionRules = (search = '') =>
+    apiFetch(`/workshop-staff/commissions/rules${search ? `?search=${encodeURIComponent(search)}` : ''}`);
+
+export const createWorkshopCommissionRule = (body) =>
+    apiFetch('/workshop-staff/commissions/rules', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
+export const updateWorkshopCommissionRule = (id, body) =>
+    apiFetch(`/workshop-staff/commissions/rules/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+
+export const deleteWorkshopCommissionRule = (id) =>
+    apiFetch(`/workshop-staff/commissions/rules/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+    });
+
+export const getWorkshopCommissionRuleServices = () =>
+    apiFetch('/workshop-staff/commissions/rule-services');
+
 /** Merge branch / all-branches rule with arbitrary extra query params. */
 export function workshopCommissionsScopeParams(selectedBranchId, extra = {}) {
     const scope = {

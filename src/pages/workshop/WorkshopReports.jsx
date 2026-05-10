@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, ChevronRight } from 'lucide-react';
+import { RefreshCw, ChevronRight, MoreVertical } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Modal from '../../components/Modal';
+import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import {
     getWorkshopReportsAnalytics,
+    getWorkshopRecentOrderDetails,
+    getWorkshopRecentOrderPdf,
+    getWorkshopRecentOrders,
     getWorkshopReportsByBranch,
     getWorkshopReportsByBranchDetails,
     getWorkshopReportsByCustomer,
@@ -15,6 +19,7 @@ import {
     getWorkshopReportsByTechnician,
     getWorkshopReportsByTechnicianDetails,
     getWorkshopTechnicians,
+    runWorkshopRelativeAction,
     workshopReportsAnalyticsParams,
     unwrapWorkshopStaffList,
     flattenWorkshopStaffRow,
@@ -26,6 +31,52 @@ const toNumber = (value) => {
 };
 
 const formatCurrency = (value) => `SAR ${toNumber(value).toLocaleString()}`;
+
+const mapRecentPdfToInvoice = (raw) => {
+    if (!raw || typeof raw !== 'object') return null;
+    const src = raw?.invoice && typeof raw.invoice === 'object' ? raw.invoice : raw;
+    const salesOrder = src.salesOrder && typeof src.salesOrder === 'object' ? src.salesOrder : {};
+    const customer = salesOrder.customer && typeof salesOrder.customer === 'object' ? salesOrder.customer : {};
+    const vehicle = salesOrder.vehicle && typeof salesOrder.vehicle === 'object' ? salesOrder.vehicle : {};
+    const jobs = Array.isArray(salesOrder.jobs) ? salesOrder.jobs : (Array.isArray(src.jobs) ? src.jobs : []);
+    const payments = Array.isArray(src.payments) ? src.payments : [];
+    const departments = Array.isArray(src.departments) ? src.departments : [];
+    const splitPayments = Array.isArray(src.splitPayments)
+        ? src.splitPayments
+        : payments.map((p) => ({ method: p?.method, amount: p?.amount }));
+    const paymentMethod =
+        src.paymentMethod ||
+        payments.map((p) => p?.method).filter(Boolean).join(', ') ||
+        splitPayments.map((p) => p?.method).filter(Boolean).join(', ') ||
+        'Unpaid';
+    return {
+        ...src,
+        invoiceId: src.invoiceId ?? src.id,
+        invoiceNo: src.invoiceNo,
+        invoiceDate: src.invoiceDate,
+        issuedAt: src.issuedAt || src.dateTime || src.invoiceDate,
+        customerName: src.customerName || customer.name,
+        customerMobile: src.phone || src.customerMobile || customer.mobile,
+        customerTaxId: src.taxId ?? src.customerTaxId ?? customer.taxId ?? null,
+        plateNo: src.vehicleNo || src.plateNo || vehicle.plateNo,
+        vehicleModel: src.model ?? src.vehicleModel ?? vehicle.model ?? null,
+        vehicleYear: src.year ?? src.vehicleYear ?? vehicle.year ?? null,
+        vehicleMake: src.make ?? src.vehicleMake ?? vehicle.make ?? null,
+        vehicleVin: src.vin ?? src.vehicleVin ?? vehicle.vin ?? null,
+        branchName: src.branchName || src.branch?.name,
+        totalAmount: src.totalAmount ?? src.invoiceTotal,
+        paymentMethod,
+        maintenanceChecklist: src.maintenanceChecklist,
+        departments: departments.length > 0 ? departments : jobs.map((j) => ({
+            departmentId: j?.departmentId,
+            departmentName: j?.department || j?.departmentName,
+            items: [],
+        })),
+        jobs,
+        customerType: src.customerType,
+        splitPayments,
+    };
+};
 
 /** Last N inclusive UTC calendar days through today UTC (matches typical “last 30 days” API default). */
 function defaultUtcDateRangeInclusive(days = 30) {
@@ -137,6 +188,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [selectedTechId, setSelectedTechId] = useState('');
     const [technicianOptions, setTechnicianOptions] = useState([]);
     const [reportData, setReportData] = useState(null);
+    const [recentOrders, setRecentOrders] = useState([]);
     const [summaryData, setSummaryData] = useState({
         by_technician: [],
         by_customer: [],
@@ -155,6 +207,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const scrollSyncLockRef = useRef(false);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
+    const [recentOrderDetails, setRecentOrderDetails] = useState(null);
+    const [recentOrderDetailsLoading, setRecentOrderDetailsLoading] = useState(false);
+    const [recentOrderDetailsError, setRecentOrderDetailsError] = useState('');
+    const [openRecentOrderMenuId, setOpenRecentOrderMenuId] = useState('');
+    const [recentOrderActionBusyId, setRecentOrderActionBusyId] = useState('');
+    const [invoicePreviewData, setInvoicePreviewData] = useState(null);
+    const [autoDownloadAfterPreview, setAutoDownloadAfterPreview] = useState(false);
 
     const branchLabel = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
@@ -173,7 +232,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         let cancelled = false;
         (async () => {
             try {
-                const res = await getWorkshopTechnicians(workshopReportsAnalyticsParams(selectedBranchId, {}));
+                const isAll = !selectedBranchId || selectedBranchId === 'all';
+                const res = await getWorkshopTechnicians({
+                    ...workshopReportsAnalyticsParams(selectedBranchId, {}),
+                    ...(isAll ? { isActive: 'true' } : {}),
+                });
                 if (cancelled) return;
                 const rawList = unwrapWorkshopStaffList(res, 'technician');
                 const opts = [];
@@ -210,6 +273,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             });
             const [
                 response,
+                recentOrdersRes,
                 byTechnicianRes,
                 byCustomerRes,
                 byProductRes,
@@ -217,6 +281,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 byBranchRes,
             ] = await Promise.all([
                 getWorkshopReportsAnalytics(params),
+                getWorkshopRecentOrders(params),
                 getWorkshopReportsByTechnician(params),
                 getWorkshopReportsByCustomer(params),
                 getWorkshopReportsByProduct(params),
@@ -227,6 +292,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 throw new Error('Invalid reports response.');
             }
             setReportData(response);
+            setRecentOrders(Array.isArray(recentOrdersRes?.rows) ? recentOrdersRes.rows : []);
             setSummaryData({
                 by_technician: extractSummaryRows(byTechnicianRes, 'by_technician'),
                 by_customer: extractSummaryRows(byCustomerRes, 'by_customer'),
@@ -244,6 +310,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 by_department: [],
                 by_branch: [],
             });
+            setRecentOrders([]);
         } finally {
             setIsLoading(false);
         }
@@ -252,6 +319,72 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     useEffect(() => {
         loadReports();
     }, [loadReports]);
+
+    const fetchRecentOrderDetails = useCallback(async (invoiceId) => {
+        const params = workshopReportsAnalyticsParams(selectedBranchId, {
+            startDate: dateFrom,
+            endDate: dateTo,
+        });
+        return await getWorkshopRecentOrderDetails(invoiceId, params);
+    }, [selectedBranchId, dateFrom, dateTo]);
+
+    const openRecentOrderDetails = useCallback(async (invoiceId) => {
+        if (!invoiceId) return;
+        setRecentOrderDetailsLoading(true);
+        setRecentOrderDetailsError('');
+        try {
+            const res = await fetchRecentOrderDetails(invoiceId);
+            setRecentOrderDetails(res && typeof res === 'object' ? res : null);
+        } catch (error) {
+            setRecentOrderDetailsError(error?.message || 'Failed to load recent order details.');
+            setRecentOrderDetails(null);
+        } finally {
+            setRecentOrderDetailsLoading(false);
+        }
+    }, [fetchRecentOrderDetails]);
+
+    const handleRecentOrderAction = useCallback(async (invoiceId, actionType) => {
+        if (!invoiceId) return;
+        setRecentOrderActionBusyId(String(invoiceId));
+        try {
+            const params = workshopReportsAnalyticsParams(selectedBranchId, {
+                startDate: dateFrom,
+                endDate: dateTo,
+            });
+            const res = await getWorkshopRecentOrderPdf(invoiceId, params);
+            const invoiceObj = mapRecentPdfToInvoice(res);
+            if (!invoiceObj) throw new Error('Invalid invoice response.');
+            if (actionType === 'view') {
+                setInvoicePreviewData(invoiceObj);
+                setAutoDownloadAfterPreview(false);
+            } else if (actionType === 'download') {
+                setInvoicePreviewData(invoiceObj);
+                setAutoDownloadAfterPreview(true);
+            } else if (actionType === 'whatsapp') {
+                const endpoint = `/workshop-staff/invoices/${encodeURIComponent(String(invoiceId))}/whatsapp-pdf`;
+                const method = 'POST';
+                await runWorkshopRelativeAction(endpoint, method);
+                window.alert('Invoice sent to WhatsApp successfully.');
+            }
+        } catch (error) {
+            window.alert(error?.message || 'Failed to execute action.');
+        } finally {
+            setRecentOrderActionBusyId('');
+            setOpenRecentOrderMenuId('');
+        }
+    }, [selectedBranchId, dateFrom, dateTo]);
+
+    useEffect(() => {
+        if (!autoDownloadAfterPreview || !invoicePreviewData) return;
+        const timer = setTimeout(() => {
+            const btn = document.querySelector('.invoice-modal-root .invoice-btn-tertiary');
+            if (btn && btn instanceof HTMLElement) {
+                btn.click();
+            }
+            setAutoDownloadAfterPreview(false);
+        }, 180);
+        return () => clearTimeout(timer);
+    }, [autoDownloadAfterPreview, invoicePreviewData]);
 
     useEffect(() => {
         setDetailRows([]);
@@ -520,6 +653,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         { id: 'by_product', label: 'By Product' },
         { id: 'by_department', label: 'By Department' },
         { id: 'by_branch', label: 'By Branch' },
+        { id: 'recent_orders', label: 'Recent Orders' },
     ];
 
     const periodLine = useMemo(() => {
@@ -899,8 +1033,119 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                     </div>
                 )}
+
+                {activeTab === 'recent_orders' && (
+                    <div className="ws-report-table-wrapper ws-report-table-wrapper--actions">
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>INVOICE NO</th>
+                                    <th>INVOICE DATE</th>
+                                    <th>CUSTOMER NAME</th>
+                                    <th>PLATE NO</th>
+                                    <th>TOTAL (SAR)</th>
+                                    <th style={{ width: 56 }} />
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {recentOrders.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No recent orders in this scope.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    recentOrders.map((row, i) => (
+                                        <tr
+                                            key={row.invoiceId ?? row.invoiceNo ?? i}
+                                            onClick={() => openRecentOrderDetails(row.invoiceId)}
+                                            style={{ cursor: 'pointer' }}
+                                        >
+                                            <td><strong>{row.invoiceNo ?? '—'}</strong></td>
+                                            <td>{row.invoiceDate ?? '—'}</td>
+                                            <td>{row.customerName ?? '—'}</td>
+                                            <td>{row.plateNo ?? '—'}</td>
+                                            <td className="ws-font-bold">SAR {toNumber(row.invoiceTotal).toLocaleString()}</td>
+                                            <td onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
+                                                <button
+                                                    type="button"
+                                                    className="ws-row-actions-trigger"
+                                                    onClick={() =>
+                                                        setOpenRecentOrderMenuId((prev) =>
+                                                            prev === String(row.invoiceId) ? '' : String(row.invoiceId),
+                                                        )
+                                                    }
+                                                    disabled={recentOrderActionBusyId === String(row.invoiceId)}
+                                                >
+                                                    <MoreVertical size={14} />
+                                                </button>
+                                                {openRecentOrderMenuId === String(row.invoiceId) && (
+                                                    <div
+                                                        className={`ws-row-actions-menu ${i >= Math.max(recentOrders.length - 3, 0) ? 'up' : ''}`}
+                                                    >
+                                                        <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row.invoiceId, 'view')}>
+                                                            View Invoice
+                                                        </button>
+                                                        <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row.invoiceId, 'download')}>
+                                                            Download PDF
+                                                        </button>
+                                                        <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row.invoiceId, 'whatsapp')}>
+                                                            Send Invoice to WhatsApp (PDF)
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
 
+            {(recentOrderDetailsLoading || recentOrderDetailsError || recentOrderDetails) && (
+                <Modal
+                    title={`Recent Order ${recentOrderDetails?.invoiceNo ? `- ${recentOrderDetails.invoiceNo}` : 'Details'}`}
+                    onClose={() => {
+                        setRecentOrderDetails(null);
+                        setRecentOrderDetailsError('');
+                        setRecentOrderDetailsLoading(false);
+                    }}
+                    width="min(980px, 96vw)"
+                >
+                    {recentOrderDetailsLoading ? (
+                        <div className="ws-text-dim">Loading details...</div>
+                    ) : recentOrderDetailsError ? (
+                        <div style={{ color: '#B91C1C' }}>{recentOrderDetailsError}</div>
+                    ) : recentOrderDetails ? (
+                        <div className="ws-report-table-wrapper">
+                            <table className="ws-table">
+                                <tbody>
+                                    <tr><th>DATE / TIME</th><td>{recentOrderDetails.dateTime ?? '—'}</td></tr>
+                                    <tr><th>CUSTOMER NAME</th><td>{recentOrderDetails.customerName ?? '—'}</td></tr>
+                                    <tr><th>PHONE</th><td>{recentOrderDetails.phone ?? '—'}</td></tr>
+                                    <tr><th>VEHICLE NO</th><td>{recentOrderDetails.vehicleNo ?? '—'}</td></tr>
+                                    <tr><th>DEPARTMENTS</th><td>{(recentOrderDetails.departments ?? []).map((d) => d?.name).filter(Boolean).join(', ') || '—'}</td></tr>
+                                    <tr><th>TECHNICIANS</th><td>{(recentOrderDetails.technicians ?? []).map((t) => t?.name).filter(Boolean).join(', ') || '—'}</td></tr>
+                                    <tr><th>TOTAL AMOUNT</th><td>SAR {toNumber(recentOrderDetails.totalAmount).toLocaleString()}</td></tr>
+                                    <tr><th>PAYMENT METHOD</th><td>{recentOrderDetails.paymentMethod ?? '—'}</td></tr>
+                                    <tr><th>CUSTOMER TYPE</th><td>{recentOrderDetails.customerType ?? '—'}</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : null}
+                </Modal>
+            )}
+
+            <InvoiceDetailsModal
+                invoice={invoicePreviewData}
+                isOpen={!!invoicePreviewData}
+                onClose={() => {
+                    setInvoicePreviewData(null);
+                    setAutoDownloadAfterPreview(false);
+                }}
+            />
             {(detailsLoading || detailsError || detailRows.length > 0) && (
                 <Modal
                     title={detailsTitle || 'Details'}
@@ -1008,7 +1253,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     )}
                 </Modal>
             )}
-
             {norm?.definitions ? (
                 <details className="ws-section" style={{ marginTop: 20 }}>
                     <summary className="ws-text-dim" style={{ cursor: 'pointer', fontWeight: 600 }}>

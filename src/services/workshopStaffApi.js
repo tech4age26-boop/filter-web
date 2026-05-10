@@ -21,7 +21,7 @@ export function branchScopeParams(selectedBranchId) {
 
 /**
  * For GET /workshop-staff/products, /workshop-staff/commissions, etc.:
- * one branch → `branchId`; all branches in the UI → `allBranches=true` (required by the API).
+ * one branch → `branchId`; workshop-wide in the UI → `allBranches=true` (API limits this to **active** branches only).
  */
 export function workshopStaffListScopeQuery(selectedBranchId) {
     if (selectedBranchId == null || selectedBranchId === '' || selectedBranchId === 'all') {
@@ -409,6 +409,33 @@ export const deleteWorkshopCashier = async (id) => {
 
 export const getWorkshopBranches = () => apiFetch('/workshop-staff/branches');
 
+/** Cash/bank registers — each row is auto-linked to a Current Asset COA account for the workshop. */
+export const listWorkshopCashBankAccounts = (params = {}) =>
+    apiFetch(`/workshop-staff/cash-bank/accounts${qs(params)}`);
+
+export const createWorkshopCashBankAccount = (body) =>
+    apiFetch('/workshop-staff/cash-bank/accounts', {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+    });
+
+export const updateWorkshopCashBankAccount = (id, body) =>
+    apiFetch(`/workshop-staff/cash-bank/accounts/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body ?? {}),
+    });
+
+/** SoftPOS terminals — for linking a cash/bank register as settlement account (same branch). */
+export const listWorkshopCashBankPosTerminals = () =>
+    apiFetch('/workshop-staff/cash-bank/pos-terminals');
+
+/** Internal transfer between two workshop registers (debit + credit, same reference). */
+export const internalTransferWorkshopCashBank = (body) =>
+    apiFetch('/workshop-staff/cash-bank/internal-transfer', {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+    });
+
 /** Normalize GET /workshop-staff/branches payloads (top-level or nested). */
 export function unwrapWorkshopBranchesResponse(res) {
     if (!res || typeof res !== 'object') return [];
@@ -418,6 +445,26 @@ export function unwrapWorkshopBranchesResponse(res) {
     if (Array.isArray(res.data)) return res.data;
     if (Array.isArray(res)) return res;
     return [];
+}
+
+/** Workshop portal: treat branch as non-selectable / hidden when inactive. */
+export function isWorkshopPortalBranchInactive(b) {
+    if (b == null || typeof b !== 'object') return false;
+    if (String(b.status ?? '').toLowerCase() === 'inactive') return true;
+    if (b.isActive === false) return true;
+    return false;
+}
+
+/**
+ * Drop inactive workshop branches for pickers, labels, and lists.
+ * @param {unknown[]} list
+ * @param {{ includeInactive?: boolean }} [opts] Pass `{ includeInactive: true }` on branch-management screens that must list every branch.
+ */
+export function filterPortalVisibleBranches(list, opts = {}) {
+    const { includeInactive = false } = opts;
+    if (!Array.isArray(list)) return [];
+    if (includeInactive) return list;
+    return list.filter((b) => !isWorkshopPortalBranchInactive(b));
 }
 
 /**
@@ -491,6 +538,21 @@ export function workshopReportsAnalyticsParams(selectedBranchId, opts = {}) {
 /** Workshop JWT — bundled KPIs, daily revenue, by technician/customer/product/department/branch. */
 export const getWorkshopReportsAnalytics = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports-analytics${qs(params)}`, options);
+
+export const getWorkshopRecentOrders = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/recent-orders${qs(params)}`, options);
+
+export const getWorkshopRecentOrderDetails = (invoiceId, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/recent-orders/${encodeURIComponent(String(invoiceId))}/details${qs(params)}`, options);
+
+export const getWorkshopRecentOrderPdf = (invoiceId, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/recent-orders/${encodeURIComponent(String(invoiceId))}/pdf${qs(params)}`, options);
+
+export const runWorkshopRelativeAction = (endpoint, method = 'POST', body) =>
+    apiFetch(endpoint, {
+        method,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
 
 export const getWorkshopReportsByTechnician = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-technician${qs(params)}`, options);
@@ -579,6 +641,18 @@ export const linkSuppliersToWorkshop = (supplierIds = []) =>
     apiFetch('/workshop-staff/suppliers/link', {
         method: 'POST',
         body: JSON.stringify({ supplierIds: (supplierIds || []).map(String) }),
+    });
+
+/**
+ * Create a new supplier and link them to the current workshop (workshop JWT).
+ * POST /workshop-staff/supplier/create
+ * Use workshopLocalOnly: true for a workshop-scoped vendor with no supplier portal login.
+ * Onboarded suppliers: omit workshopLocalOnly (or false), email required, portal user + email sent.
+ */
+export const createWorkshopSupplier = (body) =>
+    apiFetch('/workshop-staff/supplier/create', {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
     });
 
 /** Workshop — create supplier purchase invoice (starts pending; no stock until supplier approves). */
@@ -912,11 +986,16 @@ export function normalizeUnifiedWorkshopEmployeeRow(raw) {
  * @param {string|number} [params.branchId]
  * @param {string} [params.employeeType] staff | technician | cashier
  * @param {boolean|string} [params.isActive]
+ * @param {boolean} [params.includeInactive] When true, do not default workshop-wide lists to active-only.
  * @param {number|string} [params.limit]
  * @param {number|string} [params.offset]
  */
 export async function loadWorkshopEmployeesCombined(params = {}) {
     const query = {};
+    const isWorkshopWide =
+        params.branchId == null ||
+        params.branchId === '' ||
+        String(params.branchId) === 'all';
     if (params.branchId != null && params.branchId !== '' && params.branchId !== 'all') {
         query.branchId = String(params.branchId);
     }
@@ -925,6 +1004,9 @@ export async function loadWorkshopEmployeesCombined(params = {}) {
     }
     if (params.isActive != null && params.isActive !== '') {
         query.isActive = String(params.isActive);
+    } else if (isWorkshopWide && !params.includeInactive) {
+        // Portal "all branches": list active staff only (single-branch views still load full branch roster).
+        query.isActive = 'true';
     }
     if (params.limit != null && params.limit !== '') {
         query.limit = String(params.limit);
@@ -979,8 +1061,11 @@ export const getWorkshopCorporateCustomers = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/corporate-customers${qs(params)}`, options);
 
 /**
- * Register a corporate customer (workshop admin). Uses workshop Bearer from apiFetch.
- * Typical backend: POST /auth/corporate/register. If your API uses POST /workshop-staff/corporate-register, swap the path here.
+ * Register a corporate customer (workshop JWT). Sends only branches from this workshop; super admin can add more on approval.
+ * Body: companyName, vatNumber?, contactPerson, email, password, selectedStoreIds[], referralId?, mobile?
  */
 export const postCorporateRegister = (body) =>
-    apiFetch('/auth/corporate/register', { method: 'POST', body: JSON.stringify(body) });
+    apiFetch('/workshop-staff/corporate-register', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });

@@ -284,6 +284,38 @@
 .ws-branch-code { font-size: 0.75rem; color: var(--color-text-muted); margin: 3px 0 0 0; }
 .ws-branch-badge-active { background: #DCFCE7; color: #15803D; padding: 4px 10px; border-radius: 999px; font-size: 0.6875rem; font-weight: 700; flex-shrink: 0; }
 .ws-branch-badge--pending-approval { background: #FEF3C7; color: #92400E; }
+.ws-branch-active-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.ws-branch-active-toggle-label {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #9CA3AF;
+    line-height: 1.2;
+    min-width: 36px;
+    text-align: center;
+}
+.ws-branch-active-toggle-label.is-on { color: #059669; }
+/* Compact switch on branch cards only (technician duty toggles stay full size). */
+.ws-branch-active-toggle .ws-duty-toggle {
+    width: 32px;
+    height: 18px;
+    flex-shrink: 0;
+}
+.ws-branch-active-toggle .ws-toggle-slider::before {
+    width: 12px;
+    height: 12px;
+    left: 3px;
+    bottom: 3px;
+}
+.ws-branch-active-toggle .ws-duty-toggle input:checked + .ws-toggle-slider::before {
+    transform: translateX(14px);
+}
 .ws-branch-pending-note {
     margin: 0 0 10px;
     padding: 8px 10px;
@@ -725,6 +757,66 @@
     border: 1px solid var(--color-border);
     border-radius: 16px;
     overflow: hidden;
+}
+
+.ws-report-table-wrapper--actions {
+    overflow: visible;
+}
+
+.ws-row-actions-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    background: #FFFFFF;
+    color: #6B7280;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ws-row-actions-trigger:hover {
+    background: #F9FAFB;
+    color: #111827;
+    border-color: #D1D5DB;
+}
+
+.ws-row-actions-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    min-width: 220px;
+    background: #fff;
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+    z-index: 20;
+    overflow: hidden;
+    padding: 4px;
+}
+
+.ws-row-actions-menu.up {
+    top: auto;
+    bottom: calc(100% + 6px);
+}
+
+.ws-row-action-btn {
+    width: 100%;
+    border: none;
+    background: transparent;
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #111827;
+    cursor: pointer;
+}
+
+.ws-row-action-btn:hover {
+    background: #F3F4F6;
 }
 
 .ws-nav-submenu {

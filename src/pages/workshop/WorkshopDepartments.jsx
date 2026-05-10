@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -25,7 +25,15 @@ import {
     getCatalogUnitsOfMeasure,
     submitCatalogProductRequest,
 } from '../../services/workshopCatalogApi';
-import { getWorkshopStaffBranchProducts, getWorkshopStaffBranchServices, getWorkshopStaffProducts, getWorkshopStaffServices, unwrapWorkshopBranchListResponse } from '../../services/workshopStaffApi';
+import {
+    getWorkshopStaffBranchProducts,
+    getWorkshopStaffBranchServices,
+    getWorkshopStaffProducts,
+    getWorkshopStaffServices,
+    unwrapWorkshopBranchListResponse,
+    unwrapWorkshopBranchesResponse,
+    filterPortalVisibleBranches,
+} from '../../services/workshopStaffApi';
 import { useAuth } from '../../context/AuthContext';
 import {
     MOCK_BRANCHES,
@@ -150,6 +158,10 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     const [productsError, setProductsError] = useState('');
     const [isSavingProduct, setIsSavingProduct] = useState(false);
     const [branches, setBranches] = useState([]);
+    const branchesForUi = useMemo(
+        () => filterPortalVisibleBranches(branches.length > 0 ? branches : branchesProp),
+        [branches, branchesProp],
+    );
     const [productUnits, setProductUnits] = useState(UNIT_OPTIONS);
     const [defaultProductUnit, setDefaultProductUnit] = useState('pcs');
     const [categories, setCategories] = useState([]);
@@ -233,8 +245,9 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     const loadBranches = useCallback(async () => {
         try {
             const response = await apiFetch('/workshop-staff/branches');
-            if (response?.success && Array.isArray(response.branches)) {
-                setBranches(response.branches);
+            const raw = unwrapWorkshopBranchesResponse(response);
+            if (raw.length > 0 || response?.success) {
+                setBranches(filterPortalVisibleBranches(raw.length ? raw : response?.branches || []));
             }
         } catch {
             setBranches([]);
@@ -1568,7 +1581,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                             }
                                         >
                                             <option value="">Select Branch</option>
-                                            {branches.map((b) => (
+                                            {branchesForUi.map((b) => (
                                                 <option key={b.id} value={b.id}>
                                                     {b.name}
                                                 </option>
