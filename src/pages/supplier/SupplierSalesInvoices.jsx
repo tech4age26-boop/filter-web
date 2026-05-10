@@ -13,6 +13,7 @@ import {
     Trash2,
     ChevronDown,
     Loader2,
+    RotateCcw,
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -24,6 +25,8 @@ import {
     getSupplierInventoryStockBalances,
     getSupplierSalesInvoiceCustomerBranches,
     listSupplierInvoices,
+    listSupplierInvoiceReturns,
+    createSupplierInvoiceReturn,
     listSupplierCashBankAccounts,
     patchSupplierInvoicePaymentStatus,
     updateSupplierInvoice,
@@ -68,6 +71,7 @@ function mapSupplierSalesInvoiceToWorkshopDetail(inv) {
         totalVat: inv.vatAmount,
         grandTotal: inv.grandTotal,
         total: inv.grandTotal,
+        returnsTotal: Number(inv.returnsTotal ?? 0),
         amountPaid: inv.paid,
         paidAmount: inv.paid,
         balanceDue: inv.outstanding,
@@ -86,6 +90,7 @@ function mapSupplierSalesInvoiceToWorkshopDetail(inv) {
             product_name: it.productName,
             qty: it.qty,
             quantity: it.qty,
+            qtyReturned: Number(it.qtyReturned ?? it.qty_returned ?? 0),
             unit: 'piece',
             uom: 'piece',
             unitPrice: it.unitPrice,
@@ -110,6 +115,9 @@ function mapSupplierSalesInvoiceToWorkshopListRow(inv) {
         grand_total: inv.grandTotal,
     };
 }
+
+/** Server-side page size for GET /supplier/invoices (matches backend max 100). */
+const SALES_INVOICE_PAGE_SIZE = 15;
 
 /** AR list: unpaid vs paid only (backend PATCH .../payment-status). */
 const SALES_INVOICE_PAYMENT_OPTIONS = [
@@ -170,6 +178,8 @@ function mapSupplierInvoicesListFromResponse(invRes) {
         amount: Number(inv.grandTotal || 0),
         paid: Number(inv.paid || 0),
         balance: Number(inv.outstanding || 0),
+        returnsTotal: Number(inv.returnsTotal ?? 0),
+        returnCount: Number(inv.returnCount ?? 0),
         status: inv.status || 'pending_payment',
         paymentStatus: salesInvoicePaymentSelectValue(inv.outstanding),
         vendorRef: inv.deliveryNoteUrl || '—',
@@ -180,6 +190,18 @@ function mapSupplierInvoicesListFromResponse(invRes) {
         freightIn: Number(inv.freightIn ?? 0),
         invoiceDiscount: Number(inv.invoiceDiscount ?? 0),
     }));
+}
+
+/** Sum qty already returned per invoice line id (from GET .../returns payloads). */
+function aggregateReturnedQtyByInvoiceLine(returns) {
+    const m = new Map();
+    for (const r of returns || []) {
+        for (const line of r.lines || []) {
+            const id = String(line.invoiceItemId);
+            m.set(id, (m.get(id) || 0) + Number(line.qtyReturned || 0));
+        }
+    }
+    return m;
 }
 
 const INVENTORY_ITEMS = [
@@ -419,12 +441,25 @@ const lastSaleMeta =
         ? [saleDateRaw, buyerLabel].filter(Boolean).join(' • ')
         : '';
 
-return {
+/** Workshop-side sellable qty cap (aligned with supplier stock-balances payload). */
+    const stockQtyWorkshop = Number(item.currentBalanceWorkshop ?? NaN);
+    const conversionFactor = Number(item.conversionFactor) || 1;
+
+    return {
     id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
     name: item.productName || 'Product',
     sku: String(item.sku ?? item.barcode ?? '').trim(),
     price,
     unit: item.workshopUnit || item.unitCode || item.unit || 'pcs',
+
+        /** Aggregate warehouse bucket qty (supplier stock units before workshop conversion). */
+        warehouseStockQty: Number(item.currentBalanceWarehouse ?? 0),
+        conversionFactor,
+
+        stockQtyWorkshop:
+            Number.isFinite(stockQtyWorkshop) && stockQtyWorkshop >= 0
+                ? stockQtyWorkshop
+                : null,
 
     lastPrice: lastSalePriceNum,
     lastSaleMeta,
@@ -439,6 +474,46 @@ return {
 };
 }
 
+function salesLineStockKey(line) {
+    const a = String(line?.supplierStockProductId ?? '').trim();
+    if (a) return a;
+    return String(line?.supplierProductId ?? '').trim();
+}
+
+function findInventoryCapsRow(line, inventoryItems) {
+    const sid = String(line?.supplierStockProductId ?? '').trim();
+    const pid = String(line?.supplierProductId ?? '').trim();
+    if (!sid && !pid) return null;
+    return (
+        inventoryItems.find((inv) => {
+            const iss =
+                inv.supplierStockProductId != null
+                    ? String(inv.supplierStockProductId)
+                    : '';
+            const iid = String(inv.id);
+            return (sid && (iss === sid || iid === sid)) || (pid && iid === pid);
+        }) ?? null
+    );
+}
+
+/** Max qty in workshop/stock-balances units for this row (respects sibling lines for same SKU). */
+function maxSellableQtyWorkshopForLine(line, lines, inventoryItems) {
+    const inv = findInventoryCapsRow(line, inventoryItems);
+    if (!inv || inv.stockQtyWorkshop == null || !Number.isFinite(inv.stockQtyWorkshop)) {
+        return null;
+    }
+    const cap = Number(inv.stockQtyWorkshop);
+    const key = salesLineStockKey(line);
+    if (!key) return null;
+    let otherSum = 0;
+    for (const ln of lines) {
+        if (ln.id === line.id) continue;
+        if (salesLineStockKey(ln) !== key) continue;
+        otherSum += parseFloat(String(ln.qty).replace(',', '.')) || 0;
+    }
+    return Math.max(0, roundMoney2(cap - otherSum));
+}
+
 function nextLineId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -450,6 +525,8 @@ export default function SupplierSalesInvoices() {
     const [editingInvoiceId, setEditingInvoiceId] = useState(null);
     const [listLoading, setListLoading] = useState(true);
     const [listError, setListError] = useState('');
+    const [invoiceListPage, setInvoiceListPage] = useState(1);
+    const [invoiceListTotal, setInvoiceListTotal] = useState(0);
     const [saveError, setSaveError] = useState('');
     const [saving, setSaving] = useState(false);
     const [viewOpen, setViewOpen] = useState(false);
@@ -467,6 +544,15 @@ export default function SupplierSalesInvoices() {
     const [markPaidAccounts, setMarkPaidAccounts] = useState([]);
     const [markPaidModalBusy, setMarkPaidModalBusy] = useState(false);
     const [markPaidModalErr, setMarkPaidModalErr] = useState('');
+    const [returnModalRow, setReturnModalRow] = useState(null);
+    const [returnModalLoading, setReturnModalLoading] = useState(false);
+    const [returnModalErr, setReturnModalErr] = useState('');
+    const [returnInvoiceDetail, setReturnInvoiceDetail] = useState(null);
+    const [returnHistory, setReturnHistory] = useState([]);
+    const [returnLineQty, setReturnLineQty] = useState({});
+    const [returnLineReason, setReturnLineReason] = useState({});
+    const [returnNotes, setReturnNotes] = useState('');
+    const [returnSubmitting, setReturnSubmitting] = useState(false);
     const [editInvoiceLoading, setEditInvoiceLoading] = useState(false);
 
     const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -546,18 +632,31 @@ export default function SupplierSalesInvoices() {
         setSelectedIndex(results.length ? 0 : -1);
     };
 
-    const updateLineItem = (id, field, value) => {
-        const recalc = new Set(['qty', 'price', 'taxCode', 'discount', 'discountMode']);
-        setLineItems((prev) =>
-            prev.map((line) => {
-                if (line.id !== id) return line;
-                const updated = { ...line, [field]: value };
-                return recalc.has(field)
-                    ? applyLineTotals(updated, amountsTaxInclusive)
-                    : updated;
-            }),
-        );
-    };
+    const updateLineItem = useCallback(
+        (id, field, value) => {
+            const recalc = new Set(['qty', 'price', 'taxCode', 'discount', 'discountMode']);
+            setLineItems((prev) =>
+                prev.map((line) => {
+                    if (line.id !== id) return line;
+                    let nextVal = value;
+                    if (field === 'qty') {
+                        const maxW = maxSellableQtyWorkshopForLine(line, prev, inventoryItems);
+                        if (maxW !== null && Number.isFinite(maxW)) {
+                            const q = parseFloat(String(value).replace(',', '.'));
+                            if (!Number.isNaN(q) && q > maxW + 1e-9) {
+                                nextVal = Number.isInteger(maxW) ? String(maxW) : String(roundMoney2(maxW));
+                            }
+                        }
+                    }
+                    const updated = { ...line, [field]: nextVal };
+                    return recalc.has(field)
+                        ? applyLineTotals(updated, amountsTaxInclusive)
+                        : updated;
+                }),
+            );
+        },
+        [amountsTaxInclusive, inventoryItems],
+    );
 
     useEffect(() => {
         setLineItems((prev) =>
@@ -566,6 +665,21 @@ export default function SupplierSalesInvoices() {
                 : prev,
         );
     }, [amountsTaxInclusive]);
+
+    /** When balances refresh while the modal is open, clamp catalog lines down to availability. */
+    useEffect(() => {
+        if (!modalOpen || !inventoryInitialLoadDone) return;
+        setLineItems((prev) =>
+            prev.map((line) => {
+                const maxW = maxSellableQtyWorkshopForLine(line, prev, inventoryItems);
+                if (maxW === null || !Number.isFinite(maxW)) return line;
+                const q = parseFloat(String(line.qty).replace(',', '.')) || 0;
+                if (q <= maxW + 1e-9) return line;
+                const capped = Number.isInteger(maxW) ? String(maxW) : String(roundMoney2(maxW));
+                return applyLineTotals({ ...line, qty: capped }, amountsTaxInclusive);
+            }),
+        );
+    }, [modalOpen, inventoryInitialLoadDone, inventoryItems, amountsTaxInclusive]);
 
     const getSummary = () => {
         let subtotalEx = 0;
@@ -735,6 +849,10 @@ export default function SupplierSalesInvoices() {
 
     const handleMathBlur = (e, lineId, field) => {
         const evaluated = evalMath(e.target.value);
+        if (field === 'qty') {
+            updateLineItem(lineId, field, evaluated);
+            return;
+        }
         if (evaluated !== e.target.value) {
             updateLineItem(lineId, field, evaluated);
         }
@@ -813,18 +931,39 @@ export default function SupplierSalesInvoices() {
 
     const loadInvoiceList = async (opts = {}) => {
         const silent = opts.silent === true;
+        let page = opts.page != null ? opts.page : invoiceListPage;
         if (!silent) {
             setListLoading(true);
             setListError('');
         }
         try {
-            const invRes = await listSupplierInvoices({ limit: 100 });
-            setInvoices(mapSupplierInvoicesListFromResponse(invRes));
+            let offset = (page - 1) * SALES_INVOICE_PAGE_SIZE;
+            let invRes = await listSupplierInvoices({
+                limit: SALES_INVOICE_PAGE_SIZE,
+                offset,
+            });
+            let total = Number(invRes?.total ?? 0);
+            let rows = mapSupplierInvoicesListFromResponse(invRes);
+            const maxPage = Math.max(1, Math.ceil(total / SALES_INVOICE_PAGE_SIZE) || 1);
+            if (page > maxPage && total > 0) {
+                page = maxPage;
+                offset = (page - 1) * SALES_INVOICE_PAGE_SIZE;
+                invRes = await listSupplierInvoices({
+                    limit: SALES_INVOICE_PAGE_SIZE,
+                    offset,
+                });
+                total = Number(invRes?.total ?? total);
+                rows = mapSupplierInvoicesListFromResponse(invRes);
+            }
+            setInvoiceListTotal(total);
+            setInvoiceListPage(page);
+            setInvoices(rows);
         } catch (err) {
             console.error('List supplier invoices failed:', err);
             if (!silent) {
                 setListError(err?.message || 'Failed to load invoices.');
                 setInvoices([]);
+                setInvoiceListTotal(0);
             } else {
                 window.alert(err?.message || 'Failed to refresh invoices.');
             }
@@ -874,6 +1013,18 @@ export default function SupplierSalesInvoices() {
             );
             return;
         }
+        for (let i = 0; i < lineItems.length; i++) {
+            const row = lineItems[i];
+            const maxWs = maxSellableQtyWorkshopForLine(row, lineItems, inventoryItems);
+            if (maxWs == null || !Number.isFinite(maxWs)) continue;
+            const qNum = normalizedLines[i].qty;
+            if (qNum > maxWs + 1e-6) {
+                setSaveError(
+                    `Line ${i + 1}: quantity ${qNum} exceeds available supplier stock (${maxWs} ${normalizedLines[i].unit} max across this invoice).`,
+                );
+                return;
+            }
+        }
         setSaving(true);
         const due =
             calculatedDueDate === '—' ? issueDate : calculatedDueDate;
@@ -889,9 +1040,11 @@ export default function SupplierSalesInvoices() {
         unit: line.unit,
         ...(line.sku ? { sku: line.sku } : {}),
 
-        ...(row?.supplierStockProductId
+        ...(String(row?.supplierStockProductId ?? '').trim()
             ? { supplierProductId: String(row.supplierStockProductId).trim() }
-            : {}),
+            : String(row?.supplierProductId ?? '').trim()
+              ? { supplierProductId: String(row.supplierProductId).trim() }
+              : {}),
 
         ...(row?.workshopCatalogProductId
             ? { productId: String(row.workshopCatalogProductId) }
@@ -1055,6 +1208,11 @@ export default function SupplierSalesInvoices() {
                             taxCode,
                             taxAmt: '0.00',
                             totalFinal: '0.00',
+                            supplierStockProductId:
+                                it.supplierProductId != null &&
+                                String(it.supplierProductId).trim() !== ''
+                                    ? String(it.supplierProductId).trim()
+                                    : '',
                             supplierProductId:
                                 it.supplierProductId != null &&
                                 String(it.supplierProductId).trim() !== ''
@@ -1147,6 +1305,104 @@ export default function SupplierSalesInvoices() {
             throw err;
         } finally {
             setPaymentStatusSavingId(null);
+        }
+    };
+
+    const closeReturnModal = () => {
+        if (returnSubmitting) return;
+        setReturnModalRow(null);
+        setReturnModalLoading(false);
+        setReturnModalErr('');
+        setReturnInvoiceDetail(null);
+        setReturnHistory([]);
+        setReturnLineQty({});
+        setReturnLineReason({});
+        setReturnNotes('');
+    };
+
+    const openReturnModal = async (row) => {
+        setReturnModalRow(row);
+        setReturnModalLoading(true);
+        setReturnModalErr('');
+        setReturnInvoiceDetail(null);
+        setReturnHistory([]);
+        try {
+            const [invRes, retRes] = await Promise.all([
+                getSupplierInvoice(row.id),
+                listSupplierInvoiceReturns(row.id),
+            ]);
+            setReturnInvoiceDetail(invRes);
+            setReturnHistory(Array.isArray(retRes?.returns) ? retRes.returns : []);
+            const qty = {};
+            const reasons = {};
+            (invRes?.invoice?.items || []).forEach((it) => {
+                const id = String(it.id);
+                qty[id] = '';
+                reasons[id] = '';
+            });
+            setReturnLineQty(qty);
+            setReturnLineReason(reasons);
+            setReturnNotes('');
+        } catch (err) {
+            console.error('Open return modal failed:', err);
+            setReturnModalErr(err?.message || 'Could not load invoice for return.');
+        } finally {
+            setReturnModalLoading(false);
+        }
+    };
+
+    const submitSalesInvoiceReturn = async () => {
+        if (!returnModalRow || !returnInvoiceDetail?.invoice) return;
+        const inv = returnInvoiceDetail.invoice;
+        const items = inv.items || [];
+        const returnedSoFar = aggregateReturnedQtyByInvoiceLine(returnHistory);
+        const lines = [];
+        for (const it of items) {
+            const id = String(it.id);
+            const raw = String(returnLineQty[id] ?? '').trim();
+            if (!raw) continue;
+            const q = Number(raw);
+            if (!Number.isFinite(q) || q <= 0) {
+                setReturnModalErr(`Invalid qty for ${it.productName || 'line'}.`);
+                return;
+            }
+            const orig = Number(it.qty);
+            const already = returnedSoFar.get(id) || 0;
+            const remaining = Math.max(0, orig - already);
+            if (q > remaining + 1e-6) {
+                setReturnModalErr(
+                    `Cannot return ${q} of "${it.productName}" — only ${remaining.toFixed(
+                        4,
+                    )} left on this invoice line.`,
+                );
+                return;
+            }
+            const rs = String(returnLineReason[id] ?? '').trim();
+            lines.push({
+                invoiceItemId: id,
+                qtyReturned: q,
+                ...(rs ? { reason: rs } : {}),
+            });
+        }
+        if (!lines.length) {
+            setReturnModalErr('Enter a return quantity on at least one line.');
+            return;
+        }
+        setReturnSubmitting(true);
+        setReturnModalErr('');
+        try {
+            await createSupplierInvoiceReturn(returnModalRow.id, {
+                lines,
+                ...(returnNotes.trim() ? { notes: returnNotes.trim() } : {}),
+            });
+            await loadInvoiceList({ silent: true });
+            setReturnSubmitting(false);
+            closeReturnModal();
+        } catch (err) {
+            console.error('Create return failed:', err);
+            setReturnModalErr(err?.message || 'Could not save return.');
+        } finally {
+            setReturnSubmitting(false);
         }
     };
 
@@ -1287,6 +1543,16 @@ export default function SupplierSalesInvoices() {
     );
 
     const list = invoices || [];
+    const invoiceListTotalPages = Math.max(
+        1,
+        Math.ceil(invoiceListTotal / SALES_INVOICE_PAGE_SIZE) || 1,
+    );
+    const invoiceRangeStart =
+        list.length === 0 ? 0 : (invoiceListPage - 1) * SALES_INVOICE_PAGE_SIZE + 1;
+    const invoiceRangeEnd =
+        list.length === 0
+            ? 0
+            : (invoiceListPage - 1) * SALES_INVOICE_PAGE_SIZE + list.length;
 
     useEffect(() => {
         if (!modalOpen || !showDropdown) return undefined;
@@ -1389,7 +1655,10 @@ export default function SupplierSalesInvoices() {
                         console.error('Supplier customer-branches failed:', be);
                         return { __error: be, branches: [] };
                     }),
-                    listSupplierInvoices({ limit: 100 }).catch((e) => {
+                    listSupplierInvoices({
+                        limit: SALES_INVOICE_PAGE_SIZE,
+                        offset: 0,
+                    }).catch((e) => {
                         console.error('List supplier invoices failed:', e);
                         return { __error: e };
                     }),
@@ -1448,15 +1717,21 @@ export default function SupplierSalesInvoices() {
                 if (invRes && invRes.__error) {
                     setListError(invRes.__error?.message || 'Failed to load invoices.');
                     setInvoices([]);
+                    setInvoiceListTotal(0);
+                    setInvoiceListPage(1);
                 } else {
                     setListError('');
                     setInvoices(mapSupplierInvoicesListFromResponse(invRes));
+                    setInvoiceListTotal(Number(invRes?.total ?? 0));
+                    setInvoiceListPage(1);
                 }
             } catch (err) {
                 console.error('Supplier sales invoices bootstrap failed:', err);
                 if (!cancelled) {
                     setListError(err?.message || 'Failed to load.');
                     setInvoices([]);
+                    setInvoiceListTotal(0);
+                    setInvoiceListPage(1);
                 }
             } finally {
                 if (!cancelled) {
@@ -1707,6 +1982,7 @@ export default function SupplierSalesInvoices() {
                     {listLoading && list.length === 0 ? (
                         <ShimmerTable rows={8} columns={13} />
                     ) : (
+                        <>
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -1808,7 +2084,22 @@ export default function SupplierSalesInvoices() {
                                                     SAR {(inv.paid || 0).toLocaleString()}
                                                 </td>
                                                 <td style={{ color: '#b91c1c', fontWeight: 700 }}>
-                                                    SAR {(inv.balance || 0).toLocaleString()}
+                                                    <span>
+                                                        SAR {(inv.balance || 0).toLocaleString()}
+                                                    </span>
+                                                    {Number(inv.returnsTotal || 0) > 0 ? (
+                                                        <div
+                                                            style={{
+                                                                fontSize: '0.65rem',
+                                                                fontWeight: 600,
+                                                                color: '#C2410C',
+                                                                marginTop: 2,
+                                                            }}
+                                                        >
+                                                            − SAR{' '}
+                                                            {Number(inv.returnsTotal || 0).toLocaleString()} returns
+                                                        </div>
+                                                    ) : null}
                                                 </td>
                                                 <td>
                                                     <span
@@ -1930,6 +2221,21 @@ export default function SupplierSalesInvoices() {
                                                         </button>
                                                         <button
                                                             type="button"
+                                                            onClick={() => openReturnModal(inv)}
+                                                            style={{
+                                                                padding: 6,
+                                                                borderRadius: 6,
+                                                                border: 'none',
+                                                                background: '#FFF7ED',
+                                                                color: '#C2410C',
+                                                                cursor: 'pointer',
+                                                            }}
+                                                            title="Record return / credit"
+                                                        >
+                                                            <RotateCcw size={14} />
+                                                        </button>
+                                                        {/* <button
+                                                            type="button"
                                                             disabled={!canMutate}
                                                             onClick={() => openEditInvoice(inv)}
                                                             style={{
@@ -1944,8 +2250,8 @@ export default function SupplierSalesInvoices() {
                                                             title="Edit"
                                                         >
                                                             <Pencil size={14} />
-                                                        </button>
-                                                        <button
+                                                        </button> */}
+                                                        {/* <button
                                                             type="button"
                                                             disabled={!canMutate}
                                                             onClick={() => handleDeleteInvoice(inv)}
@@ -1961,7 +2267,7 @@ export default function SupplierSalesInvoices() {
                                                             title="Delete"
                                                         >
                                                             <Trash2 size={14} />
-                                                        </button>
+                                                        </button> */}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1970,6 +2276,55 @@ export default function SupplierSalesInvoices() {
                                 )}
                             </tbody>
                         </table>
+                        {!listLoading && invoiceListTotal > 0 && invoiceListTotalPages > 1 ? (
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 12,
+                                    marginTop: 16,
+                                    paddingBottom: 4,
+                                }}
+                            >
+                                <button
+                                    type="button"
+                                    className="btn-portal-outline"
+                                    disabled={listLoading || invoiceListPage <= 1}
+                                    onClick={() =>
+                                        loadInvoiceList({ page: invoiceListPage - 1 })
+                                    }
+                                >
+                                    Previous
+                                </button>
+                                <span
+                                    style={{
+                                        fontSize: '0.8125rem',
+                                        color: 'var(--color-text-muted)',
+                                    }}
+                                >
+                                    Page {invoiceListPage} of {invoiceListTotalPages}
+                                    {invoiceListTotal > 0
+                                        ? ` · ${invoiceRangeStart}–${invoiceRangeEnd} of ${invoiceListTotal}`
+                                        : ''}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="btn-portal-outline"
+                                    disabled={
+                                        listLoading ||
+                                        invoiceListPage >= invoiceListTotalPages
+                                    }
+                                    onClick={() =>
+                                        loadInvoiceList({ page: invoiceListPage + 1 })
+                                    }
+                                >
+                                    Next
+                                </button>
+                            </div>
+                        ) : null}
+                        </>
                     )}
                 </div>
             </div>
@@ -2244,7 +2599,13 @@ export default function SupplierSalesInvoices() {
                                     <div aria-hidden />
                                 </div>
 
-                                {lineItems.map((line, idx) => (
+                                {lineItems.map((line, idx) => {
+                                    const maxQtyWs = maxSellableQtyWorkshopForLine(
+                                        line,
+                                        lineItems,
+                                        inventoryItems,
+                                    );
+                                    return (
                                     <div
                                         key={line.id}
                                         className="pi-lines-header pi-line-data-row"
@@ -2619,22 +2980,29 @@ export default function SupplierSalesInvoices() {
                                         <div className="pi-col-qty">
                                             <input
                                                 type="text"
-                                                defaultValue={line.qty}
-                                                key={`qty-${line.id}`}
+                                                aria-label={
+                                                    maxQtyWs != null &&
+                                                    Number.isFinite(maxQtyWs)
+                                                        ? `Quantity. Maximum ${maxQtyWs} ${line.uom || 'pcs'} (supplier stock balance).`
+                                                        : 'Quantity'
+                                                }
+                                                value={line.qty}
+                                                title={
+                                                    maxQtyWs != null &&
+                                                    Number.isFinite(maxQtyWs)
+                                                        ? `Max ${maxQtyWs} ${line.uom || 'pcs'} — supplier warehouse stock`
+                                                        : undefined
+                                                }
                                                 className="pi-row-input-num pi-math-input"
                                                 onChange={(e) =>
                                                     updateLineItem(
                                                         line.id,
                                                         'qty',
-                                                        e.target.value
+                                                        e.target.value,
                                                     )
                                                 }
                                                 onKeyDown={(e) =>
-                                                    handleMathKeyDown(
-                                                        e,
-                                                        line.id,
-                                                        'qty'
-                                                    )
+                                                    handleMathKeyDown(e, line.id, 'qty')
                                                 }
                                                 onBlur={(e) =>
                                                     handleMathBlur(e, line.id, 'qty')
@@ -2893,7 +3261,8 @@ export default function SupplierSalesInvoices() {
                                             </button>
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
 
                                 <div className="pi-line-row">
                                     <div
@@ -3283,6 +3652,397 @@ export default function SupplierSalesInvoices() {
                                 {markPaidModalErr}
                             </p>
                         ) : null}
+                    </Modal>
+                )}
+            </AnimatePresence>
+            <AnimatePresence>
+                {returnModalRow && (
+                    <Modal
+                        title={
+                            <div className="pi-modal-title">
+                                <span className="pi-breadcrumb">
+                                    Sales Invoices ›{' '}
+                                    <span className="pi-b-active">Return</span>
+                                </span>
+                                <div className="pi-title-main">
+                                    <RotateCcw size={24} />
+                                    <span>Sales Invoice Return</span>
+                                </div>
+                                <span className="pi-sub-label" style={{ display: 'block', marginTop: 6 }}>
+                                    {returnModalRow.invoiceNo || returnModalRow.id}
+                                </span>
+                            </div>
+                        }
+                        width="min(1350px, 98vw)"
+                        contentClassName="modal-content-purchase"
+                        disableClose={returnSubmitting || returnModalLoading}
+                        onClose={closeReturnModal}
+                        footer={
+                            <div className="pi-modal-footer">
+                                <div className="pi-footer-left">
+                                    <button
+                                        type="button"
+                                        className="btn-pi-cancel"
+                                        onClick={closeReturnModal}
+                                        disabled={returnSubmitting || returnModalLoading}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                                <div className="pi-footer-right">
+                                    <button
+                                        type="button"
+                                        className="btn-pi-create"
+                                        onClick={submitSalesInvoiceReturn}
+                                        disabled={returnSubmitting || returnModalLoading}
+                                    >
+                                        {returnSubmitting ? (
+                                            <span
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: 8,
+                                                }}
+                                            >
+                                                <Loader2
+                                                    size={16}
+                                                    className="supplier-sales-last-sale-spinner"
+                                                    aria-hidden
+                                                />
+                                                Saving…
+                                            </span>
+                                        ) : (
+                                            'Submit return'
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    >
+                        <div className="pi-form-container">
+                            {returnModalLoading ? (
+                                <div style={{ padding: '12px 0 24px' }}>
+                                    <ShimmerTextBlock lines={5} />
+                                    <div style={{ marginTop: 18 }}>
+                                        <ShimmerTable rows={5} columns={6} />
+                                    </div>
+                                    <p
+                                        style={{
+                                            marginTop: 16,
+                                            fontSize: '0.8125rem',
+                                            color: '#64748B',
+                                            textAlign: 'center',
+                                        }}
+                                    >
+                                        Loading invoice &amp; return history…
+                                    </p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div
+                                        style={{
+                                            padding: '10px 14px',
+                                            borderRadius: 10,
+                                            background: '#ECFEFF',
+                                            border: '1px solid #A5F3FC',
+                                            fontSize: '0.8125rem',
+                                            color: '#0369A1',
+                                            marginBottom: 16,
+                                        }}
+                                    >
+                                        Credits reduce the workshop&apos;s outstanding balance on this invoice (AR).
+                                        Each return is saved with a reference number and logged in supplier
+                                        transaction history — same as issuing an invoice, list totals update
+                                        immediately after you submit.
+                                    </div>
+
+                                    {returnInvoiceDetail?.invoice ? (
+                                        <>
+                                            <div className="pi-header-grid">
+                                                <div className="pi-field">
+                                                    <label>Invoice #</label>
+                                                    <input
+                                                        readOnly
+                                                        value={returnInvoiceDetail.invoice.invoiceNo || '—'}
+                                                    />
+                                                </div>
+                                                <div className="pi-field">
+                                                    <label>Issue date</label>
+                                                    <input
+                                                        readOnly
+                                                        value={
+                                                            returnInvoiceDetail.invoice.invoiceDate?.slice(
+                                                                0,
+                                                                10,
+                                                            ) || '—'
+                                                        }
+                                                    />
+                                                </div>
+                                                <div className="pi-field">
+                                                    <label>Due date</label>
+                                                    <input
+                                                        readOnly
+                                                        value={
+                                                            returnInvoiceDetail.invoice.dueDate?.slice(0, 10) ||
+                                                            '—'
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="pi-header-grid">
+                                                <div className="pi-field pi-full-width">
+                                                    <label>Workshop / Branch (customer)</label>
+                                                    <input
+                                                        readOnly
+                                                        value={
+                                                            returnModalRow.workshopName &&
+                                                            returnModalRow.branch &&
+                                                            returnModalRow.branch !== '-'
+                                                                ? `${returnModalRow.workshopName} — ${returnModalRow.branch}`
+                                                                : String(returnModalRow.branch || '—')
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="pi-header-grid">
+                                                <div className="pi-field">
+                                                    <label>Grand total</label>
+                                                    <input
+                                                        readOnly
+                                                        value={`SAR ${Number(
+                                                            returnInvoiceDetail.invoice.grandTotal ?? 0,
+                                                        ).toLocaleString(undefined, {
+                                                            minimumFractionDigits: 2,
+                                                            maximumFractionDigits: 2,
+                                                        })}`}
+                                                    />
+                                                </div>
+                                                <div className="pi-field">
+                                                    <label>Paid</label>
+                                                    <input
+                                                        readOnly
+                                                        value={`SAR ${Number(
+                                                            returnInvoiceDetail.invoice.paid ?? 0,
+                                                        ).toLocaleString(undefined, {
+                                                            minimumFractionDigits: 2,
+                                                            maximumFractionDigits: 2,
+                                                        })}`}
+                                                    />
+                                                </div>
+                                                <div className="pi-field">
+                                                    <label>Returns credited</label>
+                                                    <input
+                                                        readOnly
+                                                        value={`SAR ${Number(
+                                                            returnInvoiceDetail.invoice.returnsTotal ?? 0,
+                                                        ).toLocaleString(undefined, {
+                                                            minimumFractionDigits: 2,
+                                                            maximumFractionDigits: 2,
+                                                        })}`}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="pi-header-grid">
+                                                <div className="pi-field">
+                                                    <label>Balance due (after returns)</label>
+                                                    <input
+                                                        readOnly
+                                                        style={{ fontWeight: 700, color: '#b91c1c' }}
+                                                        value={`SAR ${Number(
+                                                            returnInvoiceDetail.invoice.outstanding ?? 0,
+                                                        ).toLocaleString(undefined, {
+                                                            minimumFractionDigits: 2,
+                                                            maximumFractionDigits: 2,
+                                                        })}`}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </>
+                                    ) : null}
+
+                                    {returnHistory.length > 0 ? (
+                                        <div
+                                            className="pi-lines-section"
+                                            style={{ marginBottom: 16 }}
+                                        >
+                                            <div
+                                                style={{
+                                                    fontSize: '0.75rem',
+                                                    fontWeight: 700,
+                                                    color: '#334155',
+                                                    marginBottom: 8,
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '0.04em',
+                                                }}
+                                            >
+                                                Previous returns ({returnHistory.length})
+                                            </div>
+                                            <div
+                                                style={{
+                                                    padding: '10px 12px',
+                                                    background: '#F8FAFC',
+                                                    borderRadius: 10,
+                                                    border: '1px solid #E2E8F0',
+                                                    fontSize: '0.8125rem',
+                                                    maxHeight: 160,
+                                                    overflowY: 'auto',
+                                                }}
+                                            >
+                                                <ul style={{ margin: 0, paddingLeft: 18, color: '#64748B' }}>
+                                                    {returnHistory.map((r) => (
+                                                        <li key={r.id} style={{ marginBottom: 6 }}>
+                                                            <strong>{r.returnNo}</strong> ·{' '}
+                                                            {r.returnDate?.slice(0, 10) || '—'} · SAR{' '}
+                                                            {Number(r.grandTotal || 0).toLocaleString(undefined, {
+                                                                minimumFractionDigits: 2,
+                                                                maximumFractionDigits: 2,
+                                                            })}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    ) : null}
+
+                                    <div className="pi-lines-section">
+                                        <div
+                                            style={{
+                                                fontSize: '0.75rem',
+                                                fontWeight: 700,
+                                                color: '#334155',
+                                                marginBottom: 10,
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.04em',
+                                            }}
+                                        >
+                                            Lines to return
+                                        </div>
+                                        <div
+                                            className="pi-lines-header"
+                                            style={{
+                                                gridTemplateColumns:
+                                                    'minmax(140px,2fr) 88px 104px 96px 112px minmax(120px,1fr)',
+                                                marginBottom: 8,
+                                            }}
+                                        >
+                                            <div className="pi-col-item">Item</div>
+                                            <div className="pi-col-qty">Invoiced</div>
+                                            <div className="pi-col-qty">Returned</div>
+                                            <div className="pi-col-qty">Left</div>
+                                            <div className="pi-col-qty">Return qty</div>
+                                            <div className="pi-col-item">Reason</div>
+                                        </div>
+                                        {(function renderReturnLines() {
+                                            const returnedSoFar =
+                                                aggregateReturnedQtyByInvoiceLine(returnHistory);
+                                            const gridCols =
+                                                'minmax(140px,2fr) 88px 104px 96px 112px minmax(120px,1fr)';
+                                            return (returnInvoiceDetail?.invoice?.items || []).map((it) => {
+                                                const id = String(it.id);
+                                                const orig = Number(it.qty);
+                                                const already = returnedSoFar.get(id) || 0;
+                                                const remaining = Math.max(0, orig - already);
+                                                return (
+                                                    <div
+                                                        key={id}
+                                                        className="pi-lines-header pi-line-data-row"
+                                                        style={{
+                                                            gridTemplateColumns: gridCols,
+                                                            alignItems: 'center',
+                                                        }}
+                                                    >
+                                                        <div
+                                                            className="pi-col-item"
+                                                            style={{ minWidth: 0 }}
+                                                        >
+                                                            <span style={{ fontWeight: 600 }}>
+                                                                {it.productName || '—'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="pi-col-qty">{orig}</div>
+                                                        <div className="pi-col-qty">{already}</div>
+                                                        <div
+                                                            className="pi-col-qty"
+                                                            style={{
+                                                                fontWeight: remaining <= 0 ? 600 : 500,
+                                                                color:
+                                                                    remaining <= 0 ? '#94A3B8' : '#0f172a',
+                                                            }}
+                                                        >
+                                                            {remaining}
+                                                        </div>
+                                                        <div className="pi-col-qty">
+                                                            {remaining <= 0 ? (
+                                                                <span style={{ color: '#94A3B8' }}>—</span>
+                                                            ) : (
+                                                                <input
+                                                                    type="text"
+                                                                    inputMode="decimal"
+                                                                    className="pi-row-input"
+                                                                    value={returnLineQty[id] ?? ''}
+                                                                    onChange={(e) =>
+                                                                        setReturnLineQty((prev) => ({
+                                                                            ...prev,
+                                                                            [id]: e.target.value,
+                                                                        }))
+                                                                    }
+                                                                    placeholder="0"
+                                                                    disabled={returnSubmitting}
+                                                                />
+                                                            )}
+                                                        </div>
+                                                        <div className="pi-col-item" style={{ minWidth: 0 }}>
+                                                            <input
+                                                                type="text"
+                                                                className="pi-row-input"
+                                                                value={returnLineReason[id] ?? ''}
+                                                                onChange={(e) =>
+                                                                    setReturnLineReason((prev) => ({
+                                                                        ...prev,
+                                                                        [id]: e.target.value,
+                                                                    }))
+                                                                }
+                                                                placeholder="Optional"
+                                                                disabled={
+                                                                    returnSubmitting || remaining <= 0
+                                                                }
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                );
+                                            });
+                                        })()}
+                                    </div>
+
+                                    <div className="pi-field pi-full-width">
+                                        <label>Notes (optional)</label>
+                                        <textarea
+                                            rows={4}
+                                            value={returnNotes}
+                                            onChange={(e) => setReturnNotes(e.target.value)}
+                                            disabled={returnSubmitting}
+                                            placeholder="Internal note for this return"
+                                        />
+                                    </div>
+
+                                    {returnModalErr ? (
+                                        <div
+                                            style={{
+                                                marginTop: 12,
+                                                padding: 10,
+                                                borderRadius: 8,
+                                                fontSize: '0.8125rem',
+                                                color: '#B91C1C',
+                                                border: '1px solid #FECACA',
+                                                background: '#FEF2F2',
+                                            }}
+                                        >
+                                            {returnModalErr}
+                                        </div>
+                                    ) : null}
+                                </>
+                            )}
+                        </div>
                     </Modal>
                 )}
             </AnimatePresence>
