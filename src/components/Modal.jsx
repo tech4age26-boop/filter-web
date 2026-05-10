@@ -48,6 +48,19 @@ export default function Modal({
         return () => { document.body.style.overflow = prev; };
     }, []);
 
+    useEffect(() => {
+        if (disableClose || !onClose) return undefined;
+        const onKey = (e) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', onKey, true);
+        return () => window.removeEventListener('keydown', onKey, true);
+    }, [disableClose, onClose]);
+
     const node = (
         <div
             className={`app-modal-overlay ${className}`}

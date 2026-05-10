@@ -36,8 +36,9 @@ export function vatRateForCode(code, fallback = PURCHASE_INVOICE_VAT_RATE) {
  *   2. global `discountIsPercent` argument
  *
  * Tax rate precedence:
- *   1. `line.taxCode` lookup in PURCHASE_INVOICE_TAXES
- *   2. caller-provided `vatRate`
+ *   1. `opts.noVat` is true → 0 (entire invoice is VAT-exempt; line tax code ignored)
+ *   2. `line.taxCode` lookup in PURCHASE_INVOICE_TAXES
+ *   3. caller-provided `vatRate`
  */
 export function computeLineAmounts(
     line,
@@ -48,9 +49,18 @@ export function computeLineAmounts(
 ) {
     const qty = parseFloat(line.qty) || 0;
     const rawUnit = parseFloat(line.price) || 0;
-    const lineRate = line && line.taxCode ? vatRateForCode(line.taxCode, vatRate) : vatRate;
+    const noVat = opts.noVat === true;
+    const baseLineRate = line && line.taxCode ? vatRateForCode(line.taxCode, vatRate) : vatRate;
+    const lineRate = noVat ? 0 : baseLineRate;
+    /**
+     * `unitPriceTaxInclusive` only divides when VAT is actually being applied.
+     * In a VAT-exempt invoice, the entered unit price IS the final amount
+     * (no division, no extra tax line).
+     */
     const priceExcl =
-        opts.unitPriceTaxInclusive === true ? money2(rawUnit / (1 + lineRate)) : rawUnit;
+        opts.unitPriceTaxInclusive === true && !noVat
+            ? money2(rawUnit / (1 + lineRate))
+            : rawUnit;
     const discRaw = parseFloat(line.discount) || 0;
     const grossExcl = qty * priceExcl;
     const linePercentMode =
@@ -68,7 +78,17 @@ export function computeLineAmounts(
     const taxableExcl = Math.max(0, grossExcl - discountAmount);
     const taxAmt = taxableExcl * lineRate;
     const totalIncl = taxableExcl * (1 + lineRate);
-    return { grossExcl, taxableExcl, taxAmt, totalIncl, discountAmount, vatRate: lineRate };
+    /** Per-unit amount excluding VAT (before line discount), for API `unit_price_ex_vat`. */
+    const unitPriceExVat = money2(priceExcl);
+    return {
+        grossExcl,
+        taxableExcl,
+        taxAmt,
+        totalIncl,
+        discountAmount,
+        vatRate: lineRate,
+        unitPriceExVat,
+    };
 }
 
 /**
@@ -87,9 +107,10 @@ export function computePurchaseInvoiceTotals({
     invoiceDiscountValue,
     vatRate = PURCHASE_INVOICE_VAT_RATE,
     unitPriceTaxInclusive = false,
+    noVat = false,
     freightIn = 0,
 }) {
-    const lineOpts = { unitPriceTaxInclusive };
+    const lineOpts = { unitPriceTaxInclusive, noVat };
     const freight = money2(freightIn);
     const perLine = [];
     let lineGross = 0;
@@ -159,15 +180,22 @@ export function buildEnrichedLineItems(
     vatLabel,
     opts = {},
 ) {
-    const lineOpts = { unitPriceTaxInclusive: opts.unitPriceTaxInclusive === true };
+    const lineOpts = {
+        unitPriceTaxInclusive: opts.unitPriceTaxInclusive === true,
+        noVat: opts.noVat === true,
+    };
     return lineItems.map((line, idx) => {
         const a = computeLineAmounts(line, applyLineDiscount, lineDiscountIsPercent, vatRate, lineOpts);
         const { code, name } = parseAccountDisplay(line.account);
         const qty = parseFloat(line.qty) || 0;
-        const unitPriceExVat = money2(parseFloat(line.price) || 0);
+        const unitPriceExVat = money2(a.unitPriceExVat ?? 0);
         const unitPurchasePriceInclVat =
             qty > 0 ? money2(a.totalIncl / qty) : money2(unitPriceExVat * (1 + a.vatRate));
-        const lineTaxCode = line && line.taxCode ? line.taxCode : vatLabel;
+        const lineTaxCode = lineOpts.noVat
+            ? 'VAT 0%'
+            : line && line.taxCode
+              ? line.taxCode
+              : vatLabel;
         const lineDiscountMode =
             line && line.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent';
         return {

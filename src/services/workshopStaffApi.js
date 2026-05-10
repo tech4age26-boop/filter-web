@@ -671,6 +671,17 @@ export const getWorkshopSupplierPurchaseInvoice = (invoiceId) =>
     apiFetch(`/workshop-staff/supplier-purchase-invoices/${encodeURIComponent(String(invoiceId))}`);
 
 /**
+ * Workshop — supplier-scoped last purchase prices for the PI form.
+ * Returns the most recent unit price (ex-VAT, incl. VAT) the workshop paid this
+ * supplier per product across prior workshop purchase invoices.
+ * Response: `{ success, supplierId, prices: [{ productId, lastUnitPriceExVat, lastUnitPriceInclVat, lastInvoiceId, lastInvoiceNumber, lastIssueDate }] }`
+ */
+export const getWorkshopSupplierLastPurchasePrices = (supplierId) =>
+    apiFetch(
+        `/workshop-staff/suppliers/${encodeURIComponent(String(supplierId))}/last-purchase-prices`,
+    );
+
+/**
  * Map API user row to UI row (WorkshopEmployees / dashboard).
  * @param {object} raw
  * @param {'technician'|'cashier'} role
