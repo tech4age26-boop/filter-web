@@ -2,6 +2,7 @@ export { default as CorporateDashboard } from './CorporateDashboard';
 export { default as CorporateProfile } from './CorporateProfile';
 export { default as CorporateVehicles } from './CorporateVehicles';
 export { default as CorporateBookings } from './CorporateBookings';
+export { default as CorporateBookingApprovals } from './CorporateBookingApprovals';
 export { default as CorporateQuotations } from './CorporateQuotations';
 export { default as QuotationModal } from './QuotationModal';
 export { default as MonthlyBilling } from './MonthlyBilling';

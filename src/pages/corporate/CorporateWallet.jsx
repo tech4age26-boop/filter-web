@@ -3,7 +3,7 @@ import { Wallet, Plus, Loader2 } from 'lucide-react';
 import { WALLET_QUICK_AMOUNTS, WALLET_PAYMENT_METHODS } from './constants';
 import { apiFetch } from '../../services/api';
 
-export default function CorporateWallet() {
+export default function CorporateWallet({ onWalletBalanceChange }) {
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -27,6 +27,15 @@ export default function CorporateWallet() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
+    useEffect(() => {
+        const onSocket = () => {
+            fetchData();
+            onWalletBalanceChange?.();
+        };
+        window.addEventListener('corporate-portal-wallet-refresh', onSocket);
+        return () => window.removeEventListener('corporate-portal-wallet-refresh', onSocket);
+    }, [fetchData, onWalletBalanceChange]);
+
     const handleTopup = async () => {
         const amt = parseFloat(amount);
         if (!amt || amt <= 0) return;
@@ -38,6 +47,7 @@ export default function CorporateWallet() {
             });
             setTopupOpen(false); setAmount('');
             fetchData();
+            onWalletBalanceChange?.();
         } catch (err) {
             setTopupError(err.message || 'Top-up failed');
         } finally {

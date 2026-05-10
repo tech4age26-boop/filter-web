@@ -4,6 +4,7 @@ import { apiFetch } from './api';
 //   workshop_registration | branch_creation | cashier_registration | technician_registration
 //   | workshop_portal_staff_registration | supplier_registration | corporate_registration
 //   | corporate_price_quotation (approve/reject via POST …/corporate-price-quotations/:id/… — see ApprovalsPage)
+//   | corporate_walk_in_booking (cashier walk-in corporate quote; PATCH …/approvals/corporate_walk_in_booking/:id/approve|reject)
 // status: pending | approved | rejected
 //
 // Pending list (high level):

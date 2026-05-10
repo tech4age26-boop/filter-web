@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Calendar, Plus, Eye, Loader2, Car, MapPin, Wrench, Clock, FileText, Package } from 'lucide-react';
+import { Calendar, Plus, Eye, Loader2, Car, MapPin, Wrench, Clock, FileText, Package, Receipt } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import {
     fetchCorporateBookings,
     fetchCorporateBookingById,
     fetchCorporateBookingInvoice,
     fetchCorporatePendingWalkInOrders,
-    fetchCorporateWalkInOrderById,
     approveCorporateWalkInOrder,
     rejectCorporateWalkInOrder,
 } from '../../services/corporateBookingsApi';
 import Modal from '../../components/Modal';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
+import WalkInOrderDetailModal from './WalkInOrderDetailModal';
 
 /** Flatten `{ booking: { ... } }` so services/products sit on the object we read. */
 function normalizeBookingDetailPayload(raw) {
@@ -23,6 +23,55 @@ function normalizeBookingDetailPayload(raw) {
     return raw;
 }
 
+/** Matches backend monthly settlement (Pay Monthly / Monthly Billing, etc.). */
+function isMonthlyBillingPaymentMethod(pm) {
+    if (pm == null || typeof pm !== 'string') return false;
+    const n = pm.trim().toLowerCase();
+    return (
+        n === 'pay monthly' ||
+        n === 'monthly billing' ||
+        n === 'monthly' ||
+        n === 'pay monthly billing'
+    );
+}
+
+/** Invoice calendar month for Monthly billing tab (`?month=&year=`). */
+function billingPeriodForMonthlyTab(o) {
+    const inv = o.salesOrder?.invoice || o.sales_order?.invoice;
+    const raw = inv?.invoiceDate ?? inv?.invoice_date;
+    if (raw) {
+        const dt = new Date(raw);
+        if (!Number.isNaN(dt.getTime())) {
+            return { month: dt.getUTCMonth() + 1, year: dt.getUTCFullYear() };
+        }
+    }
+    const sub = o.submittedAt || o.submitted_at;
+    if (sub) {
+        const dt = new Date(sub);
+        if (!Number.isNaN(dt.getTime())) {
+            return { month: dt.getUTCMonth() + 1, year: dt.getUTCFullYear() };
+        }
+    }
+    return null;
+}
+
+/** Pin invoiced monthly-billing bookings to top of My Bookings. */
+function sortBookingsForDisplay(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+    return [...rows].sort((a, b) => {
+        const pin = (o) => {
+            if (o?.isMonthlyBillingInvoiced === true) return 2;
+            if (o?.isMonthlyBilling === true || isMonthlyBillingPaymentMethod(o?.paymentMethod)) return 1;
+            return 0;
+        };
+        const d = pin(b) - pin(a);
+        if (d !== 0) return d;
+        const at = new Date(a.submittedAt ?? a.createdAt ?? 0).getTime();
+        const bt = new Date(b.submittedAt ?? b.createdAt ?? 0).getTime();
+        return bt - at;
+    });
+}
+
 const STATUS_STYLES = {
     pending: { bg: '#FEF3C7', color: '#B45309' },
     submitted: { bg: '#DBEAFE', color: '#1D4ED8' },
@@ -31,6 +80,9 @@ const STATUS_STYLES = {
     completed: { bg: '#D1FAE5', color: '#047857' },
     invoiced: { bg: '#EDE9FE', color: '#6D28D9' },
     cancelled: { bg: '#FEE2E2', color: '#B91C1C' },
+    corporate_approved: { bg: '#D1FAE5', color: '#047857' },
+    waiting_for_corporate_approval: { bg: '#FEF3C7', color: '#B45309' },
+    rejected_by_corporate: { bg: '#FEE2E2', color: '#B91C1C' },
 };
 
 /** Service lines saved with the corporate booking (several API shapes). */
@@ -145,7 +197,13 @@ function OrderDetailModal({ orderId, onClose }) {
     }, [orderId]);
 
     const status = detail?.status || detail?.orderStatus || detail?.order_status || 'pending';
-    const st = STATUS_STYLES[status] || STATUS_STYLES.pending;
+    const statusKey = String(status).toLowerCase().replace(/\s+/g, '_');
+    const approvalLabelDetail = detail?.approvalStatusLabel || detail?.approval_status_label;
+    let st = STATUS_STYLES[statusKey] || STATUS_STYLES.pending;
+    if (approvalLabelDetail) {
+        st = STATUS_STYLES.completed;
+    }
+    const badgeDetailText = approvalLabelDetail || String(status).replace(/_/g, ' ');
 
     const Row = ({ icon: Icon, label, value }) =>
         value ? (
@@ -239,10 +297,10 @@ function OrderDetailModal({ orderId, onClose }) {
                                 borderRadius: 8,
                                 fontSize: '0.8rem',
                                 fontWeight: 700,
-                                textTransform: 'capitalize',
+                                textTransform: approvalLabelDetail ? 'none' : 'capitalize',
                             }}
                         >
-                            {String(status).replace(/_/g, ' ')}
+                            {badgeDetailText}
                         </span>
                     </div>
 
@@ -368,152 +426,7 @@ function OrderDetailModal({ orderId, onClose }) {
     );
 }
 
-function WalkInOrderDetailModal({ orderId, onClose }) {
-    const [detail, setDetail] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
-
-    useEffect(() => {
-        const ac = new AbortController();
-        setLoading(true);
-        setError('');
-        (async () => {
-            try {
-                const d = await fetchCorporateWalkInOrderById(orderId, { signal: ac.signal });
-                if (!ac.signal.aborted) setDetail(d);
-            } catch (err) {
-                if (!ac.signal.aborted) setError(err.message || 'Failed to load');
-            } finally {
-                if (!ac.signal.aborted) setLoading(false);
-            }
-        })();
-        return () => ac.abort();
-    }, [orderId]);
-
-    const timeline = Array.isArray(detail?.timeline) ? detail.timeline : [];
-    const jobs = Array.isArray(detail?.jobs) ? detail.jobs : [];
-    const lineItems = Array.isArray(detail?.lineItems) ? detail.lineItems : [];
-
-    return (
-        <Modal
-            title={`Walk-in Order #${orderId}`}
-            onClose={onClose}
-            width="760px"
-            footer={
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <button className="btn-portal-outline" onClick={onClose}>Close</button>
-                </div>
-            }
-        >
-            {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: 36 }}><Loader2 className="spin" size={28} /></div>}
-            {error && <p style={{ color: '#DC2626', margin: 0 }}>{error}</p>}
-            {detail && !loading && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8, background: 'var(--color-bg-muted)', borderRadius: 10, padding: 10 }}>
-                        <div><strong>Order ID:</strong> {detail.id || orderId}</div>
-                        <div><strong>Status:</strong> {String(detail.status || '—').replace(/_/g, ' ')}</div>
-                        <div><strong>Branch:</strong> {detail.branchName || '—'}</div>
-                        <div><strong>Vehicle:</strong> {(detail.vehicle?.plateNo || '—')} · {(detail.vehicle?.make || '')} {(detail.vehicle?.model || '')}</div>
-                    </div>
-
-                    <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 10, overflow: 'hidden' }}>
-                        <div style={{ padding: '8px 10px', fontWeight: 700, fontSize: '0.78rem', background: '#EEF2FF' }}>Line Items</div>
-                        <div style={{ overflowX: 'auto' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                                <thead>
-                                    <tr style={{ background: '#F8FAFC' }}>
-                                        <th style={{ textAlign: 'left', padding: 8 }}>Item</th>
-                                        <th style={{ textAlign: 'left', padding: 8 }}>Type</th>
-                                        <th style={{ textAlign: 'left', padding: 8 }}>Department</th>
-                                        <th style={{ textAlign: 'right', padding: 8 }}>Qty</th>
-                                        <th style={{ textAlign: 'right', padding: 8 }}>Unit</th>
-                                        <th style={{ textAlign: 'right', padding: 8 }}>Discount</th>
-                                        <th style={{ textAlign: 'right', padding: 8 }}>VAT%</th>
-                                        <th style={{ textAlign: 'right', padding: 8 }}>Line Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {lineItems.map((it) => (
-                                        <tr key={it.id} style={{ borderTop: '1px solid var(--color-border-light)' }}>
-                                            <td style={{ padding: 8 }}>{it.productName || it.name || '—'}</td>
-                                            <td style={{ padding: 8, textTransform: 'capitalize' }}>{it.itemType || '—'}</td>
-                                            <td style={{ padding: 8 }}>{it.departmentName || '—'}</td>
-                                            <td style={{ padding: 8, textAlign: 'right' }}>{it.qty ?? 1}</td>
-                                            <td style={{ padding: 8, textAlign: 'right' }}>SAR {Number(it.unitPrice || 0).toFixed(2)}</td>
-                                            <td style={{ padding: 8, textAlign: 'right' }}>{it.discountType || '—'} {it.discountValue ?? 0}</td>
-                                            <td style={{ padding: 8, textAlign: 'right' }}>{it.vatPercent ?? 0}</td>
-                                            <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>SAR {Number(it.lineTotal || 0).toFixed(2)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 10, overflow: 'hidden' }}>
-                        <div style={{ padding: '8px 10px', fontWeight: 700, fontSize: '0.78rem', background: '#F0FDF4' }}>Jobs</div>
-                        <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {jobs.length === 0 ? (
-                                <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>No job records.</p>
-                            ) : jobs.map((j) => (
-                                <div key={j.id} style={{ border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 8 }}>
-                                    <p style={{ margin: 0, fontWeight: 700, fontSize: '0.8rem' }}>
-                                        Job #{j.id} · {j.departmentName || j.departmentId || '—'} · {j.status || '—'} · SAR {Number(j.totalAmount || 0).toFixed(2)}
-                                    </p>
-                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                                        Technicians: {Array.isArray(j.technicians) && j.technicians.length ? j.technicians.map((t) => t.name).join(', ') : 'Not assigned'}
-                                    </p>
-                                    {!!j.items?.length && (
-                                        <ul style={{ margin: '6px 0 0 0', paddingLeft: 18, fontSize: '0.76rem' }}>
-                                            {j.items.map((it) => (
-                                                <li key={it.id}>{it.productName || '—'} ×{it.qty ?? 1} — SAR {Number(it.lineTotal || 0).toFixed(2)}</li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 10, overflow: 'hidden' }}>
-                        <div style={{ padding: '8px 10px', fontWeight: 700, fontSize: '0.78rem', background: '#FFF7ED' }}>Timeline</div>
-                        <div style={{ padding: 10 }}>
-                            {timeline.length === 0 ? (
-                                <p style={{ margin: 0, color: 'var(--color-text-muted)' }}>No timeline entries.</p>
-                            ) : (
-                                <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.8rem' }}>
-                                    {timeline.map((t, idx) => (
-                                        <li key={`${t.label}-${idx}`} style={{ marginBottom: 6 }}>
-                                            <strong>{t.label || t.status || 'Update'}</strong>
-                                            {t.detail ? ` — ${t.detail}` : ''}
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8 }}>
-                        <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 8 }}>
-                            <p style={{ margin: '0 0 4px 0', fontWeight: 700, fontSize: '0.76rem' }}>Invoice</p>
-                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                                {detail.invoice ? 'Available' : 'Not generated yet'}
-                            </p>
-                        </div>
-                        <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 8 }}>
-                            <p style={{ margin: '0 0 4px 0', fontWeight: 700, fontSize: '0.76rem' }}>Quote Totals</p>
-                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                                {detail.quoteTotals ? JSON.stringify(detail.quoteTotals) : 'Not available'}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </Modal>
-    );
-}
-
-export default function CorporateBookings({ setBookingOpen }) {
+export default function CorporateBookings({ setBookingOpen, onTabChange }) {
     const [bookingsTab, setBookingsTab] = useState('bookings');
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -529,14 +442,20 @@ export default function CorporateBookings({ setBookingOpen }) {
 
     const load = useCallback(() => {
         setLoading(true);
-        fetchCorporateBookings({ limit: 50, offset: 0 })
-            .then(({ bookings }) => setOrders(bookings))
+        fetchCorporateBookings({ limit: 100, offset: 0 })
+            .then(({ bookings }) => setOrders(sortBookingsForDisplay(bookings)))
             .catch(() => setOrders([]))
             .finally(() => setLoading(false));
     }, []);
 
     useEffect(() => {
         load();
+    }, [load]);
+
+    useEffect(() => {
+        const onSocket = () => load();
+        window.addEventListener('corporate-portal-bookings-refresh', onSocket);
+        return () => window.removeEventListener('corporate-portal-bookings-refresh', onSocket);
     }, [load]);
 
     const loadWalkIns = useCallback(() => {
@@ -681,9 +600,27 @@ export default function CorporateBookings({ setBookingOpen }) {
                     {orders.map((o) => {
                         const rawStatus = o.status || o.orderStatus || o.order_status || 'pending';
                         const status = String(rawStatus).toLowerCase();
-                        const st = STATUS_STYLES[status] || STATUS_STYLES.pending;
+                        const statusKey = status.replace(/\s+/g, '_');
+                        const isWalkInQuote = o.bookingType === 'walk_in_quote';
+                        const approvalLabel = o.approvalStatusLabel || o.approval_status_label;
+                        let st = STATUS_STYLES[statusKey] || STATUS_STYLES.pending;
+                        if (isWalkInQuote && approvalLabel) {
+                            st = STATUS_STYLES.completed;
+                        }
+                        const badgeText =
+                            isWalkInQuote && approvalLabel
+                                ? approvalLabel
+                                : String(rawStatus).replace(/_/g, ' ');
                         const canCancel = status === 'pending' || status === 'confirmed';
                         const isInvoiceLoading = invoiceLoadingId != null && String(invoiceLoadingId) === String(o.id);
+                        const monthly =
+                            o.isMonthlyBilling === true ||
+                            isMonthlyBillingPaymentMethod(o.paymentMethod);
+                        const monthlyInvoiced =
+                            o.isMonthlyBillingInvoiced === true ||
+                            (monthly &&
+                                (status === 'invoiced' ||
+                                    !!(o.salesOrder?.invoice || o.sales_order?.invoice)));
                         return (
                             <div key={o.id} className="ws-section" style={{ marginBottom: 0, padding: 20 }}>
                                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -691,6 +628,47 @@ export default function CorporateBookings({ setBookingOpen }) {
                                         <p style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--color-text-dark)', margin: 0 }}>
                                             {o.bookingCode || o.booking_code || o.orderNumber || o.order_number || `#${o.id}`}
                                         </p>
+                                        {monthly ? (
+                                            <p style={{ margin: '6px 0 0 0', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                                <span
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        fontSize: '0.68rem',
+                                                        fontWeight: 700,
+                                                        textTransform: 'uppercase',
+                                                        letterSpacing: '0.04em',
+                                                        padding: '3px 8px',
+                                                        borderRadius: 6,
+                                                        background: '#ecfdf5',
+                                                        color: '#047857',
+                                                        border: '1px solid #a7f3d0',
+                                                    }}
+                                                >
+                                                    <Receipt size={11} />
+                                                    Monthly billing
+                                                </span>
+                                                {monthlyInvoiced ? (
+                                                    <span
+                                                        style={{
+                                                            fontSize: '0.72rem',
+                                                            fontWeight: 600,
+                                                            color: '#0369a1',
+                                                            background: '#e0f2fe',
+                                                            padding: '3px 8px',
+                                                            borderRadius: 6,
+                                                            border: '1px solid #7dd3fc',
+                                                        }}
+                                                    >
+                                                        Invoiced
+                                                        {o.invoiceNo || o.salesOrder?.invoice?.invoiceNo
+                                                            ? ` · ${o.invoiceNo || o.salesOrder?.invoice?.invoiceNo}`
+                                                            : ''}
+                                                    </span>
+                                                ) : null}
+                                            </p>
+                                        ) : null}
                                         <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>
                                             {o.vehicle ? `${o.vehicle.plateNo} · ${o.vehicle.make} ${o.vehicle.model}` : '—'} ·{' '}
                                             {o.branchName || o.branch?.name || '—'}
@@ -712,10 +690,10 @@ export default function CorporateBookings({ setBookingOpen }) {
                                             borderRadius: 6,
                                             fontSize: '0.75rem',
                                             fontWeight: 600,
-                                            textTransform: 'capitalize',
+                                            textTransform: isWalkInQuote && approvalLabel ? 'none' : 'capitalize',
                                         }}
                                     >
-                                        {String(status).replace(/_/g, ' ')}
+                                        {badgeText}
                                     </span>
                                 </div>
                                 <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -756,6 +734,27 @@ export default function CorporateBookings({ setBookingOpen }) {
                                             {isInvoiceLoading ? 'Loading invoice…' : 'View Invoice'}
                                         </button>
                                     )}
+                                    {monthlyInvoiced && typeof onTabChange === 'function' ? (
+                                        <button
+                                            type="button"
+                                            style={{
+                                                padding: '6px 10px',
+                                                borderRadius: 6,
+                                                border: '1px solid #99f6e4',
+                                                background: '#f0fdfa',
+                                                color: '#0f766e',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 600,
+                                                cursor: 'pointer',
+                                            }}
+                                            onClick={() =>
+                                                onTabChange('billing', billingPeriodForMonthlyTab(o) || undefined)
+                                            }
+                                        >
+                                            <Receipt size={14} style={{ verticalAlign: 'text-bottom', marginRight: 4 }} />
+                                            Monthly billing — Pay from wallet
+                                        </button>
+                                    ) : null}
                                     {canCancel && (
                                         <button
                                             type="button"

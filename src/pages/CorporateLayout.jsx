@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext';
 import { Building2, Wallet, Calendar, Tag, LogOut, Loader2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
@@ -11,12 +12,13 @@ import CorporateDashboard from './corporate/CorporateDashboard';
 import CorporateProfile from './corporate/CorporateProfile';
 import CorporateVehicles from './corporate/CorporateVehicles';
 import CorporateBookings from './corporate/CorporateBookings';
+import CorporateBookingApprovals from './corporate/CorporateBookingApprovals';
 import CorporateQuotations from './corporate/CorporateQuotations';
 import QuotationModal from './corporate/QuotationModal';
 import MonthlyBilling from './corporate/MonthlyBilling';
 import CorporateWallet from './corporate/CorporateWallet';
 import CorporateReports from './corporate/CorporateReports';
-import { apiFetch } from '../services/api';
+import { apiFetch, BASE_URL } from '../services/api';
 import { fetchCorporateBranchCatalogPickerRows } from '../services/corporateBranchCatalog';
 import { fetchCorporateBranches } from '../services/corporateBookingsApi';
 import './workshop/Workshop.css';
@@ -43,7 +45,7 @@ const PAYMENT_METHOD_OPTIONS = [
 export default function CorporateLayout() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { user, logout } = useAuth();
+    const { user, logout, token } = useAuth();
     
     // Sync activeTab with URL: /corporate/TAB_NAME
     const getActiveTabFromUrl = () => {
@@ -52,7 +54,21 @@ export default function CorporateLayout() {
     };
 
     const activeTab = getActiveTabFromUrl();
-    const setActiveTab = (tab) => {
+    /** Optional `opts` for billing: `{ month: 1-12, year }` opens Monthly billing on that invoice period. */
+    const setActiveTab = (tab, opts) => {
+        if (
+            tab === 'billing' &&
+            opts &&
+            typeof opts === 'object' &&
+            (opts.month != null || opts.year != null)
+        ) {
+            const p = new URLSearchParams();
+            if (opts.month != null) p.set('month', String(opts.month));
+            if (opts.year != null) p.set('year', String(opts.year));
+            const s = p.toString();
+            navigate({ pathname: `/corporate/${tab}`, ...(s ? { search: `?${s}` } : {}) });
+            return;
+        }
         navigate(`/corporate/${tab}`);
     };
     const [bookingOpen, setBookingOpen] = useState(false);
@@ -60,6 +76,16 @@ export default function CorporateLayout() {
     const [vehicles, setVehicles] = useState([]);
     const [branches, setBranches] = useState([]);
     const [walletBalance, setWalletBalance] = useState(0);
+
+    const refreshWalletBalance = useCallback(() => {
+        apiFetch('/corporate/wallet')
+            .then((data) =>
+                setWalletBalance(
+                    Number(data.balance ?? data.walletBalance ?? data.wallet_balance ?? data.amount ?? 0) || 0,
+                ),
+            )
+            .catch(() => {});
+    }, []);
 
     useEffect(() => {
         apiFetch('/corporate/vehicles')
@@ -72,10 +98,71 @@ export default function CorporateLayout() {
                 setBranches(ids.length ? allBranches.filter(b => ids.includes(String(b.id))) : allBranches);
             })
             .catch(() => {});
-        apiFetch('/corporate/wallet')
-            .then(data => setWalletBalance(data.balance ?? data.walletBalance ?? data.wallet_balance ?? data.amount ?? 0))
-            .catch(() => {});
-    }, []);
+        refreshWalletBalance();
+    }, [refreshWalletBalance]);
+
+    const corporateRealtimeSocketRef = useRef(null);
+
+    /**
+     * Socket.IO `/realtime` — bookings, walk-in quotes, wallet (corporate portal only).
+     * Connection is deferred (`setTimeout(0)`) so React 18 Strict Mode’s mount→immediate unmount
+     * does not call `disconnect()` while the WebSocket is still handshaking (avoids console noise
+     * and flaky first connect in dev).
+     */
+    useEffect(() => {
+        if (!token || !user || user.userType !== 'corporate_user') return undefined;
+        const base = String(BASE_URL || '').replace(/\/$/, '');
+        const bumpBookings = () => {
+            window.dispatchEvent(new Event('corporate-portal-bookings-refresh'));
+        };
+        const bumpDashboard = () => {
+            window.dispatchEvent(new Event('corporate-portal-dashboard-refresh'));
+        };
+        const bumpBilling = () => {
+            window.dispatchEvent(new Event('corporate-portal-billing-refresh'));
+        };
+        const onBooking = () => {
+            bumpBookings();
+            bumpDashboard();
+            bumpBilling();
+        };
+        const onWalkIn = () => {
+            bumpBookings();
+            bumpDashboard();
+        };
+        const onWallet = (payload) => {
+            const bal = Number(payload?.balance);
+            if (!Number.isNaN(bal)) setWalletBalance(bal);
+            window.dispatchEvent(new CustomEvent('corporate-portal-wallet-refresh', { detail: payload }));
+            bumpDashboard();
+            bumpBilling();
+        };
+        const onQuotations = () => {
+            window.dispatchEvent(new Event('corporate-price-quotations-changed'));
+        };
+
+        const connectTimer = window.setTimeout(() => {
+            const socket = io(`${base}/realtime`, {
+                auth: { token },
+                transports: ['websocket', 'polling'],
+            });
+            corporateRealtimeSocketRef.current = socket;
+            socket.on('corporate.booking.updated', onBooking);
+            socket.on('corporate.walk-in-order.updated', onWalkIn);
+            socket.on('corporate.wallet.updated', onWallet);
+            socket.on('corporate.quotations.updated', onQuotations);
+        }, 0);
+
+        return () => {
+            window.clearTimeout(connectTimer);
+            const socket = corporateRealtimeSocketRef.current;
+            corporateRealtimeSocketRef.current = null;
+            if (socket) {
+                socket.removeAllListeners();
+                socket.disconnect();
+            }
+        };
+    }, [token, user]);
     const [bookingForm, setBookingForm] = useState({
         vehicle_id: '',
         branch_id: '',
@@ -265,6 +352,7 @@ export default function CorporateLayout() {
             };
             if (bookingForm.vehicle_id) body.vehicleId = String(bookingForm.vehicle_id);
             await apiFetch('/corporate/bookings', { method: 'POST', body: JSON.stringify(body) });
+            if (isWalletPayment) refreshWalletBalance();
             setBookingOpen(false);
             resetBooking();
         } catch (err) {
@@ -279,10 +367,11 @@ export default function CorporateLayout() {
             case 'dashboard': return <CorporateDashboard onTabChange={setActiveTab} setBookingOpen={setBookingOpen} setQuoteOpen={setQuoteOpen}/>;
             case 'profile': return <CorporateProfile onTabChange={setActiveTab}/>;
             case 'vehicles': return <CorporateVehicles vehicles={vehicles} setVehicles={setVehicles}/>;
-            case 'bookings': return <CorporateBookings setBookingOpen={setBookingOpen}/>;
+            case 'bookings': return <CorporateBookings setBookingOpen={setBookingOpen} onTabChange={setActiveTab}/>;
+            case 'booking-approvals': return <CorporateBookingApprovals />;
             case 'quotations': return <CorporateQuotations setQuoteOpen={setQuoteOpen}/>;
-            case 'billing': return <MonthlyBilling onTabChange={setActiveTab}/>;
-            case 'wallet': return <CorporateWallet/>;
+            case 'billing': return <MonthlyBilling onTabChange={setActiveTab} onWalletBalanceChange={refreshWalletBalance} />;
+            case 'wallet': return <CorporateWallet onWalletBalanceChange={refreshWalletBalance} />;
             case 'reports': return <CorporateReports walletBalance={walletBalance}/>;
             default: return <CorporateDashboard onTabChange={setActiveTab} setBookingOpen={setBookingOpen} setQuoteOpen={setQuoteOpen}/>;
         }

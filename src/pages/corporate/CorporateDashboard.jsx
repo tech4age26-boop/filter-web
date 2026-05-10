@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Calendar, Tag, Car, FileText, AlertTriangle, ArrowRight, ChevronRight, Loader2 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 
@@ -11,7 +11,8 @@ export default function CorporateDashboard({ onTabChange, setBookingOpen, setQuo
     const [recentOrders, setRecentOrders] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
+    const loadDashboard = useCallback(() => {
+        setLoading(true);
         Promise.all([
             apiFetch('/corporate/dashboard').catch(() => null),
             apiFetch('/corporate/banners').catch(() => null),
@@ -25,6 +26,16 @@ export default function CorporateDashboard({ onTabChange, setBookingOpen, setQuo
             setLoading(false);
         });
     }, []);
+
+    useEffect(() => {
+        loadDashboard();
+    }, [loadDashboard]);
+
+    useEffect(() => {
+        const onSocket = () => loadDashboard();
+        window.addEventListener('corporate-portal-dashboard-refresh', onSocket);
+        return () => window.removeEventListener('corporate-portal-dashboard-refresh', onSocket);
+    }, [loadDashboard]);
 
     useEffect(() => {
         if (banners.length <= 1) return;
