@@ -34,7 +34,11 @@ export default function CorporateDashboard({ onTabChange, setBookingOpen, setQuo
     useEffect(() => {
         const onSocket = () => loadDashboard();
         window.addEventListener('corporate-portal-dashboard-refresh', onSocket);
-        return () => window.removeEventListener('corporate-portal-dashboard-refresh', onSocket);
+        window.addEventListener('corporate-portal-bookings-refresh', onSocket);
+        return () => {
+            window.removeEventListener('corporate-portal-dashboard-refresh', onSocket);
+            window.removeEventListener('corporate-portal-bookings-refresh', onSocket);
+        };
     }, [loadDashboard]);
 
     useEffect(() => {
@@ -43,7 +47,22 @@ export default function CorporateDashboard({ onTabChange, setBookingOpen, setQuo
         return () => clearInterval(t);
     }, [banners.length]);
 
-    const STATUS_BADGE = { pending: 'ws-badge--yellow', paid: 'ws-badge--green', completed: 'ws-badge--green', in_progress: 'ws-badge--blue', submitted: 'ws-badge--blue', confirmed: 'ws-badge--blue', cancelled: 'ws-badge--red', draft: 'ws-badge--gray' };
+    const STATUS_BADGE = {
+        pending: 'ws-badge--yellow',
+        paid: 'ws-badge--green',
+        completed: 'ws-badge--green',
+        in_progress: 'ws-badge--blue',
+        submitted: 'ws-badge--blue',
+        confirmed: 'ws-badge--blue',
+        cancelled: 'ws-badge--red',
+        draft: 'ws-badge--gray',
+        approved: 'ws-badge--green',
+        rejected: 'ws-badge--red',
+        invoiced: 'ws-badge--green',
+        corporate_approved: 'ws-badge--green',
+        waiting_for_corporate_approval: 'ws-badge--yellow',
+        rejected_by_corporate: 'ws-badge--red',
+    };
 
     const walletBal = dashboard?.walletBalance ?? dashboard?.wallet_balance ?? 0;
     const totalOutstanding = dashboard?.outstandingBalance ?? dashboard?.outstanding_balance ?? dashboard?.dueBalance ?? 0;
@@ -136,12 +155,21 @@ export default function CorporateDashboard({ onTabChange, setBookingOpen, setQuo
                     {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}><Loader2 className="spin" size={24} style={{ color: 'var(--color-primary)' }}/></div>}
                     {!loading && recentOrders.length === 0 && <p style={{ textAlign: 'center', fontSize: '0.875rem', color: 'var(--color-text-muted)', padding: 32, margin: 0 }}>No orders yet</p>}
                     {recentOrders.slice(0, 5).map((o, i) => {
-                        const status = o.status || o.orderStatus || o.order_status || 'pending';
+                        const statusRaw = o.status || o.orderStatus || o.order_status || 'pending';
+                        const statusKey = String(statusRaw).toLowerCase().replace(/\s+/g, '_');
                         return (
-                            <div key={o.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: i < Math.min(5, recentOrders.length) - 1 ? '1px solid var(--color-border-light)' : 'none' }}>
+                            <div
+                                key={o.bookingId || `${o.bookingType || 'booking'}-${o.id}`}
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: i < Math.min(5, recentOrders.length) - 1 ? '1px solid var(--color-border-light)' : 'none' }}
+                            >
                                 <div>
                                     <p style={{ fontWeight: 600, fontSize: '0.875rem', margin: 0 }}>
-                                        {o.bookingCode || o.booking_code || o.orderNumber || o.order_number || `#${o.id}`}
+                                        {o.bookingCode ||
+                                            o.booking_code ||
+                                            o.orderNumber ||
+                                            o.order_number ||
+                                            o.bookingId ||
+                                            `#${o.id}`}
                                     </p>
                                     <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>
                                         {o.bookedFor || o.booked_for || o.createdAt ? new Date(o.bookedFor || o.booked_for || o.createdAt).toLocaleDateString('en-SA') : '—'}
@@ -153,7 +181,9 @@ export default function CorporateDashboard({ onTabChange, setBookingOpen, setQuo
                                             ? `SAR ${Number(o.amount ?? o.grandTotal ?? o.grand_total ?? o.totalAmount ?? o.total_amount ?? o.total).toFixed(2)}`
                                             : 'Pending'}
                                     </p>
-                                    <span className={`ws-badge ${STATUS_BADGE[status] || 'ws-badge--yellow'}`}>{status.replace(/_/g, ' ')}</span>
+                                    <span className={`ws-badge ${STATUS_BADGE[statusKey] || 'ws-badge--yellow'}`}>
+                                        {String(statusRaw).replace(/_/g, ' ')}
+                                    </span>
                                 </div>
                             </div>
                         );
