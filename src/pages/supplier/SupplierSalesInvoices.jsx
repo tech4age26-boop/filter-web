@@ -688,7 +688,6 @@ export default function SupplierSalesInvoices() {
             taxCode: 'VAT 15%',
             taxAmt: '0.00',
             totalFinal: '0.00',
-            lastSalePrice: lastSale,
             supplierStockProductId: item.supplierStockProductId ?? null,
             supplierProductId: catId,
             hasPreviousSale: hasPrev,
@@ -1526,6 +1525,7 @@ setLineItems((prev) =>
 setItemPickerLineId(null);
 setItemPickerInput('');
 setItemPickerFilter('');
+    };
 
     useEffect(() => {
         let cancelled = false;
