@@ -368,11 +368,21 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
     );
 
     const paid = Number(pick(inv, 'amountPaid', 'amount_paid') ?? row.amount_paid ?? 0);
+    const returnsTotal = round2(
+        Number(pick(inv, 'returnsTotal', 'returns_total') ?? row.returns_total ?? 0),
+    );
     const balance = Number(
         pick(inv, 'balanceDue', 'balance_due') ?? row.balance_due ?? Math.max(0, grand - paid),
     );
 
     const currency = pick(inv, 'currencyCode', 'currency') ?? 'SAR';
+
+    const lineQtyReturned = (line) => {
+        const q = line?.qtyReturned ?? line?.qty_returned;
+        if (q == null || q === '') return '0';
+        const n = Number(q);
+        return Number.isFinite(n) ? String(n) : String(q);
+    };
 
     /** Opens Filter public verify page — scanner opens browser URL (not raw JSON). */
     const verifyUrl = useMemo(() => {
@@ -406,6 +416,8 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
     const logoLetter = (supplierLabel || 'F').trim().charAt(0).toUpperCase() || 'F';
 
     const invoiceDateDisplay = formatInvoiceDateTime(inv, row);
+
+    const lineTableColCount = isSupplierSales ? 7 : 6;
 
     const paymentLabelRaw =
         pick(inv, 'paymentStatus', 'payment_status') ?? row.payment_status ?? 'unpaid';
@@ -761,6 +773,14 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                             الكمية
                                         </span>
                                     </th>
+                                    {isSupplierSales ? (
+                                        <th className="wpi-view__th-num" style={{ minWidth: 80 }}>
+                                            Return qty
+                                            <span className="wpi-view__th-sub" dir="rtl">
+                                                مرتجع
+                                            </span>
+                                        </th>
+                                    ) : null}
                                     <th className="wpi-view__th-num">
                                         Unit price
                                         <span className="wpi-view__th-sub" dir="rtl">
@@ -784,7 +804,10 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                             <tbody>
                                 {items.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="wpi-view__table-empty">
+                                        <td
+                                            colSpan={lineTableColCount}
+                                            className="wpi-view__table-empty"
+                                        >
                                             No line items
                                         </td>
                                     </tr>
@@ -823,6 +846,11 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                             <td className="wpi-view__td-num">
                                                 {lineQty(line)} {lineUom(line)}
                                             </td>
+                                            {isSupplierSales ? (
+                                                <td className="wpi-view__td-num">
+                                                    {lineQtyReturned(line)} {lineUom(line)}
+                                                </td>
+                                            ) : null}
                                             <td className="wpi-view__td-num">{money(lineUnitExVat(line), currency)}</td>
                                             <td className="wpi-view__td-num">
                                                 {money(lineTotalExVatOnly(line), currency)}
@@ -915,16 +943,54 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                         </div>
                     </div>
 
-                    {(paid > 0 || balance > 0) && (
+                    {(paid > 0 || balance > 0 || (isSupplierSales && returnsTotal > 0)) && (
                         <div className="wpi-view__panel" style={{ marginBottom: 12 }}>
+                            {isSupplierSales && returnsTotal > 0 ? (
+                                <div className="wpi-view__sum-row" style={{ border: 'none', padding: '4px 0' }}>
+                                    <span className="wpi-view__sum-row-label">
+                                        Returns credited <span dir="rtl">(إشعار دائن)</span>
+                                    </span>
+                                    <span className="wpi-view__sum-row-val">
+                                        {money(returnsTotal, currency)}
+                                    </span>
+                                </div>
+                            ) : null}
                             <div className="wpi-view__sum-row" style={{ border: 'none', padding: '4px 0' }}>
                                 <span className="wpi-view__sum-row-label">Amount paid</span>
                                 <span className="wpi-view__sum-row-val">{money(paid, currency)}</span>
                             </div>
                             <div className="wpi-view__sum-row" style={{ border: 'none', padding: '4px 0' }}>
-                                <span className="wpi-view__sum-row-label">Balance due</span>
+                                <span className="wpi-view__sum-row-label">
+                                    Balance due
+                                    {isSupplierSales && returnsTotal > 0 ? (
+                                        <span
+                                            style={{
+                                                display: 'block',
+                                                fontSize: '0.7rem',
+                                                fontWeight: 500,
+                                                color: '#64748b',
+                                                marginTop: 2,
+                                            }}
+                                        >
+                                            After returns &amp; payments · صافي بعد الإرجاع والدفعات
+                                        </span>
+                                    ) : null}
+                                </span>
                                 <span className="wpi-view__sum-row-val">{money(balance, currency)}</span>
                             </div>
+                            {isSupplierSales && returnsTotal > 0 ? (
+                                <p
+                                    style={{
+                                        margin: '10px 0 0',
+                                        fontSize: '0.75rem',
+                                        color: '#475569',
+                                        lineHeight: 1.45,
+                                    }}
+                                >
+                                    Net total is the original invoice. Balance due is what remains after recorded
+                                    payments and approved return credits.
+                                </p>
+                            ) : null}
                         </div>
                     )}
 
