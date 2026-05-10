@@ -36,6 +36,37 @@ const formatInvoiceTime = (raw) => {
     }
 };
 
+/** DB/internal codes (snake_case) → readable labels for the invoice info grid. */
+function formatPaymentMethodForDisplay(raw) {
+    if (raw == null) return 'Unpaid';
+    const s = String(raw).trim();
+    if (!s) return 'Unpaid';
+    const norm = s.toLowerCase();
+    const map = {
+        corporate_wallet: 'Corporate wallet',
+        'corporate credit': 'Corporate credit',
+        corporate_credit: 'Corporate credit',
+        'pay monthly': 'Pay monthly',
+        pay_monthly: 'Pay monthly',
+        'monthly billing': 'Monthly billing',
+        monthly_billing: 'Monthly billing',
+        'bank transfer': 'Bank transfer',
+        bank_transfer: 'Bank transfer',
+        tabby: 'Tabby',
+        tamara: 'Tamara',
+        cash: 'Cash',
+        card: 'Card',
+    };
+    if (map[norm]) return map[norm];
+    if (s.includes('_')) {
+        return s
+            .split('_')
+            .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ''))
+            .join(' ');
+    }
+    return s;
+}
+
 const CHECKLIST_LABELS = [
     ['Tire Pressure Check', 'فحص هواء الإطارات'],
     ['Brake Fluid Check', 'فحص سائل الفرامل'],
@@ -141,9 +172,10 @@ export default function InvoiceDetailsModal({ invoice, isOpen, onClose, onPrint,
         : [];
 
     const payments = Array.isArray(invoice.payments) ? invoice.payments : [];
-    const paymentMethodText = payments.length > 0
-        ? payments.map(p => p.method).filter(Boolean).join(', ')
-        : (invoice.paymentMethod || 'Unpaid');
+    const paymentMethodText =
+        payments.length > 0
+            ? payments.map((p) => formatPaymentMethodForDisplay(p.method)).join(', ') || 'Unpaid'
+            : formatPaymentMethodForDisplay(invoice.paymentMethod);
 
     const customerName = invoice.customerName || invoice.customer?.name || 'Walk-in Customer';
     const customerPhone = invoice.customerMobile || invoice.customer?.mobile || '-';

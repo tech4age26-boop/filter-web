@@ -1,4 +1,4 @@
-import { LayoutDashboard, Building2, Car, Calendar, Tag, Receipt, Wallet, BarChart3, CreditCard } from 'lucide-react';
+import { LayoutDashboard, Building2, Car, Calendar, Tag, Receipt, Wallet, BarChart3, CreditCard, ClipboardCheck } from 'lucide-react';
 
 export const NAV_GROUPS = [
     { label: 'MANAGEMENT', items: [
@@ -6,6 +6,7 @@ export const NAV_GROUPS = [
         { id: 'profile', label: 'Profile', icon: Building2 },
         { id: 'vehicles', label: 'Vehicles', icon: Car },
         { id: 'bookings', label: 'Bookings', icon: Calendar },
+        { id: 'booking-approvals', label: 'Booking approvals', icon: ClipboardCheck },
         { id: 'quotations', label: 'Quotations', icon: Tag },
     ]},
     { label: 'BILLING', items: [

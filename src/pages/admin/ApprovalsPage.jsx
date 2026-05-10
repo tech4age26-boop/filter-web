@@ -27,6 +27,7 @@ const ENTITY_TYPES = [
     { value: 'supplier_registration', label: 'Supplier' },
     { value: 'corporate_registration', label: 'Corporate' },
     { value: 'corporate_price_quotation', label: 'Corporate price quotation' },
+    { value: 'corporate_walk_in_booking', label: 'Corporate walk-in booking' },
     { value: 'technician_registration', label: 'Technician' },
 ];
 
@@ -203,6 +204,13 @@ function buildMetaChips(item) {
             push('SKU', m.sku);
             push('Quote', m.quotationPrice != null ? `SAR ${m.quotationPrice}` : null);
             push('Status', m.status ?? item.status);
+            break;
+        case 'corporate_walk_in_booking':
+            push('Branch', m.branchName);
+            push('Vehicle', m.vehiclePlate);
+            push('Company', m.companyName);
+            push('Order', m.salesOrderId);
+            if (m.approvalStatusLabel) push('Approval', m.approvalStatusLabel);
             break;
         default:
             break;

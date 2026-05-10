@@ -90,8 +90,6 @@ export default function QuotationModal({ walletBalance, onClose, onSave }) {
             name: row.name,
             unit: row.unit,
             salePrice: row.salePrice,
-            minPriceCorporate: row.minPriceCorporate,
-            maxPriceCorporate: row.maxPriceCorporate,
             qty: 1,
             quotationPrice: row.salePrice,
         };
@@ -356,15 +354,6 @@ export default function QuotationModal({ walletBalance, onClose, onSave }) {
                                 const qtyNum = parseFloat(line.qty) || 1;
                                 const quoteEx = roundMoney2(parseFloat(line.quotationPrice) || 0);
                                 const quoteInc = roundMoney2(quoteEx * QUOTE_VAT_MULTIPLIER);
-                                const minH = line.minPriceCorporate;
-                                const maxH = line.maxPriceCorporate;
-                                const hint =
-                                    minH != null &&
-                                    maxH != null &&
-                                    Number.isFinite(Number(minH)) &&
-                                    Number.isFinite(Number(maxH))
-                                        ? `Corporate range: SAR ${Number(minH).toFixed(2)} – ${Number(maxH).toFixed(2)}`
-                                        : null;
                                 return (
                                     <div
                                         key={lineKey(line)}
@@ -383,9 +372,6 @@ export default function QuotationModal({ walletBalance, onClose, onSave }) {
                                             <p style={{ margin: '2px 0 0 0', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
                                                 {line.unit} · sale SAR {Number(line.salePrice).toFixed(2)}
                                             </p>
-                                            {hint && (
-                                                <p style={{ margin: '4px 0 0 0', fontSize: '0.65rem', color: '#7C3AED' }}>{hint}</p>
-                                            )}
                                         </div>
                                         <input
                                             type="number"

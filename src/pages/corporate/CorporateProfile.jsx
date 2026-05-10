@@ -102,6 +102,17 @@ export default function CorporateProfile({ onTabChange }) {
         fetchProfile();
     }, [fetchProfile]);
 
+    const workshopsForDisplay = useMemo(() => {
+        const w = profile?.workshops;
+        if (!Array.isArray(w)) return [];
+        return w
+            .map((ws) => ({
+                ...ws,
+                branches: filterPortalVisibleBranches(ws.branches || []),
+            }))
+            .filter((ws) => ws.branches.length > 0);
+    }, [profile?.workshops]);
+
     const handleUpdateProfile = async (formData) => {
         try {
             setSaving(true);
@@ -120,7 +131,7 @@ export default function CorporateProfile({ onTabChange }) {
         } finally {
             setSaving(false);
         }
-    }
+    };
 
     if (loading) return (
         <div>
@@ -142,16 +153,6 @@ export default function CorporateProfile({ onTabChange }) {
     );
 
     const ca = profile?.corporateAccount;
-    const workshopsForDisplay = useMemo(() => {
-        const w = profile?.workshops;
-        if (!Array.isArray(w)) return [];
-        return w
-            .map((ws) => ({
-                ...ws,
-                branches: filterPortalVisibleBranches(ws.branches || []),
-            }))
-            .filter((ws) => ws.branches.length > 0);
-    }, [profile?.workshops]);
 
     const handleSaveBranches = (corpId, ids) => {
         // Implementation for saving branches if PUT API supported it, 

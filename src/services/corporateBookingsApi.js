@@ -26,6 +26,7 @@ export async function fetchCorporateBranches({ signal } = {}) {
 
 /**
  * GET /corporate/bookings?status=&branchId=&startDate=&endDate=&limit=&offset=
+ * Corporate portal bookings only (not cashier walk-in quotes — those: walk-in tab / pending endpoint).
  * @returns {{ bookings: unknown[], total?: number, limit?: number, offset?: number }}
  */
 export async function fetchCorporateBookings(params = {}, { signal } = {}) {

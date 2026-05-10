@@ -949,6 +949,155 @@ function RawObjectBody({ data }) {
     );
 }
 
+/** Human-readable status for cashier walk-in corporate quotes (matches backend constants). */
+function walkInCorporateStatusLabel(status) {
+    const s = String(status || '').toLowerCase().replace(/\s+/g, '_');
+    const map = {
+        waiting_for_corporate_approval: 'Waiting for corporate approval',
+        corporate_approved: 'Corporate approved',
+        rejected_by_corporate: 'Rejected by corporate',
+        cancelled: 'Cancelled',
+        draft: 'Draft',
+    };
+    return map[s] || String(status || '—').replace(/_/g, ' ');
+}
+
+/** Backend uses `waiting for corporate approval` (spaces), not `pending`. */
+function isWalkInCorporatePendingDetail(data) {
+    const raw = data?.status ?? data?.approvalStatus;
+    const s = String(raw || '').toLowerCase().replace(/\s+/g, '_');
+    return s === 'waiting_for_corporate_approval';
+}
+
+/** Super-admin queue: walk-in POS corporate quote (`sales_orders.source = walk_in_corporate`). */
+function CorporateWalkInBookingBody({ data }) {
+    const o = data || {};
+    const branch = o.branch || {};
+    const vehicle = o.vehicle || {};
+    const corp = o.corporateAccount || {};
+    const approver = o.corporateWalkInApprovedByUser || null;
+    const items = Array.isArray(o.salesOrderItems) ? o.salesOrderItems : [];
+
+    let linesTotal = 0;
+    let hasNumericTotal = false;
+    for (const line of items) {
+        const lt = line?.lineTotal ?? line?.line_total;
+        if (lt != null && lt !== '') {
+            const n = Number(lt);
+            if (!Number.isNaN(n)) {
+                linesTotal += n;
+                hasNumericTotal = true;
+            }
+        }
+    }
+
+    return (
+        <>
+            <Section title="Walk-in corporate quote">
+                <KVGrid>
+                    <Field label="Sales order ID" kind="id" value={o.id} />
+                    <Field label="Workshop ID" kind="id" value={o.workshopId} />
+                    <Field label="Branch ID" kind="id" value={o.branchId} />
+                    <Field label="Status" value={walkInCorporateStatusLabel(o.status)} />
+                    <Field label="Source" value={o.source} />
+                    <Field label="Created" kind="date" value={o.createdAt} />
+                    <Field label="Created by (user)" kind="id" value={o.createdByUserId} />
+                    <Field
+                        label="Rejection / cancel reason"
+                        value={o.corporateApprovalRejectionReason}
+                        span2
+                    />
+                </KVGrid>
+            </Section>
+
+            <Section title="Branch">
+                <KVGrid>
+                    <Field label="ID" kind="id" value={branch.id} />
+                    <Field label="Name" value={branch.name} />
+                    <Field label="Address" value={branch.address} span2 />
+                </KVGrid>
+            </Section>
+
+            <Section title="Corporate account">
+                <KVGrid>
+                    <Field label="ID" kind="id" value={corp.id} />
+                    <Field label="Company" value={corp.companyName} />
+                    <Field label="Customer ID" kind="id" value={corp.customerId ?? o.customerId} />
+                </KVGrid>
+            </Section>
+
+            <Section title="Vehicle">
+                <KVGrid>
+                    <Field label="Vehicle ID" kind="id" value={o.vehicleId} />
+                    <Field label="Plate" value={vehicle.plateNo} />
+                    <Field label="Make / model" value={[vehicle.make, vehicle.model].filter(Boolean).join(' ') || NA} />
+                    <Field label="Year" value={vehicle.year} />
+                </KVGrid>
+            </Section>
+
+            <Section title="Corporate approver" empty={!approver ? 'Not approved yet (pending corporate or super admin).' : undefined}>
+                {approver && (
+                    <KVGrid>
+                        <Field label="User ID" kind="id" value={approver.id} />
+                        <Field label="Name" value={approver.name} />
+                        <Field label="Email" value={approver.email} />
+                        <Field label="User type" value={approver.userType} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section title="Line items" count={items.length}>
+                {items.length === 0 ? (
+                    <p className="approval-empty-line">No line items on this order yet.</p>
+                ) : (
+                    <div className="approval-table-wrapper">
+                        <table className="approval-table">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Item</th>
+                                    <th>Department</th>
+                                    <th>Qty</th>
+                                    <th>Unit price</th>
+                                    <th>Line total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {items.map((line, idx) => {
+                                    const dept = line.department || {};
+                                    const name =
+                                        line.product?.name
+                                        || line.service?.name
+                                        || line.itemType
+                                        || NA;
+                                    return (
+                                        <tr key={line?.id != null ? String(line.id) : `li-${idx}`}>
+                                            <td>{line.itemType || NA}</td>
+                                            <td>{name}</td>
+                                            <td>{dept.name || NA}</td>
+                                            <td>{fmtDecimal(line.qty, 3)}</td>
+                                            <td>{fmtMoney(line.unitPrice)}</td>
+                                            <td>{fmtMoney(line.lineTotal ?? line.line_total)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                            {hasNumericTotal && (
+                                <tfoot>
+                                    <tr>
+                                        <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700 }}>Subtotal (lines)</td>
+                                        <td style={{ fontWeight: 700 }}>{fmtMoney(linesTotal)}</td>
+                                    </tr>
+                                </tfoot>
+                            )}
+                        </table>
+                    </div>
+                )}
+            </Section>
+        </>
+    );
+}
+
 /** Super-admin approval queue: corporate master-catalog price quotation line (unified approvals detail). */
 function CorporatePriceQuotationBody({ data }) {
     const row = data?.quotation && typeof data.quotation === 'object' ? { ...data, ...data.quotation } : data;
@@ -1008,6 +1157,8 @@ function renderBody(entityType, data) {
         case 'corporate_price_quotation':
         case 'corporate_price_quotations':
             return <CorporatePriceQuotationBody data={data} />;
+        case 'corporate_walk_in_booking':
+            return <CorporateWalkInBookingBody data={data} />;
         default:                       return <RawObjectBody data={data} />;
     }
 }
@@ -1044,7 +1195,17 @@ export default function ApprovalDetailsModal({
         return () => { cancelled = true; };
     }, [entityType, id]);
 
-    const status = data?.status ?? data?.approvalStatus ?? 'pending';
+    const rawStatus = data?.status ?? data?.approvalStatus ?? 'pending';
+    const statusClass = String(rawStatus).toLowerCase().replace(/\s+/g, '_');
+    const statusDisplay =
+        entityType === 'corporate_walk_in_booking'
+            ? walkInCorporateStatusLabel(rawStatus)
+            : rawStatus;
+    const showApproveReject =
+        !!data &&
+        (entityType === 'corporate_walk_in_booking'
+            ? isWalkInCorporatePendingDetail(data)
+            : String(rawStatus).toLowerCase() === 'pending');
     const titleSuffix = data
         ? data.title
             ?? data.companyName
@@ -1062,7 +1223,7 @@ export default function ApprovalDetailsModal({
             title={titleSuffix ? `Approval Details — ${titleSuffix}` : 'Approval Details'}
             onClose={onClose}
             width={920}
-            footer={status === 'pending' && data ? (
+            footer={showApproveReject ? (
                 <div className="approval-details-actions">
                     <button
                         type="button"
@@ -1101,7 +1262,7 @@ export default function ApprovalDetailsModal({
             {!loading && !error && data && (
                 <div className="approval-details-body">
                     <div className="approval-details-status-row">
-                        <span className={`approval-status-badge status-${status}`}>{status}</span>
+                        <span className={`approval-status-badge status-${statusClass}`}>{statusDisplay}</span>
                     </div>
                     {renderBody(entityType, data)}
                 </div>
