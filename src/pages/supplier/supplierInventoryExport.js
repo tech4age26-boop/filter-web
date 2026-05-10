@@ -295,3 +295,84 @@ export function exportTimelinePdf(product, entries, filenameBase = 'supplier-sto
         filenameBase,
     });
 }
+
+/**
+ * Affiliated workshop / branch AR-style transaction ledger (SupplierAffiliatedWorkshops modal).
+ *
+ * @param {Array<{ raw: Record<string, unknown>; debit?: number | null; credit?: number | null; balance: number; currencyCode?: string }>} lines
+ */
+export function exportAffiliatedTransactionLedgerExcel(
+    lines,
+    filenameBase = 'supplier-affiliated-transaction-log',
+) {
+    const headers = [
+        'When',
+        'Type',
+        'Title',
+        'Description',
+        'Debt (Dr)',
+        'Credit (Cr)',
+        'Balance',
+        'Currency',
+    ];
+    const rows = (lines || []).map((line) => {
+        const t = line.raw || {};
+        return [
+            new Date(String(t.createdAt)).toLocaleString(),
+            String(t.transactionType || ''),
+            String(t.title || ''),
+            String(t.description || '').trim(),
+            line.debit != null && Number.isFinite(Number(line.debit)) ? Number(line.debit) : '',
+            line.credit != null && Number.isFinite(Number(line.credit)) ? Number(line.credit) : '',
+            Number.isFinite(Number(line.balance)) ? Number(line.balance) : '',
+            String(line.currencyCode || 'SAR'),
+        ];
+    });
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
+    XLSX.writeFile(wb, `${safeFileSlug(filenameBase)}-${stamp()}.xlsx`);
+}
+
+/**
+ * @param {Array<{ raw: Record<string, unknown>; debit?: number | null; credit?: number | null; balance: number; currencyCode?: string }>} lines
+ * @param {string} [subtitle]
+ */
+export function exportAffiliatedTransactionLedgerPdf(
+    lines,
+    subtitle,
+    filenameBase = 'supplier-affiliated-transaction-log',
+) {
+    const fmtLedgerCell = (value, cc) => {
+        if (value == null || Number.isNaN(Number(value))) return '—';
+        const amt = Number(value).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+        return `${amt} ${cc || 'SAR'}`;
+    };
+    const headers = ['When', 'Type', 'Title', 'Debt (Dr)', 'Credit (Cr)', 'Balance'];
+    const colW = [105, 75, 220, 78, 78, 86];
+    const rows = (lines || []).map((line) => {
+        const t = line.raw || {};
+        const cc = line.currencyCode || 'SAR';
+        const desc = String(t.description || '').trim();
+        const titleBlock = desc ? `${String(t.title || '')}\n${desc}` : String(t.title || '');
+        return [
+            new Date(String(t.createdAt)).toLocaleString(),
+            String(t.transactionType || ''),
+            titleBlock,
+            line.debit != null ? fmtLedgerCell(line.debit, cc) : '—',
+            line.credit != null ? fmtLedgerCell(line.credit, cc) : '—',
+            fmtLedgerCell(line.balance, cc),
+        ];
+    });
+    downloadTablePdf({
+        title: 'Transaction log',
+        subtitle: subtitle || '',
+        headers,
+        colWidthsPt: colW,
+        rows,
+        filenameBase,
+    });
+}

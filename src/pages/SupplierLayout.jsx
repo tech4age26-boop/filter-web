@@ -20,6 +20,8 @@ import SupplierEmployeesPage from './supplier/supplier_employees';
 import SupplierSalesInvoices from './supplier/SupplierSalesInvoices';
 import SupplierPurchaseInvoices from './supplier/SupplierPurchaseInvoices';
 import SupplierWorkshopPurchaseInvoices from './supplier/SupplierWorkshopPurchaseInvoices';
+import SupplierAffiliatedWorkshops from './supplier/SupplierAffiliatedWorkshops';
+import SupplierNonAffiliatedCustomers from './supplier/SupplierNonAffiliatedCustomers';
 import SupplierCashBank from './supplier/SupplierCashBank';
 import SupplierExpenses from './supplier/SupplierExpenses';
 import SupplierAccountingPage from './supplier/SupplierAccountingPage';
@@ -133,6 +135,8 @@ export default function SupplierLayout() {
             case 'catalog': return <SupplierCatalog/>;
             case 'employees': return <SupplierEmployeesPage/>;
             case 'sales_invoices': return <SupplierSalesInvoices/>;
+            case 'affiliated_workshops': return <SupplierAffiliatedWorkshops/>;
+            case 'nonaffiliated_customers': return <SupplierNonAffiliatedCustomers/>;
             case 'workshop_purchase_invoices': return <SupplierWorkshopPurchaseInvoices/>;
             case 'purchase_invoices': return <SupplierPurchaseInvoices/>;
             case 'cash_bank': return <SupplierCashBank/>;
