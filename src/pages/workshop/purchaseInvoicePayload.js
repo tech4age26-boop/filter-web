@@ -6,12 +6,38 @@
 export const PURCHASE_INVOICE_VAT_RATE = 0.15;
 export const PURCHASE_INVOICE_TAX_LABEL = 'VAT 15%';
 
+/**
+ * Mirrors the supplier sales invoice tax catalog so workshop purchase invoices
+ * can compute identical numbers when a different code is picked per line.
+ */
+export const PURCHASE_INVOICE_TAXES = [
+    { id: 1, name: 'VAT 15%', percent: 15, code: 'VAT 15%', rate: 0.15 },
+    { id: 2, name: 'VAT 5%', percent: 5, code: 'VAT 5%', rate: 0.05 },
+    { id: 3, name: 'VAT 0%', percent: 0, code: 'VAT 0%', rate: 0 },
+    { id: 4, name: 'Exempt', percent: 0, code: 'Exempt', rate: 0 },
+];
+
 export function money2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+/** Look up the VAT rate for a code, falling back to the default 15%. */
+export function vatRateForCode(code, fallback = PURCHASE_INVOICE_VAT_RATE) {
+    if (code == null || code === '') return fallback;
+    const found = PURCHASE_INVOICE_TAXES.find((t) => t.code === code);
+    return found ? found.rate : fallback;
+}
+
 /**
  * Line math: ex-VAT unit in `line.price`, unless `opts.unitPriceTaxInclusive` — then `line.price` is VAT-inclusive per unit (÷ (1+vat) for ex-VAT math).
+ *
+ * `discountMode` selection precedence (matches Supplier SI behaviour):
+ *   1. `line.discountMode` if set ('percent' | 'fixed_sar')
+ *   2. global `discountIsPercent` argument
+ *
+ * Tax rate precedence:
+ *   1. `line.taxCode` lookup in PURCHASE_INVOICE_TAXES
+ *   2. caller-provided `vatRate`
  */
 export function computeLineAmounts(
     line,
@@ -22,27 +48,36 @@ export function computeLineAmounts(
 ) {
     const qty = parseFloat(line.qty) || 0;
     const rawUnit = parseFloat(line.price) || 0;
+    const lineRate = line && line.taxCode ? vatRateForCode(line.taxCode, vatRate) : vatRate;
     const priceExcl =
-        opts.unitPriceTaxInclusive === true ? money2(rawUnit / (1 + vatRate)) : rawUnit;
+        opts.unitPriceTaxInclusive === true ? money2(rawUnit / (1 + lineRate)) : rawUnit;
     const discRaw = parseFloat(line.discount) || 0;
     const grossExcl = qty * priceExcl;
+    const linePercentMode =
+        line && line.discountMode
+            ? line.discountMode !== 'fixed_sar'
+            : discountIsPercent;
     let discountAmount = 0;
     if (applyDiscount && discRaw > 0) {
-        if (discountIsPercent) {
+        if (linePercentMode) {
             discountAmount = (grossExcl * Math.min(100, Math.max(0, discRaw))) / 100;
         } else {
             discountAmount = Math.min(discRaw, grossExcl);
         }
     }
     const taxableExcl = Math.max(0, grossExcl - discountAmount);
-    const taxAmt = taxableExcl * vatRate;
-    const totalIncl = taxableExcl * (1 + vatRate);
-    return { grossExcl, taxableExcl, taxAmt, totalIncl, discountAmount };
+    const taxAmt = taxableExcl * lineRate;
+    const totalIncl = taxableExcl * (1 + lineRate);
+    return { grossExcl, taxableExcl, taxAmt, totalIncl, discountAmount, vatRate: lineRate };
 }
 
 /**
  * Roll up lines, then apply invoice-level discount on the sum of line taxable (ex VAT) amounts
- * and recalculate VAT once (header discount model).
+ * and recalculate VAT.
+ *
+ * When per-line tax codes are used (mirrors Supplier SI), VAT is recomputed on
+ * each line's net taxable share (after the proportional invoice discount split)
+ * so totals match the per-line tax rate the user picked.
  */
 export function computePurchaseInvoiceTotals({
     lineItems,
@@ -56,6 +91,7 @@ export function computePurchaseInvoiceTotals({
 }) {
     const lineOpts = { unitPriceTaxInclusive };
     const freight = money2(freightIn);
+    const perLine = [];
     let lineGross = 0;
     let lineDiscountSum = 0;
     let linesTaxable = 0;
@@ -64,6 +100,7 @@ export function computePurchaseInvoiceTotals({
 
     for (const line of lineItems) {
         const a = computeLineAmounts(line, applyLineDiscount, lineDiscountIsPercent, vatRate, lineOpts);
+        perLine.push(a);
         lineGross += a.grossExcl;
         lineDiscountSum += a.discountAmount;
         linesTaxable += a.taxableExcl;
@@ -85,9 +122,18 @@ export function computePurchaseInvoiceTotals({
         invoiceDiscountApplied = money2(Math.min(invRaw, linesTaxable));
     }
 
-    const netTaxable = money2(Math.max(0, linesTaxable - invoiceDiscountApplied));
-    const totalVat = money2(netTaxable * vatRate);
-    const goodsGrandInclVat = money2(netTaxable * (1 + vatRate));
+    const discountFactor =
+        linesTaxable > 0 ? Math.max(0, 1 - invoiceDiscountApplied / linesTaxable) : 1;
+    let totalVat = 0;
+    let netTaxable = 0;
+    for (const a of perLine) {
+        const lineNet = money2(a.taxableExcl * discountFactor);
+        netTaxable += lineNet;
+        totalVat += lineNet * a.vatRate;
+    }
+    netTaxable = money2(netTaxable);
+    totalVat = money2(totalVat);
+    const goodsGrandInclVat = money2(netTaxable + totalVat);
     const grandTotal = money2(goodsGrandInclVat + freight);
 
     return {
@@ -120,7 +166,10 @@ export function buildEnrichedLineItems(
         const qty = parseFloat(line.qty) || 0;
         const unitPriceExVat = money2(parseFloat(line.price) || 0);
         const unitPurchasePriceInclVat =
-            qty > 0 ? money2(a.totalIncl / qty) : money2(unitPriceExVat * (1 + vatRate));
+            qty > 0 ? money2(a.totalIncl / qty) : money2(unitPriceExVat * (1 + a.vatRate));
+        const lineTaxCode = line && line.taxCode ? line.taxCode : vatLabel;
+        const lineDiscountMode =
+            line && line.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent';
         return {
             line_no: idx + 1,
             client_line_id: line.id,
@@ -136,10 +185,11 @@ export function buildEnrichedLineItems(
             unit_purchase_price_incl_vat: unitPurchasePriceInclVat,
             line_discount_raw: line.discount,
             line_discount_amount: money2(a.discountAmount),
+            line_discount_mode: lineDiscountMode,
             gross_ex_vat: money2(a.grossExcl),
             taxable_ex_vat: money2(a.taxableExcl),
-            tax_code: vatLabel,
-            tax_rate: vatRate,
+            tax_code: lineTaxCode,
+            tax_rate: a.vatRate,
             tax_amount: money2(a.taxAmt),
             line_total_incl_vat: money2(a.totalIncl),
         };

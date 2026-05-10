@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, Key, Plus, MapPin, Phone, Mail, Users, Edit, RefreshCw } from 'lucide-react';
 import Modal from '../../components/Modal';
+import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 import { apiFetch } from '../../services/api';
 import {
     loadWorkshopEmployeesCombined,
@@ -357,7 +358,9 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
             </div>
 
             {activeTab === 'branches' && (
-                branches.length === 0 ? (
+                isLoading && branches.length === 0 ? (
+                    <ShimmerCatalogGrid cards={4} />
+                ) : branches.length === 0 ? (
                     <div className="ws-empty">
                         <Building2 size={48} className="ws-empty-icon"/>
                         <p className="ws-empty-text" style={{ fontWeight: 600 }}>No branches yet. Create your first branch portal.</p>

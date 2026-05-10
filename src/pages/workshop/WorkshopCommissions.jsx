@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, CheckCircle, Users, Wallet, Calendar, AlertCircle } from 'lucide-react';
 import Modal from '../../components/Modal';
+import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import WorkshopCommissionRules from '../../components/commissions/WorkshopCommissionRules';
 import {
     getWorkshopCommissionsSummary,
@@ -596,11 +597,7 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
                     </thead>
                     <tbody>
                         {isLoading && commissionRows.length === 0 ? (
-                            <tr>
-                                <td colSpan={9} className="ws-text-dim" style={{ padding: 24, textAlign: 'center' }}>
-                                    Loading…
-                                </td>
-                            </tr>
+                            <ShimmerTableBodyRows rows={6} columns={9} />
                         ) : commissionRows.length === 0 ? (
                             <tr>
                                 <td colSpan={9} className="ws-text-dim" style={{ padding: 24, textAlign: 'center' }}>

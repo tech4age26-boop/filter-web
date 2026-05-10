@@ -60,8 +60,7 @@ const TRANSLATIONS = {
             'fleet-management': 'إدارة الأسطول', 'warehouse-portal': 'بوابة المستودع', 'locker-management': 'إدارة الخزائن',
             'workshop-portal': 'بوابة فلتر لورشة العمل', 'locker-portal': 'بوابة فلتر للخزائن', 'supplier-portal': 'بوابة فلتر للموردين', 'corporate-portal': 'بوابة فلتر للمؤسسات', 'referrer-portal': 'بوابة فلتر للإحالة', 'technician-app': 'بوابة فلتر للفنيين', 'pos-portal': 'بوابة فلتر لنقاط البيع'
         },
-        logoDesc: 'فلتر ERP',
-        logoDesc: 'وحدة المشرف الأعلى',
+        logoDesc: 'فلتر ERP — وحدة المشرف الأعلى',
         pageSubtitle: 'التحكم التشغيلي العالمي.',
         searchPlaceholder: 'البحث في الموارد...',
         userName: 'آسف البوتو',

@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
-import { getPublicSupplierSalesInvoiceVerify } from '../services/publicVerifyApi';
+import { ShieldCheck, AlertTriangle, Loader2, PackageCheck, Lock } from 'lucide-react';
+import {
+    getPublicSupplierSalesInvoiceVerify,
+    publicReceiveSupplierSalesInvoiceWithPassword,
+} from '../services/publicVerifyApi';
 import './PublicWpiVerifyPage.css';
 
 function fmtMoney(n, cur = 'SAR') {
@@ -30,6 +33,39 @@ export default function PublicSinvVerifyPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [data, setData] = useState(null);
+    const [receiveOpen, setReceiveOpen] = useState(false);
+    const [receivePassword, setReceivePassword] = useState('');
+    const [receiveSubmitting, setReceiveSubmitting] = useState(false);
+    const [receiveError, setReceiveError] = useState('');
+    const [receiveResult, setReceiveResult] = useState(null);
+
+    const closeReceiveModal = () => {
+        if (receiveSubmitting) return;
+        setReceiveOpen(false);
+        setReceivePassword('');
+        setReceiveError('');
+    };
+
+    const handleReceiveSubmit = async (e) => {
+        e?.preventDefault?.();
+        if (receiveSubmitting) return;
+        if (!receivePassword.trim()) {
+            setReceiveError('Enter the workshop or branch password.');
+            return;
+        }
+        setReceiveSubmitting(true);
+        setReceiveError('');
+        try {
+            const res = await publicReceiveSupplierSalesInvoiceWithPassword(id, receivePassword);
+            setReceiveResult(res);
+            setReceiveOpen(false);
+            setReceivePassword('');
+        } catch (err) {
+            setReceiveError(err?.message || 'Could not authenticate. Check the password and try again.');
+        } finally {
+            setReceiveSubmitting(false);
+        }
+    };
 
     useEffect(() => {
         let cancelled = false;
@@ -251,6 +287,76 @@ export default function PublicSinvVerifyPage() {
                                 </>
                             ) : null}
 
+                            {(() => {
+                                /**
+                                 * "Already received" trumps the button. We trust either
+                                 * (a) live server flag from the public GET, or
+                                 * (b) the in-session result from a successful POST.
+                                 */
+                                const alreadyReceived =
+                                    Boolean(data?.received) ||
+                                    Boolean(data?.stockApplied) ||
+                                    Boolean(receiveResult);
+                                if (alreadyReceived) {
+                                    const justNow = Boolean(receiveResult) &&
+                                        !receiveResult?.alreadyReceivedBefore;
+                                    return (
+                                        <div
+                                            style={{
+                                                marginTop: 20,
+                                                padding: 16,
+                                                borderRadius: 12,
+                                                background: '#ECFDF5',
+                                                border: '1px solid #A7F3D0',
+                                                color: '#065F46',
+                                                fontSize: '0.875rem',
+                                                display: 'flex',
+                                                alignItems: 'flex-start',
+                                                gap: 10,
+                                            }}
+                                        >
+                                            <PackageCheck size={22} style={{ flexShrink: 0, color: '#059669' }} />
+                                            <div>
+                                                <strong style={{ display: 'block', marginBottom: 4 }}>
+                                                    {justNow ? 'Inventory updated' : 'Already received'}
+                                                </strong>
+                                                <span>
+                                                    {receiveResult?.message ||
+                                                        'Branch inventory has already been updated for this invoice. No further action is needed.'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setReceiveOpen(true);
+                                            setReceiveError('');
+                                        }}
+                                        style={{
+                                            marginTop: 20,
+                                            width: '100%',
+                                            padding: '12px 16px',
+                                            background: '#059669',
+                                            border: 'none',
+                                            borderRadius: 12,
+                                            color: '#fff',
+                                            fontWeight: 700,
+                                            fontSize: '0.9375rem',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 8,
+                                            boxShadow: '0 6px 16px rgba(5,150,105,0.25)',
+                                        }}
+                                    >
+                                        <PackageCheck size={18} /> Mark as Received (update inventory)
+                                    </button>
+                                );
+                            })()}
                             <p
                                 style={{
                                     margin: '20px 0 0',
@@ -260,7 +366,8 @@ export default function PublicSinvVerifyPage() {
                                 }}
                             >
                                 Public verification uses invoice id <code>{String(id)}</code>. Totals and status are read
-                                from the live Filter database at scan time.
+                                from the live Filter database at scan time. Receiving requires the workshop password and
+                                applies inventory once.
                             </p>
                         </div>
                     </div>
@@ -276,6 +383,132 @@ export default function PublicSinvVerifyPage() {
                     </Link>
                 </p>
             </div>
+
+            {receiveOpen ? (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Confirm workshop password"
+                    onClick={closeReceiveModal}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(15,23,42,0.55)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 16,
+                        zIndex: 50,
+                    }}
+                >
+                    <form
+                        onClick={(e) => e.stopPropagation()}
+                        onSubmit={handleReceiveSubmit}
+                        style={{
+                            background: '#fff',
+                            borderRadius: 14,
+                            width: '100%',
+                            maxWidth: 380,
+                            padding: 22,
+                            boxShadow: '0 20px 50px rgba(2,6,23,0.35)',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                            <Lock size={20} style={{ color: '#0f172a' }} />
+                            <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
+                                Authenticate workshop
+                            </h2>
+                        </div>
+                        <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: '#475569', lineHeight: 1.45 }}>
+                            Enter the branch login password OR the workshop owner / admin password to mark this invoice
+                            as received and update inventory for{' '}
+                            <strong>{data?.branchName || data?.workshopName || 'this workshop'}</strong>.
+                        </p>
+                        <label
+                            htmlFor="public-sinv-receive-password"
+                            style={{
+                                display: 'block',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                color: '#334155',
+                                marginBottom: 6,
+                            }}
+                        >
+                            Workshop / branch password
+                        </label>
+                        <input
+                            id="public-sinv-receive-password"
+                            type="password"
+                            autoFocus
+                            value={receivePassword}
+                            onChange={(e) => setReceivePassword(e.target.value)}
+                            disabled={receiveSubmitting}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                borderRadius: 10,
+                                border: '1px solid #cbd5e1',
+                                background: '#f8fafc',
+                                fontSize: '0.9375rem',
+                                outline: 'none',
+                                marginBottom: 12,
+                            }}
+                        />
+                        {receiveError ? (
+                            <p
+                                style={{
+                                    margin: '0 0 10px',
+                                    fontSize: '0.8125rem',
+                                    color: '#B91C1C',
+                                    background: '#FEF2F2',
+                                    border: '1px solid #FECACA',
+                                    padding: '8px 10px',
+                                    borderRadius: 8,
+                                }}
+                            >
+                                {receiveError}
+                            </p>
+                        ) : null}
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                            <button
+                                type="button"
+                                onClick={closeReceiveModal}
+                                disabled={receiveSubmitting}
+                                style={{
+                                    padding: '10px 14px',
+                                    borderRadius: 10,
+                                    border: '1px solid #e2e8f0',
+                                    background: '#f8fafc',
+                                    fontWeight: 600,
+                                    color: '#0f172a',
+                                    cursor: receiveSubmitting ? 'not-allowed' : 'pointer',
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={receiveSubmitting || !receivePassword.trim()}
+                                style={{
+                                    padding: '10px 14px',
+                                    borderRadius: 10,
+                                    border: 'none',
+                                    background: '#059669',
+                                    color: '#fff',
+                                    fontWeight: 700,
+                                    cursor:
+                                        receiveSubmitting || !receivePassword.trim()
+                                            ? 'not-allowed'
+                                            : 'pointer',
+                                    opacity: receiveSubmitting || !receivePassword.trim() ? 0.7 : 1,
+                                }}
+                            >
+                                {receiveSubmitting ? 'Authenticating…' : 'Confirm & receive'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            ) : null}
         </div>
     );
 }

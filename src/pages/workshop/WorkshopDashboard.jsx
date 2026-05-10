@@ -13,6 +13,7 @@ import {
     branchScopeParams,
 } from '../../services/workshopStaffApi';
 import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
+import { ShimmerKpiGrid, ShimmerListRows } from '../../components/supplier/Shimmer';
 
 /** Match WorkshopDepartments — branch and union handlers can return different wrapper shapes. */
 function extractProducts(res) {
@@ -369,14 +370,20 @@ export default function WorkshopDashboard({
                     {loadError}
                 </div>
             )}
-            <div className="ws-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-                {kpis.map(k => (
-                    <div key={k.label} className="ws-kpi-card">
-                        <div><p className="ws-kpi-label">{k.label}</p><p className="ws-kpi-value">{k.value}</p>{k.sub && <p className="ws-kpi-sub">{k.sub}</p>}</div>
-                        <div className={`ws-kpi-icon ${k.iconClass}`}><k.Icon size={22}/></div>
-                    </div>
-                ))}
-            </div>
+            {isLoading && !dashboardData ? (
+                <div style={{ marginBottom: 24 }}>
+                    <ShimmerKpiGrid cards={kpis.length} />
+                </div>
+            ) : (
+                <div className="ws-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+                    {kpis.map(k => (
+                        <div key={k.label} className="ws-kpi-card">
+                            <div><p className="ws-kpi-label">{k.label}</p><p className="ws-kpi-value">{k.value}</p>{k.sub && <p className="ws-kpi-sub">{k.sub}</p>}</div>
+                            <div className={`ws-kpi-icon ${k.iconClass}`}><k.Icon size={22}/></div>
+                        </div>
+                    ))}
+                </div>
+            )}
             <div className="ws-section" style={{ marginBottom: 16 }}>
                 <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
                     <p style={{ fontWeight: 700, margin: 0 }}>Technicians by branch</p>
@@ -388,7 +395,11 @@ export default function WorkshopDashboard({
                 {techLoadError && (
                     <p style={{ padding: '0 16px 12px', margin: 0, color: '#B91C1C', fontSize: '0.8125rem' }}>{techLoadError}</p>
                 )}
-                {techniciansFiltered.length === 0 && !techLoadError ? (
+                {isLoading && techniciansFiltered.length === 0 ? (
+                    <div style={{ padding: '0 16px 16px' }}>
+                        <ShimmerListRows rows={4} />
+                    </div>
+                ) : techniciansFiltered.length === 0 && !techLoadError ? (
                     <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No technicians for this selection.</p>
                 ) : (
                     <div style={{ padding: '0 16px 16px' }}>

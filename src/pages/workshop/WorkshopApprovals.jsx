@@ -1,9 +1,77 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Clock, CheckCircle, X, Eye, RefreshCw } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Clock, CheckCircle, X, Eye, RefreshCw, FileText } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
+import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { apiFetch } from '../../services/api';
 import { qs, branchScopeParams } from '../../services/workshopStaffApi';
+
+/**
+ * Map a supplier sales invoice (as returned by GET
+ * /workshop-staff/supplier-sales-invoices/:id) to the field shape consumed by
+ * `WorkshopPurchaseInvoiceView` so we can render the same printable invoice
+ * the workshop sees in Purchases. Field aliases are duplicated (snake + camel)
+ * so the template's `pick(...)` helper finds them regardless of casing.
+ */
+function mapSupplierInvoiceToPrintableDetail(inv) {
+    if (!inv || typeof inv !== 'object') return {};
+    const items = Array.isArray(inv.items) ? inv.items : [];
+    const branchName = inv.branch?.name ?? '';
+    const supplierName = inv.supplier?.name ?? '';
+    return {
+        id: inv.id,
+        invoiceNumber: inv.invoiceNo,
+        invoiceNo: inv.invoiceNo,
+        issueDate: inv.invoiceDate,
+        invoiceDate: inv.invoiceDate,
+        dueDate: inv.dueDate,
+        status: inv.status,
+        workshopName: branchName,
+        branchName,
+        branch: inv.branch,
+        workshop: inv.workshop,
+        supplierName,
+        supplierLegalName: supplierName,
+        vendorName: supplierName,
+        vendor_name: supplierName,
+        supplier: inv.supplier,
+        vendorInvoiceRef: inv.deliveryNoteUrl ?? '',
+        vendorRef: inv.deliveryNoteUrl ?? '',
+        subtotalExVat: inv.subtotal,
+        subtotal: inv.subtotal,
+        vatAmount: inv.vatAmount,
+        totalVat: inv.vatAmount,
+        grandTotal: inv.grandTotal,
+        total: inv.grandTotal,
+        amountPaid: inv.paid,
+        paidAmount: inv.paid,
+        balanceDue: inv.outstanding,
+        balance: inv.outstanding,
+        paymentStatus:
+            Number(inv.paid) >= Number(inv.grandTotal) && Number(inv.grandTotal) > 0
+                ? 'paid'
+                : 'unpaid',
+        notes: inv.internalNotes ?? '',
+        description: inv.deliveryNoteUrl ?? '',
+        items: items.map((it) => ({
+            id: it.id,
+            productName: it.productName,
+            product_name: it.productName,
+            qty: it.qty,
+            quantity: it.qty,
+            unit: 'piece',
+            uom: 'piece',
+            unitPrice: it.unitPrice,
+            unit_price: it.unitPrice,
+            unitPriceExVat: it.unitPrice,
+            vatRate: it.vatRate,
+            vat_rate: it.vatRate,
+            lineTotal: it.lineTotal,
+            line_total: it.lineTotal,
+        })),
+    };
+}
 
 /** Petty-cash / approval request kinds → fixed UI buckets */
 function requestKindKey(row) {
@@ -75,6 +143,8 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
     const [viewDialog, setViewDialog] = useState(null);
     const [viewInvoiceDetail, setViewInvoiceDetail] = useState(null);
     const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
+    /** Imperative handle for the printable invoice template (Download PDF). */
+    const printableInvoiceRef = useRef(null);
     const [currency, setCurrency] = useState('SAR');
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState('');
@@ -216,6 +286,11 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
         if (isSupplierSalesInvoiceRow(row)) {
             if (!supplierRowCanAct(row)) return;
             const sid = row.supplierInvoiceId;
+            const branchLabel = row.branchName || row.branch_name || 'this branch';
+            const ok = window.confirm(
+                `Approve supplier invoice ${row.invoiceNo || ''}?\n\nApproving will increase inventory on hand for "${branchLabel}" by the quantities on this invoice. This action cannot be undone.`,
+            );
+            if (!ok) return;
             setActionLoadingId(`approve-si-${sid}`);
             try {
                 await apiFetch(`/workshop-staff/supplier-sales-invoices/${encodeURIComponent(String(sid))}/approve`, {
@@ -223,6 +298,11 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                 });
                 await loadApprovals();
                 window.dispatchEvent(new Event('workshop-approvals-updated'));
+                window.dispatchEvent(
+                    new CustomEvent('workshop-inventory-updated', {
+                        detail: { branchId: row.branchId ?? row.branch_id ?? null, source: 'approve_supplier_invoice' },
+                    }),
+                );
             } catch (error) {
                 setLoadError(error.message || 'Failed to approve supplier invoice.');
             } finally {
@@ -391,10 +471,12 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                         </tr>
                     </thead>
                     <tbody>
-                        {filtered.length === 0 ? (
+                        {isLoading && filtered.length === 0 ? (
+                            <ShimmerTableBodyRows rows={6} columns={6} />
+                        ) : filtered.length === 0 ? (
                             <tr>
                                 <td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                    {isLoading ? 'Loading approvals...' : 'No approvals found'}
+                                    No approvals found
                                 </td>
                             </tr>
                         ) : (
@@ -507,16 +589,29 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                                                         padding: '6px 10px',
                                                         borderRadius: 6,
                                                         border: '1px solid var(--color-border)',
-                                                        background: '#F9FAFB',
-                                                        color: '#374151',
+                                                        background: isSupplier ? '#EFF6FF' : '#F9FAFB',
+                                                        color: isSupplier ? '#1D4ED8' : '#374151',
                                                         cursor: 'pointer',
                                                         fontSize: '0.8125rem',
                                                         display: 'inline-flex',
                                                         alignItems: 'center',
                                                         gap: 6,
                                                     }}
+                                                    title={
+                                                        isSupplier
+                                                            ? 'Open the printable supplier invoice'
+                                                            : 'View request details'
+                                                    }
                                                 >
-                                                    <Eye size={14} /> Details
+                                                    {isSupplier ? (
+                                                        <>
+                                                            <FileText size={14} /> View Invoice
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Eye size={14} /> Details
+                                                        </>
+                                                    )}
                                                 </button>
                                             </div>
                                         </td>
@@ -582,109 +677,48 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                     </Modal>
                 )}
                 {viewDialog && (
-                    <Modal title="Approval Details" onClose={() => setViewDialog(null)}>
+                    <Modal
+                        title={isSupplierSalesInvoiceRow(viewDialog) ? 'Supplier invoice' : 'Approval Details'}
+                        onClose={() => setViewDialog(null)}
+                        width={isSupplierSalesInvoiceRow(viewDialog) ? '1100px' : undefined}
+                    >
                         {isSupplierSalesInvoiceRow(viewDialog) ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '8px 0' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '4px 0' }}>
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        justifyContent: 'flex-end',
+                                        gap: 8,
+                                    }}
+                                >
+                                    <button
+                                        type="button"
+                                        className="btn-pi-cancel"
+                                        onClick={() => printableInvoiceRef.current?.downloadPdf?.()}
+                                        disabled={viewInvoiceLoading || !viewInvoiceDetail}
+                                    >
+                                        Download PDF
+                                    </button>
+                                </div>
                                 {viewInvoiceLoading ? (
-                                    <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>Loading invoice…</p>
+                                    <ShimmerTextBlock lines={10} />
                                 ) : viewInvoiceDetail ? (
-                                    <>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--color-text-muted)' }}>Invoice</span>
-                                            <span>{viewInvoiceDetail.invoiceNo}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--color-text-muted)' }}>Supplier</span>
-                                            <span>{viewInvoiceDetail.supplier?.name || '—'}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--color-text-muted)' }}>Branch</span>
-                                            <span>{viewInvoiceDetail.branch?.name || '—'}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--color-text-muted)' }}>Status</span>
-                                            <span>{viewInvoiceDetail.status}</span>
-                                        </div>
-                                        {viewInvoiceDetail.workshopReviewStatus != null && viewInvoiceDetail.workshopReviewStatus !== '' ? (
-                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                <span style={{ color: 'var(--color-text-muted)' }}>Workshop review</span>
-                                                <span>{viewInvoiceDetail.workshopReviewStatus}</span>
-                                            </div>
-                                        ) : null}
-                                        {viewInvoiceDetail.workshopRejectionReason ? (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                                <span style={{ color: 'var(--color-text-muted)' }}>Workshop rejection reason</span>
-                                                <span style={{ fontSize: '0.875rem', whiteSpace: 'pre-wrap' }}>
-                                                    {viewInvoiceDetail.workshopRejectionReason}
-                                                </span>
-                                            </div>
-                                        ) : null}
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--color-text-muted)' }}>Issue / Due</span>
-                                            <span>
-                                                {viewInvoiceDetail.invoiceDate} → {viewInvoiceDetail.dueDate}
-                                            </span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--color-text-muted)' }}>Subtotal / VAT</span>
-                                            <span>
-                                                {currency} {Number(viewInvoiceDetail.subtotal || 0).toLocaleString()} · VAT{' '}
-                                                {currency} {Number(viewInvoiceDetail.vatAmount || 0).toLocaleString()}
-                                            </span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--color-text-muted)' }}>Grand total</span>
-                                            <strong>
-                                                {currency} {Number(viewInvoiceDetail.grandTotal || 0).toLocaleString()}
-                                            </strong>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ color: 'var(--color-text-muted)' }}>Paid / Outstanding</span>
-                                            <span>
-                                                {currency} {Number(viewInvoiceDetail.paid || 0).toLocaleString()} ·{' '}
-                                                <strong>{currency} {Number(viewInvoiceDetail.outstanding || 0).toLocaleString()}</strong>
-                                            </span>
-                                        </div>
-                                        {viewInvoiceDetail.internalNotes ? (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                                <span style={{ color: 'var(--color-text-muted)' }}>Notes</span>
-                                                <span style={{ fontSize: '0.875rem', whiteSpace: 'pre-wrap' }}>
-                                                    {viewInvoiceDetail.internalNotes}
-                                                </span>
-                                            </div>
-                                        ) : null}
-                                        {Array.isArray(viewInvoiceDetail.items) && viewInvoiceDetail.items.length > 0 ? (
-                                            <div style={{ marginTop: 8 }}>
-                                                <div style={{ fontWeight: 600, marginBottom: 8 }}>Line items</div>
-                                                <div style={{ maxHeight: 220, overflow: 'auto', border: '1px solid var(--color-border)', borderRadius: 8 }}>
-                                                    <table className="ws-table" style={{ fontSize: '0.8125rem' }}>
-                                                        <thead>
-                                                            <tr>
-                                                                <th>Product</th>
-                                                                <th>Qty</th>
-                                                                <th>Unit</th>
-                                                                <th>Line</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {viewInvoiceDetail.items.map((it) => (
-                                                                <tr key={it.id}>
-                                                                    <td>{it.productName}</td>
-                                                                    <td>{Number(it.qty).toLocaleString()}</td>
-                                                                    <td>
-                                                                        {currency} {Number(it.unitPrice).toLocaleString()}
-                                                                    </td>
-                                                                    <td>
-                                                                        {currency} {Number(it.lineTotal).toLocaleString()}
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        ) : null}
-                                    </>
+                                    <WorkshopPurchaseInvoiceView
+                                        ref={printableInvoiceRef}
+                                        compact
+                                        variant="supplier_sales"
+                                        detail={mapSupplierInvoiceToPrintableDetail(viewInvoiceDetail)}
+                                        listRow={{
+                                            id: viewInvoiceDetail.id,
+                                            invoice_number: viewInvoiceDetail.invoiceNo,
+                                            invoiceNo: viewInvoiceDetail.invoiceNo,
+                                            date: viewInvoiceDetail.invoiceDate,
+                                            status: viewInvoiceDetail.status,
+                                            grand_total: viewInvoiceDetail.grandTotal,
+                                            vendor_name: viewInvoiceDetail.supplier?.name,
+                                            branch_name: viewInvoiceDetail.branch?.name,
+                                        }}
+                                    />
                                 ) : (
                                     <p style={{ color: 'var(--color-text-muted)' }}>Could not load invoice details.</p>
                                 )}

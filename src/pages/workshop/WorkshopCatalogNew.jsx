@@ -571,14 +571,22 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
     }, [activeTab, loadDepartments, loadCategories, loadProducts, loadServices]);
 
     // Always have the department list ready for filter dropdowns and category modal.
+    // We attempt the warm-up load exactly once per `loadDepartments` identity
+    // (i.e. once per branch context). Without this guard, an empty catalog
+    // would loop forever: deptRows.length stays 0, deptLoading flips false →
+    // effect re-fires → fetch → re-renders with deptLoading false again.
+    const deptWarmupRef = useRef(null);
     useEffect(() => {
-        if (deptRows.length === 0 && !deptLoading) {
-            const ctrl = new AbortController();
-            loadDepartments(ctrl.signal);
-            return () => ctrl.abort();
+        if (deptWarmupRef.current === loadDepartments) return undefined;
+        if (deptLoading || deptRows.length > 0) {
+            deptWarmupRef.current = loadDepartments;
+            return undefined;
         }
-        return undefined;
-    }, [deptRows.length, deptLoading, loadDepartments]);
+        deptWarmupRef.current = loadDepartments;
+        const ctrl = new AbortController();
+        loadDepartments(ctrl.signal);
+        return () => ctrl.abort();
+    }, [loadDepartments, deptLoading, deptRows.length]);
 
     // Reset to page 1 when filters or adoption branch context changes.
     useEffect(() => { setProdPage(1); }, [prodFilter.departmentId, prodFilter.categoryId, prodFilter.q]);

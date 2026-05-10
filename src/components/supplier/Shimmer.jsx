@@ -183,6 +183,36 @@ export function ShimmerPanel({ children, style, className = '' }) {
     );
 }
 
+/**
+ * Shimmer rows that drop into an existing `<tbody>` element. Use this to
+ * replace `<tr><td colSpan={N}>Loading…</td></tr>` placeholder rows with a
+ * skeleton that matches the visible column count exactly.
+ */
+export function ShimmerTableBodyRows({ rows = 6, columns = 6 }) {
+    return (
+        <>
+            {Array.from({ length: rows }).map((_, r) => (
+                <tr key={`s-row-${r}`} aria-hidden="true">
+                    {Array.from({ length: columns }).map((__, c) => (
+                        <td
+                            key={`s-cell-${r}-${c}`}
+                            style={{ padding: '12px 10px' }}
+                        >
+                            <Shimmer
+                                style={{
+                                    height: 12,
+                                    width: c === 0 ? '70%' : c === columns - 1 ? '40%' : '85%',
+                                    display: 'block',
+                                }}
+                            />
+                        </td>
+                    ))}
+                </tr>
+            ))}
+        </>
+    );
+}
+
 export function ShimmerTextBlock({ lines = 4 }) {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
