@@ -2,6 +2,8 @@ import {
     LayoutDashboard, Package, ShoppingCart, Warehouse, AlertTriangle, Users,
     FileText, CreditCard, DollarSign, BookOpen, Landmark, FileSpreadsheet,
     BadgeDollarSign, ArrowLeftRight, Receipt, UserPlus, Box, ClipboardList,
+    Factory,
+    UserCircle2,
 } from 'lucide-react';
 
 export const NAV_GROUPS = [
@@ -17,6 +19,16 @@ export const NAV_GROUPS = [
     ]},
     { label: 'FINANCE', items: [
         { id: 'sales_invoices', label: 'Sales Invoices (AR)', icon: FileText },
+        {
+            id: 'affiliated_workshops',
+            label: 'Affiliated Filter workshops',
+            icon: Factory,
+        },
+        {
+            id: 'nonaffiliated_customers',
+            label: 'Non-affiliated customers / workshops',
+            icon: UserCircle2,
+        },
         { id: 'workshop_purchase_invoices', label: 'Workshop purchases', icon: ClipboardList },
         { id: 'purchase_invoices', label: 'Purchase Invoices (AP)', icon: ShoppingCart },
         { 

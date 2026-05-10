@@ -16,6 +16,89 @@ export const getSupplierDashboard = () => apiFetch('/supplier/dashboard');
 export const getSupplierPurchaseOrders = (params = {}) =>
     apiFetch(withQuery('/supplier/purchase-orders', params));
 export const getSupplierReceivables = () => apiFetch('/supplier/receivables');
+
+/** Approved Filter workshops (multi-select source for affiliated list). */
+export const getSupplierFinancePlatformWorkshops = () =>
+    apiFetch('/supplier/finance/platform-workshops');
+/** Tracked branches + workshop-only pins; AR per branch or whole workshop. */
+export const listSupplierAffiliatedWorkshops = () =>
+    apiFetch('/supplier/finance/affiliated-workshops');
+/** @param body {{ workshopIds?: string[], branchIds?: string[] }} */
+export const bulkAddSupplierAffiliatedWorkshops = (body) =>
+    apiFetch('/supplier/finance/affiliated-workshops/bulk', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+export const removeSupplierAffiliatedBranch = (branchId) =>
+    apiFetch(
+        `/supplier/finance/affiliated-branches/${encodeURIComponent(branchId)}`,
+        { method: 'DELETE' },
+    );
+/** @param body {{ isActive: boolean }} */
+export const patchSupplierAffiliatedBranchActive = (branchId, body) =>
+    apiFetch(`/supplier/finance/affiliated-branches/${encodeURIComponent(branchId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+/** Workshop with no branches only */
+export const removeSupplierAffiliatedWorkshop = (workshopId) =>
+    apiFetch(
+        `/supplier/finance/affiliated-workshops/${encodeURIComponent(workshopId)}`,
+        { method: 'DELETE' },
+    );
+/** @param body {{ isActive: boolean }} */
+export const patchSupplierAffiliatedWorkshopActive = (workshopId, body) =>
+    apiFetch(`/supplier/finance/affiliated-workshops/${encodeURIComponent(workshopId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+export const getSupplierAffiliatedBranchTransactions = (branchId, params = {}) =>
+    apiFetch(
+        withQuery(
+            `/supplier/finance/affiliated-branches/${encodeURIComponent(branchId)}/transactions`,
+            params,
+        ),
+    );
+export const getSupplierAffiliatedWorkshopTransactions = (
+    workshopId,
+    params = {},
+) =>
+    apiFetch(
+        withQuery(
+            `/supplier/finance/affiliated-workshops/${encodeURIComponent(workshopId)}/transactions`,
+            params,
+        ),
+    );
+
+/** Manual non-affiliated parties + ledger. */
+export const listSupplierExternalParties = () =>
+    apiFetch('/supplier/finance/external-parties');
+export const createSupplierExternalParty = (body) =>
+    apiFetch('/supplier/finance/external-parties', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+export const updateSupplierExternalParty = (partyId, body) =>
+    apiFetch(`/supplier/finance/external-parties/${encodeURIComponent(partyId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+export const deactivateSupplierExternalParty = (partyId) =>
+    apiFetch(`/supplier/finance/external-parties/${encodeURIComponent(partyId)}`, {
+        method: 'DELETE',
+    });
+export const addSupplierExternalPartyLedger = (partyId, body) =>
+    apiFetch(
+        `/supplier/finance/external-parties/${encodeURIComponent(partyId)}/ledger`,
+        { method: 'POST', body: JSON.stringify(body) },
+    );
+export const getSupplierExternalPartyTransactions = (partyId, params = {}) =>
+    apiFetch(
+        withQuery(
+            `/supplier/finance/external-parties/${encodeURIComponent(partyId)}/transactions`,
+            params,
+        ),
+    );
 export const getSupplierReportsQuickSummary = () =>
     apiFetch('/supplier/reports/quick-summary');
 export const getSupplierProfile = () => apiFetch('/supplier/profile');
