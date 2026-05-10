@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext';
@@ -41,6 +41,36 @@ const PAYMENT_METHOD_OPTIONS = [
     'Bank Transfer',
     'Monthly Billing',
 ];
+
+/** Review step: sum branch-catalog `salePrice` for selected services/products (same source as step-1 list). */
+function estimateReviewTotalFromBranchCatalog(bookingForm, branchCatalogRows) {
+    const rows = Array.isArray(branchCatalogRows) ? branchCatalogRows : [];
+    const unitPrice = (itemType, id, deptId) => {
+        const idStr = String(id);
+        const deptStr = String(deptId ?? '').trim();
+        const type = String(itemType || '').toLowerCase();
+        const byDept = rows.find(
+            (r) =>
+                String(r.itemType || '').toLowerCase() === type &&
+                String(r.id) === idStr &&
+                String(r.departmentId || '').trim() === deptStr,
+        );
+        if (byDept) return Number(byDept.salePrice ?? 0);
+        const any = rows.find(
+            (r) => String(r.itemType || '').toLowerCase() === type && String(r.id) === idStr,
+        );
+        return any ? Number(any.salePrice ?? 0) : 0;
+    };
+    let sum = 0;
+    for (const s of bookingForm.services || []) {
+        sum += unitPrice('service', s.serviceId, s.departmentId);
+    }
+    for (const p of bookingForm.products || []) {
+        const qty = Math.max(1, Math.floor(Number(p.qty) || 1));
+        sum += unitPrice('product', p.productId, p.departmentId) * qty;
+    }
+    return Math.round(sum * 100) / 100;
+}
 
 export default function CorporateLayout() {
     const navigate = useNavigate();
@@ -197,6 +227,21 @@ export default function CorporateLayout() {
     const [defaultItemDepartmentId, setDefaultItemDepartmentId] = useState('');
     const [branchCatalogRows, setBranchCatalogRows] = useState([]);
     const [branchCatalogLoading, setBranchCatalogLoading] = useState(false);
+
+    const reviewEstimatedTotalSar = useMemo(() => {
+        if (bookingStep !== 2 || !validateResult) return 0;
+        const root = validateResult?.data && typeof validateResult.data === 'object' ? validateResult.data : validateResult;
+        const apiRaw =
+            root?.totalAmount ??
+            root?.grandTotal ??
+            root?.grand_total ??
+            root?.total ??
+            root?.amount;
+        if (apiRaw != null && apiRaw !== '' && Number.isFinite(Number(apiRaw))) {
+            return Math.round(Number(apiRaw) * 100) / 100;
+        }
+        return estimateReviewTotalFromBranchCatalog(bookingForm, branchCatalogRows);
+    }, [bookingStep, bookingForm, branchCatalogRows, validateResult]);
     /** `null` = not loaded yet (use profile `branches`); `[]` = API returned no branches (still fallback to profile). */
     const [bookingBranchOptions, setBookingBranchOptions] = useState(null);
 
@@ -324,6 +369,8 @@ export default function CorporateLayout() {
                     bookedFor: fmtDate(bookingForm.booking_date),
                     payFromWallet: isWalletPayment,
                     notes: bookingForm.notes?.trim() ? bookingForm.notes.trim() : undefined,
+                    services: makePaymentServicesPayload(),
+                    products: makePaymentProductsPayload(),
                 }),
             });
             setValidateResult(result);
@@ -353,6 +400,10 @@ export default function CorporateLayout() {
             if (bookingForm.vehicle_id) body.vehicleId = String(bookingForm.vehicle_id);
             await apiFetch('/corporate/bookings', { method: 'POST', body: JSON.stringify(body) });
             if (isWalletPayment) refreshWalletBalance();
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new Event('corporate-portal-bookings-refresh'));
+                window.dispatchEvent(new Event('corporate-portal-dashboard-refresh'));
+            }
             setBookingOpen(false);
             resetBooking();
         } catch (err) {
@@ -509,7 +560,7 @@ export default function CorporateLayout() {
                                     ) : (
                                         <>
                                             <button className="btn-portal-outline" onClick={() => { setBookingStep(1); setBookingError(''); }}>Back</button>
-                                            <button className="btn-portal" style={{background:'#059669',color:'#fff',border:'none'}} disabled={bookingLoading || (isWalletPayment && walletBalance < Number(validateResult?.totalAmount ?? validateResult?.grandTotal ?? validateResult?.grand_total ?? validateResult?.total ?? validateResult?.amount ?? 0) && Number(validateResult?.totalAmount ?? validateResult?.grandTotal ?? validateResult?.grand_total ?? validateResult?.total ?? validateResult?.amount ?? 0) > 0)} onClick={handleConfirmBooking}>{bookingLoading ? 'Processing…' : 'Confirm Booking'}</button>
+                                            <button className="btn-portal" style={{background:'#059669',color:'#fff',border:'none'}} disabled={bookingLoading || (isWalletPayment && walletBalance < reviewEstimatedTotalSar && reviewEstimatedTotalSar > 0)} onClick={handleConfirmBooking}>{bookingLoading ? 'Processing…' : 'Confirm Booking'}</button>
                                         </>
                                     )}
                                 </div>
@@ -767,7 +818,7 @@ export default function CorporateLayout() {
                                     {bookingError && <p style={{margin:0,padding:'10px 14px',background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:9,fontSize:'0.8rem',color:'#DC2626'}}>{bookingError}</p>}
                                 </div>
                             ) : (() => {
-                                const orderTotal = Number(validateResult?.totalAmount ?? validateResult?.grandTotal ?? validateResult?.grand_total ?? validateResult?.total ?? validateResult?.amount ?? 0);
+                                const orderTotal = reviewEstimatedTotalSar;
                                 const insufficientBalance = isWalletPayment && walletBalance < orderTotal && orderTotal > 0;
                                 return (
                                 <div style={{display:'flex',flexDirection:'column',gap:14}}>
@@ -810,7 +861,7 @@ export default function CorporateLayout() {
                                     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:'var(--color-bg-muted)',borderRadius:10}}>
                                         <span style={{fontSize:'0.85rem',color:'var(--color-text-muted)',fontWeight:600}}>Estimated Total</span>
                                         <span style={{fontWeight:800,fontSize:'1.0625rem',color:'var(--color-text-dark)'}}>
-                                            {orderTotal > 0 ? `SAR ${orderTotal.toFixed(2)}` : 'Calculated at workshop'}
+                                            SAR {orderTotal.toFixed(2)}
                                         </span>
                                     </div>
 

@@ -55,31 +55,39 @@ function billingPeriodForMonthlyTab(o) {
     return null;
 }
 
-/** Pin invoiced monthly-billing bookings to top of My Bookings. */
+/** Newest bookings first; among same timestamp, monthly-billing rows sort slightly higher. */
+function bookingSortTime(o) {
+    const raw = o?.submittedAt ?? o?.submitted_at ?? o?.createdAt ?? o?.created_at ?? 0;
+    const t = new Date(raw).getTime();
+    return Number.isFinite(t) ? t : 0;
+}
+
 function sortBookingsForDisplay(rows) {
     if (!Array.isArray(rows) || rows.length === 0) return rows;
     return [...rows].sort((a, b) => {
+        const bt = bookingSortTime(b);
+        const at = bookingSortTime(a);
+        if (bt !== at) return bt - at;
         const pin = (o) => {
             if (o?.isMonthlyBillingInvoiced === true) return 2;
             if (o?.isMonthlyBilling === true || isMonthlyBillingPaymentMethod(o?.paymentMethod)) return 1;
             return 0;
         };
-        const d = pin(b) - pin(a);
-        if (d !== 0) return d;
-        const at = new Date(a.submittedAt ?? a.createdAt ?? 0).getTime();
-        const bt = new Date(b.submittedAt ?? b.createdAt ?? 0).getTime();
-        return bt - at;
+        return pin(b) - pin(a);
     });
 }
 
 const STATUS_STYLES = {
     pending: { bg: '#FEF3C7', color: '#B45309' },
+    draft: { bg: '#F1F5F9', color: '#475569' },
     submitted: { bg: '#DBEAFE', color: '#1D4ED8' },
+    approved: { bg: '#D1FAE5', color: '#047857' },
     confirmed: { bg: '#DBEAFE', color: '#1D4ED8' },
     in_progress: { bg: '#EFF6FF', color: '#1D4ED8' },
     completed: { bg: '#D1FAE5', color: '#047857' },
     invoiced: { bg: '#EDE9FE', color: '#6D28D9' },
     cancelled: { bg: '#FEE2E2', color: '#B91C1C' },
+    rejected: { bg: '#FEE2E2', color: '#B91C1C' },
     corporate_approved: { bg: '#D1FAE5', color: '#047857' },
     waiting_for_corporate_approval: { bg: '#FEF3C7', color: '#B45309' },
     rejected_by_corporate: { bg: '#FEE2E2', color: '#B91C1C' },
@@ -442,7 +450,7 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
 
     const load = useCallback(() => {
         setLoading(true);
-        fetchCorporateBookings({ limit: 100, offset: 0 })
+        fetchCorporateBookings({ limit: 250, offset: 0 })
             .then(({ bookings }) => setOrders(sortBookingsForDisplay(bookings)))
             .catch(() => setOrders([]))
             .finally(() => setLoading(false));
@@ -502,7 +510,12 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
     };
 
     const openInvoice = async (booking) => {
-        const bookingRef = booking?.bookingCode || booking?.booking_code || booking?.id;
+        const bookingRef =
+            booking?.bookingCode ||
+            booking?.booking_code ||
+            booking?.bookingId ||
+            booking?.booking_id ||
+            booking?.id;
         if (!bookingRef) return;
         const rowId = String(booking?.id ?? bookingRef);
         setInvoiceLoadingId(rowId);
@@ -523,6 +536,7 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
         try {
             await approveCorporateWalkInOrder(orderId);
             await loadWalkIns();
+            await load();
         } catch (err) {
             setInvoiceError(err?.message || 'Failed to approve walk-in order');
         } finally {
@@ -537,6 +551,7 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
         try {
             await rejectCorporateWalkInOrder(orderId, reason.trim());
             await loadWalkIns();
+            await load();
         } catch (err) {
             setInvoiceError(err?.message || 'Failed to reject walk-in order');
         } finally {
@@ -622,11 +637,20 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
                                 (status === 'invoiced' ||
                                     !!(o.salesOrder?.invoice || o.sales_order?.invoice)));
                         return (
-                            <div key={o.id} className="ws-section" style={{ marginBottom: 0, padding: 20 }}>
+                            <div
+                                key={o.bookingId || `${o.bookingType || 'booking'}-${o.id}`}
+                                className="ws-section"
+                                style={{ marginBottom: 0, padding: 20 }}
+                            >
                                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                                     <div>
                                         <p style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--color-text-dark)', margin: 0 }}>
-                                            {o.bookingCode || o.booking_code || o.orderNumber || o.order_number || `#${o.id}`}
+                                            {o.bookingCode ||
+                                                o.booking_code ||
+                                                o.orderNumber ||
+                                                o.order_number ||
+                                                o.bookingId ||
+                                                `#${o.id}`}
                                         </p>
                                         {monthly ? (
                                             <p style={{ margin: '6px 0 0 0', display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
@@ -711,7 +735,7 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
                                             alignItems: 'center',
                                             gap: 6,
                                         }}
-                                        onClick={() => setViewId(o.id)}
+                                        onClick={() => setViewId(o.bookingId || o.id)}
                                     >
                                         <Eye size={14} /> View Details
                                     </button>
