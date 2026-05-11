@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { FileText, Calendar, TrendingUp, Wallet, DollarSign, Car, CreditCard, BarChart3, ArrowLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { FileText, Calendar, TrendingUp, Wallet, DollarSign, Car, CreditCard, BarChart3, ArrowLeft, ChevronRight, Loader2, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { coerceWalletFieldText, formatDateDescriptionBlob, formatWalletTxDate, normalizeWalletHistoryResponse } from '../../utils/walletHistory';
 
 const REPORT_CATEGORIES = [
     { id: 'billing',    label: 'Monthly Billing Summary',       icon: FileText,   color: '#DBEAFE', textColor: '#1D4ED8' },
@@ -56,50 +57,190 @@ function SectionHeader({ title }) {
 }
 
 // ─── BILLING ────────────────────────────────────────────────────────────────
+function normalizePeriodsPayload(data) {
+    if (!data || typeof data !== 'object') return [];
+    if (Array.isArray(data.periods)) return data.periods;
+    if (Array.isArray(data.data?.periods)) return data.data.periods;
+    return [];
+}
+
+/** Match backend invoice month bucketing (UTC). */
+function isUtcCalendarMonthNow(year, month) {
+    const d = new Date();
+    return year === d.getUTCFullYear() && month === d.getUTCMonth() + 1;
+}
+
+function BillingPeriodKpiGrid({ summary }) {
+    const s = summary || {};
+    const items = [
+        { label: 'Total billed', value: `SAR ${Number(s.totalBilled ?? 0).toFixed(2)}`, Icon: DollarSign, iconClass: 'ws-kpi-icon--blue' },
+        { label: 'Total paid', value: `SAR ${Number(s.totalPaid ?? 0).toFixed(2)}`, color: '#047857', Icon: CheckCircle2, iconClass: 'ws-kpi-icon--green' },
+        { label: 'Outstanding', value: `SAR ${Number(s.outstandingBalance ?? 0).toFixed(2)}`, color: '#DC2626', Icon: AlertCircle, iconClass: 'ws-kpi-icon--red' },
+        {
+            label: 'Paid / partial / unpaid',
+            value: `${s.paidCount ?? 0} / ${s.partialCount ?? 0} / ${s.unpaidCount ?? 0}`,
+            Icon: BarChart3,
+            iconClass: 'ws-kpi-icon--purple',
+        },
+    ];
+    return (
+        <div
+            className="ws-kpi-grid"
+            style={{
+                margin: '16px 20px 12px',
+                marginBottom: 4,
+                gap: 16,
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            }}
+        >
+            {items.map((k) => {
+                const Icon = k.Icon;
+                return (
+                    <div key={k.label} className="ws-kpi-card">
+                        <div style={{ minWidth: 0 }}>
+                            <p className="ws-kpi-label">{k.label}</p>
+                            <p className="ws-kpi-value" style={k.color ? { color: k.color } : undefined}>
+                                {k.value}
+                            </p>
+                        </div>
+                        <div className={`ws-kpi-icon ${k.iconClass}`}>
+                            <Icon size={24} strokeWidth={2} />
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
 function BillingReportView() {
-    const { data: summary, loading: sl } = useApi('/corporate/billing/summary');
-    const { data: monthly, loading: ml } = useApi('/corporate/billing/monthly');
-    const [statusFilter, setStatusFilter] = useState('all');
+    const { data: periodsPayload, loading: pl } = useApi('/corporate/reports/monthly-billing-periods?limitMonths=60');
 
-    const s = summary?.summary || summary || {};
-    const invoices = monthly?.invoices || monthly?.data || [];
-    const filtered = statusFilter === 'all' ? invoices : invoices.filter(i => (i.status || '').toLowerCase() === statusFilter);
+    const periods = normalizePeriodsPayload(periodsPayload);
+    const hasCurrentUtcMonth = periods.some((p) => isUtcCalendarMonthNow(p.year, p.month));
 
-    if (sl || ml) return <Spinner/>;
+    if (pl) return <Spinner/>;
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <SectionHeader title="Monthly Billing Summary"/>
-            <KpiRow items={[
-                { label: 'Total Billed',   value: `SAR ${Number(s.totalBilled   ?? s.total_billed   ?? 0).toLocaleString()}`, color: 'var(--color-text-dark)' },
-                { label: 'Total Paid',     value: `SAR ${Number(s.totalPaid     ?? s.total_paid     ?? 0).toLocaleString()}`, color: '#047857' },
-                { label: 'Outstanding',    value: `SAR ${Number(s.outstanding   ?? s.dueBalance     ?? s.due_balance ?? 0).toLocaleString()}`, color: '#DC2626' },
-                { label: 'Wallet Used',    value: `SAR ${Number(s.walletUsed    ?? s.wallet_used    ?? 0).toLocaleString()}`, color: '#7C3AED' },
-            ]}/>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {['all', 'paid', 'pending', 'overdue'].map(st => (
-                    <button key={st} type="button" onClick={() => setStatusFilter(st)}
-                        style={{ padding: '6px 12px', borderRadius: 999, fontSize: '0.75rem', fontWeight: 600, border: 'none', background: statusFilter === st ? 'var(--color-text-dark)' : 'var(--color-bg-muted)', color: statusFilter === st ? '#fff' : 'var(--color-text-muted)', cursor: 'pointer' }}>
-                        {st}
-                    </button>
-                ))}
-            </div>
-            {filtered.length === 0 ? (
-                <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 32 }}>No invoices found</p>
+            <SectionHeader title="Monthly billing by period" />
+            <p style={{ margin: '-8px 0 0 0', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                Pay Monthly / Monthly Billing invoices grouped by invoice month (settlement: paid / partial / unpaid).
+            </p>
+            {periods.length === 0 ? (
+                <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 24, margin: 0, background: 'var(--color-bg-muted)', borderRadius: 12 }}>
+                    No monthly-billing invoices yet.
+                </p>
             ) : (
-                <div className="ws-section" style={{ marginBottom: 0, padding: 0, overflow: 'auto' }}>
-                    <table className="ws-table"><thead><tr><th>Invoice #</th><th>Date</th><th>Vehicle</th><th>Department</th><th>Amount</th><th>Status</th></tr></thead>
-                    <tbody>
-                        {filtered.map((inv, i) => (
-                            <tr key={inv.id || i}>
-                                <td style={{ fontWeight: 600, color: '#2563EB' }}>{inv.invoiceNumber || inv.invoice_number || inv.id}</td>
-                                <td>{inv.date || inv.createdAt ? new Date(inv.date || inv.createdAt).toLocaleDateString('en-SA') : '—'}</td>
-                                <td>{inv.vehiclePlate || inv.vehicle?.plateNo || '—'}</td>
-                                <td>{inv.department || inv.departmentName || inv.service || '—'}</td>
-                                <td><strong>SAR {Number(inv.amount || inv.totalAmount || inv.total || 0).toLocaleString()}</strong></td>
-                                <td><span className={`ws-badge ${(inv.status || '') === 'paid' ? 'ws-badge--green' : 'ws-badge--yellow'}`}>{inv.status || '—'}</span></td>
-                            </tr>
-                        ))}
-                    </tbody></table>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {periods.map((p, index) => {
+                        const periodKey = `${p.year}-${p.month}`;
+                        const isCurrentMonth = isUtcCalendarMonthNow(p.year, p.month);
+                        const barStyle = {
+                            padding: '14px 16px',
+                            background: '#F8FAFC',
+                            borderBottom: '1px solid var(--color-border-light)',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                        };
+                        const headerInner = (
+                            <>
+                                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-text-dark)' }}>{p.label || `Month ${p.month}/${p.year}`}</span>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                    Due {p.dueDate || '—'} · {p.summary?.invoiceCount ?? 0} invoice(s)
+                                </span>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                                    Billed SAR {Number(p.summary?.totalBilled ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Outstanding{' '}
+                                    <span style={{ color: '#DC2626' }}>
+                                        SAR {Number(p.summary?.outstandingBalance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </span>
+                            </>
+                        );
+                        const body = (
+                            <div style={{ padding: '0 0 8px 0' }}>
+                                <BillingPeriodKpiGrid summary={p.summary} />
+                                <div style={{ overflow: 'auto', padding: '0 12px 12px' }}>
+                                    <table className="ws-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Invoice #</th>
+                                                <th>Date</th>
+                                                <th>Booking</th>
+                                                <th>Vehicle</th>
+                                                <th>Branch</th>
+                                                <th>Total</th>
+                                                <th>Paid</th>
+                                                <th>Due</th>
+                                                <th>Settlement</th>
+                                                <th>Invoice status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {(p.invoices || []).map((inv) => (
+                                                <tr key={inv.id}>
+                                                    <td style={{ fontWeight: 600, color: '#2563EB' }}>{inv.invoiceNo}</td>
+                                                    <td>{inv.date || '—'}</td>
+                                                    <td>{inv.bookingCode || '—'}</td>
+                                                    <td>{inv.vehicle || '—'}</td>
+                                                    <td>{inv.branchName || '—'}</td>
+                                                    <td>
+                                                        <strong>SAR {Number(inv.totalAmount ?? 0).toFixed(2)}</strong>
+                                                    </td>
+                                                    <td>SAR {Number(inv.amountPaid ?? 0).toFixed(2)}</td>
+                                                    <td>SAR {Number(inv.balanceDue ?? 0).toFixed(2)}</td>
+                                                    <td>
+                                                        <span
+                                                            className={`ws-badge ${
+                                                                inv.settlementStatus === 'paid'
+                                                                    ? 'ws-badge--green'
+                                                                    : inv.settlementStatus === 'partial'
+                                                                      ? 'ws-badge--yellow'
+                                                                      : 'ws-badge--gray'
+                                                            }`}
+                                                        >
+                                                            {inv.settlementStatus || '—'}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span className="ws-badge ws-badge--blue">{inv.invoicePaymentStatus || '—'}</span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        );
+
+                        if (isCurrentMonth) {
+                            return (
+                                <section
+                                    key={periodKey}
+                                    className="ws-section"
+                                    style={{ marginBottom: 0, padding: 0, borderRadius: 12, overflow: 'hidden' }}
+                                    aria-label={`${p.label || periodKey} (current month)`}
+                                >
+                                    <div style={{ ...barStyle, cursor: 'default' }}>{headerInner}</div>
+                                    {body}
+                                </section>
+                            );
+                        }
+
+                        return (
+                            <details
+                                key={periodKey}
+                                className="ws-section"
+                                style={{ marginBottom: 0, padding: 0, borderRadius: 12, overflow: 'hidden' }}
+                                defaultOpen={!hasCurrentUtcMonth && index === 0}
+                            >
+                                <summary style={{ ...barStyle, cursor: 'pointer' }}>{headerInner}</summary>
+                                {body}
+                            </details>
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -233,7 +374,7 @@ function WalletReportView({ walletBalance }) {
     const { data: sumData, loading: sl } = useApi('/corporate/wallet/summary');
     const { data: histData, loading: hl } = useApi('/corporate/wallet/history?limit=50');
     const s = sumData?.summary || sumData || {};
-    const txns = histData?.transactions || histData?.data || histData?.history || [];
+    const txns = normalizeWalletHistoryResponse(histData);
 
     if (sl || hl) return <Spinner/>;
     return (
@@ -250,13 +391,20 @@ function WalletReportView({ walletBalance }) {
                     <table className="ws-table"><thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Type</th></tr></thead>
                     <tbody>
                         {txns.map((t, i) => {
-                            const amount = parseFloat(t.amount || 0);
-                            const isCredit = (t.type || '').toLowerCase() === 'credit' || amount > 0;
+                            const amount = parseFloat(t.amount ?? 0);
+                            const typeLower = (t.type || '').toLowerCase();
+                            // Backend sends invoice wallet usage as type "debit" with a positive amount; do not infer from amount alone.
+                            const isCredit =
+                                typeLower === 'credit' ||
+                                (typeLower !== 'debit' && amount > 0);
+                            const displayAbs = Math.abs(amount);
                             return (
                                 <tr key={t.id || i}>
-                                    <td>{t.date || t.createdAt ? new Date(t.date || t.createdAt).toLocaleDateString('en-SA') : '—'}</td>
-                                    <td>{t.description || t.desc || t.note || '—'}</td>
-                                    <td style={{ fontWeight: 700, color: isCredit ? '#047857' : '#DC2626' }}>{isCredit ? '+' : '-'}SAR {Math.abs(amount).toLocaleString()}</td>
+                                    <td>{formatWalletTxDate(t)}</td>
+                                    <td>{coerceWalletFieldText(t.description ?? t.desc ?? t.note)}</td>
+                                    <td style={{ fontWeight: 700, color: isCredit ? '#047857' : '#DC2626' }}>
+                                        {isCredit ? '+' : '-'} SAR {displayAbs.toLocaleString()}
+                                    </td>
                                     <td><span className={`ws-badge ${isCredit ? 'ws-badge--green' : 'ws-badge--red'}`}>{t.type || (isCredit ? 'credit' : 'debit')}</span></td>
                                 </tr>
                             );
@@ -300,30 +448,200 @@ function SavingsReportView() {
 }
 
 // ─── VEHICLES ────────────────────────────────────────────────────────────────
+const VEHICLE_ORDER_STATUS_BADGE = {
+    completed: 'ws-badge--green',
+    invoiced: 'ws-badge--green',
+    delivered: 'ws-badge--green',
+    in_progress: 'ws-badge--blue',
+    cancelled: 'ws-badge--red',
+    draft: 'ws-badge--gray',
+};
+
 function VehicleUsageView() {
     const { data, loading } = useApi('/corporate/reports/vehicle-usage');
-    const vehicles = data?.vehicles || data?.data || data?.report || [];
+    const rawList = data?.vehicles ?? data?.data ?? data?.report;
+    const vehicles = Array.isArray(rawList) ? rawList : [];
+
+    const [detailOpen, setDetailOpen] = useState(false);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const [detailError, setDetailError] = useState('');
+    const [detail, setDetail] = useState(null);
+
+    const openVehicle = (id) => {
+        if (id == null || id === '') return;
+        setDetailOpen(true);
+        setDetailLoading(true);
+        setDetailError('');
+        setDetail(null);
+        apiFetch(`/corporate/reports/vehicle-usage/${encodeURIComponent(String(id))}`)
+            .then(setDetail)
+            .catch((e) => setDetailError(e.message || 'Failed to load orders'))
+            .finally(() => setDetailLoading(false));
+    };
+
+    const closeDetail = () => {
+        setDetailOpen(false);
+        setDetail(null);
+        setDetailError('');
+    };
 
     if (loading) return <Spinner/>;
+    const orders = detail?.orders || detail?.history || [];
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <SectionHeader title="Vehicle-wise Usage Report"/>
+            <p style={{ margin: '-8px 0 0 0', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                Tap a vehicle card to see all orders (services) for that vehicle.
+            </p>
             {vehicles.length === 0 ? <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 32 }}>No vehicle data found</p> : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {vehicles.map((v, i) => (
-                        <div key={v.id || i} className="ws-section" style={{ marginBottom: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div style={{ width: 40, height: 40, borderRadius: 12, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Car size={20} style={{ color: '#2563EB' }}/></div>
-                                <div style={{ flex: 1 }}>
-                                    <p style={{ fontWeight: 700, margin: 0 }}>{v.make || ''} {v.model || ''} — {v.plateNo || v.plate_no || v.plate || '—'}</p>
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>
-                                        {v.serviceCount ?? v.services ?? v.totalServices ?? 0} services · SAR {Number(v.totalSpend ?? v.totalSpent ?? v.spend ?? 0).toLocaleString()}
-                                    </p>
+                    {vehicles.map((v, i) => {
+                        const title =
+                            (v.vehicleName && String(v.vehicleName).trim()) ||
+                            `${v.make || ''} ${v.model || ''}`.trim() ||
+                            'Vehicle';
+                        const plate = v.plateNo || v.plate_no || v.plate || '—';
+                        const lastLine = formatDateDescriptionBlob(v.lastService);
+                        return (
+                            <button
+                                key={v.id || i}
+                                type="button"
+                                onClick={() => openVehicle(v.id)}
+                                className="ws-section"
+                                style={{
+                                    marginBottom: 0,
+                                    width: '100%',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    border: '1px solid var(--color-border)',
+                                    background: '#fff',
+                                    borderRadius: 16,
+                                    padding: 14,
+                                    transition: 'box-shadow 0.15s, border-color 0.15s',
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.boxShadow = '0 4px 14px rgba(37,99,235,0.12)';
+                                    e.currentTarget.style.borderColor = '#BFDBFE';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.boxShadow = 'none';
+                                    e.currentTarget.style.borderColor = 'var(--color-border)';
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Car size={20} style={{ color: '#2563EB' }}/></div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <p style={{ fontWeight: 700, margin: 0, color: 'var(--color-text-dark)' }}>{title} — {plate}</p>
+                                        <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>
+                                            {v.totalServices ?? v.serviceCount ?? v.services ?? 0} services · SAR {Number(v.totalSpend ?? v.totalSpent ?? v.spend ?? 0).toLocaleString()}
+                                        </p>
+                                    </div>
+                                    {lastLine ? (
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', textAlign: 'right', maxWidth: '42%', flexShrink: 0 }}>
+                                            Last: {lastLine}
+                                        </div>
+                                    ) : (
+                                        <ChevronRight size={18} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} aria-hidden />
+                                    )}
                                 </div>
-                                {v.lastService && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Last: {v.lastService}</div>}
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+
+            {detailOpen && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="vehicle-orders-title"
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 1000,
+                        background: 'rgba(15,23,42,0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 16,
+                    }}
+                    onClick={(e) => e.target === e.currentTarget && closeDetail()}
+                >
+                    <div
+                        className="ws-section"
+                        style={{
+                            maxWidth: 920,
+                            width: '100%',
+                            maxHeight: '90vh',
+                            overflow: 'hidden',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            margin: 0,
+                            padding: 0,
+                            borderRadius: 16,
+                            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '16px 18px', borderBottom: '1px solid var(--color-border-light)', background: '#F8FAFC' }}>
+                            <div style={{ minWidth: 0 }}>
+                                <h3 id="vehicle-orders-title" style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--color-text-dark)' }}>
+                                    {detail?.vehicle?.vehicleName || 'Vehicle'} — {detail?.vehicle?.plateNo || '—'}
+                                </h3>
+                                {detail?.stats && (
+                                    <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                        {detail.stats.totalServices} orders · SAR {Number(detail.stats.totalSpend || 0).toLocaleString()} total
+                                        {detail.stats.totalServices > 0 ? ` · avg SAR ${Number(detail.stats.averagePerService).toFixed(2)}` : ''}
+                                    </p>
+                                )}
                             </div>
+                            <button type="button" onClick={closeDetail} aria-label="Close" style={{ border: 'none', background: '#E2E8F0', borderRadius: 10, padding: 8, cursor: 'pointer', lineHeight: 0, flexShrink: 0 }}>
+                                <X size={18} />
+                            </button>
                         </div>
-                    ))}
+                        <div style={{ padding: 12, overflow: 'auto', flex: 1 }}>
+                            {detailLoading && <div style={{ padding: 40, display: 'flex', justifyContent: 'center' }}><Loader2 className="spin" size={28} style={{ color: 'var(--color-primary)' }}/></div>}
+                            {detailError && !detailLoading && <p style={{ color: '#DC2626', padding: 16, margin: 0 }}>{detailError}</p>}
+                            {!detailLoading && !detailError && orders.length === 0 && (
+                                <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 32, margin: 0 }}>No orders for this vehicle.</p>
+                            )}
+                            {!detailLoading && !detailError && orders.length > 0 && (
+                                <div style={{ overflow: 'auto' }}>
+                                    <table className="ws-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Date</th>
+                                                <th>Booking</th>
+                                                <th>Invoice #</th>
+                                                <th>Branch</th>
+                                                <th>Amount</th>
+                                                <th>Status</th>
+                                                <th>Items</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {orders.map((o, idx) => {
+                                                const st = String(o.status || '').toLowerCase().replace(/\s+/g, '_');
+                                                const badge = VEHICLE_ORDER_STATUS_BADGE[st] || 'ws-badge--yellow';
+                                                return (
+                                                    <tr key={o.id || idx}>
+                                                        <td>{o.date ? new Date(o.date).toLocaleDateString('en-SA') : '—'}</td>
+                                                        <td style={{ fontWeight: 600, color: '#2563EB' }}>{o.bookingCode || '—'}</td>
+                                                        <td>{o.invoiceNo || '—'}</td>
+                                                        <td>{o.branch || '—'}</td>
+                                                        <td><strong>SAR {Number(o.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
+                                                        <td><span className={`ws-badge ${badge}`}>{(o.status || '—').replace(/_/g, ' ')}</span></td>
+                                                        <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-body)', maxWidth: 220 }}>{o.description || o.service || '—'}</td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
