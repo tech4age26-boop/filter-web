@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Plus, ShoppingCart, BarChart3, AlertTriangle, Calendar, Zap, Eye } from 'lucide-react';
+import { Plus, ShoppingCart, BarChart3, AlertTriangle, Calendar, Zap, Eye, Trash2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import {
@@ -9,6 +9,7 @@ import {
     branchScopeParams,
     createWorkshopSupplierPurchaseInvoice,
     getWorkshopSupplierPurchaseInvoice,
+    getWorkshopSupplierLastPurchasePrices,
     listWorkshopSupplierPurchaseInvoices,
     unwrapWorkshopBranchListResponse,
     filterPortalVisibleBranches,
@@ -21,6 +22,10 @@ import {
     unwrapWorkshopStaffSupplierPurchaseInvoiceGet,
     unwrapWorkshopSupplierPurchaseInvoiceList,
 } from '../../services/workshopSupplierPurchaseInvoices';
+import {
+    listLocalSuppliers,
+    createLocalSupplierPurchaseInvoice,
+} from '../../services/workshopSuppliersApi';
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { PI_ACCOUNT_OPTIONS } from './constants';
@@ -481,21 +486,37 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [showDesc, setShowDesc] = useState(true);
     const [showDiscount, setShowDiscount] = useState(false);
     const [discountIsPercent, setDiscountIsPercent] = useState(false);
-    const [issueDate, setIssueDate] = useState('2026-03-08');
+    const todayIso = useMemo(() => {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }, []);
+    const [issueDate, setIssueDate] = useState(todayIso);
     const [dueDateType, setDueDateType] = useState('Net');
     const [netDays, setNetDays] = useState(30);
-    const [customDueDate, setCustomDueDate] = useState('2026-04-07');
+    const [customDueDate, setCustomDueDate] = useState(todayIso);
     const [selectedVendor, setSelectedVendor] = useState('');
     const [vendorInvoiceRef, setVendorInvoiceRef] = useState('');
     const [invoiceDescription, setInvoiceDescription] = useState('');
     const [invoiceNotes, setInvoiceNotes] = useState('');
     const [invoiceDiscountValue, setInvoiceDiscountValue] = useState('0');
     const [invoiceDiscountMode, setInvoiceDiscountMode] = useState('fixed_sar');
-    const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(false);
+    /**
+     * "Prices include VAT (VAT 15%)" checkbox semantics:
+     *   - true  (CHECKED, default): apply VAT 15%. Unit price field is ex-VAT;
+     *           tax shown separately so total = unit × 1.15.
+     *   - false (UNCHECKED): VAT-exempt invoice (e.g. non-VAT supplier). Unit
+     *           price field is the gross/final amount per unit; no tax line,
+     *           total = unit × qty.
+     */
+    /** When true, unit price column is ex VAT (20 + tax 3 = 23). When false (default), unit price is incl. VAT (23). */
+    const [priceExcludingVat, setPriceExcludingVat] = useState(false);
     const [freightSar, setFreightSar] = useState('0');
     const [updateLastPurchasePrice, setUpdateLastPurchasePrice] = useState(true);
-    const amountsInclusivePrevRef = useRef(false);
-    const amountsInclusiveInitRef = useRef(false);
+    const priceExcludingVatPrevRef = useRef(false);
+    const priceExcludingVatInitRef = useRef(false);
     const [linkedSuppliers, setLinkedSuppliers] = useState([]);
     const [linkedSuppliersLoading, setLinkedSuppliersLoading] = useState(false);
     const [linkedSuppliersError, setLinkedSuppliersError] = useState('');
@@ -523,6 +544,14 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [branchProductOptions, setBranchProductOptions] = useState([]);
     const [branchProductsLoading, setBranchProductsLoading] = useState(false);
     const [branchProductsError, setBranchProductsError] = useState('');
+
+    /**
+     * Supplier-scoped last purchase prices (most recent unit price the
+     * workshop paid this supplier per product). Map keyed by `productId.toString()`.
+     * Refreshed when the selected supplier changes inside the PI modal.
+     */
+    const [lastPricesByProductId, setLastPricesByProductId] = useState({});
+    const [lastPricesLoading, setLastPricesLoading] = useState(false);
 
     const loadBranchProducts = useCallback(async () => {
         if (!invoiceBranchId) {
@@ -577,6 +606,30 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 if (rows.length < SUPPLIERS_PAGE_LIMIT) break;
                 offset += SUPPLIERS_PAGE_LIMIT;
             }
+
+            // Also include non-affiliated (local) suppliers so the workshop can
+            // create a PI for them. Marked with __supplierType so the submit
+            // handler routes to the local-supplier endpoint.
+            try {
+                const scopeBranch = modalOpen && invoiceBranchId ? invoiceBranchId : effectiveBranchId;
+                const localParams = {};
+                if (scopeBranch && scopeBranch !== 'all') {
+                    localParams.branchId = scopeBranch;
+                }
+                const localRes = await listLocalSuppliers(localParams);
+                const localRows = (localRes?.suppliers ?? [])
+                    .filter((s) => s.isActive !== false)
+                    .map((s) => ({
+                        id: String(s.id),
+                        name: `${s.name} (Non-affiliated)`,
+                        raw: { ...s, __supplierType: 'local' },
+                        __supplierType: 'local',
+                    }));
+                merged.push(...localRows);
+            } catch (e) {
+                console.warn('[purchases] failed to load local suppliers', e);
+            }
+
             setLinkedSuppliers(merged);
         } catch (e) {
             const msg = String(e?.message || '');
@@ -731,11 +784,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         }
         if (tabState.selectedItem) {
             const item = tabState.selectedItem;
-            const unit = amountsTaxInclusive ? pickPriceInclusivePurchaseUnit(item) : pickPriceExclusiveUnit(item);
-            const priceExclForTax = amountsTaxInclusive ? roundMoney2(unit / (1 + VAT_RATE)) : unit;
-            const taxAmt = priceExclForTax * VAT_RATE;
-            const totalFinal = priceExclForTax * (1 + VAT_RATE);
-            const newLine = {
+            const unitExcl = pickPriceExclusiveUnit(item);
+            const unitIncl = pickPriceInclusivePurchaseUnit(item);
+            const price = priceExcludingVat ? unitExcl : unitIncl;
+            const tempLine = {
                 id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
                 productId: String(item.id ?? ''),
                 item: item.name,
@@ -743,22 +795,34 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 description: '',
                 uom: item.unit || 'piece',
                 qty: 1,
-                price: unit,
+                price,
                 discount: 0,
+                discountMode: 'percent',
                 taxCode: TAX_LABEL,
-                taxAmt: taxAmt.toFixed(2),
-                totalFinal: totalFinal.toFixed(2),
+            };
+            const amts = computeLineAmounts(tempLine, false, discountIsPercent, VAT_RATE, {
+                unitPriceTaxInclusive: !priceExcludingVat,
+                noVat: false,
+            });
+            const newLine = {
+                ...tempLine,
+                taxAmt: amts.taxAmt.toFixed(2),
+                totalFinal: amts.totalIncl.toFixed(2),
             };
             setLineItems([newLine]);
         }
         if (clearTabState) clearTabState();
-    }, [tabState, clearTabState, amountsTaxInclusive]);
+    }, [tabState, clearTabState, priceExcludingVat, discountIsPercent]);
 
     const applyDiscountForCalc = showDiscount;
 
+    /**
+     * Unit field holds VAT-inclusive amount when `priceExcludingVat` is false (default);
+     * holds ex-VAT amount when the user checks "Price excluding VAT".
+     */
     const lineAmountOpts = useMemo(
-        () => ({ unitPriceTaxInclusive: amountsTaxInclusive }),
-        [amountsTaxInclusive],
+        () => ({ unitPriceTaxInclusive: !priceExcludingVat, noVat: false }),
+        [priceExcludingVat],
     );
 
     const recalcStoredLineTotals = (line) => {
@@ -807,30 +871,33 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         );
     }, [showDiscount, discountIsPercent, lineAmountOpts]);
 
-    /** When toggling tax-inclusive mode, convert stored unit prices between ex-VAT and VAT-inclusive. */
+    /**
+     * "Price excluding VAT" checked → stored unit becomes ex VAT (divide incl. by 1.15).
+     * Unchecked again → stored unit becomes incl. VAT (multiply ex by 1.15).
+     */
     useEffect(() => {
-        if (!amountsInclusiveInitRef.current) {
-            amountsInclusiveInitRef.current = true;
-            amountsInclusivePrevRef.current = amountsTaxInclusive;
+        if (!priceExcludingVatInitRef.current) {
+            priceExcludingVatInitRef.current = true;
+            priceExcludingVatPrevRef.current = priceExcludingVat;
             return;
         }
-        const prev = amountsInclusivePrevRef.current;
-        amountsInclusivePrevRef.current = amountsTaxInclusive;
-        if (prev === amountsTaxInclusive) return;
+        const prev = priceExcludingVatPrevRef.current;
+        priceExcludingVatPrevRef.current = priceExcludingVat;
+        if (prev === priceExcludingVat) return;
         setLineItems((prevLines) =>
             prevLines.map((line) => {
                 const p = parseFloat(line.price) || 0;
                 if (p === 0) return line;
-                if (amountsTaxInclusive && !prev) {
-                    return { ...line, price: roundMoney2(p * (1 + VAT_RATE)) };
-                }
-                if (!amountsTaxInclusive && prev) {
+                if (priceExcludingVat && !prev) {
                     return { ...line, price: roundMoney2(p / (1 + VAT_RATE)) };
+                }
+                if (!priceExcludingVat && prev) {
+                    return { ...line, price: roundMoney2(p * (1 + VAT_RATE)) };
                 }
                 return line;
             }),
         );
-    }, [amountsTaxInclusive]);
+    }, [priceExcludingVat]);
 
     const handleLineProductChange = (lineId, productId) => {
         if (!productId) {
@@ -852,6 +919,22 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         }
         const opt = branchProductOptions.find((o) => o.id === productId);
         if (!opt) return;
+        const last = lastPricesByProductId[String(productId)];
+        /**
+         * Prefill priority: supplier-scoped last purchase price → master catalog.
+         * Shape matches the unit column (incl. vs ex VAT) from `priceExcludingVat`.
+         */
+        const lastEx = last ? Number(last.lastUnitPriceExVat ?? 0) : 0;
+        const lastIncl = last ? Number(last.lastUnitPriceInclVat ?? 0) : 0;
+        const catalogEx = Number(opt.priceExcl ?? 0);
+        const catalogIncl = Number(opt.priceIncl ?? opt.priceExcl ?? 0);
+        const prefillPrice = priceExcludingVat
+            ? lastEx > 0
+                ? lastEx
+                : catalogEx
+            : lastIncl > 0
+              ? lastIncl
+              : catalogIncl;
         setLineItems((prev) =>
             prev.map((line) => {
                 if (line.id !== lineId) return line;
@@ -864,7 +947,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         opt.type === 'Stock'
                             ? '1410 - Inventory Asset'
                             : '5100 - Cost of Goods Sold',
-                    price: amountsTaxInclusive ? opt.priceIncl || opt.priceExcl : opt.priceExcl,
+                    price: roundMoney2(prefillPrice),
+                    taxCode: line.taxCode || TAX_LABEL,
                 };
                 return recalcStoredLineTotals(next);
             }),
@@ -885,7 +969,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 invoiceDiscountMode,
                 invoiceDiscountValue,
                 vatRate: VAT_RATE,
-                unitPriceTaxInclusive: amountsTaxInclusive,
+                unitPriceTaxInclusive: !priceExcludingVat,
+                noVat: false,
                 freightIn: freightNum,
             }),
         [
@@ -894,7 +979,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             discountIsPercent,
             invoiceDiscountMode,
             invoiceDiscountValue,
-            amountsTaxInclusive,
+            priceExcludingVat,
             freightNum,
         ],
     );
@@ -932,6 +1017,29 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setLineItems((prev) => [...prev, createEmptyLine()]);
     };
 
+    const removeLine = (lineId) => {
+        setLineItems((prev) => {
+            if (prev.length <= 1) {
+                return [createEmptyLine()];
+            }
+            return prev.filter((l) => l.id !== lineId);
+        });
+    };
+
+    /** Last row, Tab from tax-code select → new line + focus product picker */
+    const handleTaxSelectTabFromLastRow = (e, lineIndex) => {
+        if (e.key !== 'Tab' || e.shiftKey) return;
+        if (lineIndex !== lineItems.length - 1) return;
+        e.preventDefault();
+        const nl = createEmptyLine();
+        setLineItems((prev) => [...prev, nl]);
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                document.querySelector(`[data-pi-row-product="${nl.id}"]`)?.focus();
+            });
+        });
+    };
+
     const evalMath = (expr) => {
         const str = String(expr).trim();
         if (!str) return '';
@@ -951,7 +1059,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             e.preventDefault();
             const v = evalMath(e.target.value);
             updateLineItem(lineId, field, v);
-            e.target.value = v;
         }
     };
     const handleMathBlur = (e, lineId, field) => {
@@ -1068,6 +1175,60 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         [linkedSuppliers, selectedVendor],
     );
 
+    /**
+     * Detect supplier portal status — workshop_local suppliers do NOT need to
+     * approve; we apply inventory at PI save time on the server. Used to swap
+     * the AP alert message and skip "wait for approval" copy.
+     */
+    const isSelectedSupplierWorkshopLocal = useMemo(() => {
+        const raw = selectedSupplierRow?.raw ?? selectedSupplierRow;
+        const rt =
+            raw?.registrationType ??
+            raw?.registration_type ??
+            selectedSupplierRow?.registrationType ??
+            null;
+        return String(rt ?? '').toLowerCase() === 'workshop_local';
+    }, [selectedSupplierRow]);
+
+    /**
+     * Fetch supplier-scoped last purchase prices when the selected supplier
+     * changes inside the open modal. Cleared on close / no supplier.
+     */
+    useEffect(() => {
+        if (!modalOpen) {
+            setLastPricesByProductId({});
+            return;
+        }
+        const supId = selectedSupplierRow?.id;
+        if (!supId) {
+            setLastPricesByProductId({});
+            return;
+        }
+        let cancelled = false;
+        setLastPricesLoading(true);
+        getWorkshopSupplierLastPurchasePrices(supId)
+            .then((res) => {
+                if (cancelled) return;
+                const list = Array.isArray(res?.prices) ? res.prices : [];
+                const map = {};
+                for (const row of list) {
+                    if (row?.productId == null) continue;
+                    map[String(row.productId)] = row;
+                }
+                setLastPricesByProductId(map);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setLastPricesByProductId({});
+            })
+            .finally(() => {
+                if (!cancelled) setLastPricesLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [modalOpen, selectedSupplierRow]);
+
     const hasProductLine = useMemo(
         () => lineItems.some((l) => l.productId != null && String(l.productId).trim() !== ''),
         [lineItems],
@@ -1104,7 +1265,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             discountIsPercent,
             VAT_RATE,
             TAX_LABEL,
-            { unitPriceTaxInclusive: amountsTaxInclusive },
+            { unitPriceTaxInclusive: !priceExcludingVat, noVat: false },
         );
         const dueComputed = calculateDueDate();
         const purchaseInvoicePayload = buildPurchaseInvoicePayload({
@@ -1127,7 +1288,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 show_line_description_column: showDesc,
                 show_line_discount_column: showDiscount,
                 line_discount_is_percent: discountIsPercent,
-                amounts_tax_inclusive: amountsTaxInclusive,
+                /** Unit column holds incl. VAT amounts unless "Price excluding VAT" is checked. */
+                amounts_tax_inclusive: !priceExcludingVat,
+                prices_include_vat: !priceExcludingVat,
+                no_vat: false,
             },
             invoice_discount: {
                 mode: invoiceDiscountMode,
@@ -1157,18 +1321,96 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             invoiceDiscountValue: parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
             updateLastPurchasePriceOnSave: updateLastPurchasePrice,
             freightIn: freightNum,
-            showAmountsTaxInclusive: amountsTaxInclusive,
+            showAmountsTaxInclusive: !priceExcludingVat,
+            pricesIncludeVat: !priceExcludingVat,
+            noVat: false,
             lines: enrichedLines,
             totals,
         });
         if (import.meta.env.DEV) void console.info('[purchase_invoice_payload]', purchaseInvoicePayload);
         setSubmittingInvoice(true);
         try {
-            await createWorkshopSupplierPurchaseInvoice(createBody);
+            const isLocalSupplier =
+                selectedSupplierRow?.__supplierType === 'local' ||
+                selectedSupplierRow?.raw?.__supplierType === 'local';
+            let createRes;
+            if (isLocalSupplier) {
+                // Convert enriched lines into the simpler local PI line schema.
+                const localLines = enrichedLines
+                    .filter((ln) => ln.branch_catalog_product_id)
+                    .map((ln) => ({
+                        productId: String(ln.branch_catalog_product_id),
+                        itemName: ln.item_name,
+                        description: ln.description ?? null,
+                        uom: ln.uom ?? null,
+                        qty: Number(ln.quantity ?? ln.qty ?? 0),
+                        unitPrice: Number(ln.unit_price_ex_vat ?? 0),
+                        discount: Number(ln.line_discount_amount ?? ln.line_discount_raw ?? 0),
+                        discountType: discountIsPercent ? 'percent' : 'fixed',
+                        taxCode: 'VAT15',
+                        taxAmount: Number(ln.tax_amount ?? 0),
+                        lineTotal: Number(ln.taxable_ex_vat ?? ln.gross_ex_vat ?? 0),
+                        total: Number(ln.line_total_incl_vat ?? 0),
+                    }));
+                if (localLines.length === 0) {
+                    throw new Error(
+                        'Local supplier PI requires every line to be picked from the branch catalog.',
+                    );
+                }
+                createRes = await createLocalSupplierPurchaseInvoice(
+                    String(selectedSupplierRow.id),
+                    {
+                        branchId: String(invoiceBranchId),
+                        issueDate,
+                        dueDate: dueComputed === '—' ? undefined : dueComputed,
+                        paymentTerms: dueDateType,
+                        netDays,
+                        refNumber: vendorInvoiceRef || undefined,
+                        description: invoiceDescription || undefined,
+                        notes: invoiceNotes || undefined,
+                        subtotal: Number(totals?.subtotal_ex_vat ?? 0),
+                        discountAmount:
+                            parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
+                        discountType:
+                            invoiceDiscountMode?.includes('percent') ? 'percent' : 'fixed',
+                        freightIn: freightNum,
+                        taxAmount: Number(totals?.total_vat ?? 0),
+                        grandTotal: Number(totals?.grand_total ?? 0),
+                        lines: localLines,
+                    },
+                );
+                // Local PI always applies stock + posts journal immediately.
+                createRes = {
+                    ...(createRes || {}),
+                    autoApplied: true,
+                    stock: { applied: true, lines: localLines },
+                };
+            } else {
+                createRes = await createWorkshopSupplierPurchaseInvoice(createBody);
+            }
+            /**
+             * Workshop-only suppliers auto-apply stock on save (no approval).
+             * Refresh inventory views in other tabs/pages.
+             */
+            if (createRes?.autoApplied || createRes?.stock?.applied) {
+                try {
+                    window.dispatchEvent(
+                        new CustomEvent('workshop-inventory-updated', {
+                            detail: {
+                                branchId: invoiceBranchId,
+                                source: 'workshop_local_pi_auto_apply',
+                            },
+                        }),
+                    );
+                } catch {
+                    /* non-fatal */
+                }
+            }
             await loadPurchaseInvoices();
             setModalOpen(false);
             setLineItems([]);
-            setIssueDate('2026-03-08');
+            setIssueDate(todayIso);
+            setCustomDueDate(todayIso);
             setDueDateType('Net');
             setNetDays(30);
             setVendorInvoiceRef('');
@@ -1177,10 +1419,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setInvoiceDiscountValue('0');
             setInvoiceDiscountMode('fixed_sar');
             setFreightSar('0');
-            setAmountsTaxInclusive(false);
+            setPriceExcludingVat(false);
             setInvoiceBranchId('');
-            amountsInclusiveInitRef.current = false;
-            amountsInclusivePrevRef.current = false;
+            priceExcludingVatInitRef.current = false;
+            priceExcludingVatPrevRef.current = false;
             setUpdateLastPurchasePrice(true);
         } catch (e) {
             setSubmitInvoiceError(e.message || 'Could not create purchase invoice.');
@@ -1458,10 +1700,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             setModalOpen(false);
                             setSubmitInvoiceError('');
                             setFreightSar('0');
-                            setAmountsTaxInclusive(false);
+                            setPriceExcludingVat(false);
                             setInvoiceBranchId('');
-                            amountsInclusiveInitRef.current = false;
-                            amountsInclusivePrevRef.current = false;
+                            priceExcludingVatInitRef.current = false;
+                            priceExcludingVatPrevRef.current = false;
                         }}
                         width="1350px"
                         contentClassName="modal-content-purchase"
@@ -1475,10 +1717,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             setModalOpen(false);
                                             setSubmitInvoiceError('');
                                             setFreightSar('0');
-                                            setAmountsTaxInclusive(false);
+                                            setPriceExcludingVat(false);
                                             setInvoiceBranchId('');
-                                            amountsInclusiveInitRef.current = false;
-                                            amountsInclusivePrevRef.current = false;
+                                            priceExcludingVatInitRef.current = false;
+                                            priceExcludingVatPrevRef.current = false;
                                         }}
                                     >
                                         Cancel
@@ -1685,23 +1927,26 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     <table className="ws-pi-lines-table">
                                         <colgroup>
                                             <col style={{ width: 44 }} />
-                                            <col style={{ width: showDesc ? '20%' : '26%' }} />
-                                            <col style={{ width: showDesc ? '16%' : '20%' }} />
-                                            {showDesc ? <col style={{ width: '14%' }} /> : null}
-                                            <col style={{ width: 72 }} />
-                                            <col style={{ width: 72 }} />
-                                            <col style={{ width: 96 }} />
-                                            {showDiscount ? <col style={{ width: 88 }} /> : null}
-                                            <col style={{ width: showDiscount ? '9%' : '11%' }} />
-                                            <col style={{ width: 88 }} />
-                                            <col style={{ width: 88 }} />
-                                            <col style={{ width: showDiscount ? '9%' : '11%' }} />
+                                            <col style={{ width: 40 }} />
+                                            <col style={{ width: showDesc ? '17%' : '21%' }} />
+                                            <col style={{ width: showDesc ? '14%' : '18%' }} />
+                                            {showDesc ? <col style={{ width: '12%' }} /> : null}
+                                            <col style={{ width: 64 }} />
+                                            <col style={{ width: 64 }} />
+                                            <col style={{ width: 92 }} />
+                                            {showDiscount ? <col className="ws-pi-col-discount" style={{ width: 168 }} /> : null}
+                                            <col style={{ width: showDiscount ? '8%' : '10%' }} />
+                                            <col style={{ width: 84 }} />
+                                            <col style={{ width: 80 }} />
+                                            <col style={{ width: showDiscount ? '8%' : '10%' }} />
+                                            <col style={{ width: 130 }} />
                                         </colgroup>
                                         <thead>
                                             <tr>
                                                 <th scope="col" className="ws-pi-th-hash">
                                                     #
                                                 </th>
+                                                <th scope="col" className="ws-pi-th-actions" aria-label="Remove line" />
                                                 <th scope="col">Item</th>
                                                 <th scope="col">Account</th>
                                                 {showDesc ? <th scope="col">Description</th> : null}
@@ -1710,7 +1955,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                     Qty
                                                 </th>
                                                 <th scope="col" className="ws-pi-th-num">
-                                                    Unit price {amountsTaxInclusive ? '(incl. VAT)' : '(ex VAT)'}
+                                                    Unit price {priceExcludingVat ? '(ex VAT)' : '(incl. VAT)'}
                                                 </th>
                                                 {showDiscount ? (
                                                     <th scope="col" className="ws-pi-th-num">
@@ -1729,6 +1974,12 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                 <th scope="col" className="ws-pi-th-num">
                                                     Total
                                                 </th>
+                                                <th
+                                                    scope="col"
+                                                    title="Supplier-scoped: last price you paid this supplier for this product (per unit, incl. VAT when applicable)"
+                                                >
+                                                    Last from supplier (incl.)
+                                                </th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1743,9 +1994,22 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                 return (
                                                     <tr key={line.id}>
                                                         <td className="ws-pi-td-hash">{idx + 1}</td>
+                                                        <td className="ws-pi-td-actions">
+                                                            <button
+                                                                type="button"
+                                                                className="ws-pi-remove-line-btn"
+                                                                tabIndex={-1}
+                                                                aria-label="Remove line"
+                                                                title="Remove line"
+                                                                onClick={() => removeLine(line.id)}
+                                                            >
+                                                                <Trash2 size={16} aria-hidden />
+                                                            </button>
+                                                        </td>
                                                         <td>
                                                             <select
                                                                 className="pi-row-input ws-pi-select"
+                                                                data-pi-row-product={line.id}
                                                                 value={line.productId}
                                                                 disabled={!invoiceBranchId || branchProductsLoading}
                                                                 onChange={(e) => handleLineProductChange(line.id, e.target.value)}
@@ -1787,8 +2051,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         <td className="ws-pi-td-num">
                                                             <input
                                                                 type="text"
-                                                                defaultValue={line.qty}
-                                                                key={`qty-${line.id}-${line.qty}`}
+                                                                value={line.qty === '' || line.qty === undefined ? '' : String(line.qty)}
                                                                 className="pi-row-input-num pi-math-input"
                                                                 onChange={(e) => updateLineItem(line.id, 'qty', e.target.value)}
                                                                 onKeyDown={(e) => handleMathKeyDown(e, line.id, 'qty')}
@@ -1798,9 +2061,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         <td
                                                             className="ws-pi-td-num ws-pi-price-cell"
                                                             title={
-                                                                amountsTaxInclusive
-                                                                    ? 'Prefilled from catalog purchase price (VAT-inclusive). Editable.'
-                                                                    : 'Prefilled from purchase price ÷ 1.15 (ex VAT). Editable.'
+                                                                priceExcludingVat
+                                                                    ? 'Prefilled from supplier last price ex VAT (or master catalog ex VAT). Editable.'
+                                                                    : 'Prefilled from supplier last price incl. VAT (or master catalog incl.). Editable.'
                                                             }
                                                         >
                                                             <input
@@ -1815,21 +2078,22 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             />
                                                         </td>
                                                         {showDiscount ? (
-                                                            <td className="ws-pi-td-num">
-                                                                <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+                                                            <td className="ws-pi-td-num ws-pi-td-discount">
+                                                                <div className="ws-pi-discount-cell">
                                                                     <input
                                                                         type="text"
-                                                                        className="pi-row-input-num pi-math-input"
-                                                                        style={{ flex: 1, minWidth: 0 }}
-                                                                        defaultValue={line.discount}
-                                                                        key={`disc-${line.id}-${line.discount}`}
+                                                                        className="pi-row-input-num pi-math-input ws-pi-discount-input"
+                                                                        value={
+                                                                            line.discount === '' || line.discount === undefined
+                                                                                ? ''
+                                                                                : String(line.discount)
+                                                                        }
                                                                         onChange={(e) => updateLineItem(line.id, 'discount', e.target.value)}
                                                                         onKeyDown={(e) => handleMathKeyDown(e, line.id, 'discount')}
                                                                         onBlur={(e) => handleMathBlur(e, line.id, 'discount')}
                                                                     />
                                                                     <select
-                                                                        className="pi-row-input"
-                                                                        style={{ flex: '0 0 auto', maxWidth: 76, padding: '6px 4px', fontSize: 12 }}
+                                                                        className="pi-row-input ws-pi-discount-kind"
                                                                         value={line.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent'}
                                                                         onChange={(e) => updateLineItem(line.id, 'discountMode', e.target.value)}
                                                                     >
@@ -1845,6 +2109,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                 className="pi-row-input ws-pi-select"
                                                                 value={line.taxCode || TAX_LABEL}
                                                                 onChange={(e) => updateLineItem(line.id, 'taxCode', e.target.value)}
+                                                                onKeyDown={(e) => handleTaxSelectTabFromLastRow(e, idx)}
                                                             >
                                                                 {TAXES.map((t) => (
                                                                     <option key={t.code} value={t.code}>
@@ -1855,6 +2120,74 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         </td>
                                                         <td className="ws-pi-td-num">SAR {amounts.taxAmt.toFixed(2)}</td>
                                                         <td className="ws-pi-td-num ws-pi-td-strong">SAR {amounts.totalIncl.toFixed(2)}</td>
+                                                        <td className="ws-pi-td-num">
+                                                            {(() => {
+                                                                if (!line.productId) {
+                                                                    return <span style={{ color: '#94a3b8', fontSize: 11 }}>—</span>;
+                                                                }
+                                                                if (lastPricesLoading) {
+                                                                    return <span style={{ color: '#94a3b8', fontSize: 11 }}>Loading…</span>;
+                                                                }
+                                                                const last = lastPricesByProductId[String(line.productId)];
+                                                                if (!last) {
+                                                                    return (
+                                                                        <span
+                                                                            style={{
+                                                                                color: '#a16207',
+                                                                                fontSize: 11,
+                                                                                fontStyle: 'italic',
+                                                                                whiteSpace: 'nowrap',
+                                                                            }}
+                                                                            title="No prior purchase from this supplier for this product — supplier-scoped last price unavailable."
+                                                                        >
+                                                                            Not purchased yet
+                                                                        </span>
+                                                                    );
+                                                                }
+                                                                /** Per-unit after line discount; incl-VAT matches line total ÷ qty on prior PI */
+                                                                const lastIncl = Number(last.lastUnitPriceInclVat ?? 0);
+                                                                const lastEx = Number(last.lastUnitPriceExVat ?? 0);
+                                                                const lastQty = Number(last.qty ?? 0);
+                                                                const meta = [];
+                                                                if (Number.isFinite(lastQty) && lastQty > 1) {
+                                                                    meta.push(`qty ${lastQty.toLocaleString(undefined, { maximumFractionDigits: 3 })}`);
+                                                                }
+                                                                if (last.hadLineDiscount) meta.push('after disc.');
+                                                                const tooltip =
+                                                                    `Per unit after line discount\n` +
+                                                                    `Incl. VAT: SAR ${Number.isFinite(lastIncl) ? lastIncl.toFixed(2) : '0.00'}\n` +
+                                                                    (priceExcludingVat && Number.isFinite(lastEx) && lastEx > 0
+                                                                        ? `Ex VAT: SAR ${lastEx.toFixed(2)}\n`
+                                                                        : '') +
+                                                                    `Invoice ${last.lastInvoiceNumber || '—'}` +
+                                                                    (last.lastIssueDate ? `\nDate: ${last.lastIssueDate}` : '') +
+                                                                    (meta.length ? `\n(${meta.join(', ')})` : '');
+                                                                return (
+                                                                    <div
+                                                                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}
+                                                                        title={tooltip}
+                                                                    >
+                                                                        <span style={{ fontWeight: 600, color: '#0f766e' }}>
+                                                                            SAR {Number.isFinite(lastIncl) ? lastIncl.toFixed(2) : '0.00'}
+                                                                        </span>
+                                                                        {!priceExcludingVat &&
+                                                                        Number.isFinite(lastEx) &&
+                                                                        lastEx > 0 &&
+                                                                        Math.abs(lastEx - lastIncl) > 0.005 ? (
+                                                                            <span style={{ fontSize: 10, color: '#64748b' }}>
+                                                                                ex VAT SAR {lastEx.toFixed(2)}
+                                                                            </span>
+                                                                        ) : null}
+                                                                        {last.lastIssueDate ? (
+                                                                            <span style={{ fontSize: 10, color: '#64748b' }}>
+                                                                                {last.lastIssueDate}
+                                                                                {meta.length ? ` · ${meta.join(' · ')}` : ''}
+                                                                            </span>
+                                                                        ) : null}
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </td>
                                                     </tr>
                                                 );
                                             })}
@@ -1868,12 +2201,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     </button>
                                 </div>
                                 <div className="pi-hint">
-                                    <Zap size={14} /> Tip: Choose a branch product to prefill unit price from the
-                                    catalog purchase price ({amountsTaxInclusive ? 'VAT-inclusive amount' : 'ex VAT, i.e. purchase price ÷ 1.15'}).
-                                    VAT is 15% after discount (unless you use tax-inclusive unit prices — amounts still
-                                    split for tax in the grid). Qty, unit price, and discount support math (e.g. 12*5).
-                                    At least one line must include a product so your supplier can approve and receive
-                                    stock.
+                                    <Zap size={14} /> Tip: By default the unit column is <strong>incl. VAT</strong>{' '}
+                                    (prefill uses supplier last price incl. VAT when available). Check{' '}
+                                    <strong>Price excluding VAT</strong> to enter ex-VAT unit prices (15% VAT is calculated
+                                    on the line). Prefill then uses supplier last price ex VAT or catalog ex VAT. Qty, unit
+                                    price, and discount support math (e.g. 12*5).
                                 </div>
                             </div>
 
@@ -1897,10 +2229,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 <label className="pi-checkbox">
                                     <input
                                         type="checkbox"
-                                        checked={amountsTaxInclusive}
-                                        onChange={(e) => setAmountsTaxInclusive(e.target.checked)}
+                                        checked={priceExcludingVat}
+                                        onChange={(e) => setPriceExcludingVat(e.target.checked)}
                                     />
-                                    <span>Unit prices include VAT ({TAX_LABEL})</span>
+                                    <span>Price excluding VAT ({TAX_LABEL})</span>
                                 </label>
                             </div>
 
@@ -1974,8 +2306,18 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     </div>
                                     <div className="pi-ap-alert">
                                         <span>
-                                            Creates <strong>Accounts Payable</strong>. After goods received, click &quot;Update Stock&quot; in the
-                                            list.
+                                            {isSelectedSupplierWorkshopLocal ? (
+                                                <>
+                                                    Creates <strong>Accounts Payable</strong>. This supplier is{' '}
+                                                    <strong>workshop-only (not onboarded)</strong> — branch inventory will be{' '}
+                                                    <strong>updated automatically</strong> on save (no supplier approval).
+                                                </>
+                                            ) : (
+                                                <>
+                                                    Creates <strong>Accounts Payable</strong>. After goods received, click &quot;Update Stock&quot; in the
+                                                    list.
+                                                </>
+                                            )}
                                         </span>
                                     </div>
                                     <label className="pi-checkbox pi-price-update">
@@ -1984,7 +2326,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             checked={updateLastPurchasePrice}
                                             onChange={(e) => setUpdateLastPurchasePrice(e.target.checked)}
                                         />
-                                        <span>Update last purchase price for all products on save</span>
+                                        <span>Update last purchase price for all products on save (master catalog)</span>
                                     </label>
                                 </div>
                             </div>

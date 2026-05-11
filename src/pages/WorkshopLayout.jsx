@@ -20,6 +20,9 @@ import WorkshopBranches from './workshop/WorkshopBranches';
 import WorkshopCommissions from './workshop/WorkshopCommissions';
 import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
+import WorkshopAffiliatedSuppliers from './workshop/WorkshopAffiliatedSuppliers';
+import WorkshopNonAffiliatedSuppliers from './workshop/WorkshopNonAffiliatedSuppliers';
+import WorkshopSupplierLedger from './workshop/WorkshopSupplierLedger';
 import { apiFetch } from '../services/api';
 import { workshopLogout } from '../services/authApi';
 import {
@@ -278,6 +281,29 @@ export default function WorkshopLayout() {
             );
             case 'approvals':   return <WorkshopApprovals selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={activeBranches} onTabChange={handleTabChange} />;
+            case 'affiliated-suppliers':
+                return (
+                    <WorkshopAffiliatedSuppliers
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                        onTabChange={handleTabChange}
+                    />
+                );
+            case 'non-affiliated-suppliers':
+                return (
+                    <WorkshopNonAffiliatedSuppliers
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                        onTabChange={handleTabChange}
+                    />
+                );
+            case 'supplier-ledger':
+                return (
+                    <WorkshopSupplierLedger
+                        tabState={tabState}
+                        onTabChange={handleTabChange}
+                    />
+                );
             case 'reports':     return <WorkshopReports selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'pos-monitoring': return <WorkshopPosMonitoring selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'catalog-new': return (

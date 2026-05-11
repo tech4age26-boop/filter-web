@@ -149,6 +149,9 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState('');
     const [actionLoadingId, setActionLoadingId] = useState(null);
+    /** Supplier invoice approve: preview showed new branch products — collect optional critical stock */
+    const [siApproveModal, setSiApproveModal] = useState(null);
+    const [siCriticalStock, setSiCriticalStock] = useState({});
 
     const loadApprovals = useCallback(async () => {
         setIsLoading(true);
@@ -287,14 +290,37 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
             if (!supplierRowCanAct(row)) return;
             const sid = row.supplierInvoiceId;
             const branchLabel = row.branchName || row.branch_name || 'this branch';
-            const ok = window.confirm(
-                `Approve supplier invoice ${row.invoiceNo || ''}?\n\nApproving will increase inventory on hand for "${branchLabel}" by the quantities on this invoice. This action cannot be undone.`,
-            );
-            if (!ok) return;
             setActionLoadingId(`approve-si-${sid}`);
             try {
+                const preview = await apiFetch(
+                    `/workshop-staff/supplier-sales-invoices/${encodeURIComponent(String(sid))}/approval-preview`,
+                );
+                const needsSetupModal =
+                    Boolean(preview?.hasNewProducts) ||
+                    (Array.isArray(preview?.unresolvedLineNames) && preview.unresolvedLineNames.length > 0);
+                if (needsSetupModal) {
+                    const init = {};
+                    (preview.newProducts || []).forEach((p) => {
+                        init[String(p.productId)] = '0';
+                    });
+                    setSiCriticalStock(init);
+                    setSiApproveModal({ row, preview });
+                    return;
+                }
+                const ok = window.confirm(
+                    `Approve supplier invoice ${row.invoiceNo || ''}?\n\n` +
+                        `Preview: all invoice lines are already on "${branchLabel}" inventory (or only stock increases apply). ` +
+                        `On-hand quantities will go up by the amounts on this invoice.\n\n` +
+                        `This action cannot be undone.`,
+                );
+                if (!ok) {
+                    setActionLoadingId(null);
+                    return;
+                }
                 await apiFetch(`/workshop-staff/supplier-sales-invoices/${encodeURIComponent(String(sid))}/approve`, {
                     method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}),
                 });
                 await loadApprovals();
                 window.dispatchEvent(new Event('workshop-approvals-updated'));
@@ -360,6 +386,49 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (error) {
             setLoadError(error.message || 'Failed to reject request.');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const submitSupplierInvoiceApproveFromModal = async () => {
+        if (!siApproveModal) return;
+        const { row } = siApproveModal;
+        const sid = row.supplierInvoiceId;
+        const criticalStockByProductId = {};
+        const newProds = Array.isArray(siApproveModal.preview?.newProducts)
+            ? siApproveModal.preview.newProducts
+            : [];
+        const keys =
+            newProds.length > 0
+                ? newProds.map((p) => String(p.productId))
+                : Object.keys(siCriticalStock);
+        for (const pid of keys) {
+            const raw = siCriticalStock[pid] ?? '0';
+            const n = parseFloat(String(raw).replace(',', '.'));
+            if (Number.isFinite(n) && n >= 0) {
+                criticalStockByProductId[pid] = n;
+            }
+        }
+        setActionLoadingId(`approve-si-${sid}`);
+        setLoadError('');
+        try {
+            await apiFetch(`/workshop-staff/supplier-sales-invoices/${encodeURIComponent(String(sid))}/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ criticalStockByProductId }),
+            });
+            setSiApproveModal(null);
+            setSiCriticalStock({});
+            await loadApprovals();
+            window.dispatchEvent(new Event('workshop-approvals-updated'));
+            window.dispatchEvent(
+                new CustomEvent('workshop-inventory-updated', {
+                    detail: { branchId: row.branchId ?? row.branch_id ?? null, source: 'approve_supplier_invoice' },
+                }),
+            );
+        } catch (error) {
+            setLoadError(error.message || 'Failed to approve supplier invoice.');
         } finally {
             setActionLoadingId(null);
         }
@@ -674,6 +743,166 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                                 resize: 'vertical',
                             }}
                         />
+                    </Modal>
+                )}
+                {siApproveModal && (
+                    <Modal
+                        title="Products will be added to branch inventory"
+                        width="560px"
+                        onClose={() => {
+                            if (actionLoadingId) return;
+                            setSiApproveModal(null);
+                            setSiCriticalStock({});
+                        }}
+                        footer={
+                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    onClick={() => {
+                                        setSiApproveModal(null);
+                                        setSiCriticalStock({});
+                                    }}
+                                    disabled={actionLoadingId !== null}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn-submit"
+                                    onClick={submitSupplierInvoiceApproveFromModal}
+                                    disabled={actionLoadingId !== null}
+                                >
+                                    {actionLoadingId != null && String(actionLoadingId).startsWith('approve-si-')
+                                        ? 'Approving…'
+                                        : 'OK — approve & update inventory'}
+                                </button>
+                            </div>
+                        }
+                    >
+                        <div style={{ fontSize: '0.875rem', color: '#334155', lineHeight: 1.5, marginBottom: 14 }}>
+                            {(() => {
+                                const newProds = Array.isArray(siApproveModal.preview?.newProducts)
+                                    ? siApproveModal.preview.newProducts
+                                    : [];
+                                const unresolved = Array.isArray(siApproveModal.preview?.unresolvedLineNames)
+                                    ? siApproveModal.preview.unresolvedLineNames
+                                    : [];
+                                const branchNm = siApproveModal.preview?.branchName || 'this branch';
+                                if (newProds.length > 0) {
+                                    return (
+                                        <p style={{ margin: '0 0 10px' }}>
+                                            The following products are <strong>not on {branchNm}&apos;s inventory</strong>{' '}
+                                            yet. If you approve, the system will <strong>add them to this branch</strong>{' '}
+                                            and set <strong>opening stock</strong> to the <strong>quantities on this sales invoice</strong>{' '}
+                                            (per product, summed across lines). Set <strong>critical stock</strong> (low-stock
+                                            alert level) for each new branch product below, then confirm.
+                                        </p>
+                                    );
+                                }
+                                if (unresolved.length > 0) {
+                                    return (
+                                        <p style={{ margin: '0 0 10px' }}>
+                                            Some invoice lines could not be matched to a product in your workshop catalog.
+                                            You can still approve the invoice for accounting, but{' '}
+                                            <strong>inventory may not update</strong> for those lines until they are linked
+                                            to master products.
+                                        </p>
+                                    );
+                                }
+                                return (
+                                    <p style={{ margin: '0 0 10px' }}>
+                                        Review the details below before approving. Inventory will be updated for this branch
+                                        according to the invoice lines.
+                                    </p>
+                                );
+                            })()}
+                            {Array.isArray(siApproveModal.preview?.unresolvedLineNames) &&
+                            siApproveModal.preview.unresolvedLineNames.length > 0 ? (
+                                <div
+                                    style={{
+                                        padding: 10,
+                                        borderRadius: 8,
+                                        background: '#FFFBEB',
+                                        border: '1px solid #FDE68A',
+                                        color: '#92400E',
+                                        marginBottom: 12,
+                                        fontSize: '0.8125rem',
+                                    }}
+                                >
+                                    <strong>Could not match to catalog:</strong>{' '}
+                                    {siApproveModal.preview.unresolvedLineNames.join(', ')}. Stock may not apply for
+                                    these lines until they are linked to a master product.
+                                </div>
+                            ) : null}
+                            {Array.isArray(siApproveModal.preview?.newProducts) &&
+                            siApproveModal.preview.newProducts.length > 0 ? (
+                                <div style={{ overflowX: 'auto' }}>
+                                    <table
+                                        style={{
+                                            width: '100%',
+                                            borderCollapse: 'collapse',
+                                            fontSize: '0.8125rem',
+                                        }}
+                                    >
+                                        <thead>
+                                            <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
+                                                <th style={{ padding: '8px 6px' }}>Product</th>
+                                                <th style={{ padding: '8px 6px', textAlign: 'right' }}>Qty (opening)</th>
+                                                <th style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                    Critical stock
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {siApproveModal.preview.newProducts.map((p) => (
+                                                <tr key={p.productId} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                    <td style={{ padding: '8px 6px' }}>
+                                                        {p.name}
+                                                        {p.sku ? (
+                                                            <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
+                                                                {' '}
+                                                                ({p.sku})
+                                                            </span>
+                                                        ) : null}
+                                                    </td>
+                                                    <td style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                        {p.qty} {p.unit || ''}
+                                                    </td>
+                                                    <td style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                        <input
+                                                            type="text"
+                                                            inputMode="decimal"
+                                                            value={siCriticalStock[p.productId] ?? '0'}
+                                                            onChange={(e) =>
+                                                                setSiCriticalStock((prev) => ({
+                                                                    ...prev,
+                                                                    [p.productId]: e.target.value,
+                                                                }))
+                                                            }
+                                                            style={{
+                                                                width: 88,
+                                                                padding: '6px 8px',
+                                                                borderRadius: 6,
+                                                                border: '1px solid #cbd5e1',
+                                                                textAlign: 'right',
+                                                            }}
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : (
+                                <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>
+                                    {Array.isArray(siApproveModal.preview?.unresolvedLineNames) &&
+                                    siApproveModal.preview.unresolvedLineNames.length > 0
+                                        ? 'No new branch catalog products will be created from this invoice; only matched lines can receive stock.'
+                                        : 'No new branch products; approving will increase stock only for products you already carry on this branch.'}
+                                </p>
+                            )}
+                        </div>
                     </Modal>
                 )}
                 {viewDialog && (

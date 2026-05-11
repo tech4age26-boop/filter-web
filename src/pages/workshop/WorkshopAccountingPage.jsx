@@ -13,6 +13,24 @@ import {
   listWorkshopCashBankPosTerminals,
   internalTransferWorkshopCashBank,
 } from '../../services/workshopStaffApi';
+import {
+  listCashBankAccounts as listAcctCashBank,
+  listCoaAccounts as listAcctCoa,
+  listPayees as listAcctPayees,
+  createPayments as createAcctPayments,
+  createReceipts as createAcctReceipts,
+  createJournalEntry as createAcctJournalEntry,
+  listPayments as listAcctPayments,
+  getPaymentsSummary as getAcctPaymentsSummary,
+  approvePayment as approveAcctPayment,
+  rejectPayment as rejectAcctPayment,
+  listReceipts as listAcctReceipts,
+  getReceiptsSummary as getAcctReceiptsSummary,
+  approveReceipt as approveAcctReceipt,
+  rejectReceipt as rejectAcctReceipt,
+  listJournalEntries as listAcctJournalEntries,
+  getJournalEntry as getAcctJournalEntry,
+} from '../../services/workshopAccountingApi';
 import '../../styles/admin/AccountingPage.css';
 
 const CASH_BANK_TABS = ['All Accounts', 'Cash', 'Bank', 'Petty Cash'];
@@ -207,50 +225,342 @@ function ChartOfAccountsView() {
     return <WorkshopCOAView />;
 }
 
-function TransactionEntryView() {
-    const [activeTab, setActiveTab] = useState('Payments');
-    const [paymentsRows, setPaymentsRows] = useState([
-        { id: 1, voucher: 'PE0001', date: '2026-06-03', type: 'Supplier', payee: '', account: '', amount: '0.00', ref: '', notes: '' },
-        { id: 2, voucher: 'PE0002', date: '2026-06-03', type: 'Supplier', payee: '', account: '', amount: '0.00', ref: '', notes: '' }
-    ]);
-    const [receiptsRows, setReceiptsRows] = useState([
-        { id: 1, voucher: 'RV0005', date: '2026-03-06', type: 'Customer', receivedFrom: '', account: '', amount: '0.00', ref: '', notes: '' },
-        { id: 2, voucher: 'RV0006', date: '2026-03-06', type: 'Customer', receivedFrom: '', account: '', amount: '0.00', ref: '', notes: '' }
-    ]);
-    const [journalEntryRows, setJournalEntryRows] = useState([
-        { id: 1, account: '', lineDescription: '', debit: '0.00', credit: '0.00' },
-        { id: 2, account: '', lineDescription: '', debit: '0.00', credit: '0.00' },
-        { id: 3, account: '', lineDescription: '', debit: '0.00', credit: '0.00' }
-    ]);
-    const [journalMemo, setJournalMemo] = useState('');
+const PAYEE_TYPES = ['Supplier', 'Employee', 'Customer', 'Other'];
 
-    const addRow = () => {
-        if (activeTab === 'Payments') {
-            setPaymentsRows((prev) => [...prev, { id: Date.now(), voucher: `PE${(prev.length + 1).toString().padStart(4, '0')}`, date: '2026-06-03', type: 'Supplier', payee: '', account: '', amount: '0.00', ref: '', notes: '' }]);
-        } else if (activeTab === 'Receipts') {
-            setReceiptsRows((prev) => [...prev, { id: Date.now(), voucher: `RV${(prev.length + 3).toString().padStart(4, '0')}`, date: '03/07/2026', type: 'Customer', receivedFrom: '', account: '', amount: '0.00', ref: '', notes: '' }]);
-        } else {
-            setJournalEntryRows((prev) => [...prev, { id: Date.now(), account: '', lineDescription: '', debit: '0.00', credit: '0.00' }]);
+const blankPaymentRow = (i) => ({
+    id: `p-${Date.now()}-${i}`,
+    voucher: `PE${String(i + 1).padStart(4, '0')}`,
+    date: todayIsoDate(),
+    type: 'Supplier',
+    payeeId: '',
+    payeeName: '',
+    accountId: '',
+    amount: '',
+    ref: '',
+    notes: '',
+});
+
+const blankReceiptRow = (i) => ({
+    id: `r-${Date.now()}-${i}`,
+    voucher: `RV${String(i + 1).padStart(4, '0')}`,
+    date: todayIsoDate(),
+    type: 'Customer',
+    payeeId: '',
+    payeeName: '',
+    accountId: '',
+    amount: '',
+    ref: '',
+    notes: '',
+});
+
+const blankJournalRow = (i) => ({
+    id: `j-${Date.now()}-${i}`,
+    accountId: '',
+    description: '',
+    debit: '',
+    credit: '',
+});
+
+function renumberVouchers(rows, prefix) {
+    return rows.map((r, idx) => ({
+        ...r,
+        voucher: `${prefix}${String(idx + 1).padStart(4, '0')}`,
+    }));
+}
+
+function TransactionEntryView({ branches = [] }) {
+    const [activeTab, setActiveTab] = useState('Payments');
+    const [paymentsRows, setPaymentsRows] = useState(() => renumberVouchers([blankPaymentRow(0), blankPaymentRow(1)], 'PE'));
+    const [receiptsRows, setReceiptsRows] = useState(() => renumberVouchers([blankReceiptRow(0), blankReceiptRow(1)], 'RV'));
+    const [journalEntryRows, setJournalEntryRows] = useState(() => [blankJournalRow(0), blankJournalRow(1)]);
+    const [journalMemo, setJournalMemo] = useState('');
+    const [headerDate, setHeaderDate] = useState(todayIsoDate());
+    const [headerBranchId, setHeaderBranchId] = useState('');
+    const [generalNote, setGeneralNote] = useState('');
+    const [paidFromAccountId, setPaidFromAccountId] = useState('');
+
+    const [cashBankAccounts, setCashBankAccounts] = useState([]);
+    const [coaPayableExpense, setCoaPayableExpense] = useState([]);
+    const [coaReceivableRevenue, setCoaReceivableRevenue] = useState([]);
+    const [coaAll, setCoaAll] = useState([]);
+    const [payeesBySupplier, setPayeesBySupplier] = useState([]);
+    const [payeesByEmployee, setPayeesByEmployee] = useState([]);
+    const [payeesByCustomer, setPayeesByCustomer] = useState([]);
+    const [recentRows, setRecentRows] = useState([]);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+    const [okMsg, setOkMsg] = useState('');
+
+    const reloadLookups = useCallback(async () => {
+        try {
+            const [cb, payExp, recRev, all, sup, emp, cust] = await Promise.all([
+                listAcctCashBank(),
+                listAcctCoa('payable_expense'),
+                listAcctCoa('receivable_revenue'),
+                listAcctCoa('all'),
+                listAcctPayees('supplier'),
+                listAcctPayees('employee'),
+                listAcctPayees('customer'),
+            ]);
+            setCashBankAccounts(cb?.accounts ?? []);
+            setCoaPayableExpense(payExp?.accounts ?? []);
+            setCoaReceivableRevenue(recRev?.accounts ?? []);
+            setCoaAll(all?.accounts ?? []);
+            setPayeesBySupplier(sup?.payees ?? []);
+            setPayeesByEmployee(emp?.payees ?? []);
+            setPayeesByCustomer(cust?.payees ?? []);
+        } catch (e) {
+            console.error('Failed to load accounting lookups', e);
+            setError(e?.message || 'Failed to load lookups');
         }
+    }, []);
+
+    useEffect(() => { reloadLookups(); }, [reloadLookups]);
+
+    // Whenever Paid From Account changes, sync the branch field with the
+    // register's branch so the user doesn't need to set it twice.
+    useEffect(() => {
+        if (!paidFromAccountId) return;
+        const acc = cashBankAccounts.find((a) => String(a.id) === String(paidFromAccountId));
+        if (acc?.branchId) setHeaderBranchId(String(acc.branchId));
+    }, [paidFromAccountId, cashBankAccounts]);
+
+    const reloadRecent = useCallback(async (tab) => {
+        try {
+            if (tab === 'Payments') {
+                const res = await listAcctPayments({ limit: 8 });
+                setRecentRows(res?.rows ?? []);
+            } else if (tab === 'Receipts') {
+                const res = await listAcctReceipts({ limit: 8 });
+                setRecentRows(res?.rows ?? []);
+            } else {
+                const res = await listAcctJournalEntries({ limit: 8 });
+                setRecentRows((res?.entries ?? []).map((e) => ({
+                    id: e.id,
+                    voucherNumber: e.entryNumber,
+                    transactionType: 'journal',
+                    date: e.date,
+                    amount: e.totalDebit,
+                    status: e.status,
+                    payeeName: e.description,
+                })));
+            }
+        } catch (e) {
+            console.error('Failed to load recent', e);
+            setRecentRows([]);
+        }
+    }, []);
+    useEffect(() => { reloadRecent(activeTab); }, [activeTab, reloadRecent]);
+
+    const payeeOptionsForType = (t) => {
+        if (t === 'Supplier') return payeesBySupplier;
+        if (t === 'Employee') return payeesByEmployee;
+        if (t === 'Customer') return payeesByCustomer;
+        return [];
     };
+
+    const addRow = useCallback(() => {
+        if (activeTab === 'Payments') {
+            setPaymentsRows((prev) => renumberVouchers([...prev, blankPaymentRow(prev.length)], 'PE'));
+        } else if (activeTab === 'Receipts') {
+            setReceiptsRows((prev) => renumberVouchers([...prev, blankReceiptRow(prev.length)], 'RV'));
+        } else {
+            setJournalEntryRows((prev) => [...prev, blankJournalRow(prev.length)]);
+        }
+    }, [activeTab]);
 
     const removeRow = (id) => {
         if (activeTab === 'Payments') {
-            setPaymentsRows((prev) => prev.filter((r) => r.id !== id));
+            setPaymentsRows((prev) => renumberVouchers(prev.filter((r) => r.id !== id), 'PE'));
         } else if (activeTab === 'Receipts') {
-            setReceiptsRows((prev) => prev.filter((r) => r.id !== id));
+            setReceiptsRows((prev) => renumberVouchers(prev.filter((r) => r.id !== id), 'RV'));
         } else {
             setJournalEntryRows((prev) => prev.filter((r) => r.id !== id));
         }
     };
 
-    const calculateJournalTotals = () => {
-        const debit = journalEntryRows.reduce((sum, row) => sum + parseFloat(row.debit || 0), 0);
-        const credit = journalEntryRows.reduce((sum, row) => sum + parseFloat(row.credit || 0), 0);
-        return { debit: debit.toFixed(2), credit: credit.toFixed(2) };
+    const updatePaymentRow = (id, patch) => {
+        setPaymentsRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    };
+    const updateReceiptRow = (id, patch) => {
+        setReceiptsRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    };
+    const updateJournalRow = (id, patch) => {
+        setJournalEntryRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
     };
 
+    // Tab on the very last input of the very last row appends a new row.
+    const handleLastFieldKeyDown = (rowIdx, totalRows) => (e) => {
+        if (e.key !== 'Tab' || e.shiftKey) return;
+        if (rowIdx !== totalRows - 1) return;
+        e.preventDefault();
+        addRow();
+    };
+
+    const calculateJournalTotals = () => {
+        const debit = journalEntryRows.reduce((sum, row) => sum + (parseFloat(row.debit) || 0), 0);
+        const credit = journalEntryRows.reduce((sum, row) => sum + (parseFloat(row.credit) || 0), 0);
+        return { debit: debit.toFixed(2), credit: credit.toFixed(2), isBalanced: Math.abs(debit - credit) < 0.005 && debit > 0 };
+    };
     const journalTotals = calculateJournalTotals();
+
+    const validRowCountPayments = paymentsRows.filter((r) => Number(r.amount) > 0 && r.accountId).length;
+    const validRowCountReceipts = receiptsRows.filter((r) => Number(r.amount) > 0 && r.accountId).length;
+    const totalPayments = paymentsRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const totalReceipts = receiptsRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+    const handleSavePayments = async () => {
+        setError(''); setOkMsg('');
+        if (!paidFromAccountId) { setError('Select a Paid From account first.'); return; }
+        const valid = paymentsRows.filter((r) => Number(r.amount) > 0 && r.accountId);
+        if (!valid.length) { setError('Add at least one row with an amount and account.'); return; }
+        setSaving(true);
+        try {
+            const res = await createAcctPayments({
+                date: headerDate,
+                branchId: headerBranchId || undefined,
+                generalNote: generalNote || undefined,
+                cashBankAccountId: paidFromAccountId,
+                rows: valid.map((r) => ({
+                    voucherHint: r.voucher,
+                    date: r.date || headerDate,
+                    payeeType: r.type,
+                    payeeId: r.payeeId || undefined,
+                    payeeName: r.payeeName || undefined,
+                    accountId: r.accountId,
+                    amount: Number(r.amount),
+                    reference: r.ref || undefined,
+                    notes: r.notes || undefined,
+                })),
+            });
+            setPaymentsRows(renumberVouchers([blankPaymentRow(0)], 'PE'));
+            setOkMsg(`Saved ${res?.saved ?? valid.length} payment(s) — total SAR ${(res?.total ?? 0).toFixed(2)}`);
+            await reloadRecent('Payments');
+            await reloadLookups();
+        } catch (e) {
+            setError(e?.message || 'Failed to save payments');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleSaveReceipts = async () => {
+        setError(''); setOkMsg('');
+        if (!paidFromAccountId) { setError('Select a Received Into account first.'); return; }
+        const valid = receiptsRows.filter((r) => Number(r.amount) > 0 && r.accountId);
+        if (!valid.length) { setError('Add at least one row with an amount and account.'); return; }
+        setSaving(true);
+        try {
+            const res = await createAcctReceipts({
+                date: headerDate,
+                branchId: headerBranchId || undefined,
+                generalNote: generalNote || undefined,
+                cashBankAccountId: paidFromAccountId,
+                rows: valid.map((r) => ({
+                    voucherHint: r.voucher,
+                    date: r.date || headerDate,
+                    payeeType: r.type,
+                    payeeId: r.payeeId || undefined,
+                    payeeName: r.payeeName || undefined,
+                    accountId: r.accountId,
+                    amount: Number(r.amount),
+                    reference: r.ref || undefined,
+                    notes: r.notes || undefined,
+                })),
+            });
+            setReceiptsRows(renumberVouchers([blankReceiptRow(0)], 'RV'));
+            setOkMsg(`Saved ${res?.saved ?? valid.length} receipt(s) — total SAR ${(res?.total ?? 0).toFixed(2)}`);
+            await reloadRecent('Receipts');
+            await reloadLookups();
+        } catch (e) {
+            setError(e?.message || 'Failed to save receipts');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handlePostJournal = async () => {
+        setError(''); setOkMsg('');
+        const lines = journalEntryRows.filter((r) => r.accountId && (Number(r.debit) > 0 || Number(r.credit) > 0));
+        if (lines.length < 2) { setError('A journal entry needs at least 2 lines with an account and amount.'); return; }
+        if (!journalTotals.isBalanced) { setError(`Debits (${journalTotals.debit}) must equal credits (${journalTotals.credit}).`); return; }
+        setSaving(true);
+        try {
+            const res = await createAcctJournalEntry({
+                date: headerDate,
+                branchId: headerBranchId || undefined,
+                description: journalMemo || undefined,
+                lines: lines.map((l) => ({
+                    accountId: l.accountId,
+                    description: l.description || undefined,
+                    debit: Number(l.debit) || 0,
+                    credit: Number(l.credit) || 0,
+                })),
+            });
+            setJournalEntryRows([blankJournalRow(0), blankJournalRow(1)]);
+            setJournalMemo('');
+            setOkMsg(`Posted ${res?.entry?.entryNumber || 'journal entry'} — Dr ${res?.entry?.totalDebit?.toFixed?.(2) ?? journalTotals.debit} / Cr ${res?.entry?.totalCredit?.toFixed?.(2) ?? journalTotals.credit}`);
+            await reloadRecent('Journal Entry');
+        } catch (e) {
+            setError(e?.message || 'Failed to post journal entry');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const paidFromLabel = activeTab === 'Receipts' ? 'Received Into Account' : 'Paid From Account';
+    const cashBankPlaceholder = activeTab === 'Receipts'
+        ? 'Select Cash / Bank to deposit into'
+        : 'Select Cash / Bank / Petty Cash';
+
+    const renderPayeeSelect = (row, update) => {
+        const options = payeeOptionsForType(row.type);
+        if (row.type === 'Other') {
+            return (
+                <input
+                    type="text"
+                    className="table-input-field"
+                    placeholder="Payee name"
+                    value={row.payeeName}
+                    onChange={(e) => update(row.id, { payeeName: e.target.value, payeeId: '' })}
+                />
+            );
+        }
+        return (
+            <select
+                className="table-input-field"
+                value={row.payeeId}
+                onChange={(e) => {
+                    const pid = e.target.value;
+                    const opt = options.find((o) => String(o.id) === String(pid));
+                    update(row.id, { payeeId: pid, payeeName: opt?.name ?? '' });
+                }}
+            >
+                <option value="">Select {row.type.toLowerCase()}</option>
+                {options.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}{o.sublabel ? ` — ${o.sublabel}` : ''}</option>
+                ))}
+            </select>
+        );
+    };
+
+    const renderAccountSelect = (row, update, options) => (
+        <select
+            className="table-input-field"
+            value={row.accountId}
+            onChange={(e) => update(row.id, { accountId: e.target.value })}
+        >
+            <option value="">Select account…</option>
+            {options.map((o) => (
+                <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
+        </select>
+    );
+
+    const formatRecentDate = (d) => {
+        if (!d) return '—';
+        try { return new Date(d).toLocaleDateString(); } catch { return String(d); }
+    };
 
     return (
         <div className="transaction-entry-view">
@@ -266,28 +576,55 @@ function TransactionEntryView() {
                     <div className="form-group">
                         <label className="form-label">Date *</label>
                         <div className="input-with-icon">
-                            <input type="date" className="form-input-field" defaultValue="2026-06-03" />
+                            <input
+                                type="date"
+                                className="form-input-field"
+                                value={headerDate}
+                                onChange={(e) => setHeaderDate(e.target.value)}
+                            />
                         </div>
                     </div>
                     <div className="form-group">
                         <label className="form-label">Branch</label>
-                        <select className="form-input-field">
-                            <option>Select branch</option>
+                        <select
+                            className="form-input-field"
+                            value={headerBranchId}
+                            onChange={(e) => setHeaderBranchId(e.target.value)}
+                        >
+                            <option value="">All branches</option>
+                            {branches.map((b) => (
+                                <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
                         </select>
                     </div>
                     <div className="form-group">
                         <label className="form-label">General Note</label>
-                        <input type="text" className="form-input-field" placeholder="Optional note for all entries" />
+                        <input
+                            type="text"
+                            className="form-input-field"
+                            placeholder="Optional note for all entries"
+                            value={generalNote}
+                            onChange={(e) => setGeneralNote(e.target.value)}
+                        />
                     </div>
                     <div className="form-group">
                         <label className="form-label">
                             <div className="label-with-settings">
                                 <Settings size={14} className="settings-icon-label" />
-                                <span>Paid From Account</span>
+                                <span>{paidFromLabel}</span>
                             </div>
                         </label>
-                        <select className="form-input-field">
-                            <option>Select Cash / Bank / Petty Cash</option>
+                        <select
+                            className="form-input-field"
+                            value={paidFromAccountId}
+                            onChange={(e) => setPaidFromAccountId(e.target.value)}
+                        >
+                            <option value="">{cashBankPlaceholder}</option>
+                            {cashBankAccounts.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                    {a.name} ({a.type}) — SAR {Number(a.currentBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </option>
+                            ))}
                         </select>
                     </div>
                 </div>
@@ -296,19 +633,19 @@ function TransactionEntryView() {
             <div className="trans-tabs-container">
                 <button
                     className={`trans-tab-item ${activeTab === 'Payments' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('Payments')}
+                    onClick={() => { setActiveTab('Payments'); setError(''); setOkMsg(''); }}
                 >
                     <Banknote size={16} /> Payments
                 </button>
                 <button
                     className={`trans-tab-item ${activeTab === 'Receipts' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('Receipts')}
+                    onClick={() => { setActiveTab('Receipts'); setError(''); setOkMsg(''); }}
                 >
                     <FileText size={16} /> Receipts
                 </button>
                 <button
                     className={`trans-tab-item ${activeTab === 'Journal Entry' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('Journal Entry')}
+                    onClick={() => { setActiveTab('Journal Entry'); setError(''); setOkMsg(''); }}
                 >
                     <ArrowLeftRight size={16} /> Journal Entry
                 </button>
@@ -317,7 +654,10 @@ function TransactionEntryView() {
             <div className="trans-table-card">
                 {activeTab === 'Journal Entry' && (
                     <div className="journal-memo-container">
-                        <div className="journal-id-badge">Journal Entry • <small>JE0003</small> • <span className="memo-help">Tab on Credit field adds new line</span></div>
+                        <div className="journal-id-badge">
+                            Journal Entry • <small>{journalTotals.isBalanced ? 'Balanced' : `Diff SAR ${(parseFloat(journalTotals.debit) - parseFloat(journalTotals.credit)).toFixed(2)}`}</small>
+                            {' '}• <span className="memo-help">Tab on Credit field adds new line</span>
+                        </div>
                         <input
                             type="text"
                             className="journal-memo-input"
@@ -358,73 +698,65 @@ function TransactionEntryView() {
                             )}
                         </thead>
                         <tbody>
-                            {activeTab === 'Payments' && paymentsRows.map((row) => (
+                            {activeTab === 'Payments' && paymentsRows.map((row, idx) => (
                                 <tr key={row.id}>
-                                    <td><input type="text" className="table-input-field voucher-input" defaultValue={row.voucher} readOnly /></td>
-                                    <td><input type="date" className="table-input-field" defaultValue={row.date} /></td>
+                                    <td><input type="text" className="table-input-field voucher-input" value={row.voucher} readOnly /></td>
+                                    <td><input type="date" className="table-input-field" value={row.date} onChange={(e) => updatePaymentRow(row.id, { date: e.target.value })} /></td>
                                     <td>
-                                        <select className="table-input-field">
-                                            <option>Supplier</option>
+                                        <select className="table-input-field" value={row.type} onChange={(e) => updatePaymentRow(row.id, { type: e.target.value, payeeId: '', payeeName: '' })}>
+                                            {PAYEE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                                         </select>
                                     </td>
+                                    <td>{renderPayeeSelect(row, updatePaymentRow)}</td>
+                                    <td>{renderAccountSelect(row, updatePaymentRow, coaPayableExpense)}</td>
+                                    <td><input type="number" step="0.01" min="0" className="table-input-field" value={row.amount} onChange={(e) => updatePaymentRow(row.id, { amount: e.target.value })} placeholder="0.00" /></td>
+                                    <td><input type="text" className="table-input-field" placeholder="Ref #" value={row.ref} onChange={(e) => updatePaymentRow(row.id, { ref: e.target.value })} /></td>
                                     <td>
-                                        <select className="table-input-field">
-                                            <option>Select supplier</option>
-                                        </select>
+                                        <input
+                                            type="text"
+                                            className="table-input-field"
+                                            placeholder="Notes"
+                                            value={row.notes}
+                                            onChange={(e) => updatePaymentRow(row.id, { notes: e.target.value })}
+                                            onKeyDown={handleLastFieldKeyDown(idx, paymentsRows.length)}
+                                        />
                                     </td>
                                     <td>
-                                        <select className="table-input-field">
-                                            <option>Payable / Expense</option>
-                                        </select>
-                                    </td>
-                                    <td><input type="number" className="table-input-field" defaultValue={row.amount} /></td>
-                                    <td><input type="text" className="table-input-field" placeholder="Ref #" /></td>
-                                    <td><input type="text" className="table-input-field" placeholder="Notes" /></td>
-                                    <td>
-                                        <button className="btn-row-delete" onClick={() => removeRow(row.id)}>
+                                        <button className="btn-row-delete" onClick={() => removeRow(row.id)} title="Delete row">
                                             <Trash2 size={16} />
                                         </button>
                                     </td>
                                 </tr>
                             ))}
-                            {activeTab === 'Receipts' && receiptsRows.map((row) => (
+                            {activeTab === 'Receipts' && receiptsRows.map((row, idx) => (
                                 <tr key={row.id}>
-                                    <td><input type="text" className="table-input-field voucher-input receipt-voucher" defaultValue={row.voucher} readOnly /></td>
+                                    <td><input type="text" className="table-input-field voucher-input receipt-voucher" value={row.voucher} readOnly /></td>
                                     <td>
                                         <div className="table-input-with-icon">
-                                            <input type="text" className="table-input-field" defaultValue={row.date} />
-                                            <Calendar size={14} className="input-field-icon" />
+                                            <input type="date" className="table-input-field" value={row.date} onChange={(e) => updateReceiptRow(row.id, { date: e.target.value })} />
                                         </div>
                                     </td>
                                     <td>
-                                        <div className="table-input-with-icon">
-                                            <select className="table-input-field">
-                                                <option>Customer</option>
-                                            </select>
-                                            <ChevronDown size={14} className="input-field-icon" />
-                                        </div>
+                                        <select className="table-input-field" value={row.type} onChange={(e) => updateReceiptRow(row.id, { type: e.target.value, payeeId: '', payeeName: '' })}>
+                                            {PAYEE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                    </td>
+                                    <td>{renderPayeeSelect(row, updateReceiptRow)}</td>
+                                    <td>{renderAccountSelect(row, updateReceiptRow, coaReceivableRevenue)}</td>
+                                    <td><input type="number" step="0.01" min="0" className="table-input-field" value={row.amount} onChange={(e) => updateReceiptRow(row.id, { amount: e.target.value })} placeholder="0.00" /></td>
+                                    <td><input type="text" className="table-input-field" placeholder="Ref #" value={row.ref} onChange={(e) => updateReceiptRow(row.id, { ref: e.target.value })} /></td>
+                                    <td>
+                                        <input
+                                            type="text"
+                                            className="table-input-field"
+                                            placeholder="Notes"
+                                            value={row.notes}
+                                            onChange={(e) => updateReceiptRow(row.id, { notes: e.target.value })}
+                                            onKeyDown={handleLastFieldKeyDown(idx, receiptsRows.length)}
+                                        />
                                     </td>
                                     <td>
-                                        <div className="table-input-with-icon">
-                                            <select className="table-input-field">
-                                                <option>Select customer</option>
-                                            </select>
-                                            <ChevronDown size={14} className="input-field-icon" />
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div className="table-input-with-icon">
-                                            <select className="table-input-field">
-                                                <option>Receivable / Revenue</option>
-                                            </select>
-                                            <ChevronDown size={14} className="input-field-icon" />
-                                        </div>
-                                    </td>
-                                    <td><input type="number" className="table-input-field" defaultValue={row.amount} /></td>
-                                    <td><input type="text" className="table-input-field" placeholder="Ref #" /></td>
-                                    <td><input type="text" className="table-input-field" placeholder="Notes" /></td>
-                                    <td>
-                                        <button className="btn-row-delete" onClick={() => removeRow(row.id)}>
+                                        <button className="btn-row-delete" onClick={() => removeRow(row.id)} title="Delete row">
                                             <Trash2 size={16} />
                                         </button>
                                     </td>
@@ -432,18 +764,43 @@ function TransactionEntryView() {
                             ))}
                             {activeTab === 'Journal Entry' && (
                                 <>
-                                    {journalEntryRows.map((row) => (
+                                    {journalEntryRows.map((row, idx) => (
                                         <tr key={row.id}>
+                                            <td>{renderAccountSelect(row, updateJournalRow, coaAll)}</td>
                                             <td>
-                                                <select className="table-input-field">
-                                                    <option>Account</option>
-                                                </select>
+                                                <input
+                                                    type="text"
+                                                    className="table-input-field"
+                                                    placeholder="Line description"
+                                                    value={row.description}
+                                                    onChange={(e) => updateJournalRow(row.id, { description: e.target.value })}
+                                                />
                                             </td>
-                                            <td><input type="text" className="table-input-field" placeholder="Line description" /></td>
-                                            <td><input type="number" className="table-input-field" defaultValue={row.debit} /></td>
-                                            <td><input type="number" className="table-input-field" defaultValue={row.credit} /></td>
                                             <td>
-                                                <button className="btn-row-delete" onClick={() => removeRow(row.id)}>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    className="table-input-field"
+                                                    value={row.debit}
+                                                    onChange={(e) => updateJournalRow(row.id, { debit: e.target.value, credit: e.target.value ? '' : row.credit })}
+                                                    placeholder="0.00"
+                                                />
+                                            </td>
+                                            <td>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min="0"
+                                                    className="table-input-field"
+                                                    value={row.credit}
+                                                    onChange={(e) => updateJournalRow(row.id, { credit: e.target.value, debit: e.target.value ? '' : row.debit })}
+                                                    placeholder="0.00"
+                                                    onKeyDown={handleLastFieldKeyDown(idx, journalEntryRows.length)}
+                                                />
+                                            </td>
+                                            <td>
+                                                <button className="btn-row-delete" onClick={() => removeRow(row.id)} title="Delete row">
                                                     <Trash2 size={16} />
                                                 </button>
                                             </td>
@@ -460,16 +817,46 @@ function TransactionEntryView() {
                         </tbody>
                     </table>
                 </div>
+
+                {(error || okMsg) && (
+                    <div style={{ padding: '8px 12px', fontSize: 13 }}>
+                        {error && <div style={{ color: '#B91C1C', fontWeight: 600 }}>{error}</div>}
+                        {okMsg && <div style={{ color: '#047857', fontWeight: 600 }}>{okMsg}</div>}
+                    </div>
+                )}
+
                 <div className="trans-table-footer">
                     <div className="trans-total-summary">
-                        {activeTab === 'Payments' && `${paymentsRows.length} valid rows - Total: SAR 0.00`}
-                        {activeTab === 'Receipts' && `0 valid rows - Total: SAR 0.00`}
-                        {activeTab === 'Journal Entry' && null}
+                        {activeTab === 'Payments' && `${validRowCountPayments} valid row${validRowCountPayments === 1 ? '' : 's'} — Total: SAR ${totalPayments.toFixed(2)}`}
+                        {activeTab === 'Receipts' && `${validRowCountReceipts} valid row${validRowCountReceipts === 1 ? '' : 's'} — Total: SAR ${totalReceipts.toFixed(2)}`}
+                        {activeTab === 'Journal Entry' && (
+                            journalTotals.isBalanced
+                                ? `Balanced — SAR ${journalTotals.debit}`
+                                : `Unbalanced — Dr ${journalTotals.debit} / Cr ${journalTotals.credit}`
+                        )}
                     </div>
-                    <button className="btn-save-all">
-                        {activeTab === 'Journal Entry' ? <Book size={16} /> : activeTab === 'Receipts' ? <Shield size={16} /> : <Shield size={16} />}
-                        {activeTab === 'Journal Entry' ? 'Post Journal Entry' : `Save All ${activeTab}`}
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                            className="btn-portal-outline"
+                            onClick={addRow}
+                            disabled={saving}
+                            style={{ padding: '8px 14px' }}
+                        >
+                            <Plus size={14} /> Add row
+                        </button>
+                        <button
+                            className="btn-save-all"
+                            disabled={saving}
+                            onClick={() => {
+                                if (activeTab === 'Payments') return handleSavePayments();
+                                if (activeTab === 'Receipts') return handleSaveReceipts();
+                                return handlePostJournal();
+                            }}
+                        >
+                            {activeTab === 'Journal Entry' ? <Book size={16} /> : <Shield size={16} />}
+                            {saving ? 'Saving…' : (activeTab === 'Journal Entry' ? 'Post Journal Entry' : `Save All ${activeTab}`)}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -477,17 +864,28 @@ function TransactionEntryView() {
             <section className="recent-transactions">
                 <h3 className="recent-trans-title">Recent {activeTab}</h3>
                 <div className="recent-trans-placeholder">
-                    {activeTab === 'Journal Entry' && (
-                        <div className="recent-je-item">
-                            <div className="je-item-info">
-                                <span className="je-code">SI-JE-82608989</span>
-                                <span className="je-date">Feb 28, 2026</span>
-                            </div>
-                            <div className="je-item-status">
-                                <span className="je-amount">SAR 128.51</span>
-                                <span className="je-posted-badge">Posted</span>
-                            </div>
+                    {recentRows.length === 0 ? (
+                        <div style={{ color: '#94A3B8', padding: 20, textAlign: 'center', fontSize: 13 }}>
+                            No recent {activeTab.toLowerCase()} yet.
                         </div>
+                    ) : (
+                        recentRows.map((r) => (
+                            <div key={r.id} className="recent-je-item">
+                                <div className="je-item-info">
+                                    <span className="je-code">{r.voucherNumber || r.entryNumber}</span>
+                                    <span className="je-date">
+                                        {formatRecentDate(r.date)}
+                                        {r.payeeName ? ` • ${r.payeeName}` : ''}
+                                    </span>
+                                </div>
+                                <div className="je-item-status">
+                                    <span className="je-amount">SAR {Number(r.amount || 0).toFixed(2)}</span>
+                                    <span className={`je-posted-badge ${r.status === 'posted' ? '' : ''}`}>
+                                        {(r.status || 'posted').toUpperCase()}
+                                    </span>
+                                </div>
+                            </div>
+                        ))
                     )}
                 </div>
             </section>
@@ -497,6 +895,51 @@ function TransactionEntryView() {
 }
 
 function ReceiptsView() {
+    const [methodFilter, setMethodFilter] = useState('All');
+    const [search, setSearch] = useState('');
+    const [rows, setRows] = useState([]);
+    const [summary, setSummary] = useState({ totalReceived: 0, cash: 0, bank: 0, pettyCash: 0 });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    const reload = useCallback(async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const [list, sum] = await Promise.all([
+                listAcctReceipts({ q: search || undefined, limit: 200 }),
+                getAcctReceiptsSummary(),
+            ]);
+            const all = list?.rows ?? [];
+            const filtered = methodFilter === 'All'
+                ? all
+                : all.filter((r) => {
+                    const t = (r.cashBankAccountType || '').toUpperCase();
+                    if (methodFilter === 'Cash') return t === 'CASH';
+                    if (methodFilter === 'Bank') return t === 'BANK';
+                    if (methodFilter === 'Petty Cash') return t === 'PETTY_CASH';
+                    return true;
+                });
+            setRows(filtered);
+            setSummary({
+                totalReceived: Number(sum?.byMethod?.total ?? sum?.approvedTotal ?? 0),
+                cash: Number(sum?.byMethod?.cashTotal ?? 0),
+                bank: Number(sum?.byMethod?.bankTotal ?? 0),
+                pettyCash: Number(sum?.byMethod?.pettyCashTotal ?? 0),
+            });
+        } catch (e) {
+            setError(e?.message || 'Failed to load receipts');
+            setRows([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [methodFilter, search]);
+
+    useEffect(() => { reload(); }, [reload]);
+
+    const fmtMoney = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtDate = (d) => { try { return new Date(d).toLocaleDateString(); } catch { return String(d || '—'); } };
+
     return (
         <div className="receipts-view">
             <header className="receipts-header">
@@ -510,7 +953,7 @@ function ReceiptsView() {
                 <div className="receipt-stat-card">
                     <div className="receipt-stat-info">
                         <span className="receipt-stat-label">Total Received</span>
-                        <h3 className="receipt-stat-value">SAR 0</h3>
+                        <h3 className="receipt-stat-value">SAR {fmtMoney(summary.totalReceived)}</h3>
                     </div>
                     <div className="receipt-stat-icon-wrapper icon-green-light">
                         <ArrowLeftRight size={20} className="receipt-stat-icon rotate-45" />
@@ -519,7 +962,7 @@ function ReceiptsView() {
                 <div className="receipt-stat-card">
                     <div className="receipt-stat-info">
                         <span className="receipt-stat-label">Cash</span>
-                        <h3 className="receipt-stat-value">SAR 0</h3>
+                        <h3 className="receipt-stat-value">SAR {fmtMoney(summary.cash)}</h3>
                     </div>
                     <div className="receipt-stat-icon-wrapper icon-green-light">
                         <DollarSign size={20} className="receipt-stat-icon" />
@@ -528,7 +971,7 @@ function ReceiptsView() {
                 <div className="receipt-stat-card">
                     <div className="receipt-stat-info">
                         <span className="receipt-stat-label">Bank Transfer</span>
-                        <h3 className="receipt-stat-value">SAR 0</h3>
+                        <h3 className="receipt-stat-value">SAR {fmtMoney(summary.bank)}</h3>
                     </div>
                     <div className="receipt-stat-icon-wrapper icon-blue-light">
                         <Landmark size={20} className="receipt-stat-icon" />
@@ -536,8 +979,8 @@ function ReceiptsView() {
                 </div>
                 <div className="receipt-stat-card">
                     <div className="receipt-stat-info">
-                        <span className="receipt-stat-label">Card</span>
-                        <h3 className="receipt-stat-value">SAR 0</h3>
+                        <span className="receipt-stat-label">Petty Cash</span>
+                        <h3 className="receipt-stat-value">SAR {fmtMoney(summary.pettyCash)}</h3>
                     </div>
                     <div className="receipt-stat-icon-wrapper icon-purple-light">
                         <CreditCard size={20} className="receipt-stat-icon" />
@@ -548,21 +991,35 @@ function ReceiptsView() {
             <div className="receipts-filters-bar">
                 <div className="receipts-search-wrapper">
                     <Search size={18} className="receipts-search-icon" />
-                    <input type="text" placeholder="Search by payer or receipt #..." className="receipts-search-input" />
+                    <input
+                        type="text"
+                        placeholder="Search by payer, voucher, or reference..."
+                        className="receipts-search-input"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
                 </div>
                 <div className="receipts-filter-actions">
                     <div className="receipts-type-chips">
-                        <button className="receipt-chip active">All</button>
-                        <button className="receipt-chip">Cash</button>
-                        <button className="receipt-chip">Bank</button>
-                        <button className="receipt-chip">Card</button>
-                        <button className="receipt-chip">Cheque</button>
+                        {['All', 'Cash', 'Bank', 'Petty Cash'].map((m) => (
+                            <button
+                                key={m}
+                                className={`receipt-chip ${methodFilter === m ? 'active' : ''}`}
+                                onClick={() => setMethodFilter(m)}
+                            >
+                                {m}
+                            </button>
+                        ))}
                     </div>
-                    <button className="btn-receipt-filter">
-                        <Filter size={16} /> Filters
+                    <button className="btn-receipt-filter" onClick={reload}>
+                        <RefreshCw size={16} /> Refresh
                     </button>
                 </div>
             </div>
+
+            {error && (
+                <div style={{ padding: 10, color: '#B91C1C', fontWeight: 600 }}>{error}</div>
+            )}
 
             <div className="premium-table receipts-table-container">
                 <table className="receipts-logs-table">
@@ -579,11 +1036,44 @@ function ReceiptsView() {
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
-                            <td colSpan="8" className="table-empty-receipts">
-                                No receipts found
-                            </td>
-                        </tr>
+                        {loading ? (
+                            <tr><td colSpan="8" className="table-empty-receipts">Loading receipts…</td></tr>
+                        ) : rows.length === 0 ? (
+                            <tr><td colSpan="8" className="table-empty-receipts">No receipts found</td></tr>
+                        ) : (
+                            rows.map((r) => (
+                                <tr key={r.id}>
+                                    <td className="table-cell font-bold">{r.voucherNumber}</td>
+                                    <td className="table-cell">{fmtDate(r.date)}</td>
+                                    <td className="table-cell">{r.payeeName || '—'}</td>
+                                    <td className="table-cell color-muted">{r.notes || r.generalNote || '—'}</td>
+                                    <td className="table-cell">{r.cashBankAccountName ? `${r.cashBankAccountName} (${r.cashBankAccountType})` : '—'}</td>
+                                    <td className="table-cell color-green-dark font-bold">SAR {fmtMoney(r.amount)}</td>
+                                    <td className="table-cell">
+                                        <span className="badge-status-posted" style={{
+                                            background: r.status === 'posted' ? '#DCFCE7' : r.status === 'pending' ? '#FEF3C7' : '#FEE2E2',
+                                            color: r.status === 'posted' ? '#166534' : r.status === 'pending' ? '#92400E' : '#991B1B',
+                                        }}>
+                                            {(r.status || '').toUpperCase() === 'POSTED' ? 'POSTED' : (r.status || '').toUpperCase()}
+                                        </span>
+                                    </td>
+                                    <td className="table-cell">
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                            {r.status === 'pending' && (
+                                                <button className="jr-action-btn" onClick={async () => { try { await approveAcctReceipt(r.id); reload(); } catch (e) { setError(e?.message || 'Failed'); } }} title="Approve">
+                                                    <CheckCircle size={16} />
+                                                </button>
+                                            )}
+                                            {r.status === 'pending' && (
+                                                <button className="jr-action-btn btn-delete-row" onClick={async () => { try { await rejectAcctReceipt(r.id); reload(); } catch (e) { setError(e?.message || 'Failed'); } }} title="Reject">
+                                                    <X size={16} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
                     </tbody>
                 </table>
             </div>
@@ -2224,10 +2714,65 @@ function ExpensesView() {
 function GeneralJournalView() {
     const [viewJEOpen, setViewJEOpen] = useState(false);
     const [selectedJE, setSelectedJE] = useState(null);
+    const [entries, setEntries] = useState([]);
+    const [summary, setSummary] = useState({ totalEntries: 0, postedCount: 0, balancedCount: 0, totalDebit: 0 });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [search, setSearch] = useState('');
+    const [typeFilter, setTypeFilter] = useState('All Types');
 
-    const handleViewJE = (je) => {
-        setSelectedJE(je);
-        setViewJEOpen(true);
+    const reload = useCallback(async () => {
+        setLoading(true); setError('');
+        try {
+            const params = { limit: 200 };
+            if (search) params.q = search;
+            if (typeFilter && typeFilter !== 'All Types') params.type = typeFilter;
+            const res = await listAcctJournalEntries(params);
+            setEntries(res?.entries ?? []);
+            setSummary({
+                totalEntries: Number(res?.summary?.totalEntries ?? 0),
+                postedCount: Number(res?.summary?.postedCount ?? 0),
+                balancedCount: Number(res?.summary?.balancedCount ?? 0),
+                totalDebit: Number(res?.summary?.totalDebit ?? 0),
+            });
+        } catch (e) {
+            setError(e?.message || 'Failed to load journal entries');
+            setEntries([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [search, typeFilter]);
+
+    useEffect(() => { reload(); }, [reload]);
+
+    const fmtMoney = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtDate = (d) => { try { return new Date(d).toLocaleDateString(); } catch { return String(d || '—'); } };
+
+    const toPrintShape = (entry) => ({
+        code: entry.entryNumber,
+        date: fmtDate(entry.date),
+        type: entry.type,
+        status: (entry.status || '').toUpperCase(),
+        totalDebit: `SAR ${fmtMoney(entry.totalDebit)}`,
+        totalCredit: `SAR ${fmtMoney(entry.totalCredit)}`,
+        description: entry.description || '',
+        lines: (entry.lines || []).map((l) => ({
+            account: `${l.accountCode || ''}${l.accountCode ? ' — ' : ''}${l.accountName || ''}`,
+            description: l.description || '',
+            debit: l.debit ? fmtMoney(l.debit) : '',
+            credit: l.credit ? fmtMoney(l.credit) : '',
+        })),
+    });
+
+    const handleViewJE = async (entry) => {
+        try {
+            const full = await getAcctJournalEntry(entry.id);
+            setSelectedJE(toPrintShape(full?.entry || entry));
+            setViewJEOpen(true);
+        } catch {
+            setSelectedJE(toPrintShape(entry));
+            setViewJEOpen(true);
+        }
     };
 
     const handlePrintJE = (je) => {
@@ -2347,20 +2892,6 @@ function GeneralJournalView() {
         printWindow.document.close();
     };
 
-    const dummyJE = {
-        code: 'SI-JE-82608989',
-        date: '28 Feb 2026',
-        type: 'General',
-        status: 'Posted',
-        totalDebit: 'SAR 128.51',
-        totalCredit: 'SAR 128.51',
-        description: 'Sales Invoice — Safa Makkah — INV-82453822',
-        lines: [
-            { account: 'Accounts Receivable — Safa Makkah', description: 'Due from Safa Makkah', debit: '128.51', credit: '' },
-            { account: 'Workshop Revenue', description: 'Sale — INV-82453822', debit: '', credit: '128.51' }
-        ]
-    };
-
     return (
         <div className="general-journal-view">
             <header className="journal-header">
@@ -2375,7 +2906,7 @@ function GeneralJournalView() {
                     </div>
                     <div className="jr-stat-info">
                         <span className="jr-stat-label">Total Entries</span>
-                        <span className="jr-stat-value">1</span>
+                        <span className="jr-stat-value">{summary.totalEntries}</span>
                     </div>
                 </div>
                 <div className="jr-stat-card">
@@ -2384,7 +2915,7 @@ function GeneralJournalView() {
                     </div>
                     <div className="jr-stat-info">
                         <span className="jr-stat-label">Posted / Balanced</span>
-                        <span className="jr-stat-value">1 / 1</span>
+                        <span className="jr-stat-value">{summary.postedCount} / {summary.balancedCount}</span>
                     </div>
                 </div>
                 <div className="jr-stat-card">
@@ -2393,7 +2924,7 @@ function GeneralJournalView() {
                     </div>
                     <div className="jr-stat-info">
                         <span className="jr-stat-label">Total Debit</span>
-                        <span className="jr-stat-value">SAR 128.51</span>
+                        <span className="jr-stat-value">SAR {fmtMoney(summary.totalDebit)}</span>
                     </div>
                 </div>
             </div>
@@ -2401,17 +2932,39 @@ function GeneralJournalView() {
             <div className="journal-filters-bar">
                 <div className="jr-search-wrapper">
                     <Search size={18} className="search-icon" />
-                    <input type="text" placeholder="Search entry # or description..." className="jr-search-input" />
+                    <input
+                        type="text"
+                        placeholder="Search entry # or description..."
+                        className="jr-search-input"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
                 </div>
                 <div className="jr-filter-actions">
-                    <select className="jr-type-select">
+                    <select
+                        className="jr-type-select"
+                        value={typeFilter}
+                        onChange={(e) => setTypeFilter(e.target.value)}
+                    >
                         <option>All Types</option>
+                        <option>General</option>
+                        <option>Payment</option>
+                        <option>Receipt</option>
+                        <option>OpeningBalance</option>
+                        <option>PurchaseInvoice</option>
+                        <option>Sales</option>
+                        <option>POS</option>
+                        <option>Commission</option>
                     </select>
-                    <button className="btn-date-range">
-                        <Filter size={16} /> Date Range
+                    <button className="btn-date-range" onClick={reload}>
+                        <RefreshCw size={16} /> Refresh
                     </button>
                 </div>
             </div>
+
+            {error && (
+                <div style={{ padding: 10, color: '#B91C1C', fontWeight: 600 }}>{error}</div>
+            )}
 
             <section className="premium-table journal-table">
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -2430,24 +2983,35 @@ function GeneralJournalView() {
                         </tr>
                     </thead>
                     <tbody>
-                        <tr className="table-row">
-                            <td className="table-cell font-bold">SI-JE-82608989</td>
-                            <td className="table-cell">28 Feb 2026</td>
-                            <td className="table-cell"><span className="badge-type">General</span></td>
-                            <td className="table-cell color-muted truncate-text">Sales Invoice — Safa Makkah — INV-82453822</td>
-                            <td className="table-cell text-center"><span className="badge-count">2</span></td>
-                            <td className="table-cell color-green-dark font-bold">SAR 128.51</td>
-                            <td className="table-cell color-blue-dark font-bold">SAR 128.51</td>
-                            <td className="table-cell text-center"><CheckCircle size={16} className="color-green-light" /></td>
-                            <td className="table-cell"><span className="badge-status-posted">Posted</span></td>
-                            <td className="table-cell">
-                                <div className="jr-action-btns">
-                                    <button className="jr-action-btn" onClick={() => handleViewJE(dummyJE)}><Eye size={16} /></button>
-                                    <button className="jr-action-btn" onClick={() => handlePrintJE(dummyJE)}><Printer size={16} /></button>
-                                    <button className="jr-action-btn btn-delete-row"><Trash2 size={16} /></button>
-                                </div>
-                            </td>
-                        </tr>
+                        {loading ? (
+                            <tr><td colSpan={10} className="table-cell table-empty">Loading entries…</td></tr>
+                        ) : entries.length === 0 ? (
+                            <tr><td colSpan={10} className="table-cell table-empty">No journal entries yet</td></tr>
+                        ) : (
+                            entries.map((e) => (
+                                <tr key={e.id} className="table-row">
+                                    <td className="table-cell font-bold">{e.entryNumber}</td>
+                                    <td className="table-cell">{fmtDate(e.date)}</td>
+                                    <td className="table-cell"><span className="badge-type">{e.type}</span></td>
+                                    <td className="table-cell color-muted truncate-text">{e.description || '—'}</td>
+                                    <td className="table-cell text-center"><span className="badge-count">{e.lines?.length ?? 0}</span></td>
+                                    <td className="table-cell color-green-dark font-bold">SAR {fmtMoney(e.totalDebit)}</td>
+                                    <td className="table-cell color-blue-dark font-bold">SAR {fmtMoney(e.totalCredit)}</td>
+                                    <td className="table-cell text-center">
+                                        {e.isBalanced
+                                            ? <CheckCircle size={16} className="color-green-light" />
+                                            : <AlertTriangle size={16} style={{ color: '#B45309' }} />}
+                                    </td>
+                                    <td className="table-cell"><span className="badge-status-posted">{(e.status || '').toUpperCase()}</span></td>
+                                    <td className="table-cell">
+                                        <div className="jr-action-btns">
+                                            <button className="jr-action-btn" onClick={() => handleViewJE(e)} title="View"><Eye size={16} /></button>
+                                            <button className="jr-action-btn" onClick={() => handlePrintJE(toPrintShape(e))} title="Print"><Printer size={16} /></button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
                     </tbody>
                 </table>
             </section>
@@ -2540,6 +3104,48 @@ function GeneralJournalView() {
 
 function PaymentsView() {
     const [filter, setFilter] = useState('All');
+    const [search, setSearch] = useState('');
+    const [rows, setRows] = useState([]);
+    const [summary, setSummary] = useState({ approvedTotal: 0, pendingTotal: 0, thisMonthCount: 0 });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    const reload = useCallback(async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const status = filter === 'All' ? undefined : filter.toLowerCase() === 'approved' ? 'posted' : filter.toLowerCase();
+            const [list, sum] = await Promise.all([
+                listAcctPayments({ status, q: search || undefined, limit: 200 }),
+                getAcctPaymentsSummary(),
+            ]);
+            setRows(list?.rows ?? []);
+            setSummary({
+                approvedTotal: Number(sum?.approvedTotal ?? 0),
+                pendingTotal: Number(sum?.pendingTotal ?? 0),
+                thisMonthCount: Number(sum?.thisMonthCount ?? 0),
+            });
+        } catch (e) {
+            setError(e?.message || 'Failed to load payments');
+            setRows([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [filter, search]);
+
+    useEffect(() => { reload(); }, [reload]);
+
+    const handleApprove = async (id) => {
+        try { await approveAcctPayment(id); await reload(); }
+        catch (e) { setError(e?.message || 'Failed to approve'); }
+    };
+    const handleReject = async (id) => {
+        try { await rejectAcctPayment(id); await reload(); }
+        catch (e) { setError(e?.message || 'Failed to reject'); }
+    };
+
+    const fmtMoney = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtDate = (d) => { try { return new Date(d).toLocaleDateString(); } catch { return String(d || '—'); } };
 
     return (
         <div className="payments-log-view">
@@ -2552,21 +3158,21 @@ function PaymentsView() {
                 <div className="pay-stat-card">
                     <div className="pay-stat-info">
                         <span className="pay-stat-label">Total Approved</span>
-                        <span className="pay-stat-value">SAR 0</span>
+                        <span className="pay-stat-value">SAR {fmtMoney(summary.approvedTotal)}</span>
                     </div>
                     <div className="pay-stat-icon icon-green"><DollarSign size={20} /></div>
                 </div>
                 <div className="pay-stat-card">
                     <div className="pay-stat-info">
                         <span className="pay-stat-label">Pending Approval</span>
-                        <span className="pay-stat-value">SAR 0</span>
+                        <span className="pay-stat-value">SAR {fmtMoney(summary.pendingTotal)}</span>
                     </div>
                     <div className="pay-stat-icon icon-orange"><CreditCard size={20} /></div>
                 </div>
                 <div className="pay-stat-card">
                     <div className="pay-stat-info">
                         <span className="pay-stat-label">This Month</span>
-                        <span className="pay-stat-value">0</span>
+                        <span className="pay-stat-value">{summary.thisMonthCount}</span>
                         <span className="pay-stat-subtext">Approved payments</span>
                     </div>
                     <div className="pay-stat-icon icon-blue"><DollarSign size={20} /></div>
@@ -2576,7 +3182,13 @@ function PaymentsView() {
             <div className="payments-filters-bar">
                 <div className="pay-search-wrapper">
                     <Search size={18} className="search-icon" />
-                    <input type="text" placeholder="Search by payee or reference..." className="pay-search-input" />
+                    <input
+                        type="text"
+                        placeholder="Search by payee, voucher, or reference..."
+                        className="pay-search-input"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
                 </div>
                 <div className="pay-filter-actions">
                     <div className="pay-filter-tabs">
@@ -2590,16 +3202,21 @@ function PaymentsView() {
                             </button>
                         ))}
                     </div>
-                    <button className="btn-advanced-filters">
-                        <Filter size={16} /> Filters
+                    <button className="btn-advanced-filters" onClick={reload}>
+                        <RefreshCw size={16} /> Refresh
                     </button>
                 </div>
             </div>
+
+            {error && (
+                <div style={{ padding: 10, color: '#B91C1C', fontWeight: 600 }}>{error}</div>
+            )}
 
             <section className="premium-table payments-table">
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
+                            <th className="table-th">Voucher #</th>
                             <th className="table-th">Date</th>
                             <th className="table-th">Payee</th>
                             <th className="table-th">Type</th>
@@ -2611,9 +3228,43 @@ function PaymentsView() {
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
-                            <td colSpan={8} className="table-cell table-empty">No payments found</td>
-                        </tr>
+                        {loading ? (
+                            <tr><td colSpan={9} className="table-cell table-empty">Loading payments…</td></tr>
+                        ) : rows.length === 0 ? (
+                            <tr><td colSpan={9} className="table-cell table-empty">No payments found</td></tr>
+                        ) : (
+                            rows.map((r) => (
+                                <tr key={r.id}>
+                                    <td className="table-cell font-bold">{r.voucherNumber}</td>
+                                    <td className="table-cell">{fmtDate(r.date)}</td>
+                                    <td className="table-cell">{r.payeeName || '—'}</td>
+                                    <td className="table-cell">{r.payeeType || '—'}</td>
+                                    <td className="table-cell">{r.cashBankAccountName ? `${r.cashBankAccountName} (${r.cashBankAccountType})` : '—'}</td>
+                                    <td className="table-cell color-muted">{r.reference || '—'}</td>
+                                    <td className="table-cell color-green-dark font-bold">SAR {fmtMoney(r.amount)}</td>
+                                    <td className="table-cell">
+                                        <span className={`badge-status-posted`} style={{
+                                            background: r.status === 'posted' ? '#DCFCE7' : r.status === 'pending' ? '#FEF3C7' : '#FEE2E2',
+                                            color: r.status === 'posted' ? '#166534' : r.status === 'pending' ? '#92400E' : '#991B1B',
+                                        }}>
+                                            {(r.status || '').toUpperCase() === 'POSTED' ? 'APPROVED' : (r.status || '').toUpperCase()}
+                                        </span>
+                                    </td>
+                                    <td className="table-cell">
+                                        {r.status === 'pending' && (
+                                            <div style={{ display: 'flex', gap: 6 }}>
+                                                <button className="jr-action-btn" onClick={() => handleApprove(r.id)} title="Approve">
+                                                    <CheckCircle size={16} />
+                                                </button>
+                                                <button className="jr-action-btn btn-delete-row" onClick={() => handleReject(r.id)} title="Reject">
+                                                    <X size={16} />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))
+                        )}
                     </tbody>
                 </table>
             </section>
@@ -3143,7 +3794,7 @@ export default function WorkshopAccountingPage({ activeTab, branches = [] }) {
             {activeSub === 'chart-of-accounts' && <ChartOfAccountsView />}
             {activeSub === 'cash-bank' && <CashBankView branches={branches} />}
             {activeSub === 'payments' && <PaymentsView />}
-            {activeSub === 'transactions' && <TransactionEntryView />}
+            {activeSub === 'transactions' && <TransactionEntryView branches={branches} />}
             {activeSub === 'journal-entries' && <GeneralJournalView />}
             {activeSub === 'purchases' && <PurchasesView taxes={taxes} />}
             {activeSub === 'expenses' && <ExpensesView />}
