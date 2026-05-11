@@ -5,13 +5,24 @@ import {
     fetchCorporateBookings,
     fetchCorporateBookingById,
     fetchCorporateBookingInvoice,
-    fetchCorporatePendingWalkInOrders,
-    approveCorporateWalkInOrder,
-    rejectCorporateWalkInOrder,
 } from '../../services/corporateBookingsApi';
 import Modal from '../../components/Modal';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
-import WalkInOrderDetailModal from './WalkInOrderDetailModal';
+
+/**
+ * Filter values for GET /corporate/bookings?status= — same strings as
+ * `CorporateOrder.status` / linked `SalesOrder.status` (CB-* / SO-* rows).
+ * Matches statuses used in the corporate portal list (e.g. submitted, approved, invoiced, cancelled).
+ */
+const BOOKING_STATUS_FILTER_OPTIONS = [
+    { value: '', label: 'All statuses' },
+    { value: 'draft', label: 'Draft' },
+    { value: 'submitted', label: 'Submitted' },
+    { value: 'approved', label: 'Approved' },
+    { value: 'rejected', label: 'Rejected' },
+    { value: 'invoiced', label: 'Invoiced' },
+    { value: 'cancelled', label: 'Cancelled' },
+];
 
 /** Flatten `{ booking: { ... } }` so services/products sit on the object we read. */
 function normalizeBookingDetailPayload(raw) {
@@ -435,14 +446,10 @@ function OrderDetailModal({ orderId, onClose }) {
 }
 
 export default function CorporateBookings({ setBookingOpen, onTabChange }) {
-    const [bookingsTab, setBookingsTab] = useState('bookings');
+    const [statusFilter, setStatusFilter] = useState('');
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [viewId, setViewId] = useState(null);
-    const [walkInOrders, setWalkInOrders] = useState([]);
-    const [walkInLoading, setWalkInLoading] = useState(false);
-    const [walkInDetailId, setWalkInDetailId] = useState(null);
-    const [walkInActionId, setWalkInActionId] = useState(null);
     const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
     const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
     const [invoiceError, setInvoiceError] = useState('');
@@ -450,11 +457,15 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
 
     const load = useCallback(() => {
         setLoading(true);
-        fetchCorporateBookings({ limit: 250, offset: 0 })
+        fetchCorporateBookings({
+            limit: 250,
+            offset: 0,
+            ...(statusFilter.trim() ? { status: statusFilter.trim() } : {}),
+        })
             .then(({ bookings }) => setOrders(sortBookingsForDisplay(bookings)))
             .catch(() => setOrders([]))
             .finally(() => setLoading(false));
-    }, []);
+    }, [statusFilter]);
 
     useEffect(() => {
         load();
@@ -465,18 +476,6 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
         window.addEventListener('corporate-portal-bookings-refresh', onSocket);
         return () => window.removeEventListener('corporate-portal-bookings-refresh', onSocket);
     }, [load]);
-
-    const loadWalkIns = useCallback(() => {
-        setWalkInLoading(true);
-        fetchCorporatePendingWalkInOrders()
-            .then((rows) => setWalkInOrders(rows))
-            .catch(() => setWalkInOrders([]))
-            .finally(() => setWalkInLoading(false));
-    }, []);
-
-    useEffect(() => {
-        if (bookingsTab === 'walkin') loadWalkIns();
-    }, [bookingsTab, loadWalkIns]);
 
     const cancelOrder = async (id) => {
         try {
@@ -531,34 +530,6 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
         }
     };
 
-    const handleApproveWalkIn = async (orderId) => {
-        setWalkInActionId(String(orderId));
-        try {
-            await approveCorporateWalkInOrder(orderId);
-            await loadWalkIns();
-            await load();
-        } catch (err) {
-            setInvoiceError(err?.message || 'Failed to approve walk-in order');
-        } finally {
-            setWalkInActionId(null);
-        }
-    };
-
-    const handleRejectWalkIn = async (orderId) => {
-        const reason = window.prompt('Reason for rejection?');
-        if (!reason || !reason.trim()) return;
-        setWalkInActionId(String(orderId));
-        try {
-            await rejectCorporateWalkInOrder(orderId, reason.trim());
-            await loadWalkIns();
-            await load();
-        } catch (err) {
-            setInvoiceError(err?.message || 'Failed to reject walk-in order');
-        } finally {
-            setWalkInActionId(null);
-        }
-    };
-
     return (
         <div>
             <div className="ws-page-header">
@@ -574,34 +545,37 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
                     <Plus size={15} /> New Booking
                 </button>
             </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                <button
-                    type="button"
-                    className={bookingsTab === 'bookings' ? 'btn-portal' : 'btn-portal-outline'}
-                    style={bookingsTab === 'bookings' ? { background: '#0EA5E9', color: '#fff', border: 'none' } : undefined}
-                    onClick={() => setBookingsTab('bookings')}
-                >
-                    My Bookings
-                </button>
-                <button
-                    type="button"
-                    className={bookingsTab === 'walkin' ? 'btn-portal' : 'btn-portal-outline'}
-                    style={bookingsTab === 'walkin' ? { background: '#7C3AED', color: '#fff', border: 'none' } : undefined}
-                    onClick={() => setBookingsTab('walkin')}
-                >
-                    Walk-in Orders
-                </button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <div className="ws-field" style={{ marginBottom: 0, minWidth: 220, flex: '0 1 300px' }}>
+                    <label htmlFor="corporate-bookings-status-filter" style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                        Status
+                    </label>
+                    <select
+                        id="corporate-bookings-status-filter"
+                        className="form-input-field"
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        style={{ width: '100%', padding: '8px 10px', borderRadius: 9, fontSize: '0.875rem' }}
+                    >
+                        {BOOKING_STATUS_FILTER_OPTIONS.map((opt) => (
+                            <option key={opt.value || 'all'} value={opt.value}>
+                                {opt.label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
             </div>
 
-            {bookingsTab === 'bookings' ? (
-            loading ? (
+            {loading ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
                     <Loader2 className="spin" size={36} style={{ color: 'var(--color-primary)' }} />
                 </div>
             ) : orders.length === 0 ? (
                 <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
                     <Calendar size={48} style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }} />
-                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>No bookings yet</p>
+                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                        {statusFilter.trim() ? 'No bookings for this status.' : 'No bookings yet'}
+                    </p>
                     <button
                         className="btn-portal"
                         style={{ marginTop: 16, background: '#059669', color: '#fff', border: 'none' }}
@@ -622,20 +596,24 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
                         if (isWalkInQuote && approvalLabel) {
                             st = STATUS_STYLES.completed;
                         }
-                        const badgeText =
-                            isWalkInQuote && approvalLabel
-                                ? approvalLabel
-                                : String(rawStatus).replace(/_/g, ' ');
                         const canCancel = status === 'pending' || status === 'confirmed';
                         const isInvoiceLoading = invoiceLoadingId != null && String(invoiceLoadingId) === String(o.id);
+                        const invSnap = o.salesOrder?.invoice || o.sales_order?.invoice;
                         const monthly =
                             o.isMonthlyBilling === true ||
-                            isMonthlyBillingPaymentMethod(o.paymentMethod);
+                            isMonthlyBillingPaymentMethod(o.paymentMethod) ||
+                            isMonthlyBillingPaymentMethod(invSnap?.deferredPaymentMethod);
                         const monthlyInvoiced =
                             o.isMonthlyBillingInvoiced === true ||
                             (monthly &&
-                                (status === 'invoiced' ||
-                                    !!(o.salesOrder?.invoice || o.sales_order?.invoice)));
+                                (status === 'invoiced' || !!invSnap));
+                        let badgeText =
+                            isWalkInQuote && approvalLabel
+                                ? approvalLabel
+                                : String(rawStatus).replace(/_/g, ' ');
+                        if (status === 'invoiced' && monthlyInvoiced) {
+                            badgeText = 'Monthly invoiced';
+                        }
                         return (
                             <div
                                 key={o.bookingId || `${o.bookingType || 'booking'}-${o.id}`}
@@ -685,7 +663,7 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
                                                             border: '1px solid #7dd3fc',
                                                         }}
                                                     >
-                                                        Invoiced
+                                                        Monthly invoiced
                                                         {o.invoiceNo || o.salesOrder?.invoice?.invoiceNo
                                                             ? ` · ${o.invoiceNo || o.salesOrder?.invoice?.invoiceNo}`
                                                             : ''}
@@ -802,70 +780,9 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
                         );
                     })}
                 </div>
-            )) : (
-                walkInLoading ? (
-                    <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
-                        <Loader2 className="spin" size={36} style={{ color: 'var(--color-primary)' }} />
-                    </div>
-                ) : walkInOrders.length === 0 ? (
-                    <div className="ws-section" style={{ textAlign: 'center', padding: 40 }}>
-                        <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>No pending walk-in corporate quotes.</p>
-                    </div>
-                ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {walkInOrders.map((o) => {
-                            const actionLoading = walkInActionId != null && String(walkInActionId) === String(o.id);
-                            return (
-                                <div key={o.id} className="ws-section" style={{ marginBottom: 0, padding: 20 }}>
-                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                                        <div>
-                                            <p style={{ fontWeight: 700, fontSize: '0.9375rem', margin: 0 }}>Walk-in #{o.id}</p>
-                                            <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>
-                                                {o.vehiclePlate || '—'} · {o.vehicleSummary || '—'} · {o.branchName || '—'}
-                                            </p>
-                                            <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>
-                                                {o.createdAt ? new Date(o.createdAt).toLocaleString('en-SA') : '—'}
-                                            </p>
-                                            <p style={{ fontSize: '0.875rem', fontWeight: 600, margin: '6px 0 0 0' }}>
-                                                SAR {Number(o.totalAmount || 0).toFixed(2)} · {o.lineCount || (o.items || []).length || 0} items
-                                            </p>
-                                        </div>
-                                        <span style={{ background: '#FEF3C7', color: '#B45309', padding: '4px 10px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600 }}>
-                                            {o.status || 'pending'}
-                                        </span>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                                        <button type="button" className="btn-portal-outline" onClick={() => setWalkInDetailId(o.id)} style={{ padding: '6px 10px', fontSize: '0.75rem' }}>
-                                            <Eye size={14} /> View Details
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="btn-portal"
-                                            style={{ padding: '6px 10px', fontSize: '0.75rem', background: '#16A34A', color: '#fff', border: 'none' }}
-                                            onClick={() => handleApproveWalkIn(o.id)}
-                                            disabled={actionLoading}
-                                        >
-                                            {actionLoading ? 'Processing…' : 'Approve'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="btn-portal"
-                                            style={{ padding: '6px 10px', fontSize: '0.75rem', background: '#DC2626', color: '#fff', border: 'none' }}
-                                            onClick={() => handleRejectWalkIn(o.id)}
-                                            disabled={actionLoading}
-                                        >
-                                            Reject
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )
             )}
 
             {viewId && <OrderDetailModal orderId={viewId} onClose={() => setViewId(null)} />}
-            {walkInDetailId && <WalkInOrderDetailModal orderId={walkInDetailId} onClose={() => setWalkInDetailId(null)} />}
             {invoiceError && (
                 <p style={{ marginTop: 10, color: '#DC2626', fontSize: '0.8rem' }}>{invoiceError}</p>
             )}

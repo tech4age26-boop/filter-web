@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Wallet, Plus, Loader2 } from 'lucide-react';
 import { WALLET_QUICK_AMOUNTS, WALLET_PAYMENT_METHODS } from './constants';
 import { apiFetch } from '../../services/api';
+import { coerceWalletFieldText, formatWalletTxDate, normalizeWalletHistoryResponse } from '../../utils/walletHistory';
 
 export default function CorporateWallet({ onWalletBalanceChange }) {
     const [wallet, setWallet] = useState(null);
@@ -20,8 +21,7 @@ export default function CorporateWallet({ onWalletBalanceChange }) {
             apiFetch('/corporate/wallet/history').catch(() => null),
         ]).then(([walletData, historyData]) => {
             if (walletData) setWallet(walletData);
-            const txns = historyData?.transactions || historyData?.history || historyData?.data || [];
-            setTransactions(txns);
+            setTransactions(normalizeWalletHistoryResponse(historyData));
         }).finally(() => setLoading(false));
     }, []);
 
@@ -126,16 +126,20 @@ export default function CorporateWallet({ onWalletBalanceChange }) {
                                 <thead><tr><th>Date</th><th>Description</th><th>Type</th><th>Amount</th></tr></thead>
                                 <tbody>
                                     {transactions.map((t, i) => {
-                                        const type = t.type || t.txnType || t.transactionType || 'debit';
+                                        const typeRaw = (t.type || t.txnType || t.transactionType || '').toLowerCase();
+                                        const amount = parseFloat(t.amount ?? 0);
+                                        const isCredit =
+                                            typeRaw === 'credit' ||
+                                            (typeRaw !== 'debit' && amount > 0);
                                         return (
                                             <tr key={i}>
                                                 <td style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem' }}>
-                                                    {t.date || t.createdAt ? new Date(t.date || t.createdAt).toLocaleDateString('en-SA') : '—'}
+                                                    {formatWalletTxDate(t)}
                                                 </td>
-                                                <td>{t.description || t.note || t.narration || '—'}</td>
-                                                <td><span className={`ws-badge ${type === 'credit' ? 'ws-badge--green' : 'ws-badge--red'}`}>{type}</span></td>
-                                                <td style={{ fontWeight: 700, color: type === 'credit' ? '#16A34A' : '#DC2626' }}>
-                                                    {type === 'credit' ? '+' : '−'} SAR {Number(t.amount).toLocaleString()}
+                                                <td>{coerceWalletFieldText(t.description ?? t.note ?? t.narration)}</td>
+                                                <td><span className={`ws-badge ${isCredit ? 'ws-badge--green' : 'ws-badge--red'}`}>{t.type || t.txnType || (isCredit ? 'credit' : 'debit')}</span></td>
+                                                <td style={{ fontWeight: 700, color: isCredit ? '#16A34A' : '#DC2626' }}>
+                                                    {isCredit ? '+' : '−'} SAR {Math.abs(amount).toLocaleString()}
                                                 </td>
                                             </tr>
                                         );
