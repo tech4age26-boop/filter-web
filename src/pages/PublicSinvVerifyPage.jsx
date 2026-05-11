@@ -39,8 +39,9 @@ export default function PublicSinvVerifyPage() {
     const [receiveSubmitting, setReceiveSubmitting] = useState(false);
     const [receiveError, setReceiveError] = useState('');
     const [receiveResult, setReceiveResult] = useState(null);
-    const [receivePreview, setReceivePreview] = useState(null);
-    const [receivePreviewLoading, setReceivePreviewLoading] = useState(false);
+    /** Loaded as soon as the invoice is verified (before opening receive) so users see missing-branch products upfront. */
+    const [inventoryPreview, setInventoryPreview] = useState(null);
+    const [inventoryPreviewLoading, setInventoryPreviewLoading] = useState(false);
     const [receiveCriticalByPid, setReceiveCriticalByPid] = useState({});
 
     const closeReceiveModal = () => {
@@ -48,8 +49,6 @@ export default function PublicSinvVerifyPage() {
         setReceiveOpen(false);
         setReceivePassword('');
         setReceiveError('');
-        setReceivePreview(null);
-        setReceiveCriticalByPid({});
     };
 
     const handleReceiveSubmit = async (e) => {
@@ -63,12 +62,18 @@ export default function PublicSinvVerifyPage() {
         setReceiveError('');
         try {
             const criticalStockByProductId = {};
-            Object.entries(receiveCriticalByPid).forEach(([pid, v]) => {
-                const n = parseFloat(String(v).replace(',', '.'));
+            const newProds = Array.isArray(inventoryPreview?.newProducts) ? inventoryPreview.newProducts : [];
+            const keys =
+                newProds.length > 0
+                    ? newProds.map((p) => String(p.productId))
+                    : Object.keys(receiveCriticalByPid);
+            for (const pid of keys) {
+                const raw = receiveCriticalByPid[pid] ?? '0';
+                const n = parseFloat(String(raw).replace(',', '.'));
                 if (Number.isFinite(n) && n >= 0) {
                     criticalStockByProductId[pid] = n;
                 }
-            });
+            }
             const res = await publicReceiveSupplierSalesInvoiceWithPassword(id, receivePassword, {
                 criticalStockByProductId:
                     Object.keys(criticalStockByProductId).length > 0
@@ -91,6 +96,8 @@ export default function PublicSinvVerifyPage() {
             setLoading(true);
             setError('');
             setData(null);
+            setInventoryPreview(null);
+            setReceiveCriticalByPid({});
             try {
                 const res = await getPublicSupplierSalesInvoiceVerify(id);
                 if (cancelled) return;
@@ -108,31 +115,54 @@ export default function PublicSinvVerifyPage() {
         };
     }, [id]);
 
+    /** Which products are not on this branch yet + unmatched lines — show before user taps “Mark as Received”. */
     useEffect(() => {
-        if (!receiveOpen || !id) return undefined;
+        if (!id || loading || error || !data?.verified) {
+            return undefined;
+        }
+        const alreadyReceived =
+            Boolean(data?.received) ||
+            Boolean(data?.stockApplied) ||
+            Boolean(receiveResult);
+        if (alreadyReceived) {
+            setInventoryPreview(null);
+            setInventoryPreviewLoading(false);
+            return undefined;
+        }
         let cancelled = false;
-        setReceivePreviewLoading(true);
-        setReceivePreview(null);
+        setInventoryPreviewLoading(true);
+        setInventoryPreview(null);
         getPublicSupplierSalesInvoiceReceivePreview(id)
             .then((res) => {
-                if (cancelled) return;
-                setReceivePreview(res);
-                const init = {};
-                (res?.newProducts || []).forEach((p) => {
-                    init[String(p.productId)] = '0';
-                });
-                setReceiveCriticalByPid(init);
+                if (!cancelled) setInventoryPreview(res);
             })
             .catch(() => {
-                if (!cancelled) setReceivePreview(null);
+                if (!cancelled) setInventoryPreview(null);
             })
             .finally(() => {
-                if (!cancelled) setReceivePreviewLoading(false);
+                if (!cancelled) setInventoryPreviewLoading(false);
             });
         return () => {
             cancelled = true;
         };
-    }, [receiveOpen, id]);
+    }, [id, loading, error, data?.verified, data?.received, data?.stockApplied, receiveResult]);
+
+    useEffect(() => {
+        const list = inventoryPreview?.newProducts;
+        if (!Array.isArray(list) || list.length === 0) return;
+        setReceiveCriticalByPid((prev) => {
+            const next = { ...prev };
+            let changed = false;
+            for (const p of list) {
+                const k = String(p.productId);
+                if (next[k] === undefined) {
+                    next[k] = '0';
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    }, [inventoryPreview]);
 
     return (
         <div
@@ -332,6 +362,161 @@ export default function PublicSinvVerifyPage() {
                             ) : null}
 
                             {(() => {
+                                const alreadyReceived =
+                                    Boolean(data?.received) ||
+                                    Boolean(data?.stockApplied) ||
+                                    Boolean(receiveResult);
+                                if (alreadyReceived) return null;
+                                if (inventoryPreviewLoading) {
+                                    return (
+                                        <p style={{ marginTop: 18, fontSize: '0.8125rem', color: '#64748b' }}>
+                                            Checking which products are not on this branch yet…
+                                        </p>
+                                    );
+                                }
+                                const unresolved = Array.isArray(inventoryPreview?.unresolvedLineNames)
+                                    ? inventoryPreview.unresolvedLineNames
+                                    : [];
+                                const newProds = Array.isArray(inventoryPreview?.newProducts)
+                                    ? inventoryPreview.newProducts
+                                    : [];
+                                const hasGap =
+                                    Boolean(inventoryPreview?.hasNewProducts) ||
+                                    unresolved.length > 0 ||
+                                    newProds.length > 0;
+                                if (!hasGap && inventoryPreview) {
+                                    return (
+                                        <div
+                                            style={{
+                                                marginTop: 18,
+                                                padding: 14,
+                                                background: '#f8fafc',
+                                                borderRadius: 12,
+                                                border: '1px solid #e2e8f0',
+                                                fontSize: '0.8125rem',
+                                                color: '#475569',
+                                                lineHeight: 1.5,
+                                            }}
+                                        >
+                                            <strong style={{ color: '#0f172a' }}>Branch inventory</strong>
+                                            <p style={{ margin: '8px 0 0' }}>
+                                                Every line on this invoice is already linked to products on this branch.
+                                                When you mark as received, on-hand quantities will increase by the amounts
+                                                on this invoice.
+                                            </p>
+                                        </div>
+                                    );
+                                }
+                                if (!hasGap) return null;
+                                return (
+                                    <div
+                                        style={{
+                                            marginTop: 18,
+                                            padding: 16,
+                                            background: '#FFFBEB',
+                                            borderRadius: 12,
+                                            border: '1px solid #FDE68A',
+                                            fontSize: '0.8125rem',
+                                            color: '#78350F',
+                                        }}
+                                    >
+                                        <p style={{ margin: '0 0 10px', fontWeight: 800, color: '#92400E' }}>
+                                            Before you receive this invoice
+                                        </p>
+                                        <p style={{ margin: '0 0 12px', lineHeight: 1.5 }}>
+                                            Some items are <strong>not on this branch&apos;s inventory</strong> yet. To
+                                            accept, Filter will <strong>add those products to this branch</strong>.{' '}
+                                            <strong>Opening stock</strong> for each new branch product will be the{' '}
+                                            <strong>quantity on this invoice</strong> (summed if the same product
+                                            appears on multiple lines). Set each product&apos;s{' '}
+                                            <strong>critical stock</strong> (reorder alert level) below, then use{' '}
+                                            <em>Mark as Received</em> and enter your workshop password.
+                                        </p>
+                                        {unresolved.length > 0 ? (
+                                            <div
+                                                style={{
+                                                    marginBottom: 12,
+                                                    padding: 10,
+                                                    background: '#FEF2F2',
+                                                    border: '1px solid #FECACA',
+                                                    borderRadius: 10,
+                                                    color: '#991B1B',
+                                                }}
+                                            >
+                                                <strong>Unmatched invoice lines</strong> (no master product link):{' '}
+                                                {unresolved.join(', ')}. Stock may not update for these until they are
+                                                linked in the supplier invoice.
+                                            </div>
+                                        ) : null}
+                                        {newProds.length > 0 ? (
+                                            <div style={{ overflowX: 'auto' }}>
+                                                <table
+                                                    style={{
+                                                        width: '100%',
+                                                        borderCollapse: 'collapse',
+                                                        fontSize: '0.75rem',
+                                                        background: '#fff',
+                                                        borderRadius: 8,
+                                                    }}
+                                                >
+                                                    <thead>
+                                                        <tr style={{ borderBottom: '1px solid #FDE68A' }}>
+                                                            <th style={{ textAlign: 'left', padding: '8px 6px' }}>
+                                                                Product (new on branch)
+                                                            </th>
+                                                            <th style={{ textAlign: 'right', padding: '8px 6px' }}>
+                                                                Opening qty
+                                                            </th>
+                                                            <th style={{ textAlign: 'right', padding: '8px 6px' }}>
+                                                                Critical stock
+                                                            </th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {newProds.map((p) => (
+                                                            <tr
+                                                                key={p.productId}
+                                                                style={{ borderBottom: '1px solid #fef3c7' }}
+                                                            >
+                                                                <td style={{ padding: '8px 6px' }}>{p.name}</td>
+                                                                <td style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                                    {p.qty} {p.unit || ''}
+                                                                </td>
+                                                                <td style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                                    <input
+                                                                        type="text"
+                                                                        inputMode="decimal"
+                                                                        value={
+                                                                            receiveCriticalByPid[String(p.productId)] ??
+                                                                            '0'
+                                                                        }
+                                                                        onChange={(e) =>
+                                                                            setReceiveCriticalByPid((prev) => ({
+                                                                                ...prev,
+                                                                                [String(p.productId)]: e.target.value,
+                                                                            }))
+                                                                        }
+                                                                        style={{
+                                                                            width: 80,
+                                                                            padding: '6px 8px',
+                                                                            borderRadius: 6,
+                                                                            border: '1px solid #d97706',
+                                                                            textAlign: 'right',
+                                                                        }}
+                                                                        aria-label={`Critical stock for ${p.name}`}
+                                                                    />
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                );
+                            })()}
+
+                            {(() => {
                                 /**
                                  * "Already received" trumps the button. We trust either
                                  * (a) live server flag from the public GET, or
@@ -468,78 +653,16 @@ export default function PublicSinvVerifyPage() {
                             as received and update inventory for{' '}
                             <strong>{data?.branchName || data?.workshopName || 'this workshop'}</strong>.
                         </p>
-                        {receivePreviewLoading ? (
-                            <p style={{ fontSize: '0.8125rem', color: '#64748b', marginBottom: 12 }}>Loading preview…</p>
-                        ) : receivePreview?.hasNewProducts ||
-                          (receivePreview?.unresolvedLineNames?.length ?? 0) > 0 ? (
-                            <div
-                                style={{
-                                    marginBottom: 14,
-                                    padding: 12,
-                                    background: '#f0fdf4',
-                                    border: '1px solid #bbf7d0',
-                                    borderRadius: 10,
-                                    fontSize: '0.8125rem',
-                                    color: '#14532d',
-                                }}
-                            >
-                                <strong>New items on this branch:</strong> approving adds them to inventory; opening qty
-                                matches the invoice line. Optionally set critical stock (default 0).
-                                {Array.isArray(receivePreview?.unresolvedLineNames) &&
-                                receivePreview.unresolvedLineNames.length > 0 ? (
-                                    <p style={{ margin: '10px 0 0', color: '#92400E', background: '#FFFBEB', padding: 8, borderRadius: 8 }}>
-                                        Unmatched lines (no catalog link):{' '}
-                                        {receivePreview.unresolvedLineNames.join(', ')}
-                                    </p>
-                                ) : null}
-                                {Array.isArray(receivePreview?.newProducts) && receivePreview.newProducts.length > 0 ? (
-                                    <table
-                                        style={{
-                                            width: '100%',
-                                            marginTop: 10,
-                                            borderCollapse: 'collapse',
-                                            fontSize: '0.75rem',
-                                        }}
-                                    >
-                                        <thead>
-                                            <tr style={{ borderBottom: '1px solid #bbf7d0' }}>
-                                                <th style={{ textAlign: 'left', padding: '6px 4px' }}>Product</th>
-                                                <th style={{ textAlign: 'right', padding: '6px 4px' }}>Qty</th>
-                                                <th style={{ textAlign: 'right', padding: '6px 4px' }}>Critical</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {receivePreview.newProducts.map((p) => (
-                                                <tr key={p.productId}>
-                                                    <td style={{ padding: '6px 4px' }}>{p.name}</td>
-                                                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{p.qty}</td>
-                                                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>
-                                                        <input
-                                                            type="text"
-                                                            inputMode="decimal"
-                                                            value={receiveCriticalByPid[p.productId] ?? '0'}
-                                                            onChange={(e) =>
-                                                                setReceiveCriticalByPid((prev) => ({
-                                                                    ...prev,
-                                                                    [p.productId]: e.target.value,
-                                                                }))
-                                                            }
-                                                            style={{
-                                                                width: 72,
-                                                                padding: '4px 6px',
-                                                                borderRadius: 6,
-                                                                border: '1px solid #cbd5e1',
-                                                                textAlign: 'right',
-                                                            }}
-                                                        />
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                ) : null}
-                            </div>
-                        ) : null}
+                        {inventoryPreviewLoading ? (
+                            <p style={{ fontSize: '0.8125rem', color: '#64748b', marginBottom: 12 }}>
+                                Refreshing branch preview…
+                            </p>
+                        ) : (
+                            <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: '#475569', lineHeight: 1.45 }}>
+                                New products and critical stock are set on the page above. Enter your password here to
+                                confirm receipt and apply inventory.
+                            </p>
+                        )}
                         <label
                             htmlFor="public-sinv-receive-password"
                             style={{

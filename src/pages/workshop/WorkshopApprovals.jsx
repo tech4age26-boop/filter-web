@@ -308,7 +308,10 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                     return;
                 }
                 const ok = window.confirm(
-                    `Approve supplier invoice ${row.invoiceNo || ''}?\n\nApproving will increase inventory on hand for "${branchLabel}" by the quantities on this invoice. This action cannot be undone.`,
+                    `Approve supplier invoice ${row.invoiceNo || ''}?\n\n` +
+                        `Preview: all invoice lines are already on "${branchLabel}" inventory (or only stock increases apply). ` +
+                        `On-hand quantities will go up by the amounts on this invoice.\n\n` +
+                        `This action cannot be undone.`,
                 );
                 if (!ok) {
                     setActionLoadingId(null);
@@ -393,12 +396,20 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
         const { row } = siApproveModal;
         const sid = row.supplierInvoiceId;
         const criticalStockByProductId = {};
-        Object.entries(siCriticalStock).forEach(([pid, v]) => {
-            const n = parseFloat(String(v).replace(',', '.'));
+        const newProds = Array.isArray(siApproveModal.preview?.newProducts)
+            ? siApproveModal.preview.newProducts
+            : [];
+        const keys =
+            newProds.length > 0
+                ? newProds.map((p) => String(p.productId))
+                : Object.keys(siCriticalStock);
+        for (const pid of keys) {
+            const raw = siCriticalStock[pid] ?? '0';
+            const n = parseFloat(String(raw).replace(',', '.'));
             if (Number.isFinite(n) && n >= 0) {
                 criticalStockByProductId[pid] = n;
             }
-        });
+        }
         setActionLoadingId(`approve-si-${sid}`);
         setLoadError('');
         try {
@@ -770,13 +781,42 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                         }
                     >
                         <div style={{ fontSize: '0.875rem', color: '#334155', lineHeight: 1.5, marginBottom: 14 }}>
-                            <p style={{ margin: '0 0 10px' }}>
-                                Some line items are not on{' '}
-                                <strong>{siApproveModal.preview?.branchName || 'this branch'}</strong> yet. Approving
-                                will add them to your catalog for this branch.{' '}
-                                <strong>Opening quantity</strong> on each new branch product will match the quantity on
-                                this invoice.
-                            </p>
+                            {(() => {
+                                const newProds = Array.isArray(siApproveModal.preview?.newProducts)
+                                    ? siApproveModal.preview.newProducts
+                                    : [];
+                                const unresolved = Array.isArray(siApproveModal.preview?.unresolvedLineNames)
+                                    ? siApproveModal.preview.unresolvedLineNames
+                                    : [];
+                                const branchNm = siApproveModal.preview?.branchName || 'this branch';
+                                if (newProds.length > 0) {
+                                    return (
+                                        <p style={{ margin: '0 0 10px' }}>
+                                            The following products are <strong>not on {branchNm}&apos;s inventory</strong>{' '}
+                                            yet. If you approve, the system will <strong>add them to this branch</strong>{' '}
+                                            and set <strong>opening stock</strong> to the <strong>quantities on this sales invoice</strong>{' '}
+                                            (per product, summed across lines). Set <strong>critical stock</strong> (low-stock
+                                            alert level) for each new branch product below, then confirm.
+                                        </p>
+                                    );
+                                }
+                                if (unresolved.length > 0) {
+                                    return (
+                                        <p style={{ margin: '0 0 10px' }}>
+                                            Some invoice lines could not be matched to a product in your workshop catalog.
+                                            You can still approve the invoice for accounting, but{' '}
+                                            <strong>inventory may not update</strong> for those lines until they are linked
+                                            to master products.
+                                        </p>
+                                    );
+                                }
+                                return (
+                                    <p style={{ margin: '0 0 10px' }}>
+                                        Review the details below before approving. Inventory will be updated for this branch
+                                        according to the invoice lines.
+                                    </p>
+                                );
+                            })()}
                             {Array.isArray(siApproveModal.preview?.unresolvedLineNames) &&
                             siApproveModal.preview.unresolvedLineNames.length > 0 ? (
                                 <div
@@ -856,8 +896,10 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                                 </div>
                             ) : (
                                 <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>
-                                    No new catalog rows required; you can still approve to apply stock for matched
-                                    products.
+                                    {Array.isArray(siApproveModal.preview?.unresolvedLineNames) &&
+                                    siApproveModal.preview.unresolvedLineNames.length > 0
+                                        ? 'No new branch catalog products will be created from this invoice; only matched lines can receive stock.'
+                                        : 'No new branch products; approving will increase stock only for products you already carry on this branch.'}
                                 </p>
                             )}
                         </div>

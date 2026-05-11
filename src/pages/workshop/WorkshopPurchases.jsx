@@ -22,6 +22,10 @@ import {
     unwrapWorkshopStaffSupplierPurchaseInvoiceGet,
     unwrapWorkshopSupplierPurchaseInvoiceList,
 } from '../../services/workshopSupplierPurchaseInvoices';
+import {
+    listLocalSuppliers,
+    createLocalSupplierPurchaseInvoice,
+} from '../../services/workshopSuppliersApi';
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { PI_ACCOUNT_OPTIONS } from './constants';
@@ -602,6 +606,30 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 if (rows.length < SUPPLIERS_PAGE_LIMIT) break;
                 offset += SUPPLIERS_PAGE_LIMIT;
             }
+
+            // Also include non-affiliated (local) suppliers so the workshop can
+            // create a PI for them. Marked with __supplierType so the submit
+            // handler routes to the local-supplier endpoint.
+            try {
+                const scopeBranch = modalOpen && invoiceBranchId ? invoiceBranchId : effectiveBranchId;
+                const localParams = {};
+                if (scopeBranch && scopeBranch !== 'all') {
+                    localParams.branchId = scopeBranch;
+                }
+                const localRes = await listLocalSuppliers(localParams);
+                const localRows = (localRes?.suppliers ?? [])
+                    .filter((s) => s.isActive !== false)
+                    .map((s) => ({
+                        id: String(s.id),
+                        name: `${s.name} (Non-affiliated)`,
+                        raw: { ...s, __supplierType: 'local' },
+                        __supplierType: 'local',
+                    }));
+                merged.push(...localRows);
+            } catch (e) {
+                console.warn('[purchases] failed to load local suppliers', e);
+            }
+
             setLinkedSuppliers(merged);
         } catch (e) {
             const msg = String(e?.message || '');
@@ -1302,7 +1330,64 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         if (import.meta.env.DEV) void console.info('[purchase_invoice_payload]', purchaseInvoicePayload);
         setSubmittingInvoice(true);
         try {
-            const createRes = await createWorkshopSupplierPurchaseInvoice(createBody);
+            const isLocalSupplier =
+                selectedSupplierRow?.__supplierType === 'local' ||
+                selectedSupplierRow?.raw?.__supplierType === 'local';
+            let createRes;
+            if (isLocalSupplier) {
+                // Convert enriched lines into the simpler local PI line schema.
+                const localLines = enrichedLines
+                    .filter((ln) => ln.branch_catalog_product_id)
+                    .map((ln) => ({
+                        productId: String(ln.branch_catalog_product_id),
+                        itemName: ln.item_name,
+                        description: ln.description ?? null,
+                        uom: ln.uom ?? null,
+                        qty: Number(ln.quantity ?? ln.qty ?? 0),
+                        unitPrice: Number(ln.unit_price_ex_vat ?? 0),
+                        discount: Number(ln.line_discount_amount ?? ln.line_discount_raw ?? 0),
+                        discountType: discountIsPercent ? 'percent' : 'fixed',
+                        taxCode: 'VAT15',
+                        taxAmount: Number(ln.tax_amount ?? 0),
+                        lineTotal: Number(ln.taxable_ex_vat ?? ln.gross_ex_vat ?? 0),
+                        total: Number(ln.line_total_incl_vat ?? 0),
+                    }));
+                if (localLines.length === 0) {
+                    throw new Error(
+                        'Local supplier PI requires every line to be picked from the branch catalog.',
+                    );
+                }
+                createRes = await createLocalSupplierPurchaseInvoice(
+                    String(selectedSupplierRow.id),
+                    {
+                        branchId: String(invoiceBranchId),
+                        issueDate,
+                        dueDate: dueComputed === '—' ? undefined : dueComputed,
+                        paymentTerms: dueDateType,
+                        netDays,
+                        refNumber: vendorInvoiceRef || undefined,
+                        description: invoiceDescription || undefined,
+                        notes: invoiceNotes || undefined,
+                        subtotal: Number(totals?.subtotal_ex_vat ?? 0),
+                        discountAmount:
+                            parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
+                        discountType:
+                            invoiceDiscountMode?.includes('percent') ? 'percent' : 'fixed',
+                        freightIn: freightNum,
+                        taxAmount: Number(totals?.total_vat ?? 0),
+                        grandTotal: Number(totals?.grand_total ?? 0),
+                        lines: localLines,
+                    },
+                );
+                // Local PI always applies stock + posts journal immediately.
+                createRes = {
+                    ...(createRes || {}),
+                    autoApplied: true,
+                    stock: { applied: true, lines: localLines },
+                };
+            } else {
+                createRes = await createWorkshopSupplierPurchaseInvoice(createBody);
+            }
             /**
              * Workshop-only suppliers auto-apply stock on save (no approval).
              * Refresh inventory views in other tabs/pages.

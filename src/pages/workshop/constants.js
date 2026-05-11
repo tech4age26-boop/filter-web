@@ -14,6 +14,8 @@ export const NAV_ITEMS = [
     { id: 'purchases',   label: 'Purchase Invoices',    icon: ShoppingCart },
     { id: 'approvals',   label: 'Approvals Queue',      icon: ClipboardCheck, badge: true },
     { id: 'suppliers',   label: 'Suppliers & Purchases', icon: Truck },
+    { id: 'affiliated-suppliers',     label: 'Filter Affiliated Suppliers',   icon: Truck },
+    { id: 'non-affiliated-suppliers', label: 'Non-Affiliated Suppliers',      icon: Truck },
     { id: 'reports',     label: 'Reports & Analytics',  icon: BarChart3 },
     { id: 'pos-monitoring', label: 'POS Monitoring', icon: Monitor },
     { id: 'promo-codes', label: 'Promo Codes', icon: TicketPercent },
