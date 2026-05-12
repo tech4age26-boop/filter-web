@@ -1529,7 +1529,7 @@ function MissingDependenciesList({ missing }) {
     if (!hasAny) {
         return (
             <div style={{ padding: 10, background: '#ECFDF5', color: '#047857', borderRadius: 8, fontSize: '0.875rem' }}>
-                Everything is already in your workshop. We just need to attach the selected items.
+                Parent department/category already exists. Selected items will be added only to branches where they are missing.
             </div>
         );
     }
