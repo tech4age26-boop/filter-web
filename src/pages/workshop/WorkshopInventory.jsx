@@ -179,13 +179,16 @@ function buildInventorySearchText(row) {
 }
 
 function normalizeInventorySearchValue(value) {
-    return value == null
-        ? ''
-        : String(value)
-            .normalize('NFKD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .toLowerCase()
-            .trim();
+    if (value == null) return '';
+    let s = String(value);
+    try {
+        if (typeof s.normalize === 'function') {
+            s = s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+        }
+    } catch {
+        /* lone surrogates / engines without normalize — fall back to raw string */
+    }
+    return s.toLowerCase().trim();
 }
 
 function buildRawInventorySearchText(...sources) {
@@ -222,9 +225,8 @@ function buildRawInventorySearchText(...sources) {
 function matchesProductNameSearch(row, query) {
     const q = normalizeInventorySearchValue(query);
     if (!q) return true;
-    const name = normalizeInventorySearchValue(row?.name);
-    const sku = normalizeInventorySearchValue(row?.sku);
-    const hay = `${name} ${sku}`.trim();
+    /** Prefer full row index (name, SKU, dept, brand, `_searchText`) so search works across API shapes and Vercel builds. */
+    const hay = normalizeInventorySearchValue(buildInventorySearchText(row));
     if (!hay) return false;
     return q
         .split(/\s+/)
@@ -1124,7 +1126,7 @@ export default function WorkshopInventory({
 
                                             return (
                                                 <tr
-                                                    key={`${normalizeInventorySearchValue(searchQuery)}:${item._rowKey || item.id || ''}:${idx}`}
+                                                    key={`inv:${idx}:${item._rowKey || item.id || ''}:${searchQuery}`}
                                                     role="button"
                                                     tabIndex={0}
                                                     onClick={() => setLogProduct(item)}
