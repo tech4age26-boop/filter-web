@@ -17,6 +17,10 @@ import {
 import SupplierCashBank from './SupplierCashBank';
 import SupplierExpenses from './SupplierExpenses';
 import SupplierSuperSupplierPurchasesPanel from './SupplierSuperSupplierPurchasesPanel';
+import SupplierCOAManager from './accounting/SupplierCOAManager';
+import SupplierTransactionHub from './accounting/SupplierTransactionHub';
+import SupplierJournalLogs from './accounting/SupplierJournalLogs';
+import SupplierAccountingReports from './accounting/SupplierAccountingReports';
 import {
     getSupplierChartOfAccounts,
     listSupplierCashBankLedger,
@@ -886,6 +890,14 @@ export default function SupplierAccountingPage({ activeSubTab: propActiveTab }) 
         const raw = (propActiveTab || subTab || 'accounting_coa').replace('accounting_', '');
         const mapping = {
             coa: 'chart-of-accounts',
+            hub: 'hub',
+            logs_payments: 'logs-payments',
+            logs_receipts: 'logs-receipts',
+            logs_journals: 'logs-journals',
+            reports_tb: 'reports-tb',
+            reports_pl: 'reports-pl',
+            reports_bs: 'reports-bs',
+            reports_cf: 'reports-cf',
             cash_bank: 'cash-bank',
             journal: 'journal-entries',
             transactions: 'transactions',
@@ -903,7 +915,18 @@ export default function SupplierAccountingPage({ activeSubTab: propActiveTab }) 
 
     return (
         <div className="accounting-page module-container">
-            {activeSub === 'chart-of-accounts' && <SupplierChartOfAccountsTab />}
+            {/* New accounting (v2) sub-tabs */}
+            {activeSub === 'chart-of-accounts' && <SupplierCOAManager />}
+            {activeSub === 'hub' && <SupplierTransactionHub />}
+            {activeSub === 'logs-payments' && <SupplierJournalLogs initialTab="payments" />}
+            {activeSub === 'logs-receipts' && <SupplierJournalLogs initialTab="receipts" />}
+            {activeSub === 'logs-journals' && <SupplierJournalLogs initialTab="journals" />}
+            {activeSub === 'reports-tb' && <SupplierAccountingReports initialTab="tb" />}
+            {activeSub === 'reports-pl' && <SupplierAccountingReports initialTab="pl" />}
+            {activeSub === 'reports-bs' && <SupplierAccountingReports initialTab="bs" />}
+            {activeSub === 'reports-cf' && <SupplierAccountingReports initialTab="cf" />}
+
+            {/* Legacy sub-tabs */}
             {activeSub === 'cash-bank' && <SupplierCashBank />}
             {activeSub === 'transactions' && <SupplierCashBankLedgerTab variant="transactions" />}
             {activeSub === 'journal-entries' && <SupplierCashBankLedgerTab variant="journal" />}
