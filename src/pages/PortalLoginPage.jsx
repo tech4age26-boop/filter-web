@@ -198,6 +198,16 @@ const PortalLoginPage = () => {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6, delay: 0.2 }}
                 >
+                    <div className="back-home-top">
+                        <a
+                            onClick={() => navigate('/')}
+                            className="back-home-link"
+                        >
+                            <ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} />
+                            Back to Home
+                        </a>
+                    </div>
+
                     <div className="signin-header">
                         <h2>Portal Login</h2>
                         <p style={{ fontSize: '1.1rem', color: '#000', fontWeight: '600', marginTop: '4px' }}>
@@ -272,15 +282,6 @@ const PortalLoginPage = () => {
                     <div style={{ marginTop: '28px', textAlign: 'center' }}>
                         <p style={{ fontSize: '0.8125rem', color: '#666' }}>
                             Need technical support? <a href="#" style={{ color: '#000', fontWeight: '700' }}>Contact IT Hub</a>
-                        </p>
-                        <p style={{ marginTop: '12px', fontSize: '0.8125rem' }}>
-                            <a 
-                                onClick={() => navigate('/')} 
-                                style={{ color: '#6B7280', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            >
-                                <ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} />
-                                Back to Portal Hub
-                            </a>
                         </p>
                         {PORTAL_SIGNUP_ALLOWED.has(portalId) && (
                             <p style={{ marginTop: '10px', fontSize: '0.8125rem', color: '#6B7280' }}>

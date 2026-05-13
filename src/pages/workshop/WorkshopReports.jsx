@@ -875,7 +875,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>CUSTOMER</th>
+                                    <th>PHONE NUMBER</th>
                                     <th>PLATE NUMBER</th>
                                     <th>ORDERS</th>
                                     <th>REVENUE (SAR)</th>
@@ -896,7 +896,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             style={{ cursor: 'pointer', background: selectedDetailKey === `by_customer:${String(row.customer_id ?? row.customerId ?? '')}` ? '#F8FAFC' : undefined }}
                                         >
                                             <td>
-                                                <strong>{row.customer_name ?? row.customerName ?? '—'}</strong>
+                                                <strong>
+                                                    {row.customer_mobile ??
+                                                        row.customerMobile ??
+                                                        row.phone ??
+                                                        row.mobile ??
+                                                        '—'}
+                                                </strong>
                                             </td>
                                             <td>
                                                 {Array.isArray(row.plate_numbers ?? row.plateNumbers) &&

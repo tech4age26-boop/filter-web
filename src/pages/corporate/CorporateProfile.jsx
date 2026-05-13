@@ -9,7 +9,11 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
         name: profile?.name || '',
         billingAddress: profile?.corporateAccount?.billingAddress || '',
         phoneNumber: profile?.corporateAccount?.phoneNumber || '',
+        selectedStoreIds: (profile?.corporateAccount?.selectedStoreIds || []).map(String),
     });
+    const availableWorkshops = Array.isArray(profile?.availableWorkshops)
+        ? profile.availableWorkshops
+        : [];
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -19,6 +23,20 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
     const handleSubmit = (e) => {
         e.preventDefault();
         onSave(formData);
+    };
+
+    const toggleBranch = (branchId) => {
+        const id = String(branchId);
+        setFormData((prev) => {
+            const selected = prev.selectedStoreIds || [];
+            const exists = selected.includes(id);
+            return {
+                ...prev,
+                selectedStoreIds: exists
+                    ? selected.filter((x) => x !== id)
+                    : [...selected, id],
+            };
+        });
     };
 
     return (
@@ -33,7 +51,7 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
                     </button>
                 </div>
             } 
-            width="420px"
+            width="620px"
         >
             <form onSubmit={handleSubmit} style={{display:'flex',flexDirection:'column',gap:16}}>
                 <div className="ws-form-group" style={{marginBottom: 12}}>
@@ -68,6 +86,35 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
                         onChange={handleChange} 
                         placeholder="Enter full billing address"
                     />
+                </div>
+                <div className="ws-form-group">
+                    <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>
+                        Workshops & Branches
+                    </label>
+                    <div style={{maxHeight:260, overflowY:'auto', border:'1px solid var(--color-border)', borderRadius:10, padding:10}}>
+                        {availableWorkshops.length === 0 ? (
+                            <p style={{margin:0, fontSize:'0.8125rem', color:'var(--color-text-muted)'}}>No workshop branches available.</p>
+                        ) : availableWorkshops.map((ws) => (
+                            <div key={ws.id} style={{marginBottom:12}}>
+                                <div style={{fontWeight:800, fontSize:'0.8125rem', marginBottom:6}}>{ws.name}</div>
+                                <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:8}}>
+                                    {(ws.branches || []).map((b) => {
+                                        const checked = formData.selectedStoreIds.includes(String(b.id));
+                                        return (
+                                            <label key={b.id} style={{display:'flex', alignItems:'center', gap:8, fontSize:'0.8125rem', padding:8, border:'1px solid var(--color-border-light)', borderRadius:8, cursor:'pointer'}}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    onChange={() => toggleBranch(b.id)}
+                                                />
+                                                <span>{b.name}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </form>
         </Modal>

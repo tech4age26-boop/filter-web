@@ -1102,6 +1102,22 @@ function CorporateWalkInBookingBody({ data }) {
 function CorporatePriceQuotationBody({ data }) {
     const row = data?.quotation && typeof data.quotation === 'object' ? { ...data, ...data.quotation } : data;
     const ca = row?.corporateAccount ?? data?.corporateAccount ?? {};
+    const item =
+        row?.product && typeof row.product === 'object'
+            ? row.product
+            : row?.service && typeof row.service === 'object'
+              ? row.service
+              : {};
+    const itemName = row.name ?? row.itemName ?? row.item_name ?? item.name;
+    const itemSku = row.sku ?? item.sku;
+    const itemUnit = row.unit ?? item.unit ?? item.unitOfMeasurement ?? item.unit_of_measurement;
+    const departmentName =
+        row.departmentName ??
+        row.department_name ??
+        row.department?.name ??
+        item.department?.name ??
+        item.departmentName ??
+        item.department_name;
     return (
         <>
             <Section title="Quotation line">
@@ -1109,14 +1125,12 @@ function CorporatePriceQuotationBody({ data }) {
                     <Field label="ID" kind="id" value={row.id} />
                     <Field label="Status" value={row.status} />
                     <Field label="Item type" value={row.itemType} />
-                    <Field label="Name" value={row.name} />
-                    <Field label="SKU" value={row.sku} />
-                    <Field label="Unit" value={row.unit} />
-                    <Field label="Department" value={row.departmentName ?? row.department_name} />
+                    <Field label="Name" value={itemName} />
+                    <Field label="SKU" value={itemSku} />
+                    <Field label="Unit" value={itemUnit} />
+                    <Field label="Department" value={departmentName} />
                     <Field label="Qty" kind="decimal" value={row.qty} />
-                    <Field label="Quotation price" kind="money" value={row.quotationPrice} />
-                    <Field label="Price ex VAT" kind="money" value={row.priceExcludingVat ?? row.price_excluding_vat} />
-                    <Field label="Price inc VAT" kind="money" value={row.priceIncludingVat ?? row.price_including_vat} />
+                    <Field label="Quotation price (incl. VAT)" kind="money" value={row.quotationPrice} />
                     <Field label="Product ID" kind="id" value={row.productId ?? row.product_id} />
                     <Field label="Service ID" kind="id" value={row.serviceId ?? row.service_id} />
                     <Field label="Submission batch" kind="id" value={row.submissionBatchId ?? row.submission_batch_id} />

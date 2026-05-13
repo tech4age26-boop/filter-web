@@ -317,8 +317,11 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         inv.subtotalExVat ?? inv.subtotal_ex_vat ?? inv.subtotalExcludingVat ?? inv.subtotal ?? 0,
     );
     const items = Array.isArray(inv.items) ? inv.items : Array.isArray(inv.lines) ? inv.lines : [];
+    const payload = inv.payload && typeof inv.payload === 'object' ? inv.payload : null;
+    const payloadTotals = payload?.totals && typeof payload.totals === 'object' ? payload.totals : null;
     let vat = money2(
-        inv.taxAmount ??
+        (status === 'draft' ? payloadTotals?.total_vat ?? payloadTotals?.totalVat : null) ??
+            inv.taxAmount ??
             inv.tax_amount ??
             inv.totalVat ??
             inv.total_vat ??
@@ -345,10 +348,19 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         );
         if (sumLineTax > 0) vat = sumLineTax;
     }
-    const grand = money2(inv.grandTotal ?? inv.grand_total ?? inv.totalInclVat ?? inv.total ?? 0);
+    const grand = money2(
+        (status === 'draft' ? payloadTotals?.grand_total ?? payloadTotals?.grandTotal : null) ??
+            inv.grandTotal ??
+            inv.grand_total ??
+            inv.totalInclVat ??
+            inv.total ??
+            0,
+    );
     const paid = money2(inv.paidAmount ?? inv.amountPaid ?? inv.amount_paid ?? 0);
     const balance = money2(
-        inv.balance ?? inv.balanceDue ?? inv.balance_due ?? Math.max(0, grand - paid),
+        status === 'draft'
+            ? Math.max(0, grand - paid)
+            : inv.balance ?? inv.balanceDue ?? inv.balance_due ?? Math.max(0, grand - paid),
     );
     const stockUpdated =
         Boolean(
@@ -408,6 +420,7 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         product_label,
         primary_unit_price,
         items,
+        payload,
         _raw: inv,
     };
 }

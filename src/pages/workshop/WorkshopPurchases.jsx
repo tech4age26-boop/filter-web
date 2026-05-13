@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, ShoppingCart, BarChart3, AlertTriangle, Calendar, Zap, Eye, Trash2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -11,6 +12,7 @@ import {
     getWorkshopSupplierPurchaseInvoice,
     getWorkshopSupplierLastPurchasePrices,
     listWorkshopSupplierPurchaseInvoices,
+    updateWorkshopSupplierPurchaseInvoiceDraft,
     unwrapWorkshopBranchListResponse,
     filterPortalVisibleBranches,
 } from '../../services/workshopStaffApi';
@@ -40,6 +42,7 @@ import {
 } from './purchaseInvoicePayload';
 
 const SUPPLIERS_PAGE_LIMIT = 500;
+const PRODUCT_SEARCH_RESULT_LIMIT = 30;
 
 function unwrapSuppliersResponse(res) {
     if (Array.isArray(res)) return res;
@@ -527,6 +530,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [invoicesError, setInvoicesError] = useState('');
     const [submitInvoiceError, setSubmitInvoiceError] = useState('');
     const [submittingInvoice, setSubmittingInvoice] = useState(false);
+    const [editingDraftId, setEditingDraftId] = useState(null);
+    const [editingDraftLoadingId, setEditingDraftLoadingId] = useState(null);
     const [viewModalOpen, setViewModalOpen] = useState(false);
     const [viewInvoiceRow, setViewInvoiceRow] = useState(null);
     const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
@@ -544,6 +549,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [branchProductOptions, setBranchProductOptions] = useState([]);
     const [branchProductsLoading, setBranchProductsLoading] = useState(false);
     const [branchProductsError, setBranchProductsError] = useState('');
+    const [productSearchByLineId, setProductSearchByLineId] = useState({});
+    const [activeProductSearchLineId, setActiveProductSearchLineId] = useState(null);
+    const [productDropdownPosition, setProductDropdownPosition] = useState(null);
+    const productSearchInputRefs = useRef({});
 
     /**
      * Supplier-scoped last purchase prices (most recent unit price the
@@ -747,6 +756,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     /** When opening the composer, default invoice branch from sidebar / first branch (before paint). */
     useLayoutEffect(() => {
         if (!modalOpen) return;
+        if (editingDraftId) return;
         if (branchesForUi.length === 0) {
             setInvoiceBranchId('');
             return;
@@ -756,7 +766,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 ? String(selectedBranchId)
                 : String(branchesForUi[0].id);
         setInvoiceBranchId((prev) => (prev === next ? prev : next));
-    }, [modalOpen, selectedBranchId, branchesForUi]);
+    }, [modalOpen, editingDraftId, selectedBranchId, branchesForUi]);
 
     useEffect(() => {
         if (!modalOpen || !invoiceBranchId) return;
@@ -769,6 +779,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         if (!id || id === invoiceBranchId) return;
         setInvoiceBranchId(id);
         setLineItems([createEmptyLine()]);
+        setProductSearchByLineId({});
+        setActiveProductSearchLineId(null);
+        setProductDropdownPosition(null);
     };
 
     useEffect(() => {
@@ -841,6 +854,42 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         };
     };
 
+    const getProductSearchText = (line) => productSearchByLineId[line.id] ?? line.item ?? '';
+
+    const getProductSearchResults = useCallback(
+        (searchText) => {
+            const q = String(searchText || '').trim().toLowerCase();
+            if (!q) return [];
+            return branchProductOptions
+                .filter((p) => String(p.name || '').toLowerCase().includes(q))
+                .slice(0, PRODUCT_SEARCH_RESULT_LIMIT);
+        },
+        [branchProductOptions],
+    );
+
+    const updateProductDropdownPosition = useCallback((lineId) => {
+        const input = productSearchInputRefs.current[lineId];
+        if (!input) return;
+        const rect = input.getBoundingClientRect();
+        setProductDropdownPosition({
+            top: rect.bottom + 4,
+            left: rect.left,
+            width: rect.width,
+        });
+    }, []);
+
+    useEffect(() => {
+        if (!activeProductSearchLineId) return undefined;
+        const reposition = () => updateProductDropdownPosition(activeProductSearchLineId);
+        reposition();
+        window.addEventListener('resize', reposition);
+        window.addEventListener('scroll', reposition, true);
+        return () => {
+            window.removeEventListener('resize', reposition);
+            window.removeEventListener('scroll', reposition, true);
+        };
+    }, [activeProductSearchLineId, updateProductDropdownPosition]);
+
     const updateLineItem = (id, field, value) => {
         setLineItems((prev) =>
             prev.map((line) => {
@@ -901,6 +950,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
 
     const handleLineProductChange = (lineId, productId) => {
         if (!productId) {
+            setProductSearchByLineId((prev) => ({ ...prev, [lineId]: '' }));
             setLineItems((prev) =>
                 prev.map((line) => {
                     if (line.id !== lineId) return line;
@@ -919,6 +969,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         }
         const opt = branchProductOptions.find((o) => o.id === productId);
         if (!opt) return;
+        setProductSearchByLineId((prev) => ({ ...prev, [lineId]: opt.name }));
+        setActiveProductSearchLineId(null);
+        setProductDropdownPosition(null);
         const last = lastPricesByProductId[String(productId)];
         /**
          * Prefill priority: supplier-scoped last purchase price → master catalog.
@@ -951,6 +1004,25 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     taxCode: line.taxCode || TAX_LABEL,
                 };
                 return recalcStoredLineTotals(next);
+            }),
+        );
+    };
+
+    const handleLineProductSearchChange = (lineId, value) => {
+        setProductSearchByLineId((prev) => ({ ...prev, [lineId]: value }));
+        setActiveProductSearchLineId(lineId);
+        updateProductDropdownPosition(lineId);
+        setLineItems((prev) =>
+            prev.map((line) => {
+                if (line.id !== lineId || !line.productId) return line;
+                return recalcStoredLineTotals({
+                    ...line,
+                    productId: '',
+                    item: '',
+                    price: 0,
+                    uom: 'piece',
+                    account: '1410 - Inventory Asset',
+                });
             }),
         );
     };
@@ -1018,6 +1090,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     };
 
     const removeLine = (lineId) => {
+        setProductSearchByLineId((prev) => {
+            const next = { ...prev };
+            delete next[lineId];
+            return next;
+        });
+        setActiveProductSearchLineId((prev) => (prev === lineId ? null : prev));
+        setProductDropdownPosition((prev) => (activeProductSearchLineId === lineId ? null : prev));
         setLineItems((prev) => {
             if (prev.length <= 1) {
                 return [createEmptyLine()];
@@ -1255,12 +1334,125 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         lineItems.length > 0 &&
         hasProductLine;
 
-    const handleCreateInvoice = async () => {
+    const hydrateDraftInvoiceForm = (invoice) => {
+        const payload = invoice?.payload && typeof invoice.payload === 'object' ? invoice.payload : {};
+        const ui = payload.ui && typeof payload.ui === 'object' ? payload.ui : invoice?.ui || {};
+        const duePayload = payload.dueDate && typeof payload.dueDate === 'object' ? payload.dueDate : null;
+        const invDiscount = payload.invoiceDiscount || payload.invoice_discount || {};
+        const payloadLines = Array.isArray(payload.lines) ? payload.lines : [];
+        const detailLines = Array.isArray(invoice?.items) ? invoice.items : [];
+        const sourceLines = payloadLines.length > 0 ? payloadLines : detailLines;
+        const amountsTaxInclusive =
+            ui.amountsTaxInclusive ?? ui.amounts_tax_inclusive ?? ui.prices_include_vat ?? true;
+        const nextPriceExcludingVat = !amountsTaxInclusive;
+        const nextDiscountIsPercent = Boolean(ui.lineDiscountIsPercent ?? ui.line_discount_is_percent ?? false);
+
+        setInvoiceBranchId(String(payload.branch_id ?? payload.branchId ?? invoice?.branchId ?? invoice?.branch_id ?? ''));
+        setSelectedVendor(invoice?.supplier?.name ?? invoice?.vendor_name ?? invoice?.supplier_name ?? selectedVendor);
+        setIssueDate(String(payload.issue_date ?? payload.issueDate ?? invoice?.issueDate ?? todayIso).slice(0, 10));
+        setDueDateType(duePayload?.type ?? invoice?.paymentTerms ?? 'Net');
+        setNetDays(Number(duePayload?.net_days ?? duePayload?.netDays ?? invoice?.netDays ?? 30) || 30);
+        setCustomDueDate(String(duePayload?.custom_date ?? duePayload?.customDate ?? invoice?.dueDate ?? todayIso).slice(0, 10));
+        setVendorInvoiceRef(payload.vendorInvoiceRef ?? payload.vendor_invoice_ref ?? invoice?.refNumber ?? '');
+        setInvoiceDescription(payload.description ?? invoice?.description ?? '');
+        setInvoiceNotes(payload.notes ?? invoice?.notes ?? '');
+        setInvoiceDiscountMode(invDiscount.mode ?? invoice?.discountType ?? 'fixed_sar');
+        setInvoiceDiscountValue(String(invDiscount.value ?? invoice?.discountAmount ?? '0'));
+        setShowDesc(Boolean(ui.showLineDescriptionColumn ?? ui.show_line_description_column ?? true));
+        setShowDiscount(Boolean(ui.showLineDiscountColumn ?? ui.show_line_discount_column ?? false));
+        setDiscountIsPercent(nextDiscountIsPercent);
+        setPriceExcludingVat(nextPriceExcludingVat);
+        setFreightSar(String(payload.freightIn ?? payload.freight_in ?? invoice?.freightIn ?? '0'));
+        setUpdateLastPurchasePrice(Boolean(payload.updateLastPurchasePriceOnSave ?? payload.update_last_purchase_price_on_save ?? true));
+        priceExcludingVatInitRef.current = false;
+        priceExcludingVatPrevRef.current = nextPriceExcludingVat;
+
+        const nextSearch = {};
+        const nextLines = sourceLines.map((line) => {
+            const lineId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+            const itemName = line.item_name ?? line.itemName ?? line.product_name ?? line.itemName ?? '';
+            const productId = String(
+                line.branch_catalog_product_id ?? line.branchCatalogProductId ?? line.productId ?? line.product_id ?? '',
+            );
+            const qty = line.qty ?? line.quantity ?? 1;
+            const unitEx = Number(line.unit_price_ex_vat ?? line.unitPriceExVat ?? line.unitPrice ?? 0);
+            const unitIncl = Number(line.unit_purchase_price_incl_vat ?? line.unitPurchasePriceInclVat ?? 0);
+            const price = nextPriceExcludingVat ? unitEx : unitIncl || unitEx;
+            nextSearch[lineId] = String(itemName || '');
+            return recalcStoredLineTotals({
+                id: lineId,
+                productId,
+                item: itemName,
+                account: line.account_display ?? `${line.account_code ?? '1410'} - ${line.account_name ?? 'Inventory Asset'}`,
+                description: line.description ?? '',
+                uom: line.uom ?? 'piece',
+                qty,
+                price,
+                discount: line.line_discount_raw ?? line.discount ?? 0,
+                discountMode: nextDiscountIsPercent ? 'percent' : 'fixed_sar',
+                taxCode: line.tax_code ?? line.taxCode ?? TAX_LABEL,
+                taxAmt: String(line.tax_amount ?? line.taxAmount ?? '0.00'),
+                totalFinal: String(line.line_total_incl_vat ?? line.total ?? '0.00'),
+            });
+        });
+        setLineItems(nextLines.length > 0 ? nextLines : [createEmptyLine()]);
+        setProductSearchByLineId(nextSearch);
+        setActiveProductSearchLineId(null);
+        setProductDropdownPosition(null);
+    };
+
+    const handleEditDraftInvoice = async (invoice) => {
+        setEditingDraftLoadingId(invoice.id);
+        setInvoicesError('');
+        try {
+            const res = await getWorkshopSupplierPurchaseInvoice(invoice.id);
+            const detail = res?.purchaseInvoice ?? res?.invoice ?? res?.data ?? res;
+            setEditingDraftId(invoice.id);
+            hydrateDraftInvoiceForm(detail);
+            setModalOpen(true);
+        } catch (e) {
+            setInvoicesError(e.message || 'Could not load draft purchase invoice.');
+        } finally {
+            setEditingDraftLoadingId(null);
+        }
+    };
+
+    const handleCreateInvoice = async (submitStatus = 'pending') => {
         if (!canSubmitPurchaseInvoice) return;
         setSubmitInvoiceError('');
-        const totals = invoiceTotals;
+        const normalizedSubmitStatus = submitStatus === 'draft' ? 'draft' : 'pending';
+        const isLocalSupplier =
+            selectedSupplierRow?.__supplierType === 'local' ||
+            selectedSupplierRow?.raw?.__supplierType === 'local';
+        if (normalizedSubmitStatus === 'draft' && isLocalSupplier) {
+            setSubmitInvoiceError('Draft save is only available for affiliated suppliers.');
+            return;
+        }
+        const selectedLineItems = lineItems.filter(
+            (line) => line.productId != null && String(line.productId).trim() !== '',
+        );
+        const invalidQtyIndex = selectedLineItems.findIndex((line) => {
+            const qty = parseFloat(String(line.qty ?? '').replace(',', '.'));
+            return !Number.isFinite(qty) || qty <= 0;
+        });
+        if (invalidQtyIndex !== -1) {
+            const originalIndex = lineItems.findIndex((line) => line.id === selectedLineItems[invalidQtyIndex].id);
+            setSubmitInvoiceError(`Line ${originalIndex + 1}: qty must be greater than 0.`);
+            return;
+        }
+        const totals = computePurchaseInvoiceTotals({
+            lineItems: selectedLineItems,
+            applyLineDiscount: applyDiscountForCalc,
+            lineDiscountIsPercent: discountIsPercent,
+            invoiceDiscountMode,
+            invoiceDiscountValue,
+            vatRate: VAT_RATE,
+            unitPriceTaxInclusive: !priceExcludingVat,
+            noVat: false,
+            freightIn: freightNum,
+        });
         const enrichedLines = buildEnrichedLineItems(
-            lineItems,
+            selectedLineItems,
             applyDiscountForCalc,
             discountIsPercent,
             VAT_RATE,
@@ -1269,7 +1461,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         );
         const dueComputed = calculateDueDate();
         const purchaseInvoicePayload = buildPurchaseInvoicePayload({
-            status: 'pending',
+            status: normalizedSubmitStatus,
             branch_id: invoiceBranchId,
             selected_branch_filter: selectedBranchId ?? null,
             issue_date: issueDate,
@@ -1313,7 +1505,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             description: invoiceDescription,
             notes: invoiceNotes,
             currency: 'SAR',
-            status: 'draft',
+            status: normalizedSubmitStatus,
             showLineDescriptionColumn: showDesc,
             showLineDiscountColumn: showDiscount,
             lineDiscountIsPercent: discountIsPercent,
@@ -1330,9 +1522,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         if (import.meta.env.DEV) void console.info('[purchase_invoice_payload]', purchaseInvoicePayload);
         setSubmittingInvoice(true);
         try {
-            const isLocalSupplier =
-                selectedSupplierRow?.__supplierType === 'local' ||
-                selectedSupplierRow?.raw?.__supplierType === 'local';
             let createRes;
             if (isLocalSupplier) {
                 // Convert enriched lines into the simpler local PI line schema.
@@ -1385,6 +1574,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     autoApplied: true,
                     stock: { applied: true, lines: localLines },
                 };
+            } else if (editingDraftId) {
+                createRes = await updateWorkshopSupplierPurchaseInvoiceDraft(editingDraftId, createBody);
             } else {
                 createRes = await createWorkshopSupplierPurchaseInvoice(createBody);
             }
@@ -1421,6 +1612,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setFreightSar('0');
             setPriceExcludingVat(false);
             setInvoiceBranchId('');
+            setProductSearchByLineId({});
+            setActiveProductSearchLineId(null);
+            setProductDropdownPosition(null);
+            setEditingDraftId(null);
             priceExcludingVatInitRef.current = false;
             priceExcludingVatPrevRef.current = false;
             setUpdateLastPurchasePrice(true);
@@ -1490,7 +1685,15 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         Purchase Price Report
                     </button>
                 </div>
-                <button type="button" className="btn-portal" onClick={() => setModalOpen(true)}>
+                <button
+                    type="button"
+                    className="btn-portal"
+                    onClick={() => {
+                        setEditingDraftId(null);
+                        setLineItems((prev) => (prev.length > 0 ? prev : [createEmptyLine()]));
+                        setModalOpen(true);
+                    }}
+                >
                     <Plus size={16} /> New Purchase Invoice
                 </button>
             </div>
@@ -1546,7 +1749,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         <td style={{ fontSize: '0.75rem' }}>{inv.date || '–'}</td>
                                         <td style={{ fontSize: '0.75rem' }}>{inv.due_date || '–'}</td>
                                         <td>
-                                            <span className={`ws-badge ws-badge--${inv.status === 'approved' ? 'green' : inv.status === 'rejected' ? 'red' : 'yellow'}`}>
+                                            <span className={`ws-badge ws-badge--${inv.status === 'approved' ? 'green' : inv.status === 'rejected' ? 'red' : inv.status === 'draft' ? 'gray' : 'yellow'}`}>
                                                 {inv.status || '—'}
                                             </span>
                                         </td>
@@ -1569,18 +1772,36 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             </span>
                                         </td>
                                         <td>
-                                            <button
-                                                type="button"
-                                                className="btn-portal"
-                                                style={{ padding: '4px 10px', fontSize: '0.75rem' }}
-                                                onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    void openViewInvoiceModal(inv);
-                                                }}
-                                            >
-                                                View
-                                            </button>
+                                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                            {inv.status === 'draft' ? (
+                                                    <button
+                                                        type="button"
+                                                        className="btn-portal"
+                                                        style={{ padding: '4px 10px', fontSize: '0.75rem', background: '#111827', color: '#fff', border: 'none' }}
+                                                        disabled={editingDraftLoadingId === inv.id}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            void handleEditDraftInvoice(inv);
+                                                        }}
+                                                    >
+                                                        {editingDraftLoadingId === inv.id ? 'Loading…' : 'Edit'}
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        className="btn-portal"
+                                                        style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            void openViewInvoiceModal(inv);
+                                                        }}
+                                                    >
+                                                        View
+                                                    </button>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -1688,11 +1909,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         title={
                             <div className="pi-modal-title">
                                 <span className="pi-breadcrumb">
-                                    Purchase Invoices › <span className="pi-b-active">New</span>
+                                    Purchase Invoices › <span className="pi-b-active">{editingDraftId ? 'Edit Draft' : 'New'}</span>
                                 </span>
                                 <div className="pi-title-main">
                                     <ShoppingCart className="pi-icon-orange" size={24} />
-                                    <span>Purchase Invoice</span>
+                                    <span>{editingDraftId ? 'Edit Purchase Invoice Draft' : 'Purchase Invoice'}</span>
                                 </div>
                             </div>
                         }
@@ -1702,6 +1923,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             setFreightSar('0');
                             setPriceExcludingVat(false);
                             setInvoiceBranchId('');
+                            setProductSearchByLineId({});
+                            setActiveProductSearchLineId(null);
+                            setProductDropdownPosition(null);
+                            setEditingDraftId(null);
                             priceExcludingVatInitRef.current = false;
                             priceExcludingVatPrevRef.current = false;
                         }}
@@ -1719,6 +1944,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             setFreightSar('0');
                                             setPriceExcludingVat(false);
                                             setInvoiceBranchId('');
+                                            setProductSearchByLineId({});
+                                            setActiveProductSearchLineId(null);
+                                            setProductDropdownPosition(null);
+                                            setEditingDraftId(null);
                                             priceExcludingVatInitRef.current = false;
                                             priceExcludingVatPrevRef.current = false;
                                         }}
@@ -1733,21 +1962,26 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         </p>
                                     )}
                                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                    <button type="button" className="btn-pi-draft">
-                                        Save as Draft
+                                    <button
+                                        type="button"
+                                        className="btn-pi-draft"
+                                        onClick={() => handleCreateInvoice('draft')}
+                                        disabled={!canSubmitPurchaseInvoice || submittingInvoice}
+                                    >
+                                        {submittingInvoice ? 'Saving…' : editingDraftId ? 'Update Draft' : 'Save as Draft'}
                                     </button>
                                     <button
                                         type="button"
                                         className="btn-pi-create"
-                                        onClick={handleCreateInvoice}
-                                        disabled={!canSubmitPurchaseInvoice}
+                                        onClick={() => handleCreateInvoice('pending')}
+                                        disabled={!canSubmitPurchaseInvoice || submittingInvoice}
                                         title={
                                             !canSubmitPurchaseInvoice
                                                 ? 'Need invoice branch, linked supplier with ID, at least one line with a branch product, and loaded suppliers.'
                                                 : undefined
                                         }
                                     >
-                                        {submittingInvoice ? 'Creating…' : 'Create Purchase Invoice'}
+                                        {submittingInvoice ? 'Creating…' : editingDraftId ? 'Send to Supplier' : 'Create Purchase Invoice'}
                                     </button>
                                     </div>
                                 </div>
@@ -2007,22 +2241,95 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             </button>
                                                         </td>
                                                         <td>
-                                                            <select
-                                                                className="pi-row-input ws-pi-select"
-                                                                data-pi-row-product={line.id}
-                                                                value={line.productId}
-                                                                disabled={!invoiceBranchId || branchProductsLoading}
-                                                                onChange={(e) => handleLineProductChange(line.id, e.target.value)}
-                                                            >
-                                                                <option value="">
-                                                                    {branchProductsLoading ? 'Loading products…' : '— Select product —'}
-                                                                </option>
-                                                                {branchProductOptions.map((p) => (
-                                                                    <option key={p.id} value={p.id}>
-                                                                        {p.name}
-                                                                    </option>
-                                                                ))}
-                                                            </select>
+                                                            {(() => {
+                                                                const searchText = getProductSearchText(line);
+                                                                const productResults = getProductSearchResults(searchText);
+                                                                const canSearchProducts = !!invoiceBranchId && !branchProductsLoading;
+                                                                const showProductResults =
+                                                                    activeProductSearchLineId === line.id && canSearchProducts;
+                                                                return (
+                                                                    <div className="ws-pi-product-search">
+                                                                        <input
+                                                                            type="text"
+                                                                            className="pi-row-input ws-pi-product-search-input"
+                                                                            data-pi-row-product={line.id}
+                                                                            ref={(node) => {
+                                                                                if (node) productSearchInputRefs.current[line.id] = node;
+                                                                                else delete productSearchInputRefs.current[line.id];
+                                                                            }}
+                                                                            value={searchText}
+                                                                            disabled={!invoiceBranchId || branchProductsLoading}
+                                                                            autoComplete="off"
+                                                                            placeholder={
+                                                                                branchProductsLoading
+                                                                                    ? 'Loading products...'
+                                                                                    : invoiceBranchId
+                                                                                      ? 'Search product...'
+                                                                                      : 'Choose branch first'
+                                                                            }
+                                                                            onFocus={() => {
+                                                                                setActiveProductSearchLineId(line.id);
+                                                                                updateProductDropdownPosition(line.id);
+                                                                            }}
+                                                                            onChange={(e) => handleLineProductSearchChange(line.id, e.target.value)}
+                                                                            onBlur={() => {
+                                                                                window.setTimeout(() => {
+                                                                                    setActiveProductSearchLineId((prev) =>
+                                                                                        prev === line.id ? null : prev,
+                                                                                    );
+                                                                                    setProductDropdownPosition(null);
+                                                                                }, 120);
+                                                                            }}
+                                                                            onKeyDown={(e) => {
+                                                                                if (e.key !== 'Enter') return;
+                                                                                if (productResults.length === 0) return;
+                                                                                e.preventDefault();
+                                                                                handleLineProductChange(line.id, productResults[0].id);
+                                                                            }}
+                                                                        />
+                                                                        {showProductResults &&
+                                                                            productDropdownPosition &&
+                                                                            createPortal(
+                                                                                <div
+                                                                                    className="ws-pi-product-results"
+                                                                                    style={{
+                                                                                        top: productDropdownPosition.top,
+                                                                                        left: productDropdownPosition.left,
+                                                                                        width: productDropdownPosition.width,
+                                                                                    }}
+                                                                                >
+                                                                                    {String(searchText || '').trim() ? (
+                                                                                        productResults.length > 0 ? (
+                                                                                            productResults.map((p) => (
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    key={p.id}
+                                                                                                    className="ws-pi-product-result"
+                                                                                                    onMouseDown={(e) => {
+                                                                                                        e.preventDefault();
+                                                                                                        handleLineProductChange(line.id, p.id);
+                                                                                                    }}
+                                                                                                >
+                                                                                                    <span>{p.name}</span>
+                                                                                                    <small>{p.unit || 'piece'}</small>
+                                                                                                </button>
+                                                                                            ))
+                                                                                        ) : (
+                                                                                            <div className="ws-pi-product-empty">
+                                                                                                No products match this search.
+                                                                                            </div>
+                                                                                        )
+                                                                                    ) : (
+                                                                                        <div className="ws-pi-product-empty">
+                                                                                            Type product name to search.
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>,
+                                                                                document.body,
+                                                                            )}
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </td>
                                                         <td>
                                                             <select

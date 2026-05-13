@@ -1286,6 +1286,65 @@
     display: block;
 }
 
+.ws-pi-product-search {
+    position: relative;
+    width: 100%;
+}
+
+.ws-pi-product-search-input {
+    width: 100%;
+}
+
+.ws-pi-product-results {
+    position: fixed;
+    z-index: 10000;
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 14px 35px rgba(15, 23, 42, 0.16);
+}
+
+.ws-pi-product-result {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 11px;
+    border: none;
+    border-bottom: 1px solid #f1f5f9;
+    background: #ffffff;
+    color: #0f172a;
+    cursor: pointer;
+    text-align: left;
+}
+
+.ws-pi-product-result:hover {
+    background: #f8fafc;
+}
+
+.ws-pi-product-result span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.8125rem;
+    font-weight: 700;
+}
+
+.ws-pi-product-result small {
+    flex: 0 0 auto;
+    color: #64748b;
+    font-size: 0.75rem;
+}
+
+.ws-pi-product-empty {
+    padding: 10px 11px;
+    color: #64748b;
+    font-size: 0.8125rem;
+}
+
 .ws-content {
     position: relative;
 }

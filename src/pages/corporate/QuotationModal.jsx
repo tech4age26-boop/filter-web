@@ -13,8 +13,7 @@ import {
     CORPORATE_MASTER_CATALOG_SEARCH_LIMIT as SEARCH_LIMIT,
 } from '../../services/corporateMasterCatalogSearch';
 
-/** Saudi VAT 15%: amount ex VAT × 1.15 = amount inc VAT. */
-const QUOTE_VAT_MULTIPLIER = 1.15;
+const QUOTE_VAT_RATE = 0.15;
 
 const CORPORATE_PRICE_QUOTATIONS_CHANGED = 'corporate-price-quotations-changed';
 
@@ -114,12 +113,12 @@ export default function QuotationModal({ walletBalance, onClose, onSave }) {
         setError('');
         try {
             const items = lines.map((l) => {
-                const quoteExVat = roundMoney2(parseFloat(l.quotationPrice) || 0);
-                const quoteIncVat = roundMoney2(quoteExVat * QUOTE_VAT_MULTIPLIER);
+                const quoteIncVat = roundMoney2(parseFloat(l.quotationPrice) || 0);
+                const quoteExVat = roundMoney2(quoteIncVat / (1 + QUOTE_VAT_RATE));
                 const base = {
                     itemType: l.itemType,
                     qty: parseFloat(l.qty) || 1,
-                    quotationPrice: quoteExVat,
+                    quotationPrice: quoteIncVat,
                     priceExcludingVat: quoteExVat,
                     priceIncludingVat: quoteIncVat,
                 };
@@ -346,14 +345,12 @@ export default function QuotationModal({ walletBalance, onClose, onSave }) {
                             <span>Item</span>
                             <span style={{ textAlign: 'center' }}>Qty</span>
                             <span style={{ textAlign: 'center' }}>Sale total</span>
-                            <span style={{ textAlign: 'center' }}>Quote (ex VAT)</span>
+                            <span style={{ textAlign: 'center' }}>Quote (incl. VAT)</span>
                             <span />
                         </div>
                         <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
                             {lines.map((line, idx) => {
                                 const qtyNum = parseFloat(line.qty) || 1;
-                                const quoteEx = roundMoney2(parseFloat(line.quotationPrice) || 0);
-                                const quoteInc = roundMoney2(quoteEx * QUOTE_VAT_MULTIPLIER);
                                 return (
                                     <div
                                         key={lineKey(line)}
@@ -413,7 +410,7 @@ export default function QuotationModal({ walletBalance, onClose, onSave }) {
                                                 }}
                                             />
                                             <span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)', lineHeight: 1.2 }}>
-                                                Inc VAT SAR {quoteInc.toFixed(2)}
+                                                Final price incl. VAT
                                             </span>
                                         </div>
                                         <button

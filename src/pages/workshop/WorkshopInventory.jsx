@@ -154,17 +154,82 @@ function pickDisplayName(master, row) {
 
 function buildInventorySearchText(row) {
     const fields = [
+        row?._searchText,
         row?.name,
+        row?.productName,
+        row?.product_name,
+        row?.itemName,
+        row?.item_name,
         row?.sku,
+        row?.code,
+        row?.barcode,
+        row?.partNumber,
+        row?.part_number,
         row?.brand,
         row?.departmentName,
+        row?.department_name,
         row?.categoryName,
+        row?.category_name,
         row?.id,
     ];
     return fields
-        .map((v) => (v == null ? '' : String(v).toLowerCase().trim()))
+        .map(normalizeInventorySearchValue)
         .filter(Boolean)
         .join(' ');
+}
+
+function normalizeInventorySearchValue(value) {
+    return value == null
+        ? ''
+        : String(value)
+            .normalize('NFKD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .trim();
+}
+
+function buildRawInventorySearchText(...sources) {
+    const fields = [];
+    for (const source of sources) {
+        if (!source || typeof source !== 'object') continue;
+        fields.push(
+            source.name,
+            source.productName,
+            source.product_name,
+            source.itemName,
+            source.item_name,
+            source.title,
+            source.sku,
+            source.code,
+            source.barcode,
+            source.partNumber,
+            source.part_number,
+            source.brand,
+            source.departmentName,
+            source.department_name,
+            source.department?.name,
+            source.categoryName,
+            source.category_name,
+            source.category?.name,
+            source.id,
+            source.productId,
+            source.product_id,
+        );
+    }
+    return fields.map(normalizeInventorySearchValue).filter(Boolean).join(' ');
+}
+
+function matchesProductNameSearch(row, query) {
+    const q = normalizeInventorySearchValue(query);
+    if (!q) return true;
+    const name = normalizeInventorySearchValue(row?.name);
+    const sku = normalizeInventorySearchValue(row?.sku);
+    const hay = `${name} ${sku}`.trim();
+    if (!hay) return false;
+    return q
+        .split(/\s+/)
+        .filter(Boolean)
+        .every((term) => hay.includes(term));
 }
 
 /**
@@ -204,6 +269,9 @@ function mapApiRowToInventory(row) {
     const merged = mergeBranchProductRowForInventory(row);
     const nested = row?.product && typeof row.product === 'object' ? row.product : null;
     const master = nested || row;
+    const sourceRowId = row?.id ?? row?.branchProductId ?? row?.branch_product_id ?? row?.workshopProductId ?? row?.workshop_product_id;
+    const branchId = row?.branchId ?? row?.branch_id ?? row?.branch?.id ?? merged.branchId ?? merged.branch_id ?? merged.branch?.id ?? '';
+    const branchName = row?.branchName ?? row?.branch_name ?? row?.branch?.name ?? merged.branchName ?? merged.branch_name ?? merged.branch?.name ?? '';
     const id =
         merged.id ??
         master?.id ??
@@ -270,6 +338,15 @@ function mapApiRowToInventory(row) {
         openingQty,
         qty,
         critical_level,
+        branchId: branchId != null && String(branchId).trim() !== '' ? String(branchId) : null,
+        branchName: branchName != null && String(branchName).trim() !== '' ? String(branchName) : null,
+        _rowKey: [
+            id,
+            branchId,
+            sourceRowId,
+            row?.sku ?? master?.sku ?? '',
+        ].map((v) => (v == null ? '' : String(v))).join(':'),
+        _searchText: buildRawInventorySearchText(row, master, merged, nested),
     };
 }
 
@@ -696,15 +773,8 @@ export default function WorkshopInventory({
     };
 
     const filteredProducts = useMemo(() => {
-        const q = searchQuery.toLowerCase().trim();
-        if (!q) return productRows;
-        const terms = q.split(/\s+/).filter(Boolean);
-        return productRows.filter(
-            (p) => {
-                const hay = buildInventorySearchText(p);
-                return terms.every((term) => hay.includes(term));
-            },
-        );
+        if (!normalizeInventorySearchValue(searchQuery)) return productRows;
+        return productRows.filter((p) => matchesProductNameSearch(p, searchQuery));
     }, [productRows, searchQuery]);
 
     const tableEmptyMessage = () => {
@@ -833,7 +903,7 @@ export default function WorkshopInventory({
                                     <Search className="mc-filter-icon" size={16} />
                                     <input
                                         type="text"
-                                        placeholder="Search by name, SKU, department, category..."
+                                        placeholder="Search by product name or SKU..."
                                         className="mc-filter-select"
                                         style={{ paddingLeft: '40px', paddingRight: searchQuery ? '70px' : '14px', width: '100%', minHeight: 46, fontSize: '0.95rem' }}
                                         value={searchQuery}
@@ -1054,7 +1124,7 @@ export default function WorkshopInventory({
 
                                             return (
                                                 <tr
-                                                    key={item.id || idx}
+                                                    key={`${normalizeInventorySearchValue(searchQuery)}:${item._rowKey || item.id || ''}:${idx}`}
                                                     role="button"
                                                     tabIndex={0}
                                                     onClick={() => setLogProduct(item)}

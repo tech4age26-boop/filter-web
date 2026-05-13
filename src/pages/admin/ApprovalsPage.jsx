@@ -200,9 +200,10 @@ function buildMetaChips(item) {
             break;
         case 'corporate_price_quotation':
         case 'corporate_price_quotations':
-            push('Item', m.name);
+            push('Item', m.name ?? m.itemName ?? m.item_name);
             push('SKU', m.sku);
-            push('Quote', m.quotationPrice != null ? `SAR ${m.quotationPrice}` : null);
+            push('Department', m.departmentName ?? m.department_name);
+            push('Quote incl. VAT', m.quotationPrice != null ? `SAR ${m.quotationPrice}` : null);
             push('Status', m.status ?? item.status);
             break;
         case 'corporate_walk_in_booking':
