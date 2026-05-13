@@ -53,6 +53,21 @@ export const updateLocalSupplier = (id, body) =>
 
 // ---- Local supplier purchase invoices -------------------------------------
 
+/** All local (non-affiliated) PIs for the workshop — optional branchId filter. */
+export const listAllLocalSupplierPurchaseInvoices = (params = {}) =>
+    apiFetch(withQuery('/workshop-suppliers/local/purchase-invoices', params));
+
+export const getWorkshopLocalPurchaseInvoice = (invoiceId) =>
+    apiFetch(
+        `/workshop-suppliers/local/purchase-invoices/${encodeURIComponent(String(invoiceId))}`,
+    );
+
+export const patchWorkshopLocalPurchaseInvoice = (invoiceId, body) =>
+    apiFetch(
+        `/workshop-suppliers/local/purchase-invoices/${encodeURIComponent(String(invoiceId))}`,
+        { method: 'PATCH', body: JSON.stringify(body ?? {}) },
+    );
+
 export const createLocalSupplierPurchaseInvoice = (localSupplierId, body) =>
     apiFetch(
         `/workshop-suppliers/local/${encodeURIComponent(localSupplierId)}/purchase-invoices`,

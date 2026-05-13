@@ -393,6 +393,12 @@ export const getCustomers = ({ workshopId, customerType } = {}) =>
 export const getCustomerDetails = (id) =>
     apiFetch(`/super-admin/customers/${encodeURIComponent(String(id))}/details`);
 
+export const updateCustomer = (id, body) =>
+    apiFetch(`/super-admin/customers/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body && typeof body === 'object' ? body : {}),
+    });
+
 /** Direct corporate registration by super-admin (immediate active; no approval queue). */
 export const createCorporateCustomerDirect = (body) =>
     apiFetch('/super-admin/corporate/register', { method: 'POST', body: JSON.stringify(body) });

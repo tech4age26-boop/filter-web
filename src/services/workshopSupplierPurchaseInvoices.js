@@ -80,6 +80,22 @@ function buildDueDatePayload({
     };
 }
 
+/** Nest `parseWorkshopPurchaseDueDate` reads snake_case on the nested object. */
+function workshopPurchaseDueDateNestedForApi(payload) {
+    if (!payload || typeof payload !== 'object') return payload;
+    const net = payload.netDays ?? payload.net_days;
+    return {
+        type: payload.type ?? 'Net',
+        net_days: net != null && Number.isFinite(Number(net)) ? Math.floor(Number(net)) : undefined,
+        custom_date: payload.customDate ?? payload.custom_date ?? null,
+        computed_due_date: payload.computedDueDate ?? payload.computed_due_date ?? null,
+        // camelCase aliases for lenient servers / logging
+        netDays: net != null && Number.isFinite(Number(net)) ? Math.floor(Number(net)) : undefined,
+        customDate: payload.customDate ?? payload.custom_date ?? null,
+        computedDueDate: payload.computedDueDate ?? payload.computed_due_date ?? null,
+    };
+}
+
 /**
  * Flat `YYYY-MM-DD` due date for APIs that require `due_date` (matches WorkshopPurchases due logic).
  */
@@ -297,6 +313,59 @@ export function extractWorkshopPurchaseInvoiceUiFromPayload(raw) {
 }
 
 /**
+ * Newest-first sort for merged workshop purchase-invoice tables (affiliated + non-affiliated).
+ * Same issue date is common; tie-break with created time, then numeric id / invoice number.
+ *
+ * @param {ReturnType<typeof normalizeWorkshopSupplierPurchaseInvoiceRow>} a
+ * @param {ReturnType<typeof normalizeWorkshopSupplierPurchaseInvoiceRow>} b
+ * @returns {number}
+ */
+export function compareWorkshopPurchaseInvoiceListRowsDesc(a, b) {
+    if (!a || !b) return 0;
+    const dateA = String(a.date || '').slice(0, 10);
+    const dateB = String(b.date || '').slice(0, 10);
+    if (dateA !== dateB) {
+        return dateB.localeCompare(dateA);
+    }
+    const rawA = a._raw && typeof a._raw === 'object' ? a._raw : {};
+    const rawB = b._raw && typeof b._raw === 'object' ? b._raw : {};
+    const tA = Date.parse(String(rawA.createdAt ?? rawA.created_at ?? ''));
+    const tB = Date.parse(String(rawB.createdAt ?? rawB.created_at ?? ''));
+    if (Number.isFinite(tA) && Number.isFinite(tB) && tA !== tB) {
+        return tB - tA;
+    }
+    const idA = Number(a.id);
+    const idB = Number(b.id);
+    if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) {
+        return idB - idA;
+    }
+    const invA = String(a.invoice_number ?? '');
+    const invB = String(b.invoice_number ?? '');
+    return invB.localeCompare(invA, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+/**
+ * Merged affiliated + local lists can contain the same WLPI row twice (e.g. both endpoints
+ * or duplicate payloads). One stable key per WLPI number; otherwise `invoiceKind` + `id`.
+ *
+ * @param {Array<ReturnType<typeof normalizeWorkshopSupplierPurchaseInvoiceRow>|null|undefined>} rows
+ * @returns {Array<ReturnType<typeof normalizeWorkshopSupplierPurchaseInvoiceRow>>}
+ */
+export function dedupeWorkshopPurchaseInvoiceListRows(rows) {
+    if (!Array.isArray(rows) || rows.length <= 1) return rows.filter(Boolean);
+    const map = new Map();
+    for (const r of rows) {
+        if (!r || typeof r !== 'object') continue;
+        const no = String(r.invoice_number ?? '').trim();
+        const key = /^WLPI-/i.test(no)
+            ? `wlpi:${no.toUpperCase()}`
+            : `${r.invoiceKind === 'local' ? 'local' : 'affiliated'}:${String(r.id ?? '')}`;
+        if (!map.has(key)) map.set(key, r);
+    }
+    return [...map.values()];
+}
+
+/**
  * Map API invoice → WorkshopPurchases table row shape.
  * Branch (GET): `branch` { id, name }, `branchId`, `branch_id`, `branchName`, `branch_name` (per formatWorkshopSupplierPurchaseInvoice).
  */
@@ -313,6 +382,7 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         supplier?.supplierName ?? supplier?.name ?? inv.supplierName ?? inv.supplier_name ?? inv.vendorName ?? '';
     const vendorName = String(topVendor || vendorFallback).trim();
     const status = String(inv.status ?? inv.state ?? 'pending').toLowerCase();
+    const invoiceKind = inv._invoiceKind === 'local' ? 'local' : 'affiliated';
     const sub = money2(
         inv.subtotalExVat ?? inv.subtotal_ex_vat ?? inv.subtotalExcludingVat ?? inv.subtotal ?? 0,
     );
@@ -362,15 +432,18 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
             ? Math.max(0, grand - paid)
             : inv.balance ?? inv.balanceDue ?? inv.balance_due ?? Math.max(0, grand - paid),
     );
+    const hasStockFlag = Boolean(
+        inv.stockAppliedAt ??
+            inv.stock_applied_at ??
+            inv.stockUpdated ??
+            inv.stock_updated ??
+            inv.stockReceived ??
+            inv.stock_received,
+    );
     const stockUpdated =
-        Boolean(
-            inv.stockAppliedAt ??
-                inv.stock_applied_at ??
-                inv.stockUpdated ??
-                inv.stock_updated ??
-                inv.stockReceived ??
-                inv.stock_received,
-        ) || status === 'approved';
+        hasStockFlag ||
+        status === 'approved' ||
+        (status === 'completed' && invoiceKind !== 'local');
     const { quantity_label, unit_label } = workshopInvoiceQtyUnitSummary(items);
     const { product_label } = workshopInvoiceProductNameSummary(items);
     const { primary_unit_price } = workshopInvoicePrimaryUnitPriceSummary(items);
@@ -421,6 +494,7 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         primary_unit_price,
         items,
         payload,
+        invoiceKind,
         _raw: inv,
     };
 }
@@ -535,6 +609,7 @@ export function buildCreateWorkshopSupplierPurchaseInvoiceBody(p) {
     });
 
     const dueNorm = resolveFlatDueDateIso(p, dueDatePayload, issueNorm);
+    const dueNested = workshopPurchaseDueDateNestedForApi(dueDatePayload);
 
     const branchIdStr = toTrimmedIdString(p.branchId);
     return {
@@ -544,7 +619,9 @@ export function buildCreateWorkshopSupplierPurchaseInvoiceBody(p) {
         issueDate: issueNorm,
         issue_date: issueNorm,
         dueDate: dueDatePayload,
-        due_date: dueNorm,
+        /** Object form so create/update draft preserves Net days / Custom / EOM (flat string loses terms). */
+        due_date: dueNested,
+        due_date_iso: dueNorm,
         vendorInvoiceRef: p.vendorInvoiceRef || undefined,
         description: p.description || undefined,
         notes: p.notes || undefined,
