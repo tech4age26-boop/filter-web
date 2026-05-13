@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { FileSpreadsheet, FileText, Plus } from 'lucide-react';
 import Modal from '../../components/Modal';
 import {
@@ -125,6 +126,7 @@ function buildAffiliatedLedgerRows(transactions) {
 }
 
 export default function SupplierAffiliatedWorkshops() {
+    const navigate = useNavigate();
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -373,6 +375,12 @@ export default function SupplierAffiliatedWorkshops() {
                         Pin specific branches (or a whole workshop when it has no branches). Use{' '}
                         <strong>Deactivate</strong> to soft-hide a row without losing history;{' '}
                         <strong>Activate</strong> to show it again. Balance and logs still reflect real AR.
+                    </p>
+                    <p className="ws-page-sub" style={{ marginTop: 8, fontSize: '0.85rem', opacity: 0.88 }}>
+                        The same balance is posted to <strong>Accounting → Chart of Accounts → AR Affiliated</strong>.
+                        Open a transaction log row, then use <strong>Chart of Accounts (ledger)</strong> to see matching
+                        GL lines (incl. sales invoices), or go to COA and filter the ledger by party type{' '}
+                        <code>workshop</code> and the workshop id.
                     </p>
                 </div>
                 <button type="button" className="btn-portal" onClick={openPicker}>
@@ -845,6 +853,26 @@ export default function SupplierAffiliatedWorkshops() {
                             disabled={logLoading}
                         >
                             Clear filter
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-portal-outline"
+                            onClick={() => {
+                                const ws = String(logRow?.workshopId ?? '').trim();
+                                if (!ws) return;
+                                navigate(
+                                    `/supplier/accounting/coa?${new URLSearchParams({
+                                        openLedgerSeed: 'AR_AFFILIATED',
+                                        partyType: 'workshop',
+                                        partyId: ws,
+                                    }).toString()}`,
+                                );
+                                setLogRow(null);
+                            }}
+                            disabled={!logRow?.workshopId}
+                            title="Opens Chart of Accounts with AR Affiliated ledger filtered to this workshop"
+                        >
+                            Chart of Accounts (ledger)
                         </button>
                         <div
                             style={{

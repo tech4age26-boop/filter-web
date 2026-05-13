@@ -104,8 +104,30 @@ export const getSupplierReportsQuickSummary = () =>
 export const getSupplierProfile = () => apiFetch('/supplier/profile');
 
 // Products / catalog
-export const listSupplierProducts = (params = {}) =>
-    apiFetch(withQuery('/supplier/products', params));
+export const listSupplierProducts = (params = {}, fetchOptions = {}) =>
+    apiFetch(withQuery('/supplier/products', params), fetchOptions);
+
+/** Paginate `/supplier/products` until exhausted (for bulk catalog import / dedupe maps). */
+export async function fetchAllSupplierProducts({ status = 'all', pageSize = 2000, signal } = {}) {
+    const out = [];
+    let offset = 0;
+    const limit = pageSize;
+    while (true) {
+        const res = await listSupplierProducts(
+            { status, limit, offset },
+            signal ? { signal } : {},
+        );
+        const batch = Array.isArray(res?.products)
+            ? res.products
+            : Array.isArray(res)
+              ? res
+              : [];
+        out.push(...batch);
+        if (batch.length < limit) break;
+        offset += limit;
+    }
+    return out;
+}
 export const listSupplierMasterCatalogProducts = ({ branchId, signal } = {}) =>
     apiFetch(withQuery('/supplier/products/master-catalog', { branchId }), { signal });
 export const createSupplierProductRequest = (body) =>

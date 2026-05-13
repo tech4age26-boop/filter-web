@@ -19,7 +19,7 @@ import {
     getSupplierLocations,
     listSupplierMasterCatalogProducts,
     listSupplierProductRequests,
-    listSupplierProducts,
+    fetchAllSupplierProducts,
     setSupplierStock,
     updateSupplierProduct,
 } from '../../services/supplierApi';
@@ -362,12 +362,8 @@ export default function SupplierCatalog() {
             locations = [];
         }
         try {
-            const existingRes = await listSupplierProducts({ status: 'all', limit: 500 });
-            existing = Array.isArray(existingRes?.products)
-                ? existingRes.products
-                : Array.isArray(existingRes)
-                  ? existingRes
-                  : [];
+            const existingRes = await fetchAllSupplierProducts({ status: 'all', pageSize: 2000 });
+            existing = Array.isArray(existingRes) ? existingRes : [];
         } catch {
             existing = [];
         }
@@ -465,6 +461,13 @@ export default function SupplierCatalog() {
                     if (!supplierProductId) {
                         throw new Error(`Failed to create supplier product for ${master.name}`);
                     }
+                }
+
+                if (skuKey) {
+                    bySku.set(skuKey, { id: supplierProductId });
+                }
+                if (nameKey) {
+                    byName.set(nameKey, { id: supplierProductId });
                 }
 
                 await setSupplierStock({

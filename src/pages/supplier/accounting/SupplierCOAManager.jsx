@@ -1,18 +1,25 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
     ChevronDown,
     ChevronRight,
+    Download,
+    FileDown,
     Pencil,
     Plus,
     Trash2,
     X,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
     createSupplierAccount,
     deleteSupplierAccount,
     getSupplierAccountLedger,
     getSupplierAccounts,
     getSupplierAccountsTree,
+    unwrapSupplierAccountingList,
     updateSupplierAccount,
 } from '../../../services/supplierAccountingApi';
 import {
@@ -30,7 +37,33 @@ import {
     money,
     outlineBtnStyle,
     primaryBtnStyle,
+    todayISO,
 } from './SupplierAccountingShared';
+
+/** Roll up child `closingDebit` / `closingCredit` onto parent COA rows (no direct parent postings). */
+function buildRollupMap(nodes) {
+    const map = new Map();
+    function walk(node) {
+        const kids = node.children || [];
+        if (!kids.length) {
+            const rd = Number(node.closingDebit) || 0;
+            const rc = Number(node.closingCredit) || 0;
+            map.set(node.id, { rollupDebit: rd, rollupCredit: rc, hasChildren: false });
+            return { rd, rc };
+        }
+        let rd = 0;
+        let rc = 0;
+        for (const k of kids) {
+            const x = walk(k);
+            rd += x.rd;
+            rc += x.rc;
+        }
+        map.set(node.id, { rollupDebit: rd, rollupCredit: rc, hasChildren: true });
+        return { rd, rc };
+    }
+    for (const n of nodes || []) walk(n);
+    return map;
+}
 
 const TYPE_LABELS = {
     ASSET: 'Assets',
@@ -53,14 +86,55 @@ function emptyForm() {
         cashFlowCategory: '',
         isCashEquivalent: false,
         openingBalance: 0,
+        openingBalanceDate: todayISO(),
+        openingOffsetAccountId: '',
+    };
+}
+
+function formFromInitial(initial) {
+    if (!initial?.id) return emptyForm();
+    return {
+        ...emptyForm(),
+        ...initial,
+        id: initial.id,
+        code: initial.code != null ? String(initial.code) : '',
+        name: initial.name != null ? String(initial.name) : '',
+        type: initial.type || 'ASSET',
+        subType: initial.subType || 'CURRENT',
+        parentId: initial.parentId != null ? String(initial.parentId) : '',
+        description: initial.description != null ? String(initial.description) : '',
+        status: initial.status || 'active',
+        cashFlowCategory: initial.cashFlowCategory != null ? String(initial.cashFlowCategory) : '',
+        isCashEquivalent: !!initial.isCashEquivalent,
+        openingBalance: initial.openingBalance ?? 0,
+        openingBalanceDate: initial.openingBalanceDate
+            ? String(initial.openingBalanceDate).slice(0, 10)
+            : todayISO(),
+        openingOffsetAccountId: initial.openingOffsetAccountId
+            ? String(initial.openingOffsetAccountId)
+            : '',
     };
 }
 
 function AccountForm({ initial, accounts, onCancel, onSaved }) {
-    const [form, setForm] = useState(initial || emptyForm());
+    const [form, setForm] = useState(() => formFromInitial(initial));
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
     const isEdit = !!initial?.id;
+
+    useEffect(() => {
+        setForm(formFromInitial(initial));
+    }, [initial?.id]);
+
+    const equityContraOptions = useMemo(() => {
+        return (accounts || []).filter(
+            (a) =>
+                a.type === 'EQUITY' &&
+                !a.hasChildren &&
+                String(a.id) !== String(form.id) &&
+                a.seedKey !== 'OPENING_SUSPENSE',
+        );
+    }, [accounts, form.id]);
 
     const subtypes = ACCOUNT_SUBTYPES_BY_TYPE[form.type] || ['OTHER'];
 
@@ -79,18 +153,32 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
         setErr('');
         setSaving(true);
         try {
+            const ob = Number(form.openingBalance || 0);
             const body = {
-                code: form.code.trim(),
-                name: form.name.trim(),
+                name: String(form.name ?? '').trim(),
                 type: form.type,
                 subType: form.subType,
                 parentId: form.parentId || undefined,
-                description: form.description.trim() || undefined,
+                description: String(form.description ?? '').trim() || undefined,
                 status: form.status,
                 cashFlowCategory: form.cashFlowCategory || undefined,
                 isCashEquivalent: !!form.isCashEquivalent,
-                openingBalance: Number(form.openingBalance || 0),
+                openingBalance: ob,
             };
+            if (Math.abs(ob) >= 0.005) {
+                body.openingBalanceDate = (form.openingBalanceDate || todayISO()).slice(0, 10);
+            } else {
+                body.openingBalanceDate = '';
+            }
+            if (isEdit) {
+                body.openingOffsetAccountId = form.openingOffsetAccountId
+                    ? String(form.openingOffsetAccountId)
+                    : '';
+            } else if (form.openingOffsetAccountId) {
+                body.openingOffsetAccountId = String(form.openingOffsetAccountId);
+            }
+            const codeTrim = String(form.code ?? '').trim();
+            if (codeTrim) body.code = codeTrim;
             if (isEdit) {
                 await updateSupplierAccount(form.id, body);
             } else {
@@ -117,13 +205,15 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
                 border: '1px solid rgba(0,0,0,0.06)',
             }}
         >
-            <Field label="Code" required>
+            <Field
+                label="Account code"
+                hint="Optional. Seeded chart uses 1000–6999 (e.g. 1100 is already AR). Leave blank to auto-generate a unique code."
+            >
                 <input
                     style={inputStyle}
                     value={form.code}
                     onChange={(e) => setForm({ ...form, code: e.target.value })}
-                    placeholder="e.g. 1100"
-                    required
+                    placeholder="e.g. 6210 — or leave blank"
                 />
             </Field>
             <Field label="Name" required>
@@ -191,6 +281,38 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
                     onChange={(e) => setForm({ ...form, openingBalance: e.target.value })}
                 />
             </Field>
+            <Field
+                label="Opening balance date"
+                hint="Date this opening balance applies from. Used as the journal date for the opening entry. Required when opening balance is not zero."
+            >
+                <input
+                    type="date"
+                    style={inputStyle}
+                    value={form.openingBalanceDate || ''}
+                    onChange={(e) =>
+                        setForm({ ...form, openingBalanceDate: e.target.value })
+                    }
+                />
+            </Field>
+            <Field
+                label="Opening contra (equity)"
+                hint="Optional. Positive = normal side for this account type (e.g. debit for cash). If empty, the other leg posts to system account 3190 Opening balance suspense."
+            >
+                <select
+                    style={inputStyle}
+                    value={form.openingOffsetAccountId || ''}
+                    onChange={(e) =>
+                        setForm({ ...form, openingOffsetAccountId: e.target.value })
+                    }
+                >
+                    <option value="">— Use opening suspense (3190) —</option>
+                    {equityContraOptions.map((a) => (
+                        <option key={a.id} value={a.id}>
+                            [{a.code}] {a.name}
+                        </option>
+                    ))}
+                </select>
+            </Field>
             <Field label="Status">
                 <select
                     style={inputStyle}
@@ -228,28 +350,150 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
     );
 }
 
-function LedgerDrawer({ account, onClose }) {
+function LedgerDrawer({ context, onClose }) {
+    const account = context?.account;
+    const initialParty = context?.partyFilter;
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [data, setData] = useState(null);
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
+    const [partyType, setPartyType] = useState(initialParty?.partyType ?? '');
+    const [partyId, setPartyId] = useState(initialParty?.partyId ?? '');
+    const [externalPartyId, setExternalPartyId] = useState(initialParty?.externalPartyId ?? '');
+    const [exporting, setExporting] = useState('');
+
+    useEffect(() => {
+        setPartyType(initialParty?.partyType ?? '');
+        setPartyId(initialParty?.partyId ?? '');
+        setExternalPartyId(initialParty?.externalPartyId ?? '');
+    }, [account?.id, initialParty?.partyType, initialParty?.partyId, initialParty?.externalPartyId]);
+
+    const ledgerQueryBase = useMemo(
+        () => ({
+            dateFrom,
+            dateTo,
+            partyType: partyType.trim() || undefined,
+            partyId: partyId.trim() || undefined,
+            externalPartyId: externalPartyId.trim() || undefined,
+        }),
+        [dateFrom, dateTo, partyType, partyId, externalPartyId],
+    );
 
     const load = useCallback(async () => {
         if (!account?.id) return;
         setLoading(true);
         setErr('');
         try {
-            const res = await getSupplierAccountLedger(account.id, { dateFrom, dateTo, limit: 500 });
-            setData(res);
+            const res = await getSupplierAccountLedger(account.id, {
+                ...ledgerQueryBase,
+                limit: 2000,
+            });
+            const root = res?.data && typeof res.data === 'object' ? res.data : res;
+            setData(root);
         } catch (e) {
             setErr(e?.message || 'Failed to load ledger');
         } finally {
             setLoading(false);
         }
-    }, [account?.id, dateFrom, dateTo]);
+    }, [account?.id, ledgerQueryBase]);
 
-    useEffect(() => { load(); }, [load]);
+    useEffect(() => {
+        void load();
+    }, [load]);
+
+    const lines = data?.lines || [];
+    const total = data?.total ?? lines.length;
+
+    async function fetchLedgerForExport() {
+        const res = await getSupplierAccountLedger(account.id, {
+            ...ledgerQueryBase,
+            limit: 10000,
+        });
+        return res?.data && typeof res.data === 'object' ? res.data : res;
+    }
+
+    async function downloadExcel() {
+        if (!account?.id) return;
+        setExporting('xlsx');
+        setErr('');
+        try {
+            const root = await fetchLedgerForExport();
+            const rows = (root?.lines || []).map((l) => ({
+                Date: fmtDate(l.date),
+                'Entry #': l.entryNumber,
+                Description: l.lineDescription || l.journalDescription || '',
+                Reference: l.reference || '',
+                'Party type': l.partyType || '',
+                'Party id': l.partyId || '',
+                'External party': l.externalPartyId || '',
+                Debit: Number(l.debit) || 0,
+                Credit: Number(l.credit) || 0,
+                Balance: Number(l.runningBalance) || 0,
+            }));
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
+            const code = String(account.code || 'account').replace(/[^\w\-]+/g, '_');
+            XLSX.writeFile(wb, `ledger_${code}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        } catch (e) {
+            setErr(e?.message || 'Excel export failed');
+        } finally {
+            setExporting('');
+        }
+    }
+
+    async function downloadPdf() {
+        if (!account?.id) return;
+        setExporting('pdf');
+        setErr('');
+        try {
+            const root = await fetchLedgerForExport();
+            const exportLines = root?.lines || [];
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+            const title = `[${account.code}] ${account.name}`;
+            const sub =
+                `Lines: ${exportLines.length}${total > exportLines.length ? ` (of ${total} — increase limit if truncated)` : ''}`;
+            doc.setFontSize(11);
+            doc.text(title, 40, 36);
+            doc.setFontSize(9);
+            doc.setTextColor(100);
+            doc.text(sub, 40, 52);
+            doc.setTextColor(0);
+            const body = exportLines.map((l) => [
+                fmtDate(l.date),
+                String(l.entryNumber ?? ''),
+                (l.lineDescription || l.journalDescription || '—').slice(0, 80),
+                l.reference || '—',
+                l.partyType || '—',
+                Number(l.debit) > 0 ? money(l.debit) : '—',
+                Number(l.credit) > 0 ? money(l.credit) : '—',
+                money(l.runningBalance),
+            ]);
+            autoTable(doc, {
+                startY: 62,
+                head: [[
+                    'Date',
+                    'Entry #',
+                    'Description',
+                    'Ref',
+                    'Party',
+                    'Debit',
+                    'Credit',
+                    'Balance',
+                ]],
+                body,
+                styles: { fontSize: 7, cellPadding: 3 },
+                headStyles: { fillColor: [15, 23, 42] },
+            });
+            const code = String(account.code || 'account').replace(/[^\w\-]+/g, '_');
+            doc.save(`ledger_${code}_${new Date().toISOString().slice(0, 10)}.pdf`);
+        } catch (e) {
+            setErr(e?.message || 'PDF export failed');
+        } finally {
+            setExporting('');
+        }
+    }
 
     if (!account) return null;
 
@@ -299,45 +543,118 @@ function LedgerDrawer({ account, onClose }) {
                 <Field label="To">
                     <input type="date" style={inputStyle} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                 </Field>
-                <button type="button" style={outlineBtnStyle} onClick={() => { setDateFrom(''); setDateTo(''); }}>Clear</button>
+                <Field label="Party type">
+                    <input
+                        type="text"
+                        style={inputStyle}
+                        placeholder="e.g. workshop"
+                        value={partyType}
+                        onChange={(e) => setPartyType(e.target.value)}
+                    />
+                </Field>
+                <Field label="Party id">
+                    <input
+                        type="text"
+                        style={inputStyle}
+                        placeholder="Numeric id"
+                        value={partyId}
+                        onChange={(e) => setPartyId(e.target.value)}
+                    />
+                </Field>
+                <Field label="External party id">
+                    <input
+                        type="text"
+                        style={{ ...inputStyle, minWidth: 200 }}
+                        placeholder="UUID"
+                        value={externalPartyId}
+                        onChange={(e) => setExternalPartyId(e.target.value)}
+                    />
+                </Field>
+                <button type="button" style={outlineBtnStyle} onClick={() => void load()}>
+                    Apply filters
+                </button>
+                <button
+                    type="button"
+                    style={outlineBtnStyle}
+                    onClick={() => {
+                        setDateFrom('');
+                        setDateTo('');
+                        setPartyType('');
+                        setPartyId('');
+                        setExternalPartyId('');
+                    }}
+                >
+                    Clear filters
+                </button>
+                <button
+                    type="button"
+                    style={outlineBtnStyle}
+                    onClick={() => void downloadExcel()}
+                    disabled={!!exporting}
+                    title="Download all matching lines (up to 10,000) as Excel"
+                >
+                    <FileDown size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                    {exporting === 'xlsx' ? '…' : 'Excel'}
+                </button>
+                <button
+                    type="button"
+                    style={outlineBtnStyle}
+                    onClick={() => void downloadPdf()}
+                    disabled={!!exporting}
+                    title="Download all matching lines (up to 10,000) as PDF"
+                >
+                    <Download size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                    {exporting === 'pdf' ? '…' : 'PDF'}
+                </button>
             </div>
             <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
                 {loading ? <AcctLoading /> : err ? <AcctError message={err} /> : (
                     <>
-                        {(data?.lines || []).length === 0 ? <AcctEmpty message="No journal lines in this range." /> : (
-                            <table className="ws-table" style={{ width: '100%' }}>
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Entry #</th>
-                                        <th>Description</th>
-                                        <th>Reference</th>
-                                        <th style={{ textAlign: 'right' }}>Debit</th>
-                                        <th style={{ textAlign: 'right' }}>Credit</th>
-                                        <th style={{ textAlign: 'right' }}>Balance</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(data?.lines || []).map((l) => (
-                                        <tr key={l.id}>
-                                            <td>{fmtDate(l.date)}</td>
-                                            <td style={{ fontWeight: 700 }}>{l.entryNumber}</td>
-                                            <td style={{ maxWidth: 280 }}>
-                                                {l.lineDescription || l.journalDescription || '—'}
-                                                {l.source ? (
-                                                    <div style={{ fontSize: 11, color: '#64748B' }}>
-                                                        {l.source}{l.sourceId ? ` · #${l.sourceId}` : ''}
-                                                    </div>
-                                                ) : null}
-                                            </td>
-                                            <td>{l.reference || '—'}</td>
-                                            <td style={{ textAlign: 'right' }}>{Number(l.debit) > 0 ? money(l.debit) : '—'}</td>
-                                            <td style={{ textAlign: 'right' }}>{Number(l.credit) > 0 ? money(l.credit) : '—'}</td>
-                                            <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(l.runningBalance)}</td>
+                        {!lines.length ? <AcctEmpty message="No journal lines match these filters." /> : (
+                            <>
+                                {total > lines.length ? (
+                                    <p style={{ margin: '0 0 12px', fontSize: 12, color: '#64748B' }}>
+                                        Showing last {lines.length} of {total} lines (newest window). Use Excel/PDF for up to 10,000 lines, or narrow dates / party filters.
+                                    </p>
+                                ) : null}
+                                <table className="ws-table" style={{ width: '100%' }}>
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Entry #</th>
+                                            <th>Description</th>
+                                            <th>Reference</th>
+                                            <th>Party</th>
+                                            <th style={{ textAlign: 'right' }}>Debit</th>
+                                            <th style={{ textAlign: 'right' }}>Credit</th>
+                                            <th style={{ textAlign: 'right' }}>Balance</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        {lines.map((l) => (
+                                            <tr key={l.id}>
+                                                <td>{fmtDate(l.date)}</td>
+                                                <td style={{ fontWeight: 700 }}>{l.entryNumber}</td>
+                                                <td style={{ maxWidth: 220 }}>
+                                                    {l.lineDescription || l.journalDescription || '—'}
+                                                    {l.source ? (
+                                                        <div style={{ fontSize: 11, color: '#64748B' }}>
+                                                            {l.source}{l.sourceId ? ` · #${l.sourceId}` : ''}
+                                                        </div>
+                                                    ) : null}
+                                                </td>
+                                                <td>{l.reference || '—'}</td>
+                                                <td style={{ fontSize: 12, color: '#475569' }}>
+                                                    {[l.partyType, l.partyId].filter(Boolean).join(' · ') || (l.externalPartyId ? `ext ${String(l.externalPartyId).slice(0, 8)}…` : '—')}
+                                                </td>
+                                                <td style={{ textAlign: 'right' }}>{Number(l.debit) > 0 ? money(l.debit) : '—'}</td>
+                                                <td style={{ textAlign: 'right' }}>{Number(l.credit) > 0 ? money(l.credit) : '—'}</td>
+                                                <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(l.runningBalance)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </>
                         )}
                     </>
                 )}
@@ -357,6 +674,39 @@ export default function SupplierCOAManager() {
     const [creating, setCreating] = useState(false);
     const [editing, setEditing] = useState(null);
     const [ledgerFor, setLedgerFor] = useState(null);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const coaLedgerQueryConsumed = useRef(false);
+
+    useEffect(() => {
+        const seed = (searchParams.get('openLedgerSeed') || '').trim();
+        const openAccountId = (searchParams.get('openLedgerAccountId') || '').trim();
+        if (!seed && !openAccountId) {
+            coaLedgerQueryConsumed.current = false;
+            return;
+        }
+        if (!accounts.length || coaLedgerQueryConsumed.current) return;
+        if (seed) {
+            const partyType = (searchParams.get('partyType') || '').trim();
+            const partyId = (searchParams.get('partyId') || '').trim();
+            const externalPartyId = (searchParams.get('externalPartyId') || '').trim();
+            const acc = accounts.find((a) => a.seedKey === seed);
+            if (!acc) return;
+            coaLedgerQueryConsumed.current = true;
+            setLedgerFor({
+                account: acc,
+                partyFilter: { partyType, partyId, externalPartyId },
+            });
+            setSearchParams({}, { replace: true });
+            return;
+        }
+        if (openAccountId) {
+            const acc = accounts.find((a) => String(a.id) === openAccountId);
+            if (!acc) return;
+            coaLedgerQueryConsumed.current = true;
+            setLedgerFor({ account: acc, partyFilter: {} });
+            setSearchParams({}, { replace: true });
+        }
+    }, [accounts, searchParams, setSearchParams]);
 
     const reload = useCallback(async () => {
         setLoading(true);
@@ -366,8 +716,8 @@ export default function SupplierCOAManager() {
                 getSupplierAccounts(),
                 getSupplierAccountsTree(),
             ]);
-            setAccounts(Array.isArray(flat) ? flat : flat?.accounts || []);
-            setTree(Array.isArray(t) ? t : t?.accounts || []);
+            setAccounts(unwrapSupplierAccountingList(flat));
+            setTree(unwrapSupplierAccountingList(t));
         } catch (e) {
             setErr(e?.message || 'Failed to load chart of accounts');
         } finally {
@@ -382,12 +732,36 @@ export default function SupplierCOAManager() {
         return (accounts || []).filter((a) => {
             if (filterType && a.type !== filterType) return false;
             if (!q) return true;
-            return (
-                a.name.toLowerCase().includes(q) ||
-                String(a.code).toLowerCase().includes(q)
-            );
+            const nm = (a.name || '').toLowerCase();
+            return nm.includes(q) || String(a.code || '').toLowerCase().includes(q);
         });
     }, [accounts, search, filterType]);
+
+    const treeRootsFiltered = useMemo(() => {
+        return (tree || [])
+            .filter((n) => !filterType || n.type === filterType)
+            .filter((n) => {
+                const q = search.trim().toLowerCase();
+                if (!q) return true;
+                const matches = (a) =>
+                    (a.name || '').toLowerCase().includes(q) ||
+                    String(a.code || '').toLowerCase().includes(q) ||
+                    (a.children || []).some(matches);
+                return matches(n);
+            });
+    }, [tree, filterType, search]);
+
+    const treeVisibleRowCount = useMemo(() => {
+        let c = 0;
+        const walk = (node) => {
+            c += 1;
+            for (const ch of node.children || []) walk(ch);
+        };
+        for (const n of treeRootsFiltered) walk(n);
+        return c;
+    }, [treeRootsFiltered]);
+
+    const rollupById = useMemo(() => buildRollupMap(tree), [tree]);
 
     async function handleDelete(id) {
         if (!confirm('Delete this account? System-seeded and posted accounts cannot be deleted.')) return;
@@ -400,18 +774,81 @@ export default function SupplierCOAManager() {
     }
 
     function renderRow(a, depth = 0) {
+        const roll = rollupById.get(a.id);
+        const hasChildren =
+            (a.children && a.children.length > 0) ||
+            !!a.hasChildren ||
+            (roll?.hasChildren ?? false);
+        const rd = roll ? roll.rollupDebit : Number(a.closingDebit) || 0;
+        const rc = roll ? roll.rollupCredit : Number(a.closingCredit) || 0;
         const normalDebit = a.type === 'ASSET' || a.type === 'EXPENSE';
-        const balance = normalDebit ? a.closingDebit || 0 : a.closingCredit || 0;
-        return (
+        const balance = normalDebit ? rd : rc;
+        const canOpenLedger = !hasChildren;
+        const partyRows = (a.partyBalances || []).map((pb, idx) => {
+            const pbd = Number(pb.closingDebit) || 0;
+            const pbc = Number(pb.closingCredit) || 0;
+            const pbBal = normalDebit ? pbd : pbc;
+            return (
+                <tr
+                    key={`${a.id}-party-${idx}`}
+                    style={{ background: '#F8FAFC', fontSize: 13 }}
+                >
+                    <td style={{ paddingLeft: 28 + depth * 22, color: '#475569' }}>
+                        <span style={{ marginRight: 6, color: '#94A3B8' }}>↳</span>
+                        {pb.label}
+                        {pb.lineCount != null ? (
+                            <span style={{ marginLeft: 8, fontSize: 11, color: '#94A3B8' }}>
+                                ({pb.lineCount} lines)
+                            </span>
+                        ) : null}
+                    </td>
+                    <td style={{ color: '#64748B' }}>{pb.partyType || '—'}</td>
+                    <td style={{ color: '#94A3B8' }}>—</td>
+                    <td style={{ textAlign: 'right' }}>{Number(pbd) > 0 ? money(pbd) : '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{Number(pbc) > 0 ? money(pbc) : '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{money(pbBal)}</td>
+                    <td style={{ textAlign: 'right' }}>
+                        {canOpenLedger ? (
+                            <button
+                                type="button"
+                                style={{ ...outlineBtnStyle, fontSize: 11, padding: '4px 8px' }}
+                                onClick={() =>
+                                    setLedgerFor({
+                                        account: a,
+                                        partyFilter: {
+                                            partyType: pb.partyType || '',
+                                            partyId: pb.partyId || '',
+                                            externalPartyId: pb.externalPartyId || '',
+                                        },
+                                    })}
+                            >
+                                Ledger
+                            </button>
+                        ) : null}
+                    </td>
+                </tr>
+            );
+        });
+        return [
             <tr key={a.id}>
                 <td style={{ paddingLeft: 12 + depth * 22 }}>
-                    <button
-                        type="button"
-                        style={{ background: 'transparent', border: 'none', padding: 0, color: '#1D4ED8', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
-                        onClick={() => setLedgerFor(a)}
-                    >
-                        [{a.code}] {a.name}
-                    </button>
+                    {canOpenLedger ? (
+                        <button
+                            type="button"
+                            style={{ background: 'transparent', border: 'none', padding: 0, color: '#1D4ED8', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
+                            onClick={() => setLedgerFor({ account: a })}
+                        >
+                            [{a.code}] {a.name}
+                        </button>
+                    ) : (
+                        <span
+                            style={{ fontWeight: 700, color: '#0F172A', cursor: 'default' }}
+                            title="Roll-up of sub-accounts. Open a sub-account for ledger and date filters."
+                        >
+                            [{a.code}] {a.name}
+                            <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: '#64748B' }}>(total)</span>
+                        </span>
+                    )}
                     {a.isAutoSeed ? (
                         <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#E0F2FE', color: '#075985', fontWeight: 700 }}>
                             System
@@ -419,9 +856,9 @@ export default function SupplierCOAManager() {
                     ) : null}
                 </td>
                 <td>{a.type}</td>
-                <td>{a.subType.replace(/_/g, ' ')}</td>
-                <td style={{ textAlign: 'right' }}>{Number(a.closingDebit || 0) > 0 ? money(a.closingDebit) : '—'}</td>
-                <td style={{ textAlign: 'right' }}>{Number(a.closingCredit || 0) > 0 ? money(a.closingCredit) : '—'}</td>
+                <td>{String(a.subType || '').replace(/_/g, ' ') || '—'}</td>
+                <td style={{ textAlign: 'right' }}>{Number(rd) > 0 ? money(rd) : '—'}</td>
+                <td style={{ textAlign: 'right' }}>{Number(rc) > 0 ? money(rc) : '—'}</td>
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(balance)}</td>
                 <td style={{ textAlign: 'right' }}>
                     <button type="button" style={outlineBtnStyle} onClick={() => setEditing(a)} title="Edit">
@@ -433,12 +870,13 @@ export default function SupplierCOAManager() {
                         </button>
                     ) : null}
                 </td>
-            </tr>
-        );
+            </tr>,
+            ...partyRows,
+        ];
     }
 
     function renderTreeNode(node, depth) {
-        const rows = [renderRow(node, depth)];
+        const rows = [...renderRow(node, depth)];
         if (node.children?.length) {
             for (const child of node.children) {
                 rows.push(...renderTreeNode(child, depth + 1));
@@ -502,23 +940,15 @@ export default function SupplierCOAManager() {
                             </thead>
                             <tbody>
                                 {view === 'tree'
-                                    ? tree
-                                        .filter((n) => !filterType || n.type === filterType)
-                                        .filter((n) => {
-                                            const q = search.trim().toLowerCase();
-                                            if (!q) return true;
-                                            const matches = (a) =>
-                                                a.name.toLowerCase().includes(q) ||
-                                                String(a.code).toLowerCase().includes(q) ||
-                                                (a.children || []).some(matches);
-                                            return matches(n);
-                                        })
-                                        .flatMap((n) => renderTreeNode(n, 0))
-                                    : filtered.map((a) => renderRow(a, 0))}
-                                {filtered.length === 0 && (
+                                    ? treeRootsFiltered.flatMap((n) => renderTreeNode(n, 0))
+                                    : filtered.flatMap((a) => renderRow(a, 0))}
+                                {!loading &&
+                                    (view === 'tree' ? treeVisibleRowCount === 0 : filtered.length === 0) && (
                                     <tr>
                                         <td colSpan={7} style={{ textAlign: 'center', padding: 32, color: '#64748B' }}>
-                                            No accounts match your filters.
+                                            {accounts.length === 0
+                                                ? 'No accounts in chart yet — use New Account, or open Sales/Purchases once to run system seed.'
+                                                : 'No accounts match your filters.'}
                                         </td>
                                     </tr>
                                 )}
@@ -528,7 +958,7 @@ export default function SupplierCOAManager() {
                 )}
             </AcctCard>
 
-            {ledgerFor ? <LedgerDrawer account={ledgerFor} onClose={() => setLedgerFor(null)} /> : null}
+            {ledgerFor ? <LedgerDrawer context={ledgerFor} onClose={() => setLedgerFor(null)} /> : null}
         </div>
     );
 }

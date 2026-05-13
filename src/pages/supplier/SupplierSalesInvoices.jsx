@@ -119,12 +119,6 @@ function mapSupplierSalesInvoiceToWorkshopListRow(inv) {
 /** Server-side page size for GET /supplier/invoices (matches backend max 100). */
 const SALES_INVOICE_PAGE_SIZE = 15;
 
-/** AR list: unpaid vs paid only (backend PATCH .../payment-status). */
-const SALES_INVOICE_PAYMENT_OPTIONS = [
-    { value: 'unpaid', label: 'Unpaid' },
-    { value: 'paid', label: 'Paid' },
-];
-
 /** Stored on `supplier_payments.method` when marking invoice paid from portal. */
 const MARK_PAID_METHOD_OPTIONS = [
     { value: 'cash', label: 'Cash' },
@@ -137,6 +131,15 @@ const MARK_PAID_METHOD_OPTIONS = [
 /** Align select value with balance (outstanding). */
 function salesInvoicePaymentSelectValue(balance) {
     return Number(balance || 0) > 0 ? 'unpaid' : 'paid';
+}
+
+/** Display-only AR settlement state for list rows (no quick unpaid toggle here). */
+function salesInvoiceArSettlementLabel(inv) {
+    const bal = Number(inv?.balance ?? 0);
+    const paid = Number(inv?.paid ?? 0);
+    if (bal <= 0.005) return { text: 'Paid', tone: 'green' };
+    if (paid > 0.005) return { text: 'Partial', tone: 'amber' };
+    return { text: 'Unpaid', tone: 'amber' };
 }
 
 /** Backend `GET /supplier/cash-bank/accounts` uses `accountType` (cash | bank), not `type`. */
@@ -390,13 +393,23 @@ function normalizeStockCatalogRow(item) {
     const qtyWh = Number(item.currentBalanceWarehouse || 0);
     const unitCost =
         qtyWh > 0 ? Number(item.valueWarehouseSar || 0) / qtyWh : 0;
-    const price = Number.isFinite(unitCost) ? Math.max(0, unitCost) : 0;
-const stockHint =
-    qtyWh > 0
-        ? `Warehouse stock: ${qtyWh} • Unit cost SAR ${price.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
-        : qtyWh <= 0
-          ? 'No warehouse qty — edit unit price manually'
-          : '';
+    const suggested = Number(item.suggestedSaleUnitPriceWorkshop ?? NaN);
+    const price =
+        Number.isFinite(suggested) && suggested > 0
+            ? suggested
+            : Number.isFinite(unitCost)
+              ? Math.max(0, unitCost)
+              : 0;
+    const uom = item.workshopUnit || item.unitCode || item.unit || 'pcs';
+    const costHint =
+        qtyWh > 0
+            ? `Warehouse stock: ${qtyWh} • Unit cost SAR ${unitCost.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
+            : 'No warehouse stock — you can still enter qty/price; save may be blocked if over stock.';
+    const listHint =
+        Number.isFinite(suggested) && suggested > 0
+            ? `Suggested list SAR ${suggested.toFixed(2)} / ${uom} (invoice line default)`
+            : '';
+    const stockHint = [listHint, costHint].filter(Boolean).join(' · ');
 
 /** `stock-balances` row `productId` is supplier_products.id — POST as supplierProductId for workshop catalog resolution. */
 const supplierStockProductId =
@@ -450,7 +463,7 @@ const lastSaleMeta =
     name: item.productName || 'Product',
     sku: String(item.sku ?? item.barcode ?? '').trim(),
     price,
-    unit: item.workshopUnit || item.unitCode || item.unit || 'pcs',
+    unit: uom,
 
         /** Aggregate warehouse bucket qty (supplier stock units before workshop conversion). */
         warehouseStockQty: Number(item.currentBalanceWarehouse ?? 0),
@@ -641,7 +654,11 @@ export default function SupplierSalesInvoices() {
                     let nextVal = value;
                     if (field === 'qty') {
                         const maxW = maxSellableQtyWorkshopForLine(line, prev, inventoryItems);
-                        if (maxW !== null && Number.isFinite(maxW)) {
+                        if (
+                            maxW != null &&
+                            Number.isFinite(maxW) &&
+                            maxW > 0
+                        ) {
                             const q = parseFloat(String(value).replace(',', '.'));
                             if (!Number.isNaN(q) && q > maxW + 1e-9) {
                                 nextVal = Number.isInteger(maxW) ? String(maxW) : String(roundMoney2(maxW));
@@ -672,7 +689,7 @@ export default function SupplierSalesInvoices() {
         setLineItems((prev) =>
             prev.map((line) => {
                 const maxW = maxSellableQtyWorkshopForLine(line, prev, inventoryItems);
-                if (maxW === null || !Number.isFinite(maxW)) return line;
+                if (maxW == null || !Number.isFinite(maxW) || maxW <= 0) return line;
                 const q = parseFloat(String(line.qty).replace(',', '.')) || 0;
                 if (q <= maxW + 1e-9) return line;
                 const capped = Number.isInteger(maxW) ? String(maxW) : String(roundMoney2(maxW));
@@ -1501,23 +1518,6 @@ export default function SupplierSalesInvoices() {
         }
     };
 
-    const handlePaymentStatusChange = async (row, next) => {
-        const current = salesInvoicePaymentSelectValue(row.balance);
-        if (next === current) return;
-        if (current === 'paid' && next === 'unpaid') {
-            return;
-        }
-        if (next === 'paid') {
-            await openMarkPaidModal(row);
-            return;
-        }
-        try {
-            await applyPaymentPatch(row, { paymentStatus: 'unpaid' });
-        } catch {
-            /* applyPaymentPatch already alerted */
-        }
-    };
-
     /** Stock-balances row wins once loaded so Last Sale shows date / buyer after inventory fetch (incl. edit). */
     const lastSaleHintForLine = useCallback(
         (line) => {
@@ -2009,7 +2009,7 @@ export default function SupplierSalesInvoices() {
                                     <th>Paid</th>
                                     <th>Balance</th>
                                     <th>Status</th>
-                                    <th>Payment</th>
+                                    <th>AR</th>
                                     <th>Cash / Bank</th>
                                     <th>Freight</th>
                                     <th>Discount</th>
@@ -2061,8 +2061,7 @@ export default function SupplierSalesInvoices() {
                                         const statusLabel = String(inv.status || '')
                                             .replace(/_/g, ' ')
                                             .trim();
-                                        const rowPaymentSelect = salesInvoicePaymentSelectValue(inv.balance);
-                                        const paymentSelectLockedPaid = rowPaymentSelect === 'paid';
+                                        const arSettle = salesInvoiceArSettlementLabel(inv);
                                         return (
                                             <tr key={inv.id}>
                                                 <td>
@@ -2131,46 +2130,29 @@ export default function SupplierSalesInvoices() {
                                                         {statusLabel || 'pending payment'}
                                                     </span>
                                                 </td>
-                                                <td style={{ minWidth: 132 }}>
-                                                    <select
-                                                        aria-label={`Payment status for ${inv.invoiceNo || inv.id}`}
-                                                        value={rowPaymentSelect}
-                                                        disabled={
-                                                            paymentStatusSavingId === inv.id ||
-                                                            paymentSelectLockedPaid
-                                                        }
-                                                        title={
-                                                            paymentSelectLockedPaid
-                                                                ? 'Paid invoices cannot be changed back to unpaid'
-                                                                : undefined
-                                                        }
-                                                        onChange={(e) =>
-                                                            handlePaymentStatusChange(inv, e.target.value)
-                                                        }
-                                                        style={{
-                                                            width: '100%',
-                                                            maxWidth: 160,
-                                                            fontSize: '0.8125rem',
-                                                            padding: '6px 8px',
-                                                            borderRadius: 6,
-                                                            border: '1px solid #E5E7EB',
-                                                            background: paymentSelectLockedPaid
-                                                                ? '#F3F4F6'
-                                                                : '#fff',
-                                                            cursor:
-                                                                paymentStatusSavingId === inv.id
-                                                                    ? 'wait'
-                                                                    : paymentSelectLockedPaid
-                                                                      ? 'not-allowed'
-                                                                      : 'pointer',
-                                                        }}
+                                                <td style={{ fontSize: '0.8125rem', minWidth: 120 }}>
+                                                    <span
+                                                        className={`ws-badge ws-badge--${
+                                                            arSettle.tone === 'green' ? 'green' : 'yellow'
+                                                        }`}
                                                     >
-                                                        {SALES_INVOICE_PAYMENT_OPTIONS.map((opt) => (
-                                                            <option key={opt.value} value={opt.value}>
-                                                                {opt.label}
-                                                            </option>
-                                                        ))}
-                                                    </select>
+                                                        {arSettle.text}
+                                                    </span>
+                                                    {arSettle.text !== 'Paid' && canMutate ? (
+                                                        <button
+                                                            type="button"
+                                                            className="btn-portal-outline"
+                                                            style={{
+                                                                display: 'block',
+                                                                marginTop: 6,
+                                                                fontSize: 11,
+                                                                padding: '4px 8px',
+                                                            }}
+                                                            onClick={() => void openMarkPaidModal(inv)}
+                                                        >
+                                                            Record payment
+                                                        </button>
+                                                    ) : null}
                                                 </td>
                                                 <td
                                                     style={{
@@ -3027,21 +3009,24 @@ export default function SupplierSalesInvoices() {
                                         <div className="pi-col-price">
                                             <input
                                                 type="text"
-                                                defaultValue={line.price}
-                                                key={`price-${line.id}`}
+                                                value={
+                                                    line.price === undefined || line.price === null
+                                                        ? ''
+                                                        : String(line.price)
+                                                }
                                                 className="pi-row-input-num pi-math-input"
                                                 onChange={(e) =>
                                                     updateLineItem(
                                                         line.id,
                                                         'price',
-                                                        e.target.value
+                                                        e.target.value,
                                                     )
                                                 }
                                                 onKeyDown={(e) =>
                                                     handleMathKeyDown(
                                                         e,
                                                         line.id,
-                                                        'price'
+                                                        'price',
                                                     )
                                                 }
                                                 onBlur={(e) =>
