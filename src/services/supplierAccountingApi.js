@@ -19,6 +19,14 @@ function withQuery(path, params = {}) {
 
 const BASE = '/supplier/accounting';
 
+/** `SuccessResponseInterceptor` wraps arrays as `{ success: true, data: [...] }`. */
+export function unwrapSupplierAccountingList(res) {
+    if (Array.isArray(res)) return res;
+    if (res && Array.isArray(res.data)) return res.data;
+    if (res && Array.isArray(res.accounts)) return res.accounts;
+    return [];
+}
+
 // ---------------------------------------------------------------------------
 // Chart of Accounts
 // ---------------------------------------------------------------------------

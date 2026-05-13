@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     getSupplierBalanceSheet,
     getSupplierCashFlow,
@@ -38,7 +39,21 @@ function DateRangePicker({ dateFrom, dateTo, onChange }) {
     );
 }
 
+const CLICKABLE_ROW = {
+    cursor: 'pointer',
+};
+
 function TrialBalance() {
+    const navigate = useNavigate();
+    const openLedger = useCallback(
+        (accountId) => {
+            if (!accountId) return;
+            navigate(
+                `/supplier/accounting/coa?openLedgerAccountId=${encodeURIComponent(String(accountId))}`,
+            );
+        },
+        [navigate],
+    );
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -71,7 +86,19 @@ function TrialBalance() {
                         <thead><tr><th>Code</th><th>Account</th><th>Type</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th></tr></thead>
                         <tbody>
                             {data.accounts.map((a) => (
-                                <tr key={a.accountId}>
+                                <tr
+                                    key={a.accountId}
+                                    role="button"
+                                    tabIndex={0}
+                                    style={CLICKABLE_ROW}
+                                    onClick={() => openLedger(a.accountId)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            openLedger(a.accountId);
+                                        }
+                                    }}
+                                >
                                     <td style={{ fontWeight: 700 }}>{a.code}</td>
                                     <td>{a.name}</td>
                                     <td>{a.type}</td>
@@ -97,7 +124,7 @@ function TrialBalance() {
     );
 }
 
-function ReportSection({ title, rows, total }) {
+function ReportSection({ title, rows, total, onAccountClick }) {
     return (
         <div style={{ marginBottom: 14 }}>
             <h4 style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 800, color: '#0F172A' }}>{title}</h4>
@@ -105,7 +132,23 @@ function ReportSection({ title, rows, total }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <tbody>
                         {rows.map((r) => (
-                            <tr key={r.id}>
+                            <tr
+                                key={r.id}
+                                role={onAccountClick ? 'button' : undefined}
+                                tabIndex={onAccountClick ? 0 : undefined}
+                                style={onAccountClick ? CLICKABLE_ROW : undefined}
+                                onClick={() => onAccountClick?.(r.id)}
+                                onKeyDown={
+                                    onAccountClick
+                                        ? (e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                onAccountClick(r.id);
+                                            }
+                                        }
+                                        : undefined
+                                }
+                            >
                                 <td style={{ padding: '4px 0', color: '#475569' }}>[{r.code}] {r.name}</td>
                                 <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{money(r.amount)}</td>
                             </tr>
@@ -126,6 +169,16 @@ function ReportSection({ title, rows, total }) {
 }
 
 function ProfitLoss() {
+    const navigate = useNavigate();
+    const openLedger = useCallback(
+        (accountId) => {
+            if (!accountId) return;
+            navigate(
+                `/supplier/accounting/coa?openLedgerAccountId=${encodeURIComponent(String(accountId))}`,
+            );
+        },
+        [navigate],
+    );
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -154,14 +207,14 @@ function ProfitLoss() {
             <AcctError message={err} />
             {loading ? <AcctLoading /> : !data ? <AcctEmpty message="No data" /> : (
                 <div>
-                    <ReportSection title="Revenue" rows={data.revenue} total={data.totalRevenue} />
-                    <ReportSection title="Cost of Goods Sold" rows={data.costOfGoodsSold} total={data.totalCOGS} />
+                    <ReportSection title="Revenue" rows={data.revenue} total={data.totalRevenue} onAccountClick={openLedger} />
+                    <ReportSection title="Cost of Goods Sold" rows={data.costOfGoodsSold} total={data.totalCOGS} onAccountClick={openLedger} />
                     <div style={{ padding: '8px 0', borderTop: '2px solid #0F172A', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
                         <span>Gross Profit</span><span>{money(data.grossProfit)}</span>
                     </div>
                     <div style={{ height: 12 }} />
-                    <ReportSection title="Operating Expenses" rows={data.operatingExpenses} total={data.totalOperatingExpenses} />
-                    {data.otherExpenses.length > 0 && <ReportSection title="Other Expenses" rows={data.otherExpenses} total={data.totalOtherExpenses} />}
+                    <ReportSection title="Operating Expenses" rows={data.operatingExpenses} total={data.totalOperatingExpenses} onAccountClick={openLedger} />
+                    {data.otherExpenses.length > 0 && <ReportSection title="Other Expenses" rows={data.otherExpenses} total={data.totalOtherExpenses} onAccountClick={openLedger} />}
                     <div style={{ padding: '12px 0', borderTop: '2px solid #0F172A', display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 16, color: data.netIncome >= 0 ? '#065F46' : '#B91C1C' }}>
                         <span>Net Income</span><span>{money(data.netIncome)}</span>
                     </div>
@@ -172,6 +225,16 @@ function ProfitLoss() {
 }
 
 function BalanceSheet() {
+    const navigate = useNavigate();
+    const openLedger = useCallback(
+        (accountId) => {
+            if (!accountId) return;
+            navigate(
+                `/supplier/accounting/coa?openLedgerAccountId=${encodeURIComponent(String(accountId))}`,
+            );
+        },
+        [navigate],
+    );
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -201,7 +264,19 @@ function BalanceSheet() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <tbody>
                         {all.map((a) => (
-                            <tr key={a.id}>
+                            <tr
+                                key={a.id}
+                                role="button"
+                                tabIndex={0}
+                                style={CLICKABLE_ROW}
+                                onClick={() => openLedger(a.id)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        openLedger(a.id);
+                                    }
+                                }}
+                            >
                                 <td style={{ padding: '4px 0', color: '#475569' }}>[{a.code}] {a.name}</td>
                                 <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{money(a.amount)}</td>
                             </tr>
@@ -240,7 +315,19 @@ function BalanceSheet() {
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                             <tbody>
                                 {data.equity.accounts.map((a) => (
-                                    <tr key={a.id}>
+                                    <tr
+                                        key={a.id}
+                                        role="button"
+                                        tabIndex={0}
+                                        style={CLICKABLE_ROW}
+                                        onClick={() => openLedger(a.id)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                openLedger(a.id);
+                                            }
+                                        }}
+                                    >
                                         <td style={{ padding: '4px 0', color: '#475569' }}>[{a.code}] {a.name}</td>
                                         <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{money(a.amount)}</td>
                                     </tr>
@@ -264,7 +351,7 @@ function BalanceSheet() {
     );
 }
 
-function CashFlowBucket({ title, bucket }) {
+function CashFlowBucket({ title, bucket, onCashLineClick }) {
     if (!bucket) return null;
     return (
         <div style={{ marginBottom: 12 }}>
@@ -275,13 +362,45 @@ function CashFlowBucket({ title, bucket }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <tbody>
                         {bucket.inflows.map((r, i) => (
-                            <tr key={`in-${i}`}>
+                            <tr
+                                key={`in-${i}`}
+                                role={onCashLineClick && r.accountId ? 'button' : undefined}
+                                tabIndex={onCashLineClick && r.accountId ? 0 : undefined}
+                                style={onCashLineClick && r.accountId ? CLICKABLE_ROW : undefined}
+                                onClick={() => onCashLineClick?.(r.accountId)}
+                                onKeyDown={
+                                    onCashLineClick && r.accountId
+                                        ? (e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                onCashLineClick(r.accountId);
+                                            }
+                                        }
+                                        : undefined
+                                }
+                            >
                                 <td style={{ padding: '3px 0', color: '#065F46' }}>↑ {r.description || r.journalType}</td>
                                 <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 600 }}>{money(r.amount)}</td>
                             </tr>
                         ))}
                         {bucket.outflows.map((r, i) => (
-                            <tr key={`out-${i}`}>
+                            <tr
+                                key={`out-${i}`}
+                                role={onCashLineClick && r.accountId ? 'button' : undefined}
+                                tabIndex={onCashLineClick && r.accountId ? 0 : undefined}
+                                style={onCashLineClick && r.accountId ? CLICKABLE_ROW : undefined}
+                                onClick={() => onCashLineClick?.(r.accountId)}
+                                onKeyDown={
+                                    onCashLineClick && r.accountId
+                                        ? (e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                onCashLineClick(r.accountId);
+                                            }
+                                        }
+                                        : undefined
+                                }
+                            >
                                 <td style={{ padding: '3px 0', color: '#B45309' }}>↓ {r.description || r.journalType}</td>
                                 <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 600 }}>({money(r.amount)})</td>
                             </tr>
@@ -300,6 +419,16 @@ function CashFlowBucket({ title, bucket }) {
 }
 
 function CashFlow() {
+    const navigate = useNavigate();
+    const openLedger = useCallback(
+        (accountId) => {
+            if (!accountId) return;
+            navigate(
+                `/supplier/accounting/coa?openLedgerAccountId=${encodeURIComponent(String(accountId))}`,
+            );
+        },
+        [navigate],
+    );
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -335,9 +464,9 @@ function CashFlow() {
                         <span style={{ fontSize: 13, color: '#475569' }}>Opening cash</span>
                         <span style={{ fontWeight: 700 }}>{money(data.openingCash)}</span>
                     </div>
-                    <CashFlowBucket title="Operating Activities" bucket={data.operating} />
-                    <CashFlowBucket title="Investing Activities" bucket={data.investing} />
-                    <CashFlowBucket title="Financing Activities" bucket={data.financing} />
+                    <CashFlowBucket title="Operating Activities" bucket={data.operating} onCashLineClick={openLedger} />
+                    <CashFlowBucket title="Investing Activities" bucket={data.investing} onCashLineClick={openLedger} />
+                    <CashFlowBucket title="Financing Activities" bucket={data.financing} onCashLineClick={openLedger} />
                     <div style={{ padding: '8px 0', borderTop: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                         <span>Net change in cash</span>
                         <span style={{ color: data.netChange >= 0 ? '#065F46' : '#B91C1C' }}>{money(data.netChange)}</span>
