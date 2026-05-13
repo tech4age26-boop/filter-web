@@ -14,6 +14,7 @@ import { ShimmerStatStrip, ShimmerTable } from '../../components/supplier/Shimme
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { getSupplierInventoryStockBalances, setSupplierStock } from '../../services/supplierApi';
+import SupplierProductHistoryDrawer from './accounting/SupplierProductHistoryDrawer';
 import {
     mapSupplierHistoryToTimelineEntries,
     formatSupplierTimelineSourceRef,
@@ -80,6 +81,7 @@ export default function SupplierStockInventory() {
     const [timelineEntries, setTimelineEntries] = useState([]);
     const [timelineLoading, setTimelineLoading] = useState(false);
     const [timelineError, setTimelineError] = useState('');
+    const [accountingHistoryProduct, setAccountingHistoryProduct] = useState(null);
 
     const filteredList = useMemo(() => {
         const list = stock || [];
@@ -753,6 +755,29 @@ export default function SupplierStockInventory() {
                                                         >
                                                             <Pencil size={12} /> Adjust via Purchase
                                                         </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setAccountingHistoryProduct({ id: s.id, name: s.name });
+                                                            }}
+                                                            style={{
+                                                                marginLeft: 6,
+                                                                padding: '6px 10px',
+                                                                borderRadius: 6,
+                                                                border: '1px solid var(--color-border)',
+                                                                background: '#fff',
+                                                                fontSize: '0.75rem',
+                                                                fontWeight: 600,
+                                                                cursor: 'pointer',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: 4,
+                                                            }}
+                                                            title="View moving-average inventory history (accounting)"
+                                                        >
+                                                            <History size={12} /> Accounting
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             );
@@ -760,6 +785,13 @@ export default function SupplierStockInventory() {
                                     </tbody>
                                 </table>
                             </div>
+                            {accountingHistoryProduct ? (
+                                <SupplierProductHistoryDrawer
+                                    supplierProductId={accountingHistoryProduct.id}
+                                    productName={accountingHistoryProduct.name}
+                                    onClose={() => setAccountingHistoryProduct(null)}
+                                />
+                            ) : null}
                             {filteredList.length === 0 && (
                                 <div style={{ textAlign: 'center', padding: 40 }}>
                                     <Package

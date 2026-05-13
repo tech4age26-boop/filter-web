@@ -4,6 +4,7 @@ import {
     BadgeDollarSign, ArrowLeftRight, Receipt, UserPlus, Box, ClipboardList,
     Factory,
     UserCircle2,
+    PieChart,
 } from 'lucide-react';
 
 export const NAV_GROUPS = [
@@ -37,15 +38,17 @@ export const NAV_GROUPS = [
             icon: Landmark,
             subItems: [
                 { id: 'accounting_coa', label: 'Chart of Accounts', icon: FileSpreadsheet },
-                { id: 'accounting_cash_bank', label: 'Cash & Bank', icon: Landmark },
-                { id: 'accounting_transactions', label: 'Transactions', icon: ArrowLeftRight },
-                { id: 'accounting_journal', label: 'Journal Entries', icon: FileText },
-                { id: 'accounting_purchases', label: 'Purchases', icon: ShoppingCart },
-                { id: 'accounting_expenses', label: 'Expenses', icon: Package },
-                { id: 'accounting_receipts', label: 'Receipts', icon: Receipt },
-                { id: 'accounting_payments', label: 'Payments', icon: BadgeDollarSign },
-                { id: 'accounting_advances', label: 'Advances', icon: UserPlus },
-                { id: 'accounting_ledger', label: 'Ledger', icon: BookOpen },
+                { id: 'accounting_hub', label: 'Transaction Hub', icon: ArrowLeftRight },
+                { id: 'accounting_logs_payments', label: 'Payments Log', icon: BadgeDollarSign },
+                { id: 'accounting_logs_receipts', label: 'Receipts Log', icon: Receipt },
+                { id: 'accounting_logs_journals', label: 'Journal Log', icon: FileText },
+                { id: 'accounting_reports_tb', label: 'Trial Balance', icon: BookOpen },
+                { id: 'accounting_reports_pl', label: 'Profit & Loss', icon: PieChart },
+                { id: 'accounting_reports_bs', label: 'Balance Sheet', icon: FileSpreadsheet },
+                { id: 'accounting_reports_cf', label: 'Cash Flow', icon: DollarSign },
+                { id: 'accounting_cash_bank', label: 'Cash & Bank (legacy)', icon: Landmark },
+                { id: 'accounting_purchases', label: 'Purchases (legacy)', icon: ShoppingCart },
+                { id: 'accounting_expenses', label: 'Expenses (legacy)', icon: Package },
             ]
         },
     ]},

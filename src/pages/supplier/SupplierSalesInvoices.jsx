@@ -1949,6 +1949,21 @@ export default function SupplierSalesInvoices() {
                 creates an <strong>Accounts Receivable</strong> for you and auto-creates a{' '}
                 <strong>Purchase Invoice</strong> on the workshop side. Stock is updated on both ends.
             </div>
+            <div
+                style={{
+                    margin: '0 0 12px',
+                    padding: 10,
+                    fontSize: '0.75rem',
+                    background: '#ECFDF5',
+                    border: '1px solid #A7F3D0',
+                    color: '#065F46',
+                    borderRadius: 8,
+                    fontWeight: 600,
+                }}
+            >
+                Auto-posted to the supplier <strong>General Ledger</strong> on save: AR/Sales/VAT plus moving-average
+                COGS. View entries under Accounting → Journal Log or the per-account ledger.
+            </div>
             <div className="ws-page-header">
                 <div>
                     <h2 className="ws-page-title">Sales Invoices (AR)</h2>

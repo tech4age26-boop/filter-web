@@ -302,6 +302,17 @@ export default function SupplierSuperSupplierPurchasesPanel({
                     <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                         Bills from your upstream vendors — line items stored in database; edit anytime.
                     </p>
+                    <p
+                        style={{
+                            margin: '8px 0 0',
+                            fontSize: '0.75rem',
+                            color: '#065F46',
+                            fontWeight: 600,
+                        }}
+                    >
+                        Auto-posted to the supplier <strong>General Ledger</strong>: Dr Inventory + VAT Input / Cr AP
+                        Super Supplier, plus per-product moving-average updates.
+                    </p>
                 </div>
                 <button type="button" className="btn-portal" onClick={() => load()} disabled={loading}>
                     <RefreshCw size={14} /> {loading ? 'Loading…' : 'Refresh'}
