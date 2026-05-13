@@ -20,6 +20,66 @@ function extractProducts(res) {
     return unwrapWorkshopBranchListResponse(res, 'products');
 }
 
+/**
+ * GET /workshop-staff/branches/:id/products (and workshop-wide `getProducts`) return nested
+ * `categories` / `uncategorizedProducts`. Flatten so each row carries server `qtyOnHand` /
+ * `currentQty` for that branch (or all-branches sum), matching `branch_inventory` used by the timeline.
+ */
+function flattenWorkshopStaffBranchProductsResponse(res) {
+    if (res == null) return [];
+    if (Array.isArray(res)) return res;
+    if (typeof res !== 'object') return [];
+    const out = [];
+    const uncategorized =
+        res.uncategorizedProducts ??
+        res.uncategorized_products ??
+        res?.data?.uncategorizedProducts;
+    if (Array.isArray(uncategorized)) {
+        for (const p of uncategorized) {
+            if (p && typeof p === 'object') out.push(p);
+        }
+    }
+    const categories = res.categories ?? res?.data?.categories;
+    if (Array.isArray(categories)) {
+        for (const c of categories) {
+            if (!c || typeof c !== 'object') continue;
+            const subs = c.subCategories ?? c.sub_categories ?? [];
+            if (Array.isArray(subs)) {
+                for (const s of subs) {
+                    if (s?.products && Array.isArray(s.products)) {
+                        for (const p of s.products) {
+                            if (p && typeof p === 'object') out.push(p);
+                        }
+                    }
+                }
+            }
+            const direct = c.productsWithoutSub ?? c.products_without_sub;
+            if (Array.isArray(direct)) {
+                for (const p of direct) {
+                    if (p && typeof p === 'object') out.push(p);
+                }
+            }
+        }
+    }
+    if (out.length > 0) return out;
+    return unwrapWorkshopBranchListResponse(res, 'products');
+}
+
+/** Single branch_inventory qty when API nests an object or an array (Prisma include). */
+function pickBranchInventoryQtyFromRow(r) {
+    if (!r || typeof r !== 'object') return null;
+    const bi = r.branchInventory ?? r.branch_inventory;
+    if (bi == null) return null;
+    if (Array.isArray(bi)) {
+        const first = bi[0];
+        if (!first || typeof first !== 'object') return null;
+        const v = first.qtyOnHand ?? first.qty_on_hand;
+        return v != null && v !== '' ? Number(v) : null;
+    }
+    const v = bi.qtyOnHand ?? bi.qty_on_hand;
+    return v != null && v !== '' ? Number(v) : null;
+}
+
 function pickNumber(...vals) {
     for (const v of vals) {
         if (v == null || v === '') continue;
@@ -42,6 +102,7 @@ function firstFiniteNumber(values) {
 function humanizeInventoryLogSource(source) {
     const s = String(source || 'manual').toLowerCase();
     if (s === 'supplier_purchase_invoice') return 'Supplier purchase (approved)';
+    if (s === 'local_supplier_purchase_invoice') return 'Non-affiliated supplier purchase';
     if (s === 'pos') return 'POS';
     if (s === 'purchase_receipt') return 'Purchase receipt';
     return s.replace(/_/g, ' ');
@@ -50,6 +111,7 @@ function humanizeInventoryLogSource(source) {
 function humanizeInventoryLogReferenceType(type) {
     const t = String(type || '').toLowerCase();
     if (t === 'workshop_supplier_purchase_invoice') return 'Workshop purchase invoice';
+    if (t === 'workshop_local_supplier_purchase_invoice') return 'Workshop local purchase invoice';
     return t.replace(/_/g, ' ');
 }
 
@@ -61,9 +123,14 @@ function normalizeAdjustmentEntry(raw) {
     let source = String(raw.source ?? 'manual').toLowerCase();
     if (
         (source === 'manual' || source === '') &&
-        (movementType === 'workshop_supplier_purchase_received' || movementType.includes('supplier_purchase'))
+        (movementType === 'workshop_supplier_purchase_received' ||
+            movementType === 'workshop_local_supplier_purchase_received' ||
+            movementType.includes('supplier_purchase'))
     ) {
-        source = 'supplier_purchase_invoice';
+        source =
+            movementType === 'workshop_local_supplier_purchase_received'
+                ? 'local_supplier_purchase_invoice'
+                : 'supplier_purchase_invoice';
     }
     const id = String(
         raw.id ?? raw.logId ?? raw.movementId ?? raw.movement_id ?? `${at}-${raw.previousQty}-${raw.newQty}`,
@@ -84,13 +151,20 @@ function normalizeAdjustmentEntry(raw) {
     const reference =
         referenceRaw && typeof referenceRaw === 'object' && !Array.isArray(referenceRaw)
             ? {
-                type: referenceRaw.type ? String(referenceRaw.type) : '',
-                id: referenceRaw.id != null ? String(referenceRaw.id) : '',
-            }
+                  type: referenceRaw.type ? String(referenceRaw.type) : '',
+                  id: referenceRaw.id != null ? String(referenceRaw.id) : '',
+                  invoiceNumber:
+                      referenceRaw.invoiceNumber != null
+                          ? String(referenceRaw.invoiceNumber)
+                          : referenceRaw.invoice_number != null
+                            ? String(referenceRaw.invoice_number)
+                            : undefined,
+              }
             : null;
     const reason =
         raw.reason ||
         (source === 'supplier_purchase_invoice' ? 'Supplier purchase (approved)' : null) ||
+        (source === 'local_supplier_purchase_invoice' ? 'Non-affiliated supplier purchase' : null) ||
         '—';
     return {
         id,
@@ -234,6 +308,15 @@ function matchesProductNameSearch(row, query) {
         .every((term) => hay.includes(term));
 }
 
+/** Value written into the search field when a suggestion is chosen (matches token search). */
+function inventorySearchValueFromRow(row) {
+    const name = String(row?.name ?? '').trim();
+    const sku = String(row?.sku ?? '').trim();
+    return [name, sku].filter(Boolean).join(' ').trim() || name || sku || '';
+}
+
+const INV_SEARCH_SUGGEST_LIMIT = 12;
+
 /**
  * Same merge as Dept & Products `buildBranchProductRow`: branch link fields win over nested
  * `product` snapshot so on-hand qty does not fall back to catalog/stale `currentQty` on the master.
@@ -244,6 +327,9 @@ function mergeBranchProductRowForInventory(row) {
         ...row,
         ...master,
         id: master.id ?? row?.productId ?? row?.product_id ?? row?.id,
+        /** Keep branch-scoped inventory from the workshop row; nested `product` must not wipe it. */
+        branchInventory: row?.branchInventory ?? row?.branch_inventory ?? master?.branchInventory,
+        branch_inventory: row?.branch_inventory ?? row?.branchInventory ?? master?.branch_inventory,
         openingQty: row?.openingQty ?? master?.openingQty,
         opening_qty: row?.opening_qty ?? master?.opening_qty,
         currentQty: row?.currentQty ?? master?.currentQty,
@@ -284,20 +370,26 @@ function mapApiRowToInventory(row) {
         row?.service_id;
     if (id == null || String(id).trim() === '') return null;
 
-    const openingQty = pickNumber(merged.openingQty, merged.opening_qty);
+    const openingQty = pickNumber(row.openingQty, row.opening_qty, merged.openingQty, merged.opening_qty);
+    const invQtyRow = pickBranchInventoryQtyFromRow(row);
+    const invQtyMerged = pickBranchInventoryQtyFromRow(merged);
     const onHand = firstFiniteNumber([
-        merged.currentQty,
-        merged.current_qty,
+        invQtyRow,
+        invQtyMerged,
+        row.qtyOnHand,
+        row.qty_on_hand,
+        row.currentQty,
+        row.current_qty,
         merged.qtyOnHand,
         merged.qty_on_hand,
+        merged.currentQty,
+        merged.current_qty,
         merged.stockQty,
         merged.stock_qty,
-        merged.inventory?.currentQty,
-        merged.inventory?.current_qty,
         merged.inventory?.qtyOnHand,
         merged.inventory?.qty_on_hand,
-        merged.branchInventory?.qtyOnHand,
-        merged.branchInventory?.qty_on_hand,
+        merged.inventory?.currentQty,
+        merged.inventory?.current_qty,
     ]);
     const qty = onHand !== null ? onHand : openingQty;
 
@@ -315,6 +407,16 @@ function mapApiRowToInventory(row) {
         merged.sale_price,
         merged.purchasePrice,
         merged.purchase_price,
+    );
+    const purchasePrice = pickNumber(
+        merged.purchasePriceOverride,
+        row?.purchasePriceOverride,
+        merged.purchasePrice,
+        merged.purchase_price,
+        row?.purchasePrice,
+        row?.purchase_price,
+        master?.purchasePrice,
+        master?.purchase_price,
     );
 
     return {
@@ -337,6 +439,7 @@ function mapApiRowToInventory(row) {
             row?.categoryName ||
             '—',
         basePrice,
+        purchasePrice,
         openingQty,
         qty,
         critical_level,
@@ -413,6 +516,9 @@ export default function WorkshopInventory({
     const workshopIdQuery = useMemo(() => workshopIdFromSession(workshop), [workshop]);
 
     const [searchQuery, setSearchQuery] = useState('');
+    const [invSuggestOpen, setInvSuggestOpen] = useState(false);
+    const [invSuggestIndex, setInvSuggestIndex] = useState(-1);
+    const invSearchBlurTimerRef = useRef(null);
     const [productRows, setProductRows] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
@@ -487,7 +593,10 @@ export default function WorkshopInventory({
             if (isAll) {
                 try {
                     const pRes = await getWorkshopStaffProducts({ allBranches: true });
-                    products = extractProducts(pRes);
+                    products = flattenWorkshopStaffBranchProductsResponse(pRes);
+                    if (products.length === 0) {
+                        products = extractProducts(pRes);
+                    }
                 } catch {
                     products = [];
                 }
@@ -502,7 +611,10 @@ export default function WorkshopInventory({
                 const bid = String(selectedBranchId);
                 try {
                     const prodRes = await getWorkshopStaffBranchProducts(bid);
-                    products = extractProducts(prodRes);
+                    products = flattenWorkshopStaffBranchProductsResponse(prodRes);
+                    if (products.length === 0) {
+                        products = extractProducts(prodRes);
+                    }
                 } catch {
                     products = [];
                 }
@@ -572,7 +684,7 @@ export default function WorkshopInventory({
         let inventoryValue = 0;
         for (const p of productRows) {
             if (isLowStockRow(p)) lowStock += 1;
-            inventoryValue += (Number(p.qty) || 0) * (Number(p.basePrice) || 0);
+            inventoryValue += (Number(p.qty) || 0) * (Number(p.purchasePrice) || 0);
         }
         return [
             {
@@ -592,7 +704,7 @@ export default function WorkshopInventory({
             {
                 label: 'Total inventory value',
                 value: `SAR ${Math.round(inventoryValue).toLocaleString()}`,
-                sub: `Current stock × sale price · ${selectedBranchName}`,
+                sub: `Current stock × purchase price · ${selectedBranchName}`,
                 icon: Wallet,
                 color: '#10B981',
             },
@@ -779,6 +891,61 @@ export default function WorkshopInventory({
         return productRows.filter((p) => matchesProductNameSearch(p, searchQuery));
     }, [productRows, searchQuery]);
 
+    const invSearchSuggestions = useMemo(() => {
+        const q = normalizeInventorySearchValue(searchQuery);
+        if (!q) return [];
+        return productRows.filter((p) => matchesProductNameSearch(p, searchQuery)).slice(0, INV_SEARCH_SUGGEST_LIMIT);
+    }, [productRows, searchQuery]);
+
+    const applyInventorySearchSuggestion = useCallback((row) => {
+        setSearchQuery(inventorySearchValueFromRow(row));
+        setInvSuggestOpen(false);
+        setInvSuggestIndex(-1);
+    }, []);
+
+    const onInvSearchKeyDown = useCallback(
+        (e) => {
+            if (e.key === 'ArrowDown') {
+                if (!invSearchSuggestions.length) return;
+                e.preventDefault();
+                setInvSuggestOpen(true);
+                setInvSuggestIndex((i) => {
+                    if (i < 0) return 0;
+                    return Math.min(i + 1, invSearchSuggestions.length - 1);
+                });
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                if (!invSearchSuggestions.length) return;
+                e.preventDefault();
+                setInvSuggestOpen(true);
+                setInvSuggestIndex((i) => (i <= 0 ? -1 : i - 1));
+                return;
+            }
+            if (e.key === 'Enter') {
+                if (invSuggestOpen && invSuggestIndex >= 0 && invSearchSuggestions[invSuggestIndex]) {
+                    e.preventDefault();
+                    applyInventorySearchSuggestion(invSearchSuggestions[invSuggestIndex]);
+                }
+                return;
+            }
+            if (e.key === 'Escape') {
+                setInvSuggestOpen(false);
+                setInvSuggestIndex(-1);
+            }
+        },
+        [invSearchSuggestions, invSuggestOpen, invSuggestIndex, applyInventorySearchSuggestion],
+    );
+
+    const clearInvSearchBlurTimer = useCallback(() => {
+        if (invSearchBlurTimerRef.current != null) {
+            clearTimeout(invSearchBlurTimerRef.current);
+            invSearchBlurTimerRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => () => clearInvSearchBlurTimer(), [clearInvSearchBlurTimer]);
+
     const tableEmptyMessage = () => {
         if (isLoading) return 'Loading inventory…';
         if (loadError) return loadError;
@@ -899,7 +1066,7 @@ export default function WorkshopInventory({
                         >
                             <div className="mc-header-filter" style={{ width: '100%', maxWidth: 'none' }}>
                                 <div
-                                    className="mc-filter-select-wrapper"
+                                    className="mc-filter-select-wrapper mc-inv-search-combo"
                                     style={{ position: 'relative', width: '100%', minWidth: 'min(900px, 100%)', maxWidth: '100%' }}
                                 >
                                     <Search className="mc-filter-icon" size={16} />
@@ -907,15 +1074,60 @@ export default function WorkshopInventory({
                                         type="text"
                                         placeholder="Search by product name or SKU..."
                                         className="mc-filter-select"
-                                        style={{ paddingLeft: '40px', paddingRight: searchQuery ? '70px' : '14px', width: '100%', minHeight: 46, fontSize: '0.95rem' }}
+                                        style={{
+                                            paddingLeft: '40px',
+                                            paddingRight: searchQuery ? '70px' : '14px',
+                                            width: '100%',
+                                            minHeight: 46,
+                                            fontSize: '0.95rem',
+                                            backgroundImage: 'none',
+                                            cursor: 'text',
+                                        }}
                                         value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            setSearchQuery(v);
+                                            setInvSuggestIndex(-1);
+                                            if (!normalizeInventorySearchValue(v)) {
+                                                setInvSuggestOpen(false);
+                                            } else {
+                                                setInvSuggestOpen(true);
+                                            }
+                                        }}
+                                        onKeyDown={onInvSearchKeyDown}
+                                        onFocus={() => {
+                                            clearInvSearchBlurTimer();
+                                            if (normalizeInventorySearchValue(searchQuery)) {
+                                                setInvSuggestOpen(true);
+                                            }
+                                        }}
+                                        onBlur={() => {
+                                            clearInvSearchBlurTimer();
+                                            invSearchBlurTimerRef.current = setTimeout(() => {
+                                                invSearchBlurTimerRef.current = null;
+                                                setInvSuggestOpen(false);
+                                                setInvSuggestIndex(-1);
+                                            }, 200);
+                                        }}
                                         disabled={isLoading}
+                                        role="combobox"
+                                        aria-autocomplete="list"
+                                        aria-expanded={invSuggestOpen}
+                                        aria-controls="workshop-inv-search-suggest-list"
+                                        aria-activedescendant={
+                                            invSuggestOpen && invSuggestIndex >= 0
+                                                ? `workshop-inv-suggest-${invSuggestIndex}`
+                                                : undefined
+                                        }
                                     />
                                     {searchQuery && (
                                         <button
                                             type="button"
-                                            onClick={() => setSearchQuery('')}
+                                            onClick={() => {
+                                                setSearchQuery('');
+                                                setInvSuggestOpen(false);
+                                                setInvSuggestIndex(-1);
+                                            }}
                                             aria-label="Clear search"
                                             title="Clear search"
                                             style={{
@@ -938,6 +1150,37 @@ export default function WorkshopInventory({
                                             <X size={14} />
                                         </button>
                                     )}
+                                    {invSuggestOpen && normalizeInventorySearchValue(searchQuery) && (
+                                        <div
+                                            id="workshop-inv-search-suggest-list"
+                                            className="mc-inv-search-dropdown"
+                                            role="listbox"
+                                            aria-label="Matching products"
+                                            onMouseDown={(ev) => ev.preventDefault()}
+                                        >
+                                            {invSearchSuggestions.length === 0 ? (
+                                                <div className="mc-inv-search-dropdown-empty">No matching products</div>
+                                            ) : (
+                                                invSearchSuggestions.map((row, idx) => (
+                                                    <button
+                                                        key={row._rowKey || row.id || idx}
+                                                        type="button"
+                                                        id={`workshop-inv-suggest-${idx}`}
+                                                        role="option"
+                                                        aria-selected={invSuggestIndex === idx}
+                                                        className={`mc-inv-search-suggest${invSuggestIndex === idx ? ' is-active' : ''}`}
+                                                        onMouseEnter={() => setInvSuggestIndex(idx)}
+                                                        onClick={() => applyInventorySearchSuggestion(row)}
+                                                    >
+                                                        <span className="mc-inv-search-suggest-name">{row.name}</span>
+                                                        {row.sku ? (
+                                                            <span className="mc-inv-search-suggest-sku">{row.sku}</span>
+                                                        ) : null}
+                                                    </button>
+                                                ))
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
@@ -946,7 +1189,8 @@ export default function WorkshopInventory({
                                 {searchQuery ? ` for "${searchQuery}"` : ''}.
                             </p>
                             <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                Click a <strong>row</strong> for adjustment history.
+                                Click a <strong>row</strong> for adjustment history. Use <strong>↑</strong> <strong>↓</strong> and{' '}
+                                <strong>Enter</strong> to pick a search suggestion.
                                 {isAllBranches
                                     ? ' With all branches selected, history is only what this browser saved (no server log).'
                                     : ' History is loaded from the server for this branch.'}
@@ -1392,8 +1636,12 @@ export default function WorkshopInventory({
                                                                 {e.reference?.id ? (
                                                                     <span>
                                                                         {' '}
-                                                                        · {humanizeInventoryLogReferenceType(e.reference.type)} #
-                                                                        {e.reference.id}
+                                                                        · {humanizeInventoryLogReferenceType(e.reference.type)}{' '}
+                                                                        {e.reference.invoiceNumber ? (
+                                                                            <strong>{e.reference.invoiceNumber}</strong>
+                                                                        ) : (
+                                                                            <>#{e.reference.id}</>
+                                                                        )}
                                                                     </span>
                                                                 ) : null}
                                                             </td>

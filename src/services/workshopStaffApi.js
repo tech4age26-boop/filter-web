@@ -513,7 +513,7 @@ export const getWorkshopStaffServices = (params = {}) =>
  * Query for GET /workshop-staff/reports-analytics (same branch rule as products: branchId or allBranches=true).
  * Sends both snake_case and camelCase date / technician keys for DTO compatibility.
  * @param {string|number|'all'|undefined} selectedBranchId
- * @param {{ startDate?: string, endDate?: string, technicianId?: string }} opts — ISO YYYY-MM-DD (UTC calendar days on server)
+ * @param {{ startDate?: string, endDate?: string, technicianId?: string }} opts — Each date: `YYYY-MM-DD` (UTC full day) or full ISO instant for time-of-day filters
  */
 export function workshopReportsAnalyticsParams(selectedBranchId, opts = {}) {
     const { startDate = '', endDate = '', technicianId = '' } = opts;

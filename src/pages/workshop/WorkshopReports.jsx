@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, ChevronRight, MoreVertical } from 'lucide-react';
+import { RefreshCw, MoreVertical } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Modal from '../../components/Modal';
 import { ShimmerTextBlock, ShimmerTable } from '../../components/supplier/Shimmer';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import {
+    flattenWorkshopStaffRow,
     getWorkshopReportsAnalytics,
     getWorkshopRecentOrderDetails,
     getWorkshopRecentOrderPdf,
@@ -21,9 +22,9 @@ import {
     getWorkshopReportsByTechnicianDetails,
     getWorkshopTechnicians,
     runWorkshopRelativeAction,
-    workshopReportsAnalyticsParams,
     unwrapWorkshopStaffList,
-    flattenWorkshopStaffRow,
+    workshopReportsAnalyticsParams,
+    workshopStaffListScopeQuery,
 } from '../../services/workshopStaffApi';
 
 const toNumber = (value) => {
@@ -79,62 +80,37 @@ const mapRecentPdfToInvoice = (raw) => {
     };
 };
 
-/** Last N inclusive UTC calendar days through today UTC (matches typical “last 30 days” API default). */
-function defaultUtcDateRangeInclusive(days = 30) {
-    const end = new Date();
-    const endUtc = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
-    const startUtc = new Date(endUtc);
-    startUtc.setUTCDate(startUtc.getUTCDate() - (days - 1));
-    return {
-        from: startUtc.toISOString().slice(0, 10),
-        to: endUtc.toISOString().slice(0, 10),
-    };
+function pad2(n) {
+    return String(n).padStart(2, '0');
 }
 
-function TechDropdown({ value, options, onChange }) {
-    const [isOpen, setIsOpen] = React.useState(false);
-    const containerRef = React.useRef(null);
-    const label = options.find((o) => o.value === value)?.label ?? 'All Technicians';
+/** `YYYY-MM-DDTHH:mm` for `<input type="datetime-local" />` (local timezone). */
+function toDatetimeLocalValue(d) {
+    if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
 
-    React.useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (containerRef.current && !containerRef.current.contains(event.target)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
+/** Default: last 30 local calendar days, 00:00 first day → 23:59 today. */
+function defaultLocalRange30Days() {
+    const end = new Date();
+    end.setHours(23, 59, 0, 0);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 29);
+    start.setHours(0, 0, 0, 0);
+    return { start: toDatetimeLocalValue(start), end: toDatetimeLocalValue(end) };
+}
 
-    return (
-        <div className="ws-custom-dropdown" ref={containerRef}>
-            <button type="button" className="ws-dropdown-trigger" onClick={() => setIsOpen(!isOpen)}>
-                {label}
-                <ChevronRight
-                    size={14}
-                    className={isOpen ? 'rotate-90' : ''}
-                    style={{ transition: 'transform 0.2s', transform: `rotate(${isOpen ? '90deg' : '0deg'})` }}
-                />
-            </button>
-            {isOpen && (
-                <div className="ws-dropdown-menu">
-                    {options.map((opt) => (
-                        <div
-                            key={opt.value || '__all__'}
-                            className={`ws-dropdown-item ${value === opt.value ? 'active' : ''}`}
-                            onClick={() => {
-                                onChange(opt.value);
-                                setIsOpen(false);
-                            }}
-                        >
-                            {opt.label}
-                            {value === opt.value && <span className="ws-check">✓</span>}
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
+/** Full ISO strings for `/workshop-staff/reports-*` (server accepts YYYY-MM-DD or ISO instants). */
+function rangeToApiIso(rangeFromLocal, rangeToLocal) {
+    const s = new Date(rangeFromLocal);
+    const e = new Date(rangeToLocal);
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) {
+        throw new Error('Invalid date/time range.');
+    }
+    if (s.getTime() > e.getTime()) {
+        throw new Error('Start must be on or before end.');
+    }
+    return { startDate: s.toISOString(), endDate: e.toISOString() };
 }
 
 function parseArr(v) {
@@ -154,40 +130,51 @@ function extractSummaryRows(res, key) {
     return [];
 }
 
-const humanizeKey = (key) =>
-    String(key || '')
+function humanizeKey(key) {
+    return String(key || '')
         .replace(/_/g, ' ')
         .replace(/([a-z])([A-Z])/g, '$1 $2')
         .replace(/\b\w/g, (m) => m.toUpperCase());
+}
 
-function technicianDropdownRow(raw) {
-    const row = flattenWorkshopStaffRow(raw, 'technician');
-    const id =
-        row.id ??
-        row.userId ??
-        row.employee_id ??
-        row.employeeId ??
-        row.user?.id ??
-        row.technician_id ??
-        row.technicianId;
-    const name =
-        row.name ??
-        row.fullName ??
-        row.full_name ??
-        row.user?.name ??
-        (row.user && `${row.user.firstName ?? ''} ${row.user.lastName ?? ''}`.trim()) ??
-        'Unknown';
-    if (id == null || String(id) === '') return null;
-    return { id: String(id), name: String(name).trim() || 'Unknown' };
+/** Whitespace-split terms; row matches if every term appears somewhere in hay (case-insensitive). */
+function tabQueryTokens(query) {
+    return String(query ?? '')
+        .toLowerCase()
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+}
+
+function rowMatchesTabQuery(parts, query) {
+    const tokens = tabQueryTokens(query);
+    if (tokens.length === 0) return true;
+    const hay = parts.map((x) => String(x ?? '').toLowerCase()).join(' ');
+    return tokens.every((t) => hay.includes(t));
+}
+
+function createEmptyTabSearch() {
+    return {
+        daily_sales: '',
+        by_technician: '',
+        by_customer: '',
+        by_product: '',
+        by_department: '',
+        by_branch: '',
+        recent_orders: '',
+    };
 }
 
 export default function WorkshopReports({ selectedBranchId = 'all', branches = [] }) {
-    const defaults = useMemo(() => defaultUtcDateRangeInclusive(30), []);
-    const [dateFrom, setDateFrom] = useState(defaults.from);
-    const [dateTo, setDateTo] = useState(defaults.to);
+    const initialRange = useMemo(() => defaultLocalRange30Days(), []);
+    const [rangeFromLocal, setRangeFromLocal] = useState(initialRange.start);
+    const [rangeToLocal, setRangeToLocal] = useState(initialRange.end);
     const [activeTab, setActiveTab] = useState('daily_sales');
-    const [selectedTechId, setSelectedTechId] = useState('');
+    const [tabSearch, setTabSearch] = useState(createEmptyTabSearch);
     const [technicianOptions, setTechnicianOptions] = useState([]);
+    const [byProductTechnicianId, setByProductTechnicianId] = useState('');
+    const [byProductTechnicianLoading, setByProductTechnicianLoading] = useState(false);
+    const [byProductTechnicianError, setByProductTechnicianError] = useState('');
     const [reportData, setReportData] = useState(null);
     const [recentOrders, setRecentOrders] = useState([]);
     const [summaryData, setSummaryData] = useState({
@@ -221,44 +208,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
     }, [branches, selectedBranchId]);
 
-    const techSelectOptions = useMemo(() => {
-        const uniq = new Map();
-        for (const t of technicianOptions) {
-            if (t?.id) uniq.set(String(t.id), { value: String(t.id), label: t.name });
-        }
-        return [{ value: '', label: 'All Technicians' }, ...uniq.values()];
-    }, [technicianOptions]);
-
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const isAll = !selectedBranchId || selectedBranchId === 'all';
-                const res = await getWorkshopTechnicians({
-                    ...workshopReportsAnalyticsParams(selectedBranchId, {}),
-                    ...(isAll ? { isActive: 'true' } : {}),
-                });
-                if (cancelled) return;
-                const rawList = unwrapWorkshopStaffList(res, 'technician');
-                const opts = [];
-                for (const raw of rawList) {
-                    const opt = technicianDropdownRow(raw);
-                    if (opt) opts.push(opt);
-                }
-                setTechnicianOptions(opts);
-            } catch {
-                if (!cancelled) setTechnicianOptions([]);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [selectedBranchId]);
-
-    useEffect(() => {
-        setSelectedTechId('');
-    }, [selectedBranchId]);
-
     const loadReports = useCallback(async () => {
         setIsLoading(true);
         setLoadError('');
@@ -266,11 +215,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         setDetailRows([]);
         setSelectedDetailKey('');
         setDetailsTitle('');
+        setByProductTechnicianId('');
+        setByProductTechnicianError('');
         try {
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate: dateFrom,
-                endDate: dateTo,
-                technicianId: selectedTechId || undefined,
+                startDate,
+                endDate,
             });
             const [
                 response,
@@ -280,6 +231,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 byProductRes,
                 byDepartmentRes,
                 byBranchRes,
+                techniciansRes,
             ] = await Promise.all([
                 getWorkshopReportsAnalytics(params),
                 getWorkshopRecentOrders(params),
@@ -288,6 +240,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 getWorkshopReportsByProduct(params),
                 getWorkshopReportsByDepartment(params),
                 getWorkshopReportsByBranch(params),
+                getWorkshopTechnicians(workshopStaffListScopeQuery(selectedBranchId)),
             ]);
             if (!response?.success) {
                 throw new Error('Invalid reports response.');
@@ -301,6 +254,16 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 by_department: extractSummaryRows(byDepartmentRes, 'by_department'),
                 by_branch: extractSummaryRows(byBranchRes, 'by_branch'),
             });
+            const rawTech = unwrapWorkshopStaffList(techniciansRes, 'technician');
+            const opts = rawTech
+                .map((r) => flattenWorkshopStaffRow(r, 'technician'))
+                .map((t) => ({
+                    id: String(t?.id ?? t?.employeeId ?? ''),
+                    name: String(t?.name ?? '').trim() || 'Technician',
+                }))
+                .filter((t) => t.id);
+            opts.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+            setTechnicianOptions(opts);
         } catch (error) {
             setLoadError(error.message || 'Failed to load reports analytics.');
             setReportData(null);
@@ -312,22 +275,62 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 by_branch: [],
             });
             setRecentOrders([]);
+            setTechnicianOptions([]);
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBranchId, dateFrom, dateTo, selectedTechId]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal]);
+
+    const refetchByProductForTechnician = useCallback(
+        async (technicianId) => {
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const params = workshopReportsAnalyticsParams(selectedBranchId, {
+                startDate,
+                endDate,
+                ...(technicianId ? { technicianId } : {}),
+            });
+            const byProductRes = await getWorkshopReportsByProduct(params);
+            setSummaryData((prev) => ({
+                ...prev,
+                by_product: extractSummaryRows(byProductRes, 'by_product'),
+            }));
+        },
+        [selectedBranchId, rangeFromLocal, rangeToLocal],
+    );
+
+    const handleByProductTechnicianChange = useCallback(
+        async (e) => {
+            const id = e.target.value;
+            setByProductTechnicianId(id);
+            setSelectedDetailKey('');
+            setDetailRows([]);
+            setDetailsTitle('');
+            setDetailsError('');
+            setByProductTechnicianError('');
+            setByProductTechnicianLoading(true);
+            try {
+                await refetchByProductForTechnician(id);
+            } catch (err) {
+                setByProductTechnicianError(err?.message || 'Failed to load product sales for this technician.');
+            } finally {
+                setByProductTechnicianLoading(false);
+            }
+        },
+        [refetchByProductForTechnician],
+    );
 
     useEffect(() => {
         loadReports();
     }, [loadReports]);
 
     const fetchRecentOrderDetails = useCallback(async (invoiceId) => {
+        const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
         const params = workshopReportsAnalyticsParams(selectedBranchId, {
-            startDate: dateFrom,
-            endDate: dateTo,
+            startDate,
+            endDate,
         });
         return await getWorkshopRecentOrderDetails(invoiceId, params);
-    }, [selectedBranchId, dateFrom, dateTo]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal]);
 
     const openRecentOrderDetails = useCallback(async (invoiceId) => {
         if (!invoiceId) return;
@@ -348,9 +351,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         if (!invoiceId) return;
         setRecentOrderActionBusyId(String(invoiceId));
         try {
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate: dateFrom,
-                endDate: dateTo,
+                startDate,
+                endDate,
             });
             const res = await getWorkshopRecentOrderPdf(invoiceId, params);
             const invoiceObj = mapRecentPdfToInvoice(res);
@@ -373,7 +377,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             setRecentOrderActionBusyId('');
             setOpenRecentOrderMenuId('');
         }
-    }, [selectedBranchId, dateFrom, dateTo]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal]);
 
     useEffect(() => {
         if (!autoDownloadAfterPreview || !invoicePreviewData) return;
@@ -428,10 +432,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
 
     const loadDetails = useCallback(
         async (tabId, row) => {
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate: dateFrom,
-                endDate: dateTo,
-                technicianId: selectedTechId || undefined,
+                startDate,
+                endDate,
+                ...(tabId === 'by_product' && byProductTechnicianId
+                    ? { technicianId: byProductTechnicianId }
+                    : {}),
             });
             let fetcher = null;
             let key = '';
@@ -563,7 +570,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 setDetailsLoading(false);
             }
         },
-        [selectedBranchId, dateFrom, dateTo, selectedTechId],
+        [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId],
     );
 
     const norm = useMemo(() => {
@@ -673,6 +680,119 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         return `Period: ${curStart} → ${curEnd}${prev}`;
     }, [norm]);
 
+    const filteredDailyRevenue = useMemo(() => {
+        const rows = norm?.dailyRevenue ?? [];
+        const q = tabSearch.daily_sales;
+        return rows.filter((d) => rowMatchesTabQuery([d.day, d.date, d.amount], q));
+    }, [norm, tabSearch.daily_sales]);
+
+    const filteredByTechnician = useMemo(() => {
+        const rows = norm?.byTechnician ?? [];
+        const q = tabSearch.by_technician;
+        return rows.filter((t) =>
+            rowMatchesTabQuery([t.name, t.id, t.completedJobs, t.revenue, t.commission], q),
+        );
+    }, [norm, tabSearch.by_technician]);
+
+    const filteredByCustomer = useMemo(() => {
+        const rows = norm?.byCustomer ?? [];
+        const q = tabSearch.by_customer;
+        return rows.filter((row) => {
+            const plates = Array.isArray(row.plate_numbers ?? row.plateNumbers)
+                ? (row.plate_numbers ?? row.plateNumbers).join(' ')
+                : row.plate_no ?? row.plateNo ?? '';
+            return rowMatchesTabQuery(
+                [
+                    row.customer_mobile,
+                    row.customerMobile,
+                    row.phone,
+                    row.mobile,
+                    row.customer_name,
+                    row.customerName,
+                    plates,
+                    row.orders_count,
+                    row.ordersCount,
+                    row.revenue_sar,
+                    row.revenueSar,
+                ],
+                q,
+            );
+        });
+    }, [norm, tabSearch.by_customer]);
+
+    const filteredByProduct = useMemo(() => {
+        const rows = norm?.byProduct ?? [];
+        const q = tabSearch.by_product;
+        return rows.filter((row) =>
+            rowMatchesTabQuery(
+                [
+                    row.product_name,
+                    row.productName,
+                    row.item_name,
+                    row.product_id,
+                    row.productId,
+                    row.item_type,
+                    row.itemType,
+                    row.qty_sold,
+                    row.qtySold,
+                    row.revenue_sar,
+                    row.revenueSar,
+                ],
+                q,
+            ),
+        );
+    }, [norm, tabSearch.by_product]);
+
+    const filteredByDepartment = useMemo(() => {
+        const rows = norm?.byDepartment ?? [];
+        const q = tabSearch.by_department;
+        return rows.filter((row) =>
+            rowMatchesTabQuery(
+                [
+                    row.department_name,
+                    row.departmentName,
+                    row.department_id,
+                    row.departmentId,
+                    row.orders_count,
+                    row.ordersCount,
+                    row.revenue_sar,
+                    row.revenueSar,
+                ],
+                q,
+            ),
+        );
+    }, [norm, tabSearch.by_department]);
+
+    const filteredByBranch = useMemo(() => {
+        const rows = norm?.byBranch ?? [];
+        const q = tabSearch.by_branch;
+        return rows.filter((row) =>
+            rowMatchesTabQuery(
+                [
+                    row.branch_name,
+                    row.branchName,
+                    row.branch_id,
+                    row.branchId,
+                    row.completed_orders,
+                    row.completedOrders,
+                    row.revenue_sar,
+                    row.revenueSar,
+                ],
+                q,
+            ),
+        );
+    }, [norm, tabSearch.by_branch]);
+
+    const filteredRecentOrders = useMemo(() => {
+        const q = tabSearch.recent_orders;
+        return recentOrders.filter((row) =>
+            rowMatchesTabQuery(
+                [row.invoiceNo, row.invoiceDate, row.customerName, row.plateNo, row.invoiceTotal, row.invoiceId],
+                q,
+            ),
+        );
+    }, [recentOrders, tabSearch.recent_orders]);
+
     return (
         <div className="ws-reports-page">
             <div className="ws-reports-header">
@@ -695,11 +815,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             <div className="ws-reports-filters">
                 <div className="ws-filter-group">
                     <div className="ws-date-input-group">
-                        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+                        <input
+                            type="datetime-local"
+                            value={rangeFromLocal}
+                            onChange={(e) => setRangeFromLocal(e.target.value)}
+                            step={60}
+                            aria-label="From date and time"
+                        />
                         <span className="ws-text-dim">to</span>
-                        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+                        <input
+                            type="datetime-local"
+                            value={rangeToLocal}
+                            onChange={(e) => setRangeToLocal(e.target.value)}
+                            step={60}
+                            aria-label="To date and time"
+                        />
                     </div>
-                    <TechDropdown value={selectedTechId} options={techSelectOptions} onChange={setSelectedTechId} />
                     <button type="button" className="ws-btn-refresh" onClick={loadReports} disabled={isLoading}>
                         <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
                     </button>
@@ -740,11 +871,21 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             <div className="ws-tab-content">
                 {activeTab === 'daily_sales' && (
                     <div className="ws-report-view">
+                        <div className="ws-report-tab-toolbar">
+                            <input
+                                type="search"
+                                className="ws-report-tab-search"
+                                placeholder="Search day, date, amount…"
+                                value={tabSearch.daily_sales}
+                                onChange={(e) => setTabSearch((p) => ({ ...p, daily_sales: e.target.value }))}
+                                aria-label="Search daily sales"
+                            />
+                        </div>
                         <div className="ws-chart-container">
                             <h4 className="ws-chart-title">Daily Revenue</h4>
                             <div style={{ width: '100%', height: 300 }}>
                                 <ResponsiveContainer>
-                                    <BarChart data={norm?.dailyRevenue ?? []}>
+                                    <BarChart data={filteredDailyRevenue}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
                                         <XAxis
                                             dataKey="day"
@@ -782,8 +923,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 No daily revenue data
                                             </td>
                                         </tr>
+                                    ) : filteredDailyRevenue.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                                No rows match your search.
+                                            </td>
+                                        </tr>
                                     ) : (
-                                        (norm?.dailyRevenue ?? []).map((d, i) => (
+                                        filteredDailyRevenue.map((d, i) => (
                                             <tr key={`${d.date}-${i}`}>
                                                 <td>{d.day}</td>
                                                 <td>{d.date}</td>
@@ -799,12 +946,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
 
                 {activeTab === 'by_technician' && (
                     <div className="ws-report-view">
+                        <div className="ws-report-tab-toolbar">
+                            <input
+                                type="search"
+                                className="ws-report-tab-search"
+                                placeholder="Search technician, jobs, revenue…"
+                                value={tabSearch.by_technician}
+                                onChange={(e) => setTabSearch((p) => ({ ...p, by_technician: e.target.value }))}
+                                aria-label="Search by technician"
+                            />
+                        </div>
                         <div className="ws-chart-container">
                             <h4 className="ws-chart-title">Revenue by Technician</h4>
                             <div style={{ width: '100%', height: 300 }}>
                                 <ResponsiveContainer>
                                     <BarChart
-                                        data={norm?.byTechnician ?? []}
+                                        data={filteredByTechnician}
                                         layout="vertical"
                                         margin={{ left: 40, right: 20 }}
                                     >
@@ -848,8 +1005,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 No technician performance data
                                             </td>
                                         </tr>
+                                    ) : filteredByTechnician.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                                No rows match your search.
+                                            </td>
+                                        </tr>
                                     ) : (
-                                        (norm?.byTechnician ?? []).map((t) => (
+                                        filteredByTechnician.map((t) => (
                                             <tr
                                                 key={t.id || t.name}
                                                 onClick={() => loadDetails('by_technician', t)}
@@ -871,7 +1034,18 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 )}
 
                 {activeTab === 'by_customer' && (
-                    <div className="ws-report-table-wrapper">
+                    <>
+                        <div className="ws-report-tab-toolbar">
+                            <input
+                                type="search"
+                                className="ws-report-tab-search"
+                                placeholder="Search phone, plate, orders, revenue…"
+                                value={tabSearch.by_customer}
+                                onChange={(e) => setTabSearch((p) => ({ ...p, by_customer: e.target.value }))}
+                                aria-label="Search by customer"
+                            />
+                        </div>
+                        <div className="ws-report-table-wrapper">
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -888,8 +1062,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             No customer breakdown for this scope.
                                         </td>
                                     </tr>
+                                ) : filteredByCustomer.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No rows match your search.
+                                        </td>
+                                    </tr>
                                 ) : (
-                                    norm.byCustomer.map((row, i) => (
+                                    filteredByCustomer.map((row, i) => (
                                         <tr
                                             key={row.customer_id ?? row.customerId ?? i}
                                             onClick={() => loadDetails('by_customer', row)}
@@ -919,11 +1099,51 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
-                    </div>
+                        </div>
+                    </>
                 )}
 
                 {activeTab === 'by_product' && (
-                    <div className="ws-report-table-wrapper">
+                    <>
+                        <div className="ws-report-tab-toolbar ws-report-tab-toolbar--split">
+                            <div className="ws-report-tab-toolbar-left">
+                                <label className="ws-report-tab-field-label" htmlFor="ws-by-product-technician">
+                                    Technician
+                                </label>
+                                <select
+                                    id="ws-by-product-technician"
+                                    className="ws-report-tab-select"
+                                    value={byProductTechnicianId}
+                                    onChange={handleByProductTechnicianChange}
+                                    disabled={isLoading || byProductTechnicianLoading}
+                                    aria-label="Filter product sales by technician"
+                                >
+                                    <option value="">All technicians</option>
+                                    {technicianOptions.map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                            {t.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                {byProductTechnicianLoading && (
+                                    <span className="ws-text-dim ws-report-tab-inline-hint">Updating…</span>
+                                )}
+                            </div>
+                            <input
+                                type="search"
+                                className="ws-report-tab-search"
+                                placeholder="Search product, type, qty, revenue…"
+                                value={tabSearch.by_product}
+                                onChange={(e) => setTabSearch((p) => ({ ...p, by_product: e.target.value }))}
+                                aria-label="Search by product"
+                            />
+                        </div>
+                        {byProductTechnicianError && (
+                            <p className="ws-report-tab-inline-error" role="alert">
+                                {byProductTechnicianError}
+                            </p>
+                        )}
+                        <div className="ws-report-table-wrapper">
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -940,12 +1160,27 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             No product breakdown for this scope.
                                         </td>
                                     </tr>
+                                ) : filteredByProduct.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No rows match your search.
+                                        </td>
+                                    </tr>
                                 ) : (
-                                    norm.byProduct.map((row, i) => (
+                                    filteredByProduct.map((row, i) => (
                                         <tr
                                             key={row.product_id ?? row.productId ?? i}
-                                            onClick={() => loadDetails('by_product', row)}
-                                            style={{ cursor: 'pointer', background: selectedDetailKey === `by_product:${String(row.product_id ?? row.productId ?? '')}` ? '#F8FAFC' : undefined }}
+                                            onClick={() => {
+                                                if (!byProductTechnicianLoading) loadDetails('by_product', row);
+                                            }}
+                                            style={{
+                                                cursor: byProductTechnicianLoading ? 'wait' : 'pointer',
+                                                opacity: byProductTechnicianLoading ? 0.65 : undefined,
+                                                background:
+                                                    selectedDetailKey === `by_product:${String(row.product_id ?? row.productId ?? '')}`
+                                                        ? '#F8FAFC'
+                                                        : undefined,
+                                            }}
                                         >
                                             <td>
                                                 <strong>{row.product_name ?? row.productName ?? row.product_id ?? row.productId ?? '—'}</strong>
@@ -960,11 +1195,23 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
-                    </div>
+                        </div>
+                    </>
                 )}
 
                 {activeTab === 'by_department' && (
-                    <div className="ws-report-table-wrapper">
+                    <>
+                        <div className="ws-report-tab-toolbar">
+                            <input
+                                type="search"
+                                className="ws-report-tab-search"
+                                placeholder="Search department, orders, revenue…"
+                                value={tabSearch.by_department}
+                                onChange={(e) => setTabSearch((p) => ({ ...p, by_department: e.target.value }))}
+                                aria-label="Search by department"
+                            />
+                        </div>
+                        <div className="ws-report-table-wrapper">
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -980,8 +1227,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             No department breakdown for this scope.
                                         </td>
                                     </tr>
+                                ) : filteredByDepartment.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No rows match your search.
+                                        </td>
+                                    </tr>
                                 ) : (
-                                    norm.byDepartment.map((row, i) => (
+                                    filteredByDepartment.map((row, i) => (
                                         <tr
                                             key={row.department_id ?? row.departmentId ?? i}
                                             onClick={() => loadDetails('by_department', row)}
@@ -999,11 +1252,23 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
-                    </div>
+                        </div>
+                    </>
                 )}
 
                 {activeTab === 'by_branch' && (
-                    <div className="ws-report-table-wrapper">
+                    <>
+                        <div className="ws-report-tab-toolbar">
+                            <input
+                                type="search"
+                                className="ws-report-tab-search"
+                                placeholder="Search branch, orders, revenue…"
+                                value={tabSearch.by_branch}
+                                onChange={(e) => setTabSearch((p) => ({ ...p, by_branch: e.target.value }))}
+                                aria-label="Search by branch"
+                            />
+                        </div>
+                        <div className="ws-report-table-wrapper">
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -1019,8 +1284,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             No branch breakdown (try “All branches”).
                                         </td>
                                     </tr>
+                                ) : filteredByBranch.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No rows match your search.
+                                        </td>
+                                    </tr>
                                 ) : (
-                                    norm.byBranch.map((row, i) => (
+                                    filteredByBranch.map((row, i) => (
                                         <tr
                                             key={row.branch_id ?? row.branchId ?? i}
                                             onClick={() => loadDetails('by_branch', row)}
@@ -1038,11 +1309,23 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
-                    </div>
+                        </div>
+                    </>
                 )}
 
                 {activeTab === 'recent_orders' && (
-                    <div className="ws-report-table-wrapper ws-report-table-wrapper--actions">
+                    <>
+                        <div className="ws-report-tab-toolbar">
+                            <input
+                                type="search"
+                                className="ws-report-tab-search"
+                                placeholder="Search invoice, date, customer, plate, total…"
+                                value={tabSearch.recent_orders}
+                                onChange={(e) => setTabSearch((p) => ({ ...p, recent_orders: e.target.value }))}
+                                aria-label="Search recent orders"
+                            />
+                        </div>
+                        <div className="ws-report-table-wrapper ws-report-table-wrapper--actions">
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -1061,8 +1344,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             No recent orders in this scope.
                                         </td>
                                     </tr>
+                                ) : filteredRecentOrders.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No rows match your search.
+                                        </td>
+                                    </tr>
                                 ) : (
-                                    recentOrders.map((row, i) => (
+                                    filteredRecentOrders.map((row, i) => (
                                         <tr
                                             key={row.invoiceId ?? row.invoiceNo ?? i}
                                             onClick={() => openRecentOrderDetails(row.invoiceId)}
@@ -1088,7 +1377,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 </button>
                                                 {openRecentOrderMenuId === String(row.invoiceId) && (
                                                     <div
-                                                        className={`ws-row-actions-menu ${i >= Math.max(recentOrders.length - 3, 0) ? 'up' : ''}`}
+                                                        className={`ws-row-actions-menu ${i >= Math.max(filteredRecentOrders.length - 3, 0) ? 'up' : ''}`}
                                                     >
                                                         <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row.invoiceId, 'view')}>
                                                             View Invoice
@@ -1107,7 +1396,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
-                    </div>
+                        </div>
+                    </>
                 )}
             </div>
 

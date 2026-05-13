@@ -10,10 +10,33 @@ import {
     getCustomerDetails,
     getCustomers,
     getWorkshopOptions,
+    updateCustomer,
 } from '../../services/superAdminApi';
 import { marketingListReferrers } from '../../services/superAdminMarketingApi';
 
 const CORPORATE_BRANCH_CACHE_KEY = 'filter_corporate_branch_options_cache_v1';
+
+function mapCustomersResponse(d) {
+    return (Array.isArray(d) ? d : (d?.customers ?? [])).map((c) => ({
+        id: String(c.id ?? c._id ?? ''),
+        workshopId: c.workshopId != null ? String(c.workshopId) : '',
+        workshopName: c.workshopName ?? '—',
+        name: c.name ?? c.companyName ?? '—',
+        mobile: c.mobile ?? '—',
+        whatsapp: c.whatsapp ?? '—',
+        taxId: c.taxId ?? '-',
+        customerType: c.customerType === 'corporate' ? 'corporate' : 'regular',
+        isActive: c.isActive !== false,
+        vehiclesCount: Number(c.vehiclesCount ?? 0),
+        salesOrdersCount: Number(c.salesOrdersCount ?? 0),
+        orderStats: {
+            totalOrders: Number(c.orderStats?.totalOrders ?? 0),
+            completedOrders: Number(c.orderStats?.completedOrders ?? 0),
+            draftOrders: Number(c.orderStats?.draftOrders ?? 0),
+        },
+        corporateAccount: c.corporateAccount ?? null,
+    }));
+}
 
 const SUB_TABS = [
     { path: 'all-customers', label: 'All Customers' },
@@ -35,26 +58,7 @@ export default function CustomersPage() {
         setLoading(true);
         getCustomers({ customerType: typeFilter === 'all' ? undefined : typeFilter })
             .then((d) => {
-                const rows = (Array.isArray(d) ? d : (d?.customers ?? [])).map((c) => ({
-                    id: String(c.id ?? c._id ?? ''),
-                    workshopId: c.workshopId != null ? String(c.workshopId) : '',
-                    workshopName: c.workshopName ?? '—',
-                    name: c.name ?? c.companyName ?? '—',
-                    mobile: c.mobile ?? '—',
-                    whatsapp: c.whatsapp ?? '—',
-                    taxId: c.taxId ?? '-',
-                    customerType: c.customerType === 'corporate' ? 'corporate' : 'regular',
-                    isActive: c.isActive !== false,
-                    vehiclesCount: Number(c.vehiclesCount ?? 0),
-                    salesOrdersCount: Number(c.salesOrdersCount ?? 0),
-                    orderStats: {
-                        totalOrders: Number(c.orderStats?.totalOrders ?? 0),
-                        completedOrders: Number(c.orderStats?.completedOrders ?? 0),
-                        draftOrders: Number(c.orderStats?.draftOrders ?? 0),
-                    },
-                    corporateAccount: c.corporateAccount ?? null,
-                }));
-                setCustomers(rows);
+                setCustomers(mapCustomersResponse(d));
             })
             .catch(() => {})
             .finally(() => setLoading(false));
@@ -146,7 +150,7 @@ export default function CustomersPage() {
         referralId: '',
         selectedStoreIds: [],
     });
-    const [referrerOptions, setReferrerOptions] = useState([]);
+    const [editFormLoading, setEditFormLoading] = useState(false);
 
     const corporateCount = customers.filter((c) => c.customerType === 'corporate').length;
     const walkInCount = customers.filter((c) => c.customerType === 'regular').length;
@@ -217,9 +221,46 @@ export default function CustomersPage() {
         };
     }, []);
 
-    const openEdit = (c) => {
-        setEditingCustomer({ ...c });
+    const openEdit = async (c) => {
+        const isCorp = c.customerType === 'corporate' || !!c.corporateAccount;
+        setEditingCustomer({
+            id: c.id,
+            workshopId: c.workshopId,
+            workshopName: c.workshopName,
+            name: c.name,
+            customerType: isCorp ? 'corporate' : 'regular',
+            mobile: c.mobile === '—' ? '' : (c.mobile ?? ''),
+            whatsapp: c.whatsapp === '—' ? '' : (c.whatsapp ?? ''),
+            taxId: c.taxId === '-' ? '' : (c.taxId ?? ''),
+            isActive: c.isActive !== false,
+            corporateAccount: c.corporateAccount,
+            companyName: c.corporateAccount?.companyName ?? '',
+            contactPerson: c.corporateAccount?.contactPerson ?? '',
+            loginEmail: '',
+            newPassword: '',
+        });
         setEditOpen(true);
+        if (!isCorp) {
+            setEditFormLoading(false);
+            return;
+        }
+        setEditFormLoading(true);
+        try {
+            const d = await getCustomerDetails(String(c.id));
+            const raw = d?.data && typeof d.data === 'object' ? d.data : d;
+            const portalUsers = raw?.corporateAccount?.portalUsers ?? [];
+            const primary = portalUsers[0];
+            setEditingCustomer((prev) => ({
+                ...prev,
+                loginEmail: primary?.email ?? '',
+                companyName: raw?.corporateAccount?.companyName ?? prev.companyName ?? '',
+                contactPerson: raw?.corporateAccount?.contactPerson ?? prev.contactPerson ?? '',
+            }));
+        } catch {
+            /* ignore */
+        } finally {
+            setEditFormLoading(false);
+        }
     };
     const openDetails = async (customerId) => {
         if (!customerId) return;
@@ -269,26 +310,7 @@ export default function CustomersPage() {
             };
             await createCorporateCustomerDirect(payload);
             const d = await getCustomers({ customerType: typeFilter === 'all' ? undefined : typeFilter });
-            const rows = (Array.isArray(d) ? d : (d?.customers ?? [])).map((c) => ({
-                id: String(c.id ?? c._id ?? ''),
-                workshopId: c.workshopId != null ? String(c.workshopId) : '',
-                workshopName: c.workshopName ?? '—',
-                name: c.name ?? c.companyName ?? '—',
-                mobile: c.mobile ?? '—',
-                whatsapp: c.whatsapp ?? '—',
-                taxId: c.taxId ?? '-',
-                customerType: c.customerType === 'corporate' ? 'corporate' : 'regular',
-                isActive: c.isActive !== false,
-                vehiclesCount: Number(c.vehiclesCount ?? 0),
-                salesOrdersCount: Number(c.salesOrdersCount ?? 0),
-                orderStats: {
-                    totalOrders: Number(c.orderStats?.totalOrders ?? 0),
-                    completedOrders: Number(c.orderStats?.completedOrders ?? 0),
-                    draftOrders: Number(c.orderStats?.draftOrders ?? 0),
-                },
-                corporateAccount: c.corporateAccount ?? null,
-            }));
-            setCustomers(rows);
+            setCustomers(mapCustomersResponse(d));
             setCreateOpen(false);
             setNewCustomer({
                 customerName: '',
@@ -309,13 +331,46 @@ export default function CustomersPage() {
             setSaving(false);
         }
     };
-    const handleSaveEdit = () => {
+    const handleSaveEdit = async () => {
         if (!editingCustomer) return;
+        const isCorp = editingCustomer.customerType === 'corporate' || !!editingCustomer.corporateAccount;
+        if (isCorp) {
+            const em = String(editingCustomer.loginEmail ?? '').trim();
+            if (!em) {
+                alert('Corporate portal login email is required.');
+                return;
+            }
+            if (!String(editingCustomer.companyName ?? '').trim()) {
+                alert('Company name is required for corporate customers.');
+                return;
+            }
+        }
         setSaving(true);
-        setCustomers((prev) => prev.map((c) => (c.id === editingCustomer.id ? { ...editingCustomer } : c)));
-        setEditOpen(false);
-        setEditingCustomer(null);
-        setSaving(false);
+        try {
+            const payload = {
+                name: String(editingCustomer.name ?? '').trim() || undefined,
+                mobile: String(editingCustomer.mobile ?? '').trim() || undefined,
+                whatsapp: String(editingCustomer.whatsapp ?? '').trim() || undefined,
+                taxId: String(editingCustomer.taxId ?? '').trim() || undefined,
+                isActive: !!editingCustomer.isActive,
+            };
+            if (isCorp) {
+                payload.companyName = String(editingCustomer.companyName ?? '').trim();
+                payload.contactPerson = String(editingCustomer.contactPerson ?? '').trim() || undefined;
+                payload.email = String(editingCustomer.loginEmail ?? '').trim();
+                const np = String(editingCustomer.newPassword ?? '').trim();
+                if (np) payload.newPassword = np;
+            }
+            await updateCustomer(editingCustomer.id, payload);
+            const d = await getCustomers({ customerType: typeFilter === 'all' ? undefined : typeFilter });
+            setCustomers(mapCustomersResponse(d));
+            setEditOpen(false);
+            setEditingCustomer(null);
+        } catch (e) {
+            alert(e?.message || 'Failed to save customer');
+        } finally {
+            setSaving(false);
+        }
     };
 
     return (
@@ -685,22 +740,31 @@ export default function CustomersPage() {
                 {editOpen && editingCustomer && (
                     <Modal
                         title="Edit Customer"
-                        onClose={() => { setEditOpen(false); setEditingCustomer(null); }}
+                        onClose={() => { setEditOpen(false); setEditingCustomer(null); setEditFormLoading(false); }}
                         footer={
                             <>
-                                <button type="button" className="btn-secondary" onClick={() => { setEditOpen(false); setEditingCustomer(null); }}>Cancel</button>
-                                <button type="button" className="btn-submit" onClick={handleSaveEdit} disabled={saving}>{saving ? <><Loader size={14} className="spin" /> Saving…</> : 'Save Changes'}</button>
+                                <button type="button" className="btn-secondary" onClick={() => { setEditOpen(false); setEditingCustomer(null); setEditFormLoading(false); }}>Cancel</button>
+                                <button type="button" className="btn-submit" onClick={handleSaveEdit} disabled={saving || editFormLoading}>{saving ? <><Loader size={14} className="spin" /> Saving…</> : 'Save Changes'}</button>
                             </>
                         }
                     >
+                        {editFormLoading ? (
+                            <div className="table-empty"><Loader size={18} className="spin" /> Loading corporate login…</div>
+                        ) : (
+                            <>
                         <div className="form-group">
                             <label className="form-label">Customer Name</label>
                             <input type="text" className="form-input-field" value={editingCustomer.name} onChange={(e) => setEditingCustomer((p) => ({ ...p, name: e.target.value }))} />
                         </div>
                         <div className="form-group">
                             <label className="form-label">Type</label>
-                            <select className="form-input-field" value={editingCustomer.type} onChange={(e) => setEditingCustomer((p) => ({ ...p, type: e.target.value }))}>
-                                <option value="Walk-in">Walk-in</option><option value="Corporate">Corporate</option>
+                            <select
+                                className="form-input-field"
+                                value={editingCustomer.customerType === 'corporate' ? 'Corporate' : 'Walk-in'}
+                                onChange={(e) => setEditingCustomer((p) => ({ ...p, customerType: e.target.value === 'Corporate' ? 'corporate' : 'regular' }))}
+                            >
+                                <option value="Walk-in">Walk-in</option>
+                                <option value="Corporate">Corporate</option>
                             </select>
                         </div>
                         <div className="form-grid">
@@ -709,20 +773,72 @@ export default function CustomersPage() {
                                 <input type="text" className="form-input-field" value={editingCustomer.mobile} onChange={(e) => setEditingCustomer((p) => ({ ...p, mobile: e.target.value }))} />
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Email</label>
-                                <input type="email" className="form-input-field" value={editingCustomer.email} onChange={(e) => setEditingCustomer((p) => ({ ...p, email: e.target.value }))} />
+                                <label className="form-label">WhatsApp</label>
+                                <input type="text" className="form-input-field" value={editingCustomer.whatsapp} onChange={(e) => setEditingCustomer((p) => ({ ...p, whatsapp: e.target.value }))} />
                             </div>
                         </div>
                         <div className="form-group">
                             <label className="form-label">VAT Number</label>
-                            <input type="text" className="form-input-field" value={editingCustomer.vat} onChange={(e) => setEditingCustomer((p) => ({ ...p, vat: e.target.value }))} />
+                            <input type="text" className="form-input-field" value={editingCustomer.taxId} onChange={(e) => setEditingCustomer((p) => ({ ...p, taxId: e.target.value }))} />
                         </div>
                         <div className="form-group">
                             <label className="form-label">Status</label>
-                            <select className="form-input-field" value={editingCustomer.status} onChange={(e) => setEditingCustomer((p) => ({ ...p, status: e.target.value }))}>
-                                <option value="Active">Active</option><option value="Inactive">Inactive</option>
+                            <select
+                                className="form-input-field"
+                                value={editingCustomer.isActive ? 'Active' : 'Inactive'}
+                                onChange={(e) => setEditingCustomer((p) => ({ ...p, isActive: e.target.value === 'Active' }))}
+                            >
+                                <option value="Active">Active</option>
+                                <option value="Inactive">Inactive</option>
                             </select>
                         </div>
+                        {(editingCustomer.customerType === 'corporate' || editingCustomer.corporateAccount) && (
+                            <>
+                                <div className="form-grid">
+                                    <div className="form-group">
+                                        <label className="form-label">Company name</label>
+                                        <input
+                                            type="text"
+                                            className="form-input-field"
+                                            value={editingCustomer.companyName}
+                                            onChange={(e) => setEditingCustomer((p) => ({ ...p, companyName: e.target.value }))}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Contact person</label>
+                                        <input
+                                            type="text"
+                                            className="form-input-field"
+                                            value={editingCustomer.contactPerson}
+                                            onChange={(e) => setEditingCustomer((p) => ({ ...p, contactPerson: e.target.value }))}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Corporate portal email</label>
+                                    <input
+                                        type="email"
+                                        className="form-input-field"
+                                        autoComplete="off"
+                                        value={editingCustomer.loginEmail}
+                                        onChange={(e) => setEditingCustomer((p) => ({ ...p, loginEmail: e.target.value }))}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">New password</label>
+                                    <input
+                                        type="password"
+                                        className="form-input-field"
+                                        autoComplete="new-password"
+                                        placeholder="Leave empty to keep your current password"
+                                        value={editingCustomer.newPassword}
+                                        onChange={(e) => setEditingCustomer((p) => ({ ...p, newPassword: e.target.value }))}
+                                    />
+                                </div>
+                            </>
+                        )}
+                            </>
+                        )}
                     </Modal>
                 )}
 
@@ -770,6 +886,17 @@ export default function CustomersPage() {
                                         <div className="cell-sub-text">
                                             Credit: SAR {Number(detailsData.corporateAccount.creditLimit ?? 0).toFixed(2)} | Due: SAR {Number(detailsData.corporateAccount.dueBalance ?? 0).toFixed(2)}
                                         </div>
+                                    </div>
+                                )}
+                                {Array.isArray(detailsData.corporateAccount?.portalUsers) && detailsData.corporateAccount.portalUsers.length > 0 && (
+                                    <div className="form-group">
+                                        <label className="form-label">Corporate portal email</label>
+                                        {detailsData.corporateAccount.portalUsers.map((u) => (
+                                            <div key={String(u.userId)} className="cell-sub-text" style={{ marginBottom: 4 }}>
+                                                {u.email || '—'}
+                                                {u.name ? ` · ${u.name}` : ''}
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                                 {Array.isArray(detailsData.corporateAccount?.corporateOrders) && detailsData.corporateAccount.corporateOrders.length > 0 && (

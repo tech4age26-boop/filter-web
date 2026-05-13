@@ -21,12 +21,17 @@ import {
     buildCreateWorkshopSupplierPurchaseInvoiceBody,
     extractWorkshopPurchaseInvoiceUiFromPayload,
     normalizeWorkshopSupplierPurchaseInvoiceRow,
+    compareWorkshopPurchaseInvoiceListRowsDesc,
+    dedupeWorkshopPurchaseInvoiceListRows,
     unwrapWorkshopStaffSupplierPurchaseInvoiceGet,
     unwrapWorkshopSupplierPurchaseInvoiceList,
 } from '../../services/workshopSupplierPurchaseInvoices';
 import {
     listLocalSuppliers,
     createLocalSupplierPurchaseInvoice,
+    listAllLocalSupplierPurchaseInvoices,
+    getWorkshopLocalPurchaseInvoice,
+    patchWorkshopLocalPurchaseInvoice,
 } from '../../services/workshopSuppliersApi';
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
@@ -43,6 +48,51 @@ import {
 
 const SUPPLIERS_PAGE_LIMIT = 500;
 const PRODUCT_SEARCH_RESULT_LIMIT = 30;
+
+/**
+ * GET /workshop-staff/branches/:id/products returns nested `categories` / `uncategorizedProducts`.
+ * `unwrapWorkshopBranchListResponse` alone returns [] so product pickers stay empty and
+ * non-affiliated purchase invoices fail (no `branch_catalog_product_id` on lines).
+ */
+function flattenWorkshopStaffBranchProductsResponse(res) {
+    if (res == null) return [];
+    if (Array.isArray(res)) return res;
+    if (typeof res !== 'object') return [];
+    const out = [];
+    const uncategorized =
+        res.uncategorizedProducts ??
+        res.uncategorized_products ??
+        res?.data?.uncategorizedProducts;
+    if (Array.isArray(uncategorized)) {
+        for (const p of uncategorized) {
+            if (p && typeof p === 'object') out.push(p);
+        }
+    }
+    const categories = res.categories ?? res?.data?.categories;
+    if (Array.isArray(categories)) {
+        for (const c of categories) {
+            if (!c || typeof c !== 'object') continue;
+            const subs = c.subCategories ?? c.sub_categories ?? [];
+            if (Array.isArray(subs)) {
+                for (const s of subs) {
+                    if (s?.products && Array.isArray(s.products)) {
+                        for (const p of s.products) {
+                            if (p && typeof p === 'object') out.push(p);
+                        }
+                    }
+                }
+            }
+            const direct = c.productsWithoutSub ?? c.products_without_sub;
+            if (Array.isArray(direct)) {
+                for (const p of direct) {
+                    if (p && typeof p === 'object') out.push(p);
+                }
+            }
+        }
+    }
+    if (out.length > 0) return out;
+    return unwrapWorkshopBranchListResponse(res, 'products');
+}
 
 function unwrapSuppliersResponse(res) {
     if (Array.isArray(res)) return res;
@@ -73,6 +123,33 @@ function normalizeSupplierRow(s) {
     const name = s.supplierName ?? s.name ?? '';
     if (!id) return null;
     return { id, name: name || '—', raw: s };
+}
+
+/**
+ * Rows for the PI vendor dropdown (same branch scope as affiliated list).
+ * Used on the main suppliers path and on the registered-suppliers fallback path.
+ */
+async function fetchNonAffiliatedSupplierPickerRows({ invoiceBranchId, modalOpen, effectiveBranchId }) {
+    const branchForScope = String(invoiceBranchId ?? '').trim();
+    const scopeBranch =
+        branchForScope !== ''
+            ? branchForScope
+            : modalOpen && effectiveBranchId && String(effectiveBranchId) !== 'all'
+              ? String(effectiveBranchId)
+              : 'all';
+    const localParams = {};
+    if (scopeBranch && scopeBranch !== 'all') {
+        localParams.branchId = scopeBranch;
+    }
+    const localRes = await listLocalSuppliers(localParams);
+    return (localRes?.suppliers ?? [])
+        .filter((s) => s.isActive !== false)
+        .map((s) => ({
+            id: String(s.id),
+            name: `${s.name} (Non-affiliated)`,
+            raw: { ...s, __supplierType: 'local' },
+            __supplierType: 'local',
+        }));
 }
 
 function roundMoney2(n) {
@@ -531,6 +608,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [submitInvoiceError, setSubmitInvoiceError] = useState('');
     const [submittingInvoice, setSubmittingInvoice] = useState(false);
     const [editingDraftId, setEditingDraftId] = useState(null);
+    /** Non-affiliated (local) purchase invoice id when editing a draft WLPI. */
+    const [editingLocalPiId, setEditingLocalPiId] = useState(null);
     const [editingDraftLoadingId, setEditingDraftLoadingId] = useState(null);
     const [viewModalOpen, setViewModalOpen] = useState(false);
     const [viewInvoiceRow, setViewInvoiceRow] = useState(null);
@@ -540,6 +619,14 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [invoiceBranchId, setInvoiceBranchId] = useState('');
     /** Imperative handle for the printable invoice template (Download PDF). */
     const printableRef = useRef(null);
+    /** When opening a draft for edit, re-select vendor by id after linked suppliers load (name-only match can fail). */
+    const editingDraftSupplierIdRef = useRef(null);
+    const draftSupplierSyncedRef = useRef(false);
+    const clearDraftEditSession = useCallback(() => {
+        editingDraftSupplierIdRef.current = '';
+        draftSupplierSyncedRef.current = false;
+        setEditingLocalPiId(null);
+    }, []);
 
     const effectiveBranchId = useMemo(() => {
         if (selectedBranchId && selectedBranchId !== 'all') return selectedBranchId;
@@ -552,7 +639,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [productSearchByLineId, setProductSearchByLineId] = useState({});
     const [activeProductSearchLineId, setActiveProductSearchLineId] = useState(null);
     const [productDropdownPosition, setProductDropdownPosition] = useState(null);
+    /** Keyboard highlight in the product search portal (-1 = none; Enter picks this row). */
+    const [highlightedProductIndex, setHighlightedProductIndex] = useState(-1);
+    const highlightedProductIndexRef = useRef(-1);
     const productSearchInputRefs = useRef({});
+    const productResultsPanelRef = useRef(null);
 
     /**
      * Supplier-scoped last purchase prices (most recent unit price the
@@ -571,7 +662,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setBranchProductsError('');
         try {
             const prodRes = await getWorkshopStaffBranchProducts(invoiceBranchId);
-            let prodRows = unwrapWorkshopBranchListResponse(prodRes, 'products');
+            let prodRows = flattenWorkshopStaffBranchProductsResponse(prodRes);
             if (prodRows.length === 0) {
                 try {
                     prodRows = unwrapWorkshopBranchListResponse(
@@ -602,7 +693,15 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             const merged = [];
             let hardCap = 60;
             while (hardCap-- > 0) {
-                const scopeBranch = modalOpen && invoiceBranchId ? invoiceBranchId : effectiveBranchId;
+                const branchForScope = String(invoiceBranchId ?? '').trim();
+                const scopeBranch =
+                    branchForScope !== ''
+                        ? branchForScope
+                        : modalOpen &&
+                            effectiveBranchId &&
+                            String(effectiveBranchId) !== 'all'
+                          ? String(effectiveBranchId)
+                          : 'all';
                 const res = await getWorkshopSuppliers({
                     ...branchScopeParams(scopeBranch ?? 'all'),
                     limit: SUPPLIERS_PAGE_LIMIT,
@@ -620,20 +719,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             // create a PI for them. Marked with __supplierType so the submit
             // handler routes to the local-supplier endpoint.
             try {
-                const scopeBranch = modalOpen && invoiceBranchId ? invoiceBranchId : effectiveBranchId;
-                const localParams = {};
-                if (scopeBranch && scopeBranch !== 'all') {
-                    localParams.branchId = scopeBranch;
-                }
-                const localRes = await listLocalSuppliers(localParams);
-                const localRows = (localRes?.suppliers ?? [])
-                    .filter((s) => s.isActive !== false)
-                    .map((s) => ({
-                        id: String(s.id),
-                        name: `${s.name} (Non-affiliated)`,
-                        raw: { ...s, __supplierType: 'local' },
-                        __supplierType: 'local',
-                    }));
+                const localRows = await fetchNonAffiliatedSupplierPickerRows({
+                    invoiceBranchId,
+                    modalOpen,
+                    effectiveBranchId,
+                });
                 merged.push(...localRows);
             } catch (e) {
                 console.warn('[purchases] failed to load local suppliers', e);
@@ -658,19 +748,39 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             r?.raw?.is_linked_to_workshop === true ||
                             r?.raw?.linkedToWorkshop === true,
                     );
-                    setLinkedSuppliers(linkedOnly);
+                    let localRows = [];
+                    try {
+                        localRows = await fetchNonAffiliatedSupplierPickerRows({
+                            invoiceBranchId,
+                            modalOpen,
+                            effectiveBranchId,
+                        });
+                    } catch (le) {
+                        console.warn('[purchases] failed to load local suppliers (fallback path)', le);
+                    }
+                    setLinkedSuppliers([...linkedOnly, ...localRows]);
                     setLinkedSuppliersUsingRegisteredFallback(true);
                     setLinkedSuppliersError(
                         missingWorkshopIdColumn
-                            ? 'Loaded via fallback: workshop suppliers list is unavailable (backend schema). Showing linked suppliers only.'
-                            : 'Loaded via fallback: workshop suppliers endpoint is not authorized. Showing linked suppliers only.',
+                            ? 'Loaded via fallback: workshop suppliers list is unavailable (backend schema). Showing linked affiliated suppliers and non-affiliated suppliers where available.'
+                            : 'Loaded via fallback: workshop suppliers endpoint is not authorized. Showing linked affiliated suppliers and non-affiliated suppliers where available.',
                     );
                     return;
                 } catch {
                     // fallthrough
                 }
             }
-            setLinkedSuppliers([]);
+            let localRowsAfterError = [];
+            try {
+                localRowsAfterError = await fetchNonAffiliatedSupplierPickerRows({
+                    invoiceBranchId,
+                    modalOpen,
+                    effectiveBranchId,
+                });
+            } catch (le) {
+                console.warn('[purchases] failed to load local suppliers (after primary error)', le);
+            }
+            setLinkedSuppliers(localRowsAfterError);
             setLinkedSuppliersError(e.message || 'Could not load workshop suppliers.');
         } finally {
             setLinkedSuppliersLoading(false);
@@ -693,13 +803,26 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setInvoicesLoading(true);
         setInvoicesError('');
         try {
-            const res = await listWorkshopSupplierPurchaseInvoices({
-                limit: 100,
-                offset: 0,
-                ...branchScopeParams(listScope),
-            });
-            const list = unwrapWorkshopSupplierPurchaseInvoiceList(res);
-            setInvoices(list.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean));
+            const branchParams = branchScopeParams(listScope);
+            const [res, localRes] = await Promise.all([
+                listWorkshopSupplierPurchaseInvoices({
+                    limit: 100,
+                    offset: 0,
+                    ...branchParams,
+                }),
+                listAllLocalSupplierPurchaseInvoices({
+                    limit: 100,
+                    offset: 0,
+                    ...(listScope !== 'all' && listScope ? { branchId: String(listScope) } : {}),
+                }).catch(() => ({ invoices: [] })),
+            ]);
+            const affList = unwrapWorkshopSupplierPurchaseInvoiceList(res);
+            const localRaw = Array.isArray(localRes?.invoices) ? localRes.invoices : [];
+            const merged = dedupeWorkshopPurchaseInvoiceListRows([
+                ...localRaw.map((raw) => normalizeWorkshopSupplierPurchaseInvoiceRow(raw)),
+                ...affList.map((raw) => normalizeWorkshopSupplierPurchaseInvoiceRow(raw)),
+            ]).sort(compareWorkshopPurchaseInvoiceListRowsDesc);
+            setInvoices(merged);
         } catch (e) {
             setInvoices([]);
             setInvoicesError(e.message || 'Could not load purchase invoices.');
@@ -722,6 +845,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setViewInvoiceError('');
         setViewInvoiceRow(listRow);
         try {
+            if (listRow.invoiceKind === 'local') {
+                return;
+            }
             const res = await getWorkshopSupplierPurchaseInvoice(listRow.id);
             const inv = unwrapWorkshopStaffSupplierPurchaseInvoiceGet(res) ?? (res && typeof res === 'object' ? res : null);
             const normalized = normalizeWorkshopSupplierPurchaseInvoiceRow(inv);
@@ -756,7 +882,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     /** When opening the composer, default invoice branch from sidebar / first branch (before paint). */
     useLayoutEffect(() => {
         if (!modalOpen) return;
-        if (editingDraftId) return;
+        if (editingDraftId || editingLocalPiId) return;
         if (branchesForUi.length === 0) {
             setInvoiceBranchId('');
             return;
@@ -766,7 +892,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 ? String(selectedBranchId)
                 : String(branchesForUi[0].id);
         setInvoiceBranchId((prev) => (prev === next ? prev : next));
-    }, [modalOpen, editingDraftId, selectedBranchId, branchesForUi]);
+    }, [modalOpen, editingDraftId, editingLocalPiId, selectedBranchId, branchesForUi]);
 
     useEffect(() => {
         if (!modalOpen || !invoiceBranchId) return;
@@ -871,10 +997,18 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         const input = productSearchInputRefs.current[lineId];
         if (!input) return;
         const rect = input.getBoundingClientRect();
+        const margin = 8;
+        const minDropdownWidth = 520;
+        const maxByViewport = Math.max(minDropdownWidth, window.innerWidth - margin * 2);
+        const width = Math.min(Math.max(rect.width, minDropdownWidth), maxByViewport);
+        let left = rect.left;
+        if (left + width > window.innerWidth - margin) {
+            left = Math.max(margin, window.innerWidth - width - margin);
+        }
         setProductDropdownPosition({
             top: rect.bottom + 4,
-            left: rect.left,
-            width: rect.width,
+            left,
+            width,
         });
     }, []);
 
@@ -889,6 +1023,24 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             window.removeEventListener('scroll', reposition, true);
         };
     }, [activeProductSearchLineId, updateProductDropdownPosition]);
+
+    useLayoutEffect(() => {
+        if (highlightedProductIndex < 0) return;
+        const root = productResultsPanelRef.current;
+        if (!root) return;
+        const opt = root.querySelector(
+            `[data-pi-product-result-index="${highlightedProductIndex}"]`,
+        );
+        opt?.scrollIntoView({ block: 'nearest' });
+    }, [highlightedProductIndex, productDropdownPosition, activeProductSearchLineId]);
+
+    useEffect(() => {
+        highlightedProductIndexRef.current = highlightedProductIndex;
+    }, [highlightedProductIndex]);
+
+    useEffect(() => {
+        setHighlightedProductIndex(-1);
+    }, [activeProductSearchLineId]);
 
     const updateLineItem = (id, field, value) => {
         setLineItems((prev) =>
@@ -970,6 +1122,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         const opt = branchProductOptions.find((o) => o.id === productId);
         if (!opt) return;
         setProductSearchByLineId((prev) => ({ ...prev, [lineId]: opt.name }));
+        setHighlightedProductIndex(-1);
         setActiveProductSearchLineId(null);
         setProductDropdownPosition(null);
         const last = lastPricesByProductId[String(productId)];
@@ -1010,6 +1163,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
 
     const handleLineProductSearchChange = (lineId, value) => {
         setProductSearchByLineId((prev) => ({ ...prev, [lineId]: value }));
+        setHighlightedProductIndex(-1);
         setActiveProductSearchLineId(lineId);
         updateProductDropdownPosition(lineId);
         setLineItems((prev) =>
@@ -1254,6 +1408,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         [linkedSuppliers, selectedVendor],
     );
 
+    const isModalLocalSupplier =
+        selectedSupplierRow?.__supplierType === 'local' ||
+        selectedSupplierRow?.raw?.__supplierType === 'local';
+
     /**
      * Detect supplier portal status — workshop_local suppliers do NOT need to
      * approve; we apply inventory at PI save time on the server. Used to swap
@@ -1315,13 +1473,42 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
 
     useEffect(() => {
         if (!modalOpen || linkedSuppliersLoading) return;
+        if (editingDraftId || editingLocalPiId) return;
         if (invoiceSupplierOptions.length === 0) {
             setSelectedVendor('');
             return;
         }
         if (selectedVendor && invoiceSupplierOptions.includes(selectedVendor)) return;
         setSelectedVendor(invoiceSupplierOptions[0]);
-    }, [modalOpen, linkedSuppliersLoading, invoiceSupplierOptions, selectedVendor]);
+    }, [modalOpen, linkedSuppliersLoading, invoiceSupplierOptions, selectedVendor, editingDraftId, editingLocalPiId]);
+
+    /** After suppliers load, align vendor row with the draft's supplier id once (does not override manual changes afterward). */
+    useEffect(() => {
+        if (!modalOpen || linkedSuppliersLoading || (!editingDraftId && !editingLocalPiId)) return;
+        if (draftSupplierSyncedRef.current) return;
+        const wantId = editingDraftSupplierIdRef.current;
+        if (!wantId) {
+            draftSupplierSyncedRef.current = true;
+            return;
+        }
+        const isRowLocal = (s) => s?.__supplierType === 'local' || s?.raw?.__supplierType === 'local';
+        const editingLocalPi = Boolean(editingLocalPiId);
+        const row = linkedSuppliers.find((s) => {
+            if (String(s.id) !== String(wantId)) return false;
+            return editingLocalPi ? isRowLocal(s) : !isRowLocal(s);
+        });
+        if (!row?.name) {
+            return;
+        }
+        const current = linkedSuppliers.find((s) => {
+            if (s.name !== selectedVendor) return false;
+            return editingLocalPi ? isRowLocal(s) : !isRowLocal(s);
+        });
+        if (String(current?.id) !== String(wantId)) {
+            setSelectedVendor(row.name);
+        }
+        draftSupplierSyncedRef.current = true;
+    }, [modalOpen, linkedSuppliersLoading, linkedSuppliers, editingDraftId, editingLocalPiId, selectedVendor]);
 
     const canSubmitPurchaseInvoice =
         Boolean(invoiceBranchId) &&
@@ -1348,15 +1535,44 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         const nextDiscountIsPercent = Boolean(ui.lineDiscountIsPercent ?? ui.line_discount_is_percent ?? false);
 
         setInvoiceBranchId(String(payload.branch_id ?? payload.branchId ?? invoice?.branchId ?? invoice?.branch_id ?? ''));
-        setSelectedVendor(invoice?.supplier?.name ?? invoice?.vendor_name ?? invoice?.supplier_name ?? selectedVendor);
+        const rawInv = invoice?._raw && typeof invoice._raw === 'object' ? invoice._raw : invoice;
+        const isLocalPi =
+            rawInv?._invoiceKind === 'local' ||
+            invoice?._invoiceKind === 'local' ||
+            invoice?.invoiceKind === 'local';
+        setSelectedVendor(
+            isLocalPi
+                ? firstNonEmptyString(
+                      invoice?.vendor_name,
+                      invoice?.vendorName,
+                      invoice?.supplier_name,
+                      invoice?.supplierName,
+                      invoice?.supplier?.name,
+                  ) || selectedVendor
+                : firstNonEmptyString(
+                      invoice?.supplier?.name,
+                      invoice?.supplier_name,
+                      invoice?.supplierName,
+                      invoice?.vendor_name,
+                      invoice?.vendorName,
+                  ) || selectedVendor,
+        );
         setIssueDate(String(payload.issue_date ?? payload.issueDate ?? invoice?.issueDate ?? todayIso).slice(0, 10));
-        setDueDateType(duePayload?.type ?? invoice?.paymentTerms ?? 'Net');
+        const pt = String(
+            duePayload?.type ?? invoice?.paymentTerms ?? invoice?.payment_terms ?? 'Net',
+        ).trim();
+        setDueDateType(pt || 'Net');
         setNetDays(Number(duePayload?.net_days ?? duePayload?.netDays ?? invoice?.netDays ?? 30) || 30);
         setCustomDueDate(String(duePayload?.custom_date ?? duePayload?.customDate ?? invoice?.dueDate ?? todayIso).slice(0, 10));
         setVendorInvoiceRef(payload.vendorInvoiceRef ?? payload.vendor_invoice_ref ?? invoice?.refNumber ?? '');
         setInvoiceDescription(payload.description ?? invoice?.description ?? '');
         setInvoiceNotes(payload.notes ?? invoice?.notes ?? '');
-        setInvoiceDiscountMode(invDiscount.mode ?? invoice?.discountType ?? 'fixed_sar');
+        const headerDiscRaw =
+            invDiscount.mode ?? invoice?.discountType ?? invoice?.discount_type ?? 'fixed_sar';
+        const headerDisc = String(headerDiscRaw).toLowerCase();
+        setInvoiceDiscountMode(
+            headerDisc === 'percent' || headerDisc.includes('percent') ? 'percent' : 'fixed_sar',
+        );
         setInvoiceDiscountValue(String(invDiscount.value ?? invoice?.discountAmount ?? '0'));
         setShowDesc(Boolean(ui.showLineDescriptionColumn ?? ui.show_line_description_column ?? true));
         setShowDiscount(Boolean(ui.showLineDiscountColumn ?? ui.show_line_discount_column ?? false));
@@ -1405,8 +1621,25 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setEditingDraftLoadingId(invoice.id);
         setInvoicesError('');
         try {
+            const isLocal = invoice.invoiceKind === 'local' || invoice._raw?._invoiceKind === 'local';
+            if (isLocal) {
+                const res = await getWorkshopLocalPurchaseInvoice(invoice.id);
+                const detail = res?.purchaseInvoice ?? res;
+                draftSupplierSyncedRef.current = false;
+                editingDraftSupplierIdRef.current = String(detail?.supplier?.id ?? '').trim();
+                setEditingLocalPiId(String(invoice.id));
+                setEditingDraftId(null);
+                hydrateDraftInvoiceForm(detail);
+                setModalOpen(true);
+                return;
+            }
             const res = await getWorkshopSupplierPurchaseInvoice(invoice.id);
             const detail = res?.purchaseInvoice ?? res?.invoice ?? res?.data ?? res;
+            draftSupplierSyncedRef.current = false;
+            editingDraftSupplierIdRef.current = String(
+                detail?.supplier?.id ?? detail?.supplierId ?? detail?.supplier_id ?? '',
+            ).trim();
+            setEditingLocalPiId(null);
             setEditingDraftId(invoice.id);
             hydrateDraftInvoiceForm(detail);
             setModalOpen(true);
@@ -1424,10 +1657,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         const isLocalSupplier =
             selectedSupplierRow?.__supplierType === 'local' ||
             selectedSupplierRow?.raw?.__supplierType === 'local';
-        if (normalizedSubmitStatus === 'draft' && isLocalSupplier) {
-            setSubmitInvoiceError('Draft save is only available for affiliated suppliers.');
-            return;
-        }
         const selectedLineItems = lineItems.filter(
             (line) => line.productId != null && String(line.productId).trim() !== '',
         );
@@ -1524,55 +1753,72 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         try {
             let createRes;
             if (isLocalSupplier) {
-                // Convert enriched lines into the simpler local PI line schema.
+                const masterProductIdForLocalPi = (ln) => {
+                    const bcid = ln.branch_catalog_product_id;
+                    if (bcid == null || String(bcid).trim() === '') return '';
+                    const sid = String(bcid).trim();
+                    const opt = branchProductOptions.find((o) => String(o.id) === sid);
+                    return opt ? String(opt.id).trim() : sid;
+                };
                 const localLines = enrichedLines
-                    .filter((ln) => ln.branch_catalog_product_id)
-                    .map((ln) => ({
-                        productId: String(ln.branch_catalog_product_id),
-                        itemName: ln.item_name,
-                        description: ln.description ?? null,
-                        uom: ln.uom ?? null,
-                        qty: Number(ln.quantity ?? ln.qty ?? 0),
-                        unitPrice: Number(ln.unit_price_ex_vat ?? 0),
-                        discount: Number(ln.line_discount_amount ?? ln.line_discount_raw ?? 0),
-                        discountType: discountIsPercent ? 'percent' : 'fixed',
-                        taxCode: 'VAT15',
-                        taxAmount: Number(ln.tax_amount ?? 0),
-                        lineTotal: Number(ln.taxable_ex_vat ?? ln.gross_ex_vat ?? 0),
-                        total: Number(ln.line_total_incl_vat ?? 0),
-                    }));
+                    .map((ln) => {
+                        const productId = masterProductIdForLocalPi(ln);
+                        if (!productId) return null;
+                        return {
+                            productId,
+                            itemName: ln.item_name,
+                            description: ln.description ?? null,
+                            uom: ln.uom ?? null,
+                            qty: Number(ln.quantity ?? ln.qty ?? 0),
+                            unitPrice: Number(ln.unit_price_ex_vat ?? 0),
+                            discount: Number(ln.line_discount_amount ?? ln.line_discount_raw ?? 0),
+                            discountType: discountIsPercent ? 'percent' : 'fixed',
+                            taxCode: 'VAT15',
+                            taxAmount: Number(ln.tax_amount ?? 0),
+                            lineTotal: Number(ln.taxable_ex_vat ?? ln.gross_ex_vat ?? 0),
+                            total: Number(ln.line_total_incl_vat ?? 0),
+                        };
+                    })
+                    .filter(Boolean);
                 if (localLines.length === 0) {
                     throw new Error(
                         'Local supplier PI requires every line to be picked from the branch catalog.',
                     );
                 }
-                createRes = await createLocalSupplierPurchaseInvoice(
-                    String(selectedSupplierRow.id),
-                    {
-                        branchId: String(invoiceBranchId),
-                        issueDate,
-                        dueDate: dueComputed === '—' ? undefined : dueComputed,
-                        paymentTerms: dueDateType,
-                        netDays,
-                        refNumber: vendorInvoiceRef || undefined,
-                        description: invoiceDescription || undefined,
-                        notes: invoiceNotes || undefined,
-                        subtotal: Number(totals?.subtotal_ex_vat ?? 0),
-                        discountAmount:
-                            parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
-                        discountType:
-                            invoiceDiscountMode?.includes('percent') ? 'percent' : 'fixed',
-                        freightIn: freightNum,
-                        taxAmount: Number(totals?.total_vat ?? 0),
-                        grandTotal: Number(totals?.grand_total ?? 0),
-                        lines: localLines,
-                    },
-                );
-                // Local PI always applies stock + posts journal immediately.
+                const localApiStatus = normalizedSubmitStatus === 'draft' ? 'draft' : 'completed';
+                const localPiPayload = {
+                    branchId: String(invoiceBranchId),
+                    issueDate,
+                    dueDate: dueComputed === '—' ? undefined : dueComputed,
+                    paymentTerms: dueDateType,
+                    netDays,
+                    refNumber: vendorInvoiceRef || undefined,
+                    description: invoiceDescription || undefined,
+                    notes: invoiceNotes || undefined,
+                    subtotal: Number(totals?.subtotal_ex_vat ?? 0),
+                    discountAmount:
+                        parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
+                    discountType:
+                        invoiceDiscountMode?.includes('percent') ? 'percent' : 'fixed',
+                    freightIn: freightNum,
+                    taxAmount: Number(totals?.total_vat ?? 0),
+                    grandTotal: Number(totals?.grand_total ?? 0),
+                    lines: localLines,
+                    status: localApiStatus,
+                };
+                if (editingLocalPiId) {
+                    createRes = await patchWorkshopLocalPurchaseInvoice(editingLocalPiId, localPiPayload);
+                } else {
+                    createRes = await createLocalSupplierPurchaseInvoice(
+                        String(selectedSupplierRow.id),
+                        localPiPayload,
+                    );
+                }
+                const applied = String(createRes?.status ?? '').toLowerCase() === 'completed';
                 createRes = {
                     ...(createRes || {}),
-                    autoApplied: true,
-                    stock: { applied: true, lines: localLines },
+                    autoApplied: applied,
+                    stock: { applied, lines: localLines },
                 };
             } else if (editingDraftId) {
                 createRes = await updateWorkshopSupplierPurchaseInvoiceDraft(editingDraftId, createBody);
@@ -1616,6 +1862,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setActiveProductSearchLineId(null);
             setProductDropdownPosition(null);
             setEditingDraftId(null);
+            clearDraftEditSession();
             priceExcludingVatInitRef.current = false;
             priceExcludingVatPrevRef.current = false;
             setUpdateLastPurchasePrice(true);
@@ -1690,6 +1937,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     className="btn-portal"
                     onClick={() => {
                         setEditingDraftId(null);
+                        clearDraftEditSession();
                         setLineItems((prev) => (prev.length > 0 ? prev : [createEmptyLine()]));
                         setModalOpen(true);
                     }}
@@ -1738,7 +1986,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     <ShimmerTableBodyRows rows={8} columns={13} />
                                 ) : null}
                                 {invoices.map((inv) => (
-                                    <tr key={inv.id}>
+                                    <tr key={`${inv.invoiceKind === 'local' ? 'L' : 'A'}:${inv.id}`}>
                                         <td>
                                             <strong style={{ color: '#EA580C' }}>{inv.invoice_number || inv.id}</strong>
                                         </td>
@@ -1909,11 +2157,18 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         title={
                             <div className="pi-modal-title">
                                 <span className="pi-breadcrumb">
-                                    Purchase Invoices › <span className="pi-b-active">{editingDraftId ? 'Edit Draft' : 'New'}</span>
+                                    Purchase Invoices ›{' '}
+                                    <span className="pi-b-active">
+                                        {editingDraftId || editingLocalPiId ? 'Edit Draft' : 'New'}
+                                    </span>
                                 </span>
                                 <div className="pi-title-main">
                                     <ShoppingCart className="pi-icon-orange" size={24} />
-                                    <span>{editingDraftId ? 'Edit Purchase Invoice Draft' : 'Purchase Invoice'}</span>
+                                    <span>
+                                        {editingDraftId || editingLocalPiId
+                                            ? 'Edit Purchase Invoice Draft'
+                                            : 'Purchase Invoice'}
+                                    </span>
                                 </div>
                             </div>
                         }
@@ -1927,6 +2182,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             setActiveProductSearchLineId(null);
                             setProductDropdownPosition(null);
                             setEditingDraftId(null);
+                            clearDraftEditSession();
                             priceExcludingVatInitRef.current = false;
                             priceExcludingVatPrevRef.current = false;
                         }}
@@ -1948,6 +2204,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             setActiveProductSearchLineId(null);
                                             setProductDropdownPosition(null);
                                             setEditingDraftId(null);
+                                            clearDraftEditSession();
                                             priceExcludingVatInitRef.current = false;
                                             priceExcludingVatPrevRef.current = false;
                                         }}
@@ -1968,7 +2225,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         onClick={() => handleCreateInvoice('draft')}
                                         disabled={!canSubmitPurchaseInvoice || submittingInvoice}
                                     >
-                                        {submittingInvoice ? 'Saving…' : editingDraftId ? 'Update Draft' : 'Save as Draft'}
+                                        {submittingInvoice
+                                            ? 'Saving…'
+                                            : editingDraftId || editingLocalPiId
+                                              ? 'Update Draft'
+                                              : 'Save as Draft'}
                                     </button>
                                     <button
                                         type="button"
@@ -1981,7 +2242,15 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                 : undefined
                                         }
                                     >
-                                        {submittingInvoice ? 'Creating…' : editingDraftId ? 'Send to Supplier' : 'Create Purchase Invoice'}
+                                        {submittingInvoice
+                                            ? 'Creating…'
+                                            : editingDraftId || editingLocalPiId
+                                              ? isModalLocalSupplier
+                                                  ? 'Complete invoice'
+                                                  : 'Send to Supplier'
+                                              : isModalLocalSupplier
+                                                ? 'Create purchase invoice'
+                                                : 'Create Purchase Invoice'}
                                     </button>
                                     </div>
                                 </div>
@@ -2274,6 +2543,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                             onChange={(e) => handleLineProductSearchChange(line.id, e.target.value)}
                                                                             onBlur={() => {
                                                                                 window.setTimeout(() => {
+                                                                                    setHighlightedProductIndex(-1);
                                                                                     setActiveProductSearchLineId((prev) =>
                                                                                         prev === line.id ? null : prev,
                                                                                     );
@@ -2281,17 +2551,55 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                                 }, 120);
                                                                             }}
                                                                             onKeyDown={(e) => {
+                                                                                const trimmed = String(searchText || '').trim();
+                                                                                if (e.key === 'Escape') {
+                                                                                    if (!showProductResults) return;
+                                                                                    e.preventDefault();
+                                                                                    setHighlightedProductIndex(-1);
+                                                                                    setActiveProductSearchLineId(null);
+                                                                                    setProductDropdownPosition(null);
+                                                                                    return;
+                                                                                }
+                                                                                if (e.key === 'ArrowDown') {
+                                                                                    if (productResults.length === 0) return;
+                                                                                    e.preventDefault();
+                                                                                    setHighlightedProductIndex((prev) =>
+                                                                                        prev < 0
+                                                                                            ? 0
+                                                                                            : Math.min(
+                                                                                                  prev + 1,
+                                                                                                  productResults.length - 1,
+                                                                                              ),
+                                                                                    );
+                                                                                    return;
+                                                                                }
+                                                                                if (e.key === 'ArrowUp') {
+                                                                                    if (productResults.length === 0) return;
+                                                                                    e.preventDefault();
+                                                                                    setHighlightedProductIndex((prev) =>
+                                                                                        prev <= 0 ? -1 : prev - 1,
+                                                                                    );
+                                                                                    return;
+                                                                                }
                                                                                 if (e.key !== 'Enter') return;
                                                                                 if (productResults.length === 0) return;
                                                                                 e.preventDefault();
-                                                                                handleLineProductChange(line.id, productResults[0].id);
+                                                                                const h = highlightedProductIndexRef.current;
+                                                                                const pick =
+                                                                                    h >= 0 && h < productResults.length
+                                                                                        ? h
+                                                                                        : 0;
+                                                                                handleLineProductChange(line.id, productResults[pick].id);
                                                                             }}
                                                                         />
                                                                         {showProductResults &&
                                                                             productDropdownPosition &&
                                                                             createPortal(
                                                                                 <div
+                                                                                    ref={productResultsPanelRef}
                                                                                     className="ws-pi-product-results"
+                                                                                    role="listbox"
+                                                                                    aria-label="Product search results"
                                                                                     style={{
                                                                                         top: productDropdownPosition.top,
                                                                                         left: productDropdownPosition.left,
@@ -2300,11 +2608,15 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                                 >
                                                                                     {String(searchText || '').trim() ? (
                                                                                         productResults.length > 0 ? (
-                                                                                            productResults.map((p) => (
+                                                                                            productResults.map((p, ri) => (
                                                                                                 <button
                                                                                                     type="button"
                                                                                                     key={p.id}
-                                                                                                    className="ws-pi-product-result"
+                                                                                                    role="option"
+                                                                                                    aria-selected={ri === highlightedProductIndex}
+                                                                                                    data-pi-product-result-index={ri}
+                                                                                                    className={`ws-pi-product-result${ri === highlightedProductIndex ? ' is-highlighted' : ''}`}
+                                                                                                    onMouseEnter={() => setHighlightedProductIndex(ri)}
                                                                                                     onMouseDown={(e) => {
                                                                                                         e.preventDefault();
                                                                                                         handleLineProductChange(line.id, p.id);
