@@ -56,6 +56,34 @@ function SectionHeader({ title }) {
     return <h3 style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--color-text-dark)', margin: '0 0 16px 0' }}>{title}</h3>;
 }
 
+function readMoneyValue(...values) {
+    for (const value of values) {
+        if (value == null || value === '') continue;
+        const num = Number(value);
+        if (Number.isFinite(num)) return num;
+    }
+    return null;
+}
+
+function resolveBookingInvoiceAmount(order) {
+    return readMoneyValue(
+        order?.salesOrder?.invoice?.totalAmount,
+        order?.sales_order?.invoice?.totalAmount,
+        order?.invoice?.totalAmount,
+        order?.totalAmount,
+        order?.grandTotal,
+        order?.grand_total,
+        order?.total,
+        order?.amount,
+    );
+}
+
+function formatSarAmount(amount) {
+    return amount != null
+        ? `SAR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : '—';
+}
+
 // ─── BILLING ────────────────────────────────────────────────────────────────
 function normalizePeriodsPayload(data) {
     if (!data || typeof data !== 'object') return [];
@@ -271,7 +299,7 @@ function BookingHistoryView() {
 
     const STATUS_BADGE = { submitted: 'ws-badge--blue', completed: 'ws-badge--green', in_progress: 'ws-badge--blue', cancelled: 'ws-badge--red', pending: 'ws-badge--yellow' };
     const completed = orders.filter(o => o.status === 'completed').length;
-    const totalSpend = orders.reduce((s, o) => s + (parseFloat(o.amount ?? o.grandTotal ?? o.total ?? 0) || 0), 0);
+    const totalSpend = orders.reduce((s, o) => s + (resolveBookingInvoiceAmount(o) ?? 0), 0);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -306,7 +334,7 @@ function BookingHistoryView() {
                                         <td>{o.vehicle?.plateNo || o.vehiclePlate || '—'}</td>
                                         <td>{o.branchName || o.branch?.name || '—'}</td>
                                         <td><span className={`ws-badge ${STATUS_BADGE[o.status] || 'ws-badge--gray'}`}>{(o.status || '—').replace(/_/g, ' ')}</span></td>
-                                        <td>{(o.amount ?? o.grandTotal ?? o.total) != null ? `SAR ${Number(o.amount ?? o.grandTotal ?? o.total).toFixed(2)}` : 'Pending'}</td>
+                                        <td>{formatSarAmount(resolveBookingInvoiceAmount(o))}</td>
                                     </tr>
                                 ))}
                             </tbody></table>

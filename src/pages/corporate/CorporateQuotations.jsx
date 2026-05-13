@@ -269,10 +269,7 @@ export default function CorporateQuotations({ setQuoteOpen }) {
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
                                         <p style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-text-dark)', margin: 0 }}>
-                                            Quote {formatMoney(q.quotationPrice)}
-                                        </p>
-                                        <p style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', margin: 0, textAlign: 'right' }}>
-                                            Ex VAT {formatMoney(q.priceExcludingVat)} · Inc VAT {formatMoney(q.priceIncludingVat)}
+                                            Quote {formatMoney(q.quotationPrice)} incl. VAT
                                         </p>
                                         <span
                                             style={{
@@ -322,9 +319,7 @@ export default function CorporateQuotations({ setQuoteOpen }) {
                             <DetailField label="Unit" value={detail.unit} />
                             <DetailField label="Department" value={detail.departmentName} />
                             <DetailField label="Qty" value={detail.qty} />
-                            <DetailField label="Quotation price" value={formatMoney(detail.quotationPrice)} />
-                            <DetailField label="Price excl. VAT" value={formatMoney(detail.priceExcludingVat)} />
-                            <DetailField label="Price incl. VAT" value={formatMoney(detail.priceIncludingVat)} />
+                            <DetailField label="Quotation price (incl. VAT)" value={formatMoney(detail.quotationPrice)} />
                             <DetailField label="Product ID" value={detail.productId} />
                             <DetailField label="Service ID" value={detail.serviceId} />
                             <DetailField label="Submission batch" value={detail.submissionBatchId} />

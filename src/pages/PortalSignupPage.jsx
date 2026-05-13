@@ -374,6 +374,16 @@ export default function PortalSignupPage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6, delay: 0.2 }}
                 >
+                    <div className="back-home-top">
+                        <a
+                            onClick={() => navigate('/')}
+                            className="back-home-link"
+                        >
+                            <ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} />
+                            Back to Home
+                        </a>
+                    </div>
+
                     <div className="signin-header">
                         <h2>Create Account</h2>
                         <p>Register for {portalName} portal access</p>

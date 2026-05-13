@@ -233,6 +233,36 @@
     transform: none;
 }
 
+.back-home-top {
+    margin-bottom: 24px;
+}
+
+.back-home-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 160px;
+    padding: 11px 18px;
+    color: #111827;
+    background: #FFFFFF;
+    border: 1px solid #D1D5DB;
+    border-radius: 999px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 800;
+    text-decoration: none;
+    transition: all 0.25s ease;
+}
+
+.back-home-link:hover {
+    color: #000000;
+    border-color: #111827;
+    transform: translateY(-2px);
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.12);
+}
+
 @keyframes spin {
     to { transform: rotate(360deg); }
 }

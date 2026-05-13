@@ -662,6 +662,20 @@ export const createWorkshopSupplierPurchaseInvoice = (body) =>
         body: JSON.stringify(body),
     });
 
+/** Workshop — complete a draft purchase invoice and send it to supplier. */
+export const completeWorkshopSupplierPurchaseInvoiceDraft = (invoiceId) =>
+    apiFetch(
+        `/workshop-staff/supplier-purchase-invoices/${encodeURIComponent(String(invoiceId))}/complete`,
+        { method: 'PATCH', body: JSON.stringify({}) },
+    );
+
+/** Workshop — edit a draft purchase invoice. */
+export const updateWorkshopSupplierPurchaseInvoiceDraft = (invoiceId, body) =>
+    apiFetch(`/workshop-staff/supplier-purchase-invoices/${encodeURIComponent(String(invoiceId))}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+
 /** Workshop — list supplier purchase invoices. Query: status, supplierId, limit, offset (+ optional branchId). */
 export const listWorkshopSupplierPurchaseInvoices = (params = {}) =>
     apiFetch(`/workshop-staff/supplier-purchase-invoices${qs(params)}`);

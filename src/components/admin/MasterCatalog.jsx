@@ -922,6 +922,14 @@ export default function MasterCatalog() {
             description: service.description || '',
             sellingPrice: service.sellingPrice == null ? '' : String(service.sellingPrice),
             isPriceEditable: toBoolPriceEditable(service),
+            minPriceCorporate:
+                service.minPriceCorporate == null && service.min_price_corporate == null
+                    ? ''
+                    : String(service.minPriceCorporate ?? service.min_price_corporate),
+            maxPriceCorporate:
+                service.maxPriceCorporate == null && service.max_price_corporate == null
+                    ? ''
+                    : String(service.maxPriceCorporate ?? service.max_price_corporate),
             isActive: service.isActive !== false,
             categoryId: service.categoryId != null ? String(service.categoryId) : '',
             categoryName: service.categoryName ?? service.category?.name ?? '',
@@ -944,6 +952,14 @@ export default function MasterCatalog() {
                     editingService.sellingPrice === ''
                         ? null
                         : parseNumberOr(editingService.sellingPrice, 0),
+                minPriceCorporate:
+                    editingService.minPriceCorporate === '' || editingService.minPriceCorporate == null
+                        ? undefined
+                        : parseNumberOr(editingService.minPriceCorporate, 0),
+                maxPriceCorporate:
+                    editingService.maxPriceCorporate === '' || editingService.maxPriceCorporate == null
+                        ? undefined
+                        : parseNumberOr(editingService.maxPriceCorporate, 0),
                 isPriceEditable: !!editingService.isPriceEditable,
                 isActive: !!editingService.isActive,
                 categoryId:
@@ -2498,6 +2514,37 @@ export default function MasterCatalog() {
                                         placeholder="Leave empty for null"
                                         value={editingService.sellingPrice}
                                         onChange={(e) => setEditingService((prev) => ({ ...prev, sellingPrice: e.target.value }))}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="mc-form-row">
+                                <div className="mc-form-group">
+                                    <label>Min Corporate Price (SAR)</label>
+                                    <input
+                                        type="number"
+                                        placeholder="0.00"
+                                        value={editingService.minPriceCorporate ?? ''}
+                                        onChange={(e) =>
+                                            setEditingService((prev) => ({
+                                                ...prev,
+                                                minPriceCorporate: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </div>
+                                <div className="mc-form-group">
+                                    <label>Max Corporate Price (SAR)</label>
+                                    <input
+                                        type="number"
+                                        placeholder="0.00"
+                                        value={editingService.maxPriceCorporate ?? ''}
+                                        onChange={(e) =>
+                                            setEditingService((prev) => ({
+                                                ...prev,
+                                                maxPriceCorporate: e.target.value,
+                                            }))
+                                        }
                                     />
                                 </div>
                             </div>

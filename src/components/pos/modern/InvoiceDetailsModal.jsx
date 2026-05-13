@@ -378,6 +378,9 @@ export default function InvoiceDetailsModal({ invoice, isOpen, onClose, onPrint,
                     <button className="invoice-btn invoice-btn-primary" onClick={onClose}>
                         <Check size={16} /> Done
                     </button>
+                    <button className="invoice-btn invoice-btn-secondary" onClick={onClose}>
+                        <X size={16} /> Close
+                    </button>
                 </div>
             </div>
 
