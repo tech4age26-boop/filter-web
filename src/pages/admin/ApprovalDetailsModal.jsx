@@ -969,9 +969,312 @@ function isWalkInCorporatePendingDetail(data) {
     return s === 'waiting_for_corporate_approval';
 }
 
-/** Super-admin queue: walk-in POS corporate quote (`sales_orders.source = walk_in_corporate`). */
+function fmtWalkInDiscount(discountType, discountValue) {
+    const t = String(discountType || '').toLowerCase();
+    const v = Number(discountValue);
+    if (t === 'percentage' || t === 'percent') {
+        return `${Number.isFinite(v) ? v : 0}%`;
+    }
+    return fmtMoney(Number.isFinite(v) ? v : 0);
+}
+
+/** Raw Prisma walk-in row (legacy); unified formatter uses `lineItems` + `jobs` + `quoteTotals`. */
+function isLegacyWalkInSalesOrderPayload(o) {
+    return (
+        Array.isArray(o?.salesOrderItems)
+        && o.salesOrderItems.length > 0
+        && !Array.isArray(o?.lineItems)
+    );
+}
+
+/** Super-admin queue: walk-in POS corporate quote — same payload shape as GET /corporate/walk-in-orders/:id */
 function CorporateWalkInBookingBody({ data }) {
     const o = data || {};
+    if (isLegacyWalkInSalesOrderPayload(o)) {
+        return <CorporateWalkInBookingBodyLegacy data={o} />;
+    }
+    return <CorporateWalkInBookingBodyFormatted data={o} />;
+}
+
+function CorporateWalkInBookingBodyFormatted({ data: o }) {
+    const branch = o.branch || {};
+    const vehicle = o.vehicle || {};
+    const corp = o.corporateAccount || {};
+    const approver = o.corporateWalkInApprovedByUser || null;
+    const lineItems = Array.isArray(o.lineItems) ? o.lineItems : [];
+    const jobs = Array.isArray(o.jobs) ? o.jobs : [];
+    const timeline = Array.isArray(o.timeline) ? o.timeline : [];
+    const qt = o.quoteTotals && typeof o.quoteTotals === 'object' ? o.quoteTotals : null;
+    const posPayments = Array.isArray(o.posPayments) ? o.posPayments : [];
+    const inv = o.invoice && typeof o.invoice === 'object' ? o.invoice : null;
+
+    return (
+        <>
+            <Section title="Walk-in corporate quote">
+                <KVGrid>
+                    <Field label="Sales order ID" kind="id" value={o.id} />
+                    <Field label="Workshop ID" kind="id" value={o.workshopId} />
+                    <Field label="Branch ID" kind="id" value={o.branchId} />
+                    <Field label="Status" value={walkInCorporateStatusLabel(o.status)} />
+                    {o.approvalStatusLabel ? (
+                        <Field label="Approval label" value={o.approvalStatusLabel} />
+                    ) : null}
+                    <Field label="Source" value={o.source} />
+                    <Field label="Created" kind="date" value={o.createdAt} />
+                    <Field label="Created by (user)" kind="id" value={o.createdByUserId} />
+                    <Field label="Order promo" value={o.orderPromoCodeName} />
+                    <Field
+                        label="Rejection / cancel reason"
+                        value={o.corporateApprovalRejectionReason}
+                        span2
+                    />
+                </KVGrid>
+            </Section>
+
+            <Section title="Quote totals" empty={!qt ? 'No computed quote totals for this order.' : undefined}>
+                {qt && (
+                    <KVGrid>
+                        <Field label="Total (incl. VAT)" kind="money" value={qt.totalAmount} />
+                        <Field label="VAT" kind="money" value={qt.vatAmount} />
+                        <Field label="Departments (pending)" kind="decimal" value={qt.pendingDepartmentCount} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section
+                title="Payment draft (POS)"
+                empty={
+                    !o.posCustomerKind && posPayments.length === 0
+                        ? 'No POS payment draft stored on this quote.'
+                        : undefined
+                }
+            >
+                {(o.posCustomerKind || posPayments.length > 0) && (
+                    <>
+                        <KVGrid>
+                            <Field label="POS customer kind" value={o.posCustomerKind || NA} />
+                        </KVGrid>
+                        {posPayments.length > 0 ? (
+                            <div className="approval-table-wrapper" style={{ marginTop: 10 }}>
+                                <table className="approval-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Method</th>
+                                            <th style={{ textAlign: 'right' }}>Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {posPayments.map((p, idx) => (
+                                            <tr key={`${p.method}-${idx}`}>
+                                                <td>{p.method || NA}</td>
+                                                <td style={{ textAlign: 'right' }}>{fmtMoney(p.amount)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : null}
+                    </>
+                )}
+            </Section>
+
+            <Section title="Branch">
+                <KVGrid>
+                    <Field label="ID" kind="id" value={branch.id} />
+                    <Field label="Name" value={branch.name ?? o.branchName} />
+                    <Field label="Address" value={branch.address} span2 />
+                </KVGrid>
+            </Section>
+
+            <Section title="Corporate account">
+                <KVGrid>
+                    <Field label="ID" kind="id" value={corp.id} />
+                    <Field label="Company" value={corp.companyName} />
+                    <Field label="Customer ID" kind="id" value={corp.customerId} />
+                </KVGrid>
+            </Section>
+
+            <Section title="Vehicle">
+                <KVGrid>
+                    <Field label="Plate" value={vehicle.plateNo} />
+                    <Field label="Make / model" value={[vehicle.make, vehicle.model].filter(Boolean).join(' ') || NA} />
+                </KVGrid>
+            </Section>
+
+            <Section title="Corporate approver" empty={!approver ? 'Not approved yet (pending corporate or super admin).' : undefined}>
+                {approver && (
+                    <KVGrid>
+                        <Field label="User ID" kind="id" value={approver.id} />
+                        <Field label="Name" value={approver.name} />
+                        <Field label="Email" value={approver.email} />
+                        <Field label="User type" value={approver.userType} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section title="Line items (all)" count={lineItems.length}>
+                {lineItems.length === 0 ? (
+                    <p className="approval-empty-line">No line items on this order yet.</p>
+                ) : (
+                    <div className="approval-table-wrapper">
+                        <table className="approval-table">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Item</th>
+                                    <th>Department</th>
+                                    <th>Job</th>
+                                    <th>Qty</th>
+                                    <th>Unit</th>
+                                    <th>Discount</th>
+                                    <th>VAT%</th>
+                                    <th>Line total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {lineItems.map((line, idx) => (
+                                    <tr key={line?.id != null ? String(line.id) : `li-${idx}`}>
+                                        <td>{line.itemType || NA}</td>
+                                        <td>{line.productName || NA}</td>
+                                        <td>{line.departmentName || NA}</td>
+                                        <td className="mono">{line.jobId || '—'}</td>
+                                        <td>{fmtDecimal(line.qty, 3)}</td>
+                                        <td>{fmtMoney(line.unitPrice)}</td>
+                                        <td>{fmtWalkInDiscount(line.discountType, line.discountValue)}</td>
+                                        <td>{fmtDecimal(line.vatPercent, 2)}</td>
+                                        <td>{fmtMoney(line.lineTotal)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </Section>
+
+            <Section title="Jobs (per department)" count={jobs.length}>
+                {jobs.length === 0 ? (
+                    <p className="approval-empty-line">No job rows yet (quote-only flow).</p>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        {jobs.map((j) => {
+                            const fin = j.finance && typeof j.finance === 'object' ? j.finance : null;
+                            const jItems = Array.isArray(j.items) ? j.items : [];
+                            return (
+                                <div
+                                    key={j.id}
+                                    style={{
+                                        border: '1px solid var(--color-border-light, #e5e7eb)',
+                                        borderRadius: 8,
+                                        padding: 12,
+                                        background: 'var(--color-bg-muted, #f9fafb)',
+                                    }}
+                                >
+                                    <KVGrid>
+                                        <Field label="Job ID" kind="id" value={j.id} />
+                                        <Field label="Department" value={j.departmentName} />
+                                        <Field label="Status" value={j.status} />
+                                        <Field label="Job promo" value={j.promoCodeName} />
+                                        <Field label="Job discount type" value={j.totalDiscountType} />
+                                        <Field label="Job discount value" kind="money" value={j.totalDiscountValue} />
+                                        <Field label="Persisted total" kind="money" value={j.totalAmount} />
+                                    </KVGrid>
+                                    {fin && (
+                                        <Subgroup title="Computed finance (this job)">
+                                            <KVGrid>
+                                                <Field label="Gross subtotal" kind="money" value={fin.grossSubtotal} />
+                                                <Field label="Line discounts" kind="money" value={fin.lineDiscountsTotal} />
+                                                <Field label="After line discounts" kind="money" value={fin.afterLineDiscounts} />
+                                                <Field label="Job discount" kind="money" value={fin.jobDiscountAmount} />
+                                                <Field label="Promo discount" kind="money" value={fin.promoDiscountAmount} />
+                                                <Field label="Net before VAT" kind="money" value={fin.netBeforeVat} />
+                                                <Field label="VAT" kind="money" value={fin.vatAmount} />
+                                                <Field label="Total incl. VAT" kind="money" value={fin.totalInclVat} />
+                                            </KVGrid>
+                                        </Subgroup>
+                                    )}
+                                    {jItems.length > 0 && (
+                                        <Subgroup title="Lines on this job" count={jItems.length}>
+                                            <div className="approval-table-wrapper">
+                                                <table className="approval-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Item</th>
+                                                            <th>Qty</th>
+                                                            <th>Unit</th>
+                                                            <th>Discount</th>
+                                                            <th>Line total</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {jItems.map((line, idx) => (
+                                                            <tr key={line?.id != null ? String(line.id) : `ji-${idx}`}>
+                                                                <td>{line.productName || NA}</td>
+                                                                <td>{fmtDecimal(line.qty, 3)}</td>
+                                                                <td>{fmtMoney(line.unitPrice)}</td>
+                                                                <td>{fmtWalkInDiscount(line.discountType, line.discountValue)}</td>
+                                                                <td>{fmtMoney(line.lineTotal)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </Subgroup>
+                                    )}
+                                    <Subgroup
+                                        title="Technicians"
+                                        empty={
+                                            !Array.isArray(j.technicians) || j.technicians.length === 0
+                                                ? 'Not assigned'
+                                                : undefined
+                                        }
+                                    >
+                                        {Array.isArray(j.technicians) && j.technicians.length > 0 && (
+                                            <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.875rem' }}>
+                                                {j.technicians.map((t, idx) => (
+                                                    <li key={`${t.name}-${idx}`}>
+                                                        {t.name}
+                                                        {t.assignmentStatus ? ` (${t.assignmentStatus})` : ''}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </Subgroup>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </Section>
+
+            <Section title="Invoice" empty={!inv ? 'Not invoiced yet.' : undefined}>
+                {inv && (
+                    <KVGrid>
+                        <Field label="Invoice ID" kind="id" value={inv.id} />
+                        <Field label="Invoice #" value={inv.invoiceNo} />
+                        <Field label="Total" kind="money" value={inv.totalAmount} />
+                        <Field label="Payment status" value={inv.paymentStatus} />
+                        <Field label="Invoice date" kind="date" value={inv.invoiceDate} />
+                    </KVGrid>
+                )}
+            </Section>
+
+            <Section title="Timeline" count={timeline.length} empty={timeline.length === 0 ? 'No timeline.' : undefined}>
+                {timeline.length > 0 && (
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.875rem' }}>
+                        {timeline.map((t, idx) => (
+                            <li key={`${t.status}-${idx}`} style={{ marginBottom: 6 }}>
+                                <strong>{t.label || t.status || 'Update'}</strong>
+                                {t.detail ? ` — ${t.detail}` : ''}
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </Section>
+        </>
+    );
+}
+
+function CorporateWalkInBookingBodyLegacy({ data: o }) {
     const branch = o.branch || {};
     const vehicle = o.vehicle || {};
     const corp = o.corporateAccount || {};
@@ -993,7 +1296,7 @@ function CorporateWalkInBookingBody({ data }) {
 
     return (
         <>
-            <Section title="Walk-in corporate quote">
+            <Section title="Walk-in corporate quote (legacy shape)">
                 <KVGrid>
                     <Field label="Sales order ID" kind="id" value={o.id} />
                     <Field label="Workshop ID" kind="id" value={o.workshopId} />
@@ -1227,6 +1530,8 @@ export default function ApprovalDetailsModal({
             ?? data.workshopCode
             ?? data?.corporateAccount?.companyName
             ?? data?.branch?.name
+            ?? data?.branchName
+            ?? data?.vehicle?.plateNo
             ?? data?.user?.name
             ?? data?.workshopStaffRole
             ?? ''

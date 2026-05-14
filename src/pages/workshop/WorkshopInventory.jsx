@@ -103,6 +103,7 @@ function humanizeInventoryLogSource(source) {
     const s = String(source || 'manual').toLowerCase();
     if (s === 'supplier_purchase_invoice') return 'Supplier purchase (approved)';
     if (s === 'local_supplier_purchase_invoice') return 'Non-affiliated supplier purchase';
+    if (s === 'super_admin_starting_stock') return 'Super admin (opening stock)';
     if (s === 'pos') return 'POS';
     if (s === 'purchase_receipt') return 'Purchase receipt';
     return s.replace(/_/g, ' ');

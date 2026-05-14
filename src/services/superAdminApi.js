@@ -244,28 +244,25 @@ export const getSuperAdminInventoryLedger = ({
         })}`,
     );
 
-/** Branch starting stock (opening qty). Query: workshopId, branchId (required). Body: openingQty (required), previousOpeningQty (optional), syncCurrentQty (optional), note (optional). */
+/** Branch starting stock (opening qty). Query: workshopId, branchId (required). Body: openingQty (required), previousOpeningQty (optional), syncCurrentQty (optional — default true sets branch on-hand = new opening + audit; false = opening field only), note (optional). */
 export const patchSuperAdminInventoryProductStartingStock = (
     productId,
-    { workshopId, branchId, openingQty, previousOpeningQty, syncCurrentQty = false, note } = {},
-) =>
-    apiFetch(
+    { workshopId, branchId, openingQty, previousOpeningQty, syncCurrentQty, note } = {},
+) => {
+    const body = { openingQty };
+    if (previousOpeningQty != null && !Number.isNaN(Number(previousOpeningQty))) {
+        body.previousOpeningQty = Number(previousOpeningQty);
+    }
+    if (syncCurrentQty === false) body.syncCurrentQty = false;
+    if (note != null && String(note).trim() !== '') body.note = String(note).trim();
+    return apiFetch(
         `/super-admin/inventory/products/${encodeURIComponent(String(productId))}/starting-stock${qs({
             workshopId,
             branchId,
         })}`,
-        {
-            method: 'PATCH',
-            body: JSON.stringify({
-                openingQty,
-                ...(previousOpeningQty != null && !Number.isNaN(Number(previousOpeningQty))
-                    ? { previousOpeningQty: Number(previousOpeningQty) }
-                    : {}),
-                syncCurrentQty: !!syncCurrentQty,
-                ...(note != null && String(note).trim() !== '' ? { note: String(note).trim() } : {}),
-            }),
-        },
+        { method: 'PATCH', body: JSON.stringify(body) },
     );
+};
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 

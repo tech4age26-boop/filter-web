@@ -160,6 +160,7 @@ const MOVEMENT_SOURCE_LABELS = {
     inventory_movement: 'Sales & stock system',
     manual: 'Entered by staff',
     manual_adjustment: 'Manual entry',
+    super_admin_starting_stock: 'Super admin (starting / opening stock)',
 };
 
 function humanizeMovementKind(raw) {
@@ -182,6 +183,15 @@ function humanizeMovementSource(raw) {
     const k = s.toLowerCase();
     if (MOVEMENT_SOURCE_LABELS[k]) return MOVEMENT_SOURCE_LABELS[k];
     return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Prefer human reason for manual rows (e.g. super-admin opening change); else movement kind label. */
+function movementWhatHappenedLabel(e) {
+    if (!e || typeof e !== 'object') return '—';
+    const mt = String(e.movementType || '').toLowerCase();
+    const r = e.reason != null && String(e.reason).trim() !== '' ? String(e.reason).trim() : '';
+    if (mt === 'manual_adjustment' && r) return r;
+    return humanizeMovementKind(e.movementType);
 }
 
 function downloadCsv(filename, rows, headers) {
@@ -250,7 +260,6 @@ function OpeningQtyEditor({ product, workshopId, branchId, onUpdated, disabled }
                 branchId,
                 openingQty: parsed,
                 previousOpeningQty: hadPrev ? prevNum : undefined,
-                syncCurrentQty: false,
             });
             const data = unwrapData(res);
             setEditing(false);
@@ -468,7 +477,7 @@ function MovementModalBody({
                                                         return code && code !== '—' ? `System code: ${code}` : undefined;
                                                     })()}
                                                 >
-                                                    {humanizeMovementKind(e.movementType)}
+                                                    {movementWhatHappenedLabel(e)}
                                                 </span>
                                             </td>
                                             <td className="table-cell font-bold">{formatNum(e.delta)}</td>
