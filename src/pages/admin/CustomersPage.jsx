@@ -150,6 +150,7 @@ export default function CustomersPage() {
         referralId: '',
         selectedStoreIds: [],
     });
+    const [referrerOptions, setReferrerOptions] = useState([]);
     const [editFormLoading, setEditFormLoading] = useState(false);
 
     const corporateCount = customers.filter((c) => c.customerType === 'corporate').length;
