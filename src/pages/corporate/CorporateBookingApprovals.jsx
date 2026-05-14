@@ -137,6 +137,12 @@ export default function CorporateBookingApprovals() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {rows.map((o) => {
                         const busy = actionId != null && String(actionId) === String(o.id);
+                        const qt = o.quoteTotals && typeof o.quoteTotals === 'object' ? o.quoteTotals : null;
+                        const jobs = Array.isArray(o.jobs) ? o.jobs : [];
+                        const vatStr =
+                            qt != null && qt.vatAmount != null && !Number.isNaN(Number(qt.vatAmount))
+                                ? ` · VAT SAR ${Number(qt.vatAmount).toFixed(2)}`
+                                : '';
                         return (
                             <div key={o.id} className="ws-section" style={{ marginBottom: 0, padding: 20 }}>
                                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
@@ -149,9 +155,41 @@ export default function CorporateBookingApprovals() {
                                             {o.createdAt ? new Date(o.createdAt).toLocaleString('en-SA') : '—'}
                                         </p>
                                         <p style={{ fontSize: '0.875rem', fontWeight: 600, margin: '8px 0 0 0' }}>
-                                            SAR {Number(o.totalAmount || 0).toFixed(2)} · {o.lineCount || (o.items || []).length || 0}{' '}
-                                            lines
+                                            SAR {Number(o.totalAmount || 0).toFixed(2)}
+                                            {vatStr}
+                                            {' · '}
+                                            {o.lineCount || (o.items || []).length || 0} lines
                                         </p>
+                                        {o.orderPromoCodeName ? (
+                                            <p
+                                                style={{
+                                                    fontSize: '0.75rem',
+                                                    color: 'var(--color-text-muted)',
+                                                    margin: '4px 0 0 0',
+                                                }}
+                                            >
+                                                Order promo: <strong>{o.orderPromoCodeName}</strong>
+                                            </p>
+                                        ) : null}
+                                        {jobs.length > 0 ? (
+                                            <p
+                                                style={{
+                                                    fontSize: '0.72rem',
+                                                    color: 'var(--color-text-muted)',
+                                                    margin: '6px 0 0 0',
+                                                    lineHeight: 1.45,
+                                                }}
+                                            >
+                                                {jobs
+                                                    .map(
+                                                        (j) =>
+                                                            `${j.departmentName || 'Dept'} SAR ${Number(j.totalAmount || 0).toFixed(2)}${
+                                                                j.promoCodeName ? ` (${j.promoCodeName})` : ''
+                                                            }`,
+                                                    )
+                                                    .join(' · ')}
+                                            </p>
+                                        ) : null}
                                     </div>
                                     <span
                                         style={{

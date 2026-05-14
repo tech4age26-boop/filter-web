@@ -615,7 +615,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
     const [deptCatModal, setDeptCatModal] = useState(null);
     // { departments, selections, targetBranchIds, loading, error }
     const [productAdopt, setProductAdopt] = useState(null);
-    // { rows, missing, openingQty, criticalStockPoint, targetBranchIds, loading, error }
+    // { rows, missing, items (critical only), targetBranchIds, loading, error }
     const [serviceAdopt, setServiceAdopt] = useState(null);
     // { rows, missing, targetBranchIds, loading, error }
 
@@ -758,16 +758,11 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
             rows: selectedRows,
             missing: { departments: [], categories: [] },
             resolveNote,
-            // Per-row stock entry. Empty strings show as placeholders so it's
-            // obvious that 0 isn't the silent default — you'll get 0 only if
-            // you explicitly type 0 (or leave blank and the FE coerces it).
             items: selectedRows.map((r) => ({
                 productId: String(r.id),
                 name: r.name,
-                openingQty: '',
                 criticalStockPoint: '',
             })),
-            bulkOpeningQty: '',
             bulkCriticalStockPoint: '',
             targetBranchIds: [],
             loading: true,
@@ -796,7 +791,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
         try {
             const items = productAdopt.items.map((it) => ({
                 productId: String(it.productId),
-                openingQty: it.openingQty === '' ? 0 : Number(it.openingQty) || 0,
+                openingQty: 0,
                 criticalStockPoint: it.criticalStockPoint === '' ? 0 : Number(it.criticalStockPoint) || 0,
             }));
             const body = {
@@ -1599,22 +1594,14 @@ function ProductAdoptModal({ state, onChange, onClose, onSubmit, branches }) {
 
                             <div style={{ marginTop: 14, padding: 12, border: '1px solid var(--color-border-light, #E5E7EB)', borderRadius: 8 }}>
                                 <div style={{ fontWeight: 700, marginBottom: 4, fontSize: '0.875rem' }}>
-                                    Stock values (per product, per branch)
+                                    Critical stock (per product, per branch)
                                 </div>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 10 }}>
-                                    Leave blank to default to 0. These values set <strong>openingQty</strong> when each branch adopts (catalog baseline; manual adjustments only change on-hand later).
+                                    Optional alert threshold when each branch adopts. Leave blank for 0.
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8, alignItems: 'end', padding: '8px 10px', background: 'var(--color-bg-muted, #F9FAFB)', borderRadius: 6, marginBottom: 10 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'end', padding: '8px 10px', background: 'var(--color-bg-muted, #F9FAFB)', borderRadius: 6, marginBottom: 10 }}>
                                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)' }}>Apply to all rows</div>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        placeholder="Opening (adoption)"
-                                        value={state.bulkOpeningQty ?? ''}
-                                        onChange={(e) => onChange((prev) => prev && { ...prev, bulkOpeningQty: e.target.value })}
-                                        style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)', width: 110, fontSize: '0.8125rem' }}
-                                    />
                                     <input
                                         type="number"
                                         min="0"
@@ -1629,7 +1616,6 @@ function ProductAdoptModal({ state, onChange, onClose, onSubmit, branches }) {
                                             ...prev,
                                             items: prev.items.map((it) => ({
                                                 ...it,
-                                                openingQty: prev.bulkOpeningQty !== '' && prev.bulkOpeningQty != null ? prev.bulkOpeningQty : it.openingQty,
                                                 criticalStockPoint: prev.bulkCriticalStockPoint !== '' && prev.bulkCriticalStockPoint != null ? prev.bulkCriticalStockPoint : it.criticalStockPoint,
                                             })),
                                         })}
@@ -1644,7 +1630,6 @@ function ProductAdoptModal({ state, onChange, onClose, onSubmit, branches }) {
                                         <thead>
                                             <tr style={{ background: 'var(--color-bg-muted, #F9FAFB)', textAlign: 'left' }}>
                                                 <th style={{ padding: '8px 10px', fontWeight: 700 }}>Product</th>
-                                                <th style={{ padding: '8px 10px', fontWeight: 700, width: 130 }}>Opening (adoption)</th>
                                                 <th style={{ padding: '8px 10px', fontWeight: 700, width: 130 }}>Critical Stock</th>
                                             </tr>
                                         </thead>
@@ -1652,22 +1637,6 @@ function ProductAdoptModal({ state, onChange, onClose, onSubmit, branches }) {
                                             {(state.items || []).map((it, idx) => (
                                                 <tr key={it.productId} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--color-border)' }}>
                                                     <td style={{ padding: '8px 10px' }}>{it.name}</td>
-                                                    <td style={{ padding: '6px 10px' }}>
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            placeholder="0"
-                                                            value={it.openingQty}
-                                                            onChange={(e) => {
-                                                                const v = e.target.value;
-                                                                onChange((prev) => prev && {
-                                                                    ...prev,
-                                                                    items: prev.items.map((row, i) => i === idx ? { ...row, openingQty: v } : row),
-                                                                });
-                                                            }}
-                                                            style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)', width: '100%', fontSize: '0.8125rem' }}
-                                                        />
-                                                    </td>
                                                     <td style={{ padding: '6px 10px' }}>
                                                         <input
                                                             type="number"

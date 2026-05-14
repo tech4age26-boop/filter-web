@@ -28,6 +28,21 @@ export default function WalkInOrderDetailModal({ orderId, onClose }) {
     const timeline = Array.isArray(detail?.timeline) ? detail.timeline : [];
     const jobs = Array.isArray(detail?.jobs) ? detail.jobs : [];
     const lineItems = Array.isArray(detail?.lineItems) ? detail.lineItems : [];
+    const qt = detail?.quoteTotals && typeof detail.quoteTotals === 'object' ? detail.quoteTotals : null;
+    const posPayments = Array.isArray(detail?.posPayments) ? detail.posPayments : [];
+
+    function fmtMoney(n) {
+        const v = Number(n);
+        if (!Number.isFinite(v)) return '—';
+        return `SAR ${v.toFixed(2)}`;
+    }
+
+    function fmtDiscount(discountType, discountValue) {
+        const t = String(discountType || '').toLowerCase();
+        const v = Number(discountValue);
+        if (t === 'percentage' || t === 'percent') return `${Number.isFinite(v) ? v : 0}%`;
+        return fmtMoney(v);
+    }
 
     return (
         <Modal
@@ -75,7 +90,37 @@ export default function WalkInOrderDetailModal({ orderId, onClose }) {
                             <strong>Vehicle:</strong> {detail.vehicle?.plateNo || '—'} · {detail.vehicle?.make || ''}{' '}
                             {detail.vehicle?.model || ''}
                         </div>
+                        {detail.orderPromoCodeName ? (
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <strong>Order promo:</strong> {detail.orderPromoCodeName}
+                            </div>
+                        ) : null}
                     </div>
+
+                    {(detail.posCustomerKind || posPayments.length > 0) && (
+                        <div
+                            style={{
+                                border: '1px solid var(--color-border-light)',
+                                borderRadius: 10,
+                                padding: 10,
+                                background: '#FAF5FF',
+                            }}
+                        >
+                            <p style={{ margin: '0 0 6px 0', fontWeight: 700, fontSize: '0.78rem' }}>POS payment draft</p>
+                            <p style={{ margin: 0, fontSize: '0.8rem' }}>
+                                <strong>Customer kind:</strong> {detail.posCustomerKind || '—'}
+                            </p>
+                            {posPayments.length > 0 && (
+                                <ul style={{ margin: '8px 0 0 0', paddingLeft: 18, fontSize: '0.8rem' }}>
+                                    {posPayments.map((p, i) => (
+                                        <li key={`${p.method}-${i}`}>
+                                            {p.method}: {fmtMoney(p.amount)}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    )}
 
                     <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 10, overflow: 'hidden' }}>
                         <div style={{ padding: '8px 10px', fontWeight: 700, fontSize: '0.78rem', background: '#EEF2FF' }}>
@@ -106,7 +151,7 @@ export default function WalkInOrderDetailModal({ orderId, onClose }) {
                                                 SAR {Number(it.unitPrice || 0).toFixed(2)}
                                             </td>
                                             <td style={{ padding: 8, textAlign: 'right' }}>
-                                                {it.discountType || '—'} {it.discountValue ?? 0}
+                                                {fmtDiscount(it.discountType, it.discountValue)}
                                             </td>
                                             <td style={{ padding: 8, textAlign: 'right' }}>{it.vatPercent ?? 0}</td>
                                             <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>
@@ -130,9 +175,20 @@ export default function WalkInOrderDetailModal({ orderId, onClose }) {
                                 jobs.map((j) => (
                                     <div key={j.id} style={{ border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 8 }}>
                                         <p style={{ margin: 0, fontWeight: 700, fontSize: '0.8rem' }}>
-                                            Job #{j.id} · {j.departmentName || j.departmentId || '—'} · {j.status || '—'} · SAR{' '}
-                                            {Number(j.totalAmount || 0).toFixed(2)}
+                                            Job #{j.id} · {j.departmentName || j.departmentId || '—'} · {j.status || '—'} ·{' '}
+                                            {fmtMoney(j.totalAmount)}
+                                            {j.promoCodeName ? ` · Promo: ${j.promoCodeName}` : ''}
                                         </p>
+                                        {j.finance && (
+                                            <p style={{ margin: '6px 0 0 0', fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                                                Net before VAT {fmtMoney(j.finance.netBeforeVat)} · VAT{' '}
+                                                {fmtMoney(j.finance.vatAmount)} · Incl. VAT{' '}
+                                                {fmtMoney(j.finance.totalInclVat)}
+                                                {Number(j.finance.promoDiscountAmount) > 0
+                                                    ? ` · Promo disc ${fmtMoney(j.finance.promoDiscountAmount)}`
+                                                    : ''}
+                                            </p>
+                                        )}
                                         <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                                             Technicians:{' '}
                                             {Array.isArray(j.technicians) && j.technicians.length
@@ -182,10 +238,16 @@ export default function WalkInOrderDetailModal({ orderId, onClose }) {
                             </p>
                         </div>
                         <div style={{ border: '1px solid var(--color-border-light)', borderRadius: 8, padding: 8 }}>
-                            <p style={{ margin: '0 0 4px 0', fontWeight: 700, fontSize: '0.76rem' }}>Quote Totals</p>
-                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                                {detail.quoteTotals ? JSON.stringify(detail.quoteTotals) : 'Not available'}
-                            </p>
+                            <p style={{ margin: '0 0 4px 0', fontWeight: 700, fontSize: '0.76rem' }}>Quote totals</p>
+                            {qt ? (
+                                <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.8rem' }}>
+                                    <li>Total incl. VAT: {fmtMoney(qt.totalAmount)}</li>
+                                    <li>VAT: {fmtMoney(qt.vatAmount)}</li>
+                                    <li>Departments: {qt.pendingDepartmentCount ?? '—'}</li>
+                                </ul>
+                            ) : (
+                                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>Not available</p>
+                            )}
                         </div>
                     </div>
                 </div>
