@@ -34,16 +34,28 @@ function normalizeBookingDetailPayload(raw) {
     return raw;
 }
 
-/** Matches backend monthly settlement (Pay Monthly / Monthly Billing, etc.). */
+/** Matches backend monthly settlement (Pay Monthly / Monthly Billing, incl. `a|b` deferred snapshots). */
 function isMonthlyBillingPaymentMethod(pm) {
     if (pm == null || typeof pm !== 'string') return false;
-    const n = pm.trim().toLowerCase();
-    return (
-        n === 'pay monthly' ||
-        n === 'monthly billing' ||
-        n === 'monthly' ||
-        n === 'pay monthly billing'
-    );
+    const raw = pm.trim();
+    if (!raw) return false;
+    for (const part of raw.split('|')) {
+        const n = part
+            .trim()
+            .toLowerCase()
+            .replace(/_/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (
+            n === 'pay monthly'
+            || n === 'monthly billing'
+            || n === 'monthly'
+            || n === 'pay monthly billing'
+        ) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /** Invoice calendar month for Monthly billing tab (`?month=&year=`). */

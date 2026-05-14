@@ -519,6 +519,15 @@ export function workshopReportsAnalyticsParams(selectedBranchId, opts = {}) {
     const { startDate = '', endDate = '', technicianId = '' } = opts;
     const q = { ...workshopStaffListScopeQuery(selectedBranchId) };
     if (q.branchId != null && q.branchId !== '') q.branch_id = q.branchId;
+    try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (tz) {
+            q.client_time_zone = tz;
+            q.clientTimeZone = tz;
+        }
+    } catch (_) {
+        /* ignore */
+    }
     if (startDate) {
         q.start_date = startDate;
         q.startDate = startDate;
@@ -541,6 +550,12 @@ export const getWorkshopReportsAnalytics = (params = {}, options = {}) =>
 
 export const getWorkshopRecentOrders = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/recent-orders${qs(params)}`, options);
+
+export const getWorkshopRecentOpenOrderDetails = (salesOrderId, params = {}, options = {}) =>
+    apiFetch(
+        `/workshop-staff/reports/recent-orders/open-order/${encodeURIComponent(String(salesOrderId))}/details${qs(params)}`,
+        options,
+    );
 
 export const getWorkshopRecentOrderDetails = (invoiceId, params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/recent-orders/${encodeURIComponent(String(invoiceId))}/details${qs(params)}`, options);
@@ -583,6 +598,10 @@ export const getWorkshopReportsByDepartmentDetails = (id, params = {}, options =
 
 export const getWorkshopReportsByBranchDetails = (id, params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-branch/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
+
+/** `date` = YYYY-MM-DD (invoice date key; same as Daily Sales row). */
+export const getWorkshopReportsDailySalesDetails = (date, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/daily-sales/${encodeURIComponent(String(date))}/details${qs(params)}`, options);
 
 /**
  * Flat list from GET .../branches/:id/products|services (workshop-staff or workshop-catalog) and
