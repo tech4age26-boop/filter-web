@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Loader, Package, Search, TrendingDown, TrendingUp, LayoutGrid, ListTree } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+    Download,
+    Loader,
+    Package,
+    Pencil,
+    Search,
+    TrendingDown,
+    TrendingUp,
+    LayoutGrid,
+    ListTree,
+    X,
+} from 'lucide-react';
 import Modal from '../Modal';
 import UniversalTabs from '../UniversalTabs';
 import {
@@ -8,13 +19,16 @@ import {
     getSuperAdminInventoryProductMovements,
     getSuperAdminInventoryProducts,
     patchSuperAdminInventoryProductStartingStock,
-    searchSuperAdminInventoryProducts,
     getWorkshopOptions,
 } from '../../services/superAdminApi';
 
 const GRID_LIMIT = 50;
 const MOVEMENT_LIMIT = 100;
 const LEDGER_LIMIT = 50;
+/** Same cap as workshop Manage Inventory search suggestions. */
+const INV_SEARCH_SUGGEST_LIMIT = 12;
+/** Backend max page size for super-admin branch inventory list. */
+const CATALOG_PAGE_LIMIT = 200;
 
 /** Plain-language note: summary vs paginated table. */
 const SUMMARY_VS_ENTRIES_HINT =
@@ -140,6 +154,107 @@ function displayCell(v) {
     return String(v);
 }
 
+/** Same token search as workshop Manage Inventory (`WorkshopInventory.jsx`). */
+function normalizeInventorySearchValue(value) {
+    if (value == null) return '';
+    let s = String(value);
+    try {
+        if (typeof s.normalize === 'function') {
+            s = s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+        }
+    } catch {
+        /* ignore */
+    }
+    return s.toLowerCase().trim();
+}
+
+function buildRawInventorySearchText(...sources) {
+    const fields = [];
+    for (const source of sources) {
+        if (!source || typeof source !== 'object') continue;
+        fields.push(
+            source.name,
+            source.productName,
+            source.product_name,
+            source.itemName,
+            source.item_name,
+            source.title,
+            source.sku,
+            source.code,
+            source.barcode,
+            source.partNumber,
+            source.part_number,
+            source.brand,
+            source.brandName,
+            source.departmentName,
+            source.department_name,
+            source.department?.name,
+            source.categoryName,
+            source.category_name,
+            source.category?.name,
+            source.id,
+            source.productId,
+            source.product_id,
+        );
+    }
+    return fields.map(normalizeInventorySearchValue).filter(Boolean).join(' ');
+}
+
+function buildInventorySearchText(row) {
+    const fields = [
+        row?._searchText,
+        row?.name,
+        row?.productName,
+        row?.product_name,
+        row?.itemName,
+        row?.item_name,
+        row?.sku,
+        row?.code,
+        row?.barcode,
+        row?.partNumber,
+        row?.part_number,
+        row?.brand,
+        row?.brandName,
+        row?.departmentName,
+        row?.department_name,
+        row?.categoryName,
+        row?.category_name,
+        row?.id,
+        row?.productId,
+    ];
+    return fields
+        .map(normalizeInventorySearchValue)
+        .filter(Boolean)
+        .join(' ');
+}
+
+function matchesProductNameSearch(row, query) {
+    const q = normalizeInventorySearchValue(query);
+    if (!q) return true;
+    const hay = normalizeInventorySearchValue(buildInventorySearchText(row));
+    if (!hay) return false;
+    return q
+        .split(/\s+/)
+        .filter(Boolean)
+        .every((term) => hay.includes(term));
+}
+
+/** Value written into the search field when a suggestion is chosen (matches token search). */
+function inventorySearchValueFromRow(row) {
+    const name = String(row?.name ?? '').trim();
+    const sku = String(row?.sku ?? '').trim();
+    return [name, sku].filter(Boolean).join(' ').trim() || name || sku || '';
+}
+
+function toInventorySearchRow(p) {
+    if (!p || typeof p !== 'object') return p;
+    return {
+        ...p,
+        brand: p.brandName ?? p.brand ?? '',
+        _searchText: buildRawInventorySearchText(p),
+    };
+}
+
 /** API movement codes → short labels for the history modal. Hover shows the raw code. */
 const MOVEMENT_KIND_LABELS = {
     invoice_sale: 'Sale on invoice',
@@ -209,137 +324,6 @@ function downloadCsv(filename, rows, headers) {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
-}
-
-/** Inline edit starting stock (openingQty); saves on Enter or blur. */
-function OpeningQtyEditor({ product, workshopId, branchId, onUpdated, disabled }) {
-    const [editing, setEditing] = useState(false);
-    const [draft, setDraft] = useState('');
-    const [saving, setSaving] = useState(false);
-    const [hint, setHint] = useState('');
-    const skipBlurCommit = useRef(false);
-    const inputRef = useRef(null);
-
-    useEffect(() => {
-        if (!editing) return;
-        const el = inputRef.current;
-        if (el) {
-            el.focus();
-            el.select();
-        }
-    }, [editing]);
-
-    const startEdit = () => {
-        if (disabled || saving) return;
-        setHint('');
-        setDraft(String(product.openingQty ?? ''));
-        setEditing(true);
-    };
-
-    const commit = async () => {
-        const trimmed = String(draft).trim();
-        const parsed = Number(trimmed);
-        if (trimmed === '' || Number.isNaN(parsed)) {
-            setHint('Enter a valid number');
-            setEditing(false);
-            return;
-        }
-        const prevRaw = product.openingQty;
-        const prevNum = Number(prevRaw);
-        const hadPrev = prevRaw != null && prevRaw !== '' && !Number.isNaN(prevNum);
-        if (hadPrev && parsed === prevNum) {
-            setEditing(false);
-            return;
-        }
-
-        setSaving(true);
-        setHint('');
-        try {
-            const res = await patchSuperAdminInventoryProductStartingStock(product.productId, {
-                workshopId,
-                branchId,
-                openingQty: parsed,
-                previousOpeningQty: hadPrev ? prevNum : undefined,
-            });
-            const data = unwrapData(res);
-            setEditing(false);
-            onUpdated?.({
-                openingQty: data?.openingQty,
-                currentQty: data?.currentQty,
-                reservedQty: data?.reservedQty,
-                availableQty: data?.availableQty,
-                criticalStockPoint: data?.criticalStockPoint,
-            });
-        } catch (e) {
-            setHint(e?.message || 'Could not save');
-            setEditing(false);
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const onBlur = () => {
-        if (skipBlurCommit.current) {
-            skipBlurCommit.current = false;
-            return;
-        }
-        void commit();
-    };
-
-    const onKeyDown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            skipBlurCommit.current = true;
-            void commit();
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            skipBlurCommit.current = true;
-            setEditing(false);
-            setDraft(String(product.openingQty ?? ''));
-        }
-    };
-
-    useEffect(() => {
-        if (!hint) return undefined;
-        const t = setTimeout(() => setHint(''), 4500);
-        return () => clearTimeout(t);
-    }, [hint]);
-
-    if (editing) {
-        return (
-            <div className="opening-qty-editor">
-                <input
-                    ref={inputRef}
-                    type="number"
-                    step="any"
-                    className="opening-qty-input"
-                    value={draft}
-                    disabled={saving}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onBlur={onBlur}
-                    onKeyDown={onKeyDown}
-                    aria-label="Starting stock"
-                />
-                {saving ? <Loader className="animate-spin opening-qty-spinner" size={14} /> : null}
-                {hint ? <span className="opening-qty-hint">{hint}</span> : null}
-            </div>
-        );
-    }
-
-    return (
-        <div className="opening-qty-editor">
-            <button
-                type="button"
-                className="opening-qty-edit-btn"
-                disabled={disabled || saving}
-                onClick={startEdit}
-                title="Click to edit starting stock"
-            >
-                {formatNum(product.openingQty)}
-            </button>
-            {hint ? <span className="opening-qty-hint">{hint}</span> : null}
-        </div>
-    );
 }
 
 /** Main label is easy to read; technical field name only in tooltip for support. */
@@ -594,10 +578,14 @@ export default function StockMovementsSuperAdmin() {
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
     const [branches, setBranches] = useState([]);
     const [selectedBranchId, setSelectedBranchId] = useState('');
-    const [searchInput, setSearchInput] = useState('');
-    const [search, setSearch] = useState('');
-    const [products, setProducts] = useState([]);
-    const [gridMeta, setGridMeta] = useState({ workshop: null, branch: null, total: 0, limit: GRID_LIMIT, offset: 0 });
+    const [searchQuery, setSearchQuery] = useState('');
+    const [invSuggestOpen, setInvSuggestOpen] = useState(false);
+    const [invSuggestIndex, setInvSuggestIndex] = useState(-1);
+    const invSearchBlurTimerRef = useRef(null);
+    const invSuggestDropdownRef = useRef(null);
+
+    const [branchProductCatalog, setBranchProductCatalog] = useState([]);
+    const [branchScopeMeta, setBranchScopeMeta] = useState({ workshop: null, branch: null });
     const [gridOffset, setGridOffset] = useState(0);
     const [loadingWorkshops, setLoadingWorkshops] = useState(true);
     const [loadingBranches, setLoadingBranches] = useState(false);
@@ -613,6 +601,13 @@ export default function StockMovementsSuperAdmin() {
 
     const [branchMovementProduct, setBranchMovementProduct] = useState(null);
 
+    /** One row at a time: Edit in Actions → edit value in Starting stock column → Save. */
+    const [openingEditProductId, setOpeningEditProductId] = useState(null);
+    const [openingDraft, setOpeningDraft] = useState('');
+    const [openingSaving, setOpeningSaving] = useState(false);
+    const [openingHint, setOpeningHint] = useState('');
+    const openingInputRef = useRef(null);
+
     /** Match BranchesPage / Employees: prefer approved; also allow active or missing status (backend variants). */
     const workshopDropdown = useMemo(
         () =>
@@ -623,11 +618,6 @@ export default function StockMovementsSuperAdmin() {
             }),
         [workshops],
     );
-
-    useEffect(() => {
-        const t = setTimeout(() => setSearch(searchInput.trim()), 350);
-        return () => clearTimeout(t);
-    }, [searchInput]);
 
     useEffect(() => {
         if (pageTab !== 'movement-ledger') return undefined;
@@ -690,65 +680,90 @@ export default function StockMovementsSuperAdmin() {
             .finally(() => setLoadingBranches(false));
     }, [selectedWorkshopId]);
 
-    const loadProducts = useCallback(async () => {
+    useEffect(() => {
+        setSearchQuery('');
+        setInvSuggestOpen(false);
+        setInvSuggestIndex(-1);
+    }, [selectedWorkshopId, selectedBranchId]);
+
+    const loadBranchProductCatalog = useCallback(async () => {
         if (!selectedWorkshopId || !selectedBranchId) {
-            setProducts([]);
+            setBranchProductCatalog([]);
+            setBranchScopeMeta({ workshop: null, branch: null });
             setProductsError('');
             return;
         }
         setLoadingProducts(true);
         setProductsError('');
+        const all = [];
+        let workshop = null;
+        let branch = null;
         try {
-            const q = typeof search === 'string' ? search.trim() : '';
-            const shared = {
-                workshopId: selectedWorkshopId,
-                branchId: selectedBranchId,
-                limit: GRID_LIMIT,
-                offset: gridOffset,
-            };
-            let res;
-            if (q.length > 0) {
-                try {
-                    res = await searchSuperAdminInventoryProducts({ ...shared, q });
-                } catch (e) {
-                    const msg = String(e?.message || '');
-                    if (/\b404\b/.test(msg)) {
-                        res = await getSuperAdminInventoryProducts({ ...shared, search: q });
-                    } else {
-                        throw e;
-                    }
-                }
-            } else {
-                res = await getSuperAdminInventoryProducts(shared);
+            let offset = 0;
+            for (;;) {
+                const res = await getSuperAdminInventoryProducts({
+                    workshopId: selectedWorkshopId,
+                    branchId: selectedBranchId,
+                    limit: CATALOG_PAGE_LIMIT,
+                    offset,
+                });
+                const data = unwrapData(res);
+                const list = data?.products ?? [];
+                if (!workshop && data?.workshop) workshop = data.workshop;
+                if (!branch && data?.branch) branch = data.branch;
+                if (Array.isArray(list)) all.push(...list);
+                const total = Number(data?.total ?? 0) || 0;
+                if (list.length < CATALOG_PAGE_LIMIT || all.length >= total) break;
+                offset += CATALOG_PAGE_LIMIT;
             }
-            const data = unwrapData(res);
-            const list = data?.products ?? [];
-            setProducts(Array.isArray(list) ? list : []);
-            setGridMeta({
-                workshop: data?.workshop ?? null,
-                branch: data?.branch ?? null,
-                total: Number(data?.total ?? list.length) || 0,
-                limit: Number(data?.limit ?? GRID_LIMIT) || GRID_LIMIT,
-                offset: Number(data?.offset ?? gridOffset) || 0,
-            });
+            setBranchProductCatalog(all);
+            setBranchScopeMeta({ workshop, branch });
         } catch (e) {
-            setProducts([]);
+            setBranchProductCatalog([]);
             setProductsError(e?.message || 'Could not load the product list.');
         } finally {
             setLoadingProducts(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, search, gridOffset]);
+    }, [selectedWorkshopId, selectedBranchId]);
 
     useEffect(() => {
-        loadProducts();
-    }, [loadProducts]);
+        void loadBranchProductCatalog();
+    }, [loadBranchProductCatalog]);
 
     useEffect(() => {
         setGridOffset(0);
-    }, [selectedWorkshopId, selectedBranchId, search]);
+    }, [selectedWorkshopId, selectedBranchId, searchQuery]);
+
+    const filteredBranchProducts = useMemo(() => {
+        if (!normalizeInventorySearchValue(searchQuery)) return branchProductCatalog;
+        return branchProductCatalog.filter((p) => matchesProductNameSearch(toInventorySearchRow(p), searchQuery));
+    }, [branchProductCatalog, searchQuery]);
+
+    const invSearchSuggestions = useMemo(() => {
+        if (!normalizeInventorySearchValue(searchQuery)) return [];
+        return branchProductCatalog
+            .filter((p) => matchesProductNameSearch(toInventorySearchRow(p), searchQuery))
+            .slice(0, INV_SEARCH_SUGGEST_LIMIT);
+    }, [branchProductCatalog, searchQuery]);
+
+    const products = useMemo(
+        () => filteredBranchProducts.slice(gridOffset, gridOffset + GRID_LIMIT),
+        [filteredBranchProducts, gridOffset],
+    );
+
+    const gridMeta = useMemo(
+        () => ({
+            workshop: branchScopeMeta.workshop,
+            branch: branchScopeMeta.branch,
+            total: filteredBranchProducts.length,
+            limit: GRID_LIMIT,
+            offset: gridOffset,
+        }),
+        [branchScopeMeta, filteredBranchProducts.length, gridOffset],
+    );
 
     const applyProductStockPatch = useCallback((productId, patch) => {
-        setProducts((prev) =>
+        setBranchProductCatalog((prev) =>
             prev.map((row) => {
                 if (String(row.productId) !== String(productId)) return row;
                 const next = { ...row };
@@ -760,13 +775,157 @@ export default function StockMovementsSuperAdmin() {
         );
     }, []);
 
+    const cancelOpeningEdit = useCallback(() => {
+        setOpeningEditProductId(null);
+        setOpeningDraft('');
+        setOpeningHint('');
+        setOpeningSaving(false);
+    }, []);
+
+    const beginOpeningEdit = useCallback((product) => {
+        setOpeningHint('');
+        setOpeningEditProductId(String(product.productId));
+        setOpeningDraft(String(product.openingQty ?? ''));
+    }, []);
+
+    const saveOpeningEdit = useCallback(
+        async (product) => {
+            const trimmed = String(openingDraft).trim();
+            const parsed = Number(trimmed);
+            if (trimmed === '' || Number.isNaN(parsed)) {
+                setOpeningHint('Enter a valid number');
+                return;
+            }
+            const prevRaw = product.openingQty;
+            const prevNum = Number(prevRaw);
+            const hadPrev = prevRaw != null && prevRaw !== '' && !Number.isNaN(prevNum);
+            if (hadPrev && parsed === prevNum) {
+                cancelOpeningEdit();
+                return;
+            }
+            setOpeningSaving(true);
+            setOpeningHint('');
+            try {
+                const res = await patchSuperAdminInventoryProductStartingStock(product.productId, {
+                    workshopId: selectedWorkshopId,
+                    branchId: selectedBranchId,
+                    openingQty: parsed,
+                    previousOpeningQty: hadPrev ? prevNum : undefined,
+                });
+                const data = unwrapData(res);
+                applyProductStockPatch(product.productId, {
+                    openingQty: data?.openingQty,
+                    currentQty: data?.currentQty,
+                    reservedQty: data?.reservedQty,
+                    availableQty: data?.availableQty,
+                    criticalStockPoint: data?.criticalStockPoint,
+                });
+                cancelOpeningEdit();
+            } catch (e) {
+                setOpeningHint(e?.message || 'Could not save');
+            } finally {
+                setOpeningSaving(false);
+            }
+        },
+        [
+            openingDraft,
+            selectedWorkshopId,
+            selectedBranchId,
+            applyProductStockPatch,
+            cancelOpeningEdit,
+        ],
+    );
+
+    useEffect(() => {
+        cancelOpeningEdit();
+    }, [selectedWorkshopId, selectedBranchId, gridOffset, searchQuery, cancelOpeningEdit]);
+
+    useEffect(() => {
+        if (!openingHint) return undefined;
+        const t = setTimeout(() => setOpeningHint(''), 4500);
+        return () => clearTimeout(t);
+    }, [openingHint]);
+
+    useEffect(() => {
+        if (!openingEditProductId) return;
+        const el = openingInputRef.current;
+        if (el) {
+            el.focus();
+            el.select();
+        }
+    }, [openingEditProductId]);
+
+    const applyInventorySearchSuggestion = useCallback((row) => {
+        setSearchQuery(inventorySearchValueFromRow(toInventorySearchRow(row)));
+        setInvSuggestOpen(false);
+        setInvSuggestIndex(-1);
+    }, []);
+
+    const clearInvSearchBlurTimer = useCallback(() => {
+        if (invSearchBlurTimerRef.current != null) {
+            clearTimeout(invSearchBlurTimerRef.current);
+            invSearchBlurTimerRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => () => clearInvSearchBlurTimer(), [clearInvSearchBlurTimer]);
+
+    const onInvSearchKeyDown = useCallback(
+        (e) => {
+            if (e.key === 'ArrowDown') {
+                if (!invSearchSuggestions.length) return;
+                e.preventDefault();
+                setInvSuggestOpen(true);
+                setInvSuggestIndex((i) => {
+                    if (i < 0) return 0;
+                    return Math.min(i + 1, invSearchSuggestions.length - 1);
+                });
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                if (!invSearchSuggestions.length) return;
+                e.preventDefault();
+                setInvSuggestOpen(true);
+                setInvSuggestIndex((i) => (i <= 0 ? -1 : i - 1));
+                return;
+            }
+            if (e.key === 'Enter') {
+                if (invSuggestOpen && invSuggestIndex >= 0 && invSearchSuggestions[invSuggestIndex]) {
+                    e.preventDefault();
+                    applyInventorySearchSuggestion(invSearchSuggestions[invSuggestIndex]);
+                }
+                return;
+            }
+            if (e.key === 'Escape') {
+                setInvSuggestOpen(false);
+                setInvSuggestIndex(-1);
+            }
+        },
+        [invSearchSuggestions, invSuggestOpen, invSuggestIndex, applyInventorySearchSuggestion],
+    );
+
+    useLayoutEffect(() => {
+        if (!invSuggestOpen || invSuggestIndex < 0) return;
+        const list = invSuggestDropdownRef.current;
+        const item = list?.querySelector(`#sm-admin-inv-suggest-${invSuggestIndex}`);
+        if (!list || !item) return;
+        const padding = 6;
+        const listRect = list.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+        if (itemRect.bottom > listRect.bottom - padding) {
+            list.scrollTop += itemRect.bottom - listRect.bottom + padding;
+        } else if (itemRect.top < listRect.top + padding) {
+            list.scrollTop -= listRect.top - itemRect.top + padding;
+        }
+    }, [invSuggestIndex, invSuggestOpen, invSearchSuggestions]);
+
     const gridTotalPages = Math.max(1, Math.ceil((gridMeta.total || 0) / GRID_LIMIT));
     const gridPage = Math.floor(gridOffset / GRID_LIMIT) + 1;
     const ledgerTotalPages = Math.max(1, Math.ceil((ledgerMeta.total || 0) / LEDGER_LIMIT));
     const ledgerPage = Math.floor(ledgerOffset / LEDGER_LIMIT) + 1;
 
     const exportGridCsv = () => {
-        if (!products.length) return;
+        if (!filteredBranchProducts.length) return;
         const workshopLabel = displayCell(gridMeta.workshop);
         const branchLabel = displayCell(gridMeta.branch);
         const slug = (v) =>
@@ -792,7 +951,7 @@ export default function StockMovementsSuperAdmin() {
             'stockUpdatedAt',
             'isActive',
         ];
-        const rows = products.map((p) =>
+        const rows = filteredBranchProducts.map((p) =>
             headers.map((h) => {
                 if (h === 'workshop') return workshopLabel;
                 if (h === 'branch') return branchLabel;
@@ -816,7 +975,7 @@ export default function StockMovementsSuperAdmin() {
                 <button
                     type="button"
                     className="btn-export"
-                    disabled={pageTab !== 'branch-stock' || !products.length}
+                    disabled={pageTab !== 'branch-stock' || !filteredBranchProducts.length}
                     onClick={exportGridCsv}
                 >
                     <Download size={16} /> Download table (CSV)
@@ -880,16 +1039,133 @@ export default function StockMovementsSuperAdmin() {
             </div>
 
             <div className="stock-movements-filter-bar">
-                <div className="search-input-wrapper">
-                    <Search size={18} className="search-icon" />
-                    <input
-                        type="text"
-                        placeholder="Search by product name, code (SKU), or brand…"
-                        className="movements-search-field"
-                        value={searchInput}
-                        onChange={(e) => setSearchInput(e.target.value)}
-                        disabled={!selectedBranchId}
-                    />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                        className="mc-filter-select-wrapper mc-inv-search-combo"
+                        style={{ position: 'relative', width: '100%' }}
+                    >
+                        <Search className="mc-filter-icon" size={16} />
+                        <input
+                            type="text"
+                            placeholder="Search by product name or SKU…"
+                            className="mc-filter-select"
+                            style={{
+                                paddingLeft: '40px',
+                                paddingRight: searchQuery ? '70px' : '14px',
+                                width: '100%',
+                                minHeight: 46,
+                                fontSize: '0.95rem',
+                                backgroundImage: 'none',
+                                cursor: 'text',
+                            }}
+                            value={searchQuery}
+                            onChange={(e) => {
+                                const v = e.target.value;
+                                setSearchQuery(v);
+                                setInvSuggestIndex(-1);
+                                if (!normalizeInventorySearchValue(v)) {
+                                    setInvSuggestOpen(false);
+                                } else {
+                                    setInvSuggestOpen(true);
+                                }
+                            }}
+                            onKeyDown={onInvSearchKeyDown}
+                            onFocus={() => {
+                                clearInvSearchBlurTimer();
+                                if (normalizeInventorySearchValue(searchQuery)) {
+                                    setInvSuggestOpen(true);
+                                }
+                            }}
+                            onBlur={() => {
+                                clearInvSearchBlurTimer();
+                                invSearchBlurTimerRef.current = setTimeout(() => {
+                                    invSearchBlurTimerRef.current = null;
+                                    setInvSuggestOpen(false);
+                                    setInvSuggestIndex(-1);
+                                }, 200);
+                            }}
+                            disabled={!selectedBranchId || loadingProducts}
+                            role="combobox"
+                            aria-autocomplete="list"
+                            aria-expanded={invSuggestOpen}
+                            aria-controls="sm-admin-inv-search-suggest-list"
+                            aria-activedescendant={
+                                invSuggestOpen && invSuggestIndex >= 0
+                                    ? `sm-admin-inv-suggest-${invSuggestIndex}`
+                                    : undefined
+                            }
+                        />
+                        {searchQuery ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSearchQuery('');
+                                    setInvSuggestOpen(false);
+                                    setInvSuggestIndex(-1);
+                                }}
+                                aria-label="Clear search"
+                                title="Clear search"
+                                style={{
+                                    position: 'absolute',
+                                    right: 8,
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    border: 'none',
+                                    background: '#F3F4F6',
+                                    color: '#374151',
+                                    borderRadius: 8,
+                                    width: 26,
+                                    height: 26,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <X size={14} />
+                            </button>
+                        ) : null}
+                        {invSuggestOpen && normalizeInventorySearchValue(searchQuery) ? (
+                            <div
+                                ref={invSuggestDropdownRef}
+                                id="sm-admin-inv-search-suggest-list"
+                                className="mc-inv-search-dropdown"
+                                role="listbox"
+                                aria-label="Matching products"
+                                onMouseDown={(ev) => ev.preventDefault()}
+                            >
+                                {invSearchSuggestions.length === 0 ? (
+                                    <div className="mc-inv-search-dropdown-empty">No matching products</div>
+                                ) : (
+                                    invSearchSuggestions.map((row, idx) => (
+                                        <button
+                                            key={String(row.productId ?? idx)}
+                                            type="button"
+                                            id={`sm-admin-inv-suggest-${idx}`}
+                                            role="option"
+                                            aria-selected={invSuggestIndex === idx}
+                                            className={`mc-inv-search-suggest${invSuggestIndex === idx ? ' is-active' : ''}`}
+                                            onMouseEnter={() => setInvSuggestIndex(idx)}
+                                            onClick={() => applyInventorySearchSuggestion(row)}
+                                        >
+                                            <span className="mc-inv-search-suggest-name">{displayCell(row.name)}</span>
+                                            {row.sku ? (
+                                                <span className="mc-inv-search-suggest-sku">{displayCell(row.sku)}</span>
+                                            ) : null}
+                                        </button>
+                                    ))
+                                )}
+                            </div>
+                        ) : null}
+                    </div>
+                    <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                        Showing <strong>{filteredBranchProducts.length}</strong> of <strong>{branchProductCatalog.length}</strong>{' '}
+                        products
+                        {searchQuery ? ` for "${searchQuery}"` : ''}.
+                    </p>
+                    <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                        Use <strong>↑</strong> <strong>↓</strong> and <strong>Enter</strong> to pick a suggestion — same as workshop Manage Inventory.
+                    </p>
                 </div>
             </div>
 
@@ -913,7 +1189,7 @@ export default function StockMovementsSuperAdmin() {
                             <GridQtyTh label="Low-stock level" apiField="criticalStockPoint" />
                             <GridQtyTh label="Starting stock" apiField="openingQty" />
                             <GridQtyTh label="In use" apiField="isActive" />
-                            <th className="table-th">History</th>
+                            <th className="table-th">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -930,10 +1206,12 @@ export default function StockMovementsSuperAdmin() {
                                     Choose a workshop and a branch above to load products and stock for that place.
                                 </td>
                             </tr>
-                        ) : products.length === 0 ? (
+                        ) : filteredBranchProducts.length === 0 ? (
                             <tr>
                                 <td className="table-cell" colSpan={11} style={{ textAlign: 'center', padding: 32, color: '#64748b' }}>
-                                    No products found—try another search or check another branch.
+                                    {branchProductCatalog.length === 0
+                                        ? 'No products in this branch yet.'
+                                        : 'No products match your search—clear or change the search box.'}
                                 </td>
                             </tr>
                         ) : (
@@ -965,13 +1243,37 @@ export default function StockMovementsSuperAdmin() {
                                     <td className="table-cell">{formatNum(p.availableQty)}</td>
                                     <td className="table-cell">{formatNum(p.criticalStockPoint)}</td>
                                     <td className="table-cell opening-qty-cell">
-                                        <OpeningQtyEditor
-                                            product={p}
-                                            workshopId={selectedWorkshopId}
-                                            branchId={selectedBranchId}
-                                            disabled={loadingProducts || !selectedWorkshopId || !selectedBranchId}
-                                            onUpdated={(patch) => applyProductStockPatch(p.productId, patch)}
-                                        />
+                                        {String(openingEditProductId) === String(p.productId) ? (
+                                            <div className="opening-qty-editor">
+                                                <input
+                                                    ref={openingInputRef}
+                                                    type="number"
+                                                    step="any"
+                                                    className="opening-qty-input"
+                                                    value={openingDraft}
+                                                    disabled={openingSaving}
+                                                    onChange={(e) => setOpeningDraft(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            void saveOpeningEdit(p);
+                                                        } else if (e.key === 'Escape') {
+                                                            e.preventDefault();
+                                                            cancelOpeningEdit();
+                                                        }
+                                                    }}
+                                                    aria-label="Starting stock"
+                                                />
+                                                {openingSaving ? (
+                                                    <Loader className="animate-spin opening-qty-spinner" size={14} />
+                                                ) : null}
+                                                {openingHint ? (
+                                                    <span className="opening-qty-hint">{openingHint}</span>
+                                                ) : null}
+                                            </div>
+                                        ) : (
+                                            <span className="opening-qty-readonly">{formatNum(p.openingQty)}</span>
+                                        )}
                                     </td>
                                     <td className="table-cell">
                                         <span className={`status-badge ${p.isActive ? 'status-completed' : 'status-warning'}`}>
@@ -979,15 +1281,63 @@ export default function StockMovementsSuperAdmin() {
                                         </span>
                                     </td>
                                     <td className="table-cell">
-                                        <button
-                                            type="button"
-                                            className="btn-edit"
-                                            onClick={() => setBranchMovementProduct(p)}
-                                            title="See how stock went up and down for this product at this branch"
-                                        >
-                                            <ListTree size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-                                            View history
-                                        </button>
+                                        <div className="stock-row-actions">
+                                            {String(openingEditProductId) === String(p.productId) ? (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        className="btn-edit"
+                                                        onClick={() => void saveOpeningEdit(p)}
+                                                        disabled={
+                                                            openingSaving ||
+                                                            loadingProducts ||
+                                                            !selectedWorkshopId ||
+                                                            !selectedBranchId
+                                                        }
+                                                        title="Save starting stock"
+                                                    >
+                                                        Save
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="btn-secondary"
+                                                        onClick={cancelOpeningEdit}
+                                                        disabled={openingSaving}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    className="btn-edit"
+                                                    onClick={() => beginOpeningEdit(p)}
+                                                    disabled={
+                                                        loadingProducts ||
+                                                        !selectedWorkshopId ||
+                                                        !selectedBranchId ||
+                                                        openingSaving
+                                                    }
+                                                    title="Edit starting stock for this product"
+                                                >
+                                                    <Pencil size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                                                    Edit
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                className="btn-edit"
+                                                onClick={() => setBranchMovementProduct(p)}
+                                                disabled={
+                                                    String(openingEditProductId) === String(p.productId) &&
+                                                    openingSaving
+                                                }
+                                                title="See how stock went up and down for this product at this branch"
+                                            >
+                                                <ListTree size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                                                View history
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))

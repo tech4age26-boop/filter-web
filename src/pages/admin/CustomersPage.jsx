@@ -16,6 +16,29 @@ import { marketingListReferrers } from '../../services/superAdminMarketingApi';
 
 const CORPORATE_BRANCH_CACHE_KEY = 'filter_corporate_branch_options_cache_v1';
 
+function readCorporateBranchCache() {
+    try {
+        const raw = localStorage.getItem(CORPORATE_BRANCH_CACHE_KEY);
+        if (!raw) return { workshops: [], branches: [] };
+        const o = JSON.parse(raw);
+        return {
+            workshops: Array.isArray(o?.workshops) ? o.workshops : [],
+            branches: Array.isArray(o?.branches) ? o.branches : [],
+        };
+    } catch {
+        return { workshops: [], branches: [] };
+    }
+}
+
+/** Super-admin customer add/edit: list workshops unless clearly not assignable. */
+function isWorkshopShownForBranchPicker(w) {
+    if (!w?.id) return false;
+    const s = String(w.status ?? '').toLowerCase();
+    if (!s) return true;
+    if (s === 'rejected' || s === 'suspended' || s === 'inactive' || s === 'cancelled') return false;
+    return true;
+}
+
 function mapCustomersResponse(d) {
     return (Array.isArray(d) ? d : (d?.customers ?? [])).map((c) => ({
         id: String(c.id ?? c._id ?? ''),
@@ -53,6 +76,9 @@ export default function CustomersPage() {
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [detailsLoading, setDetailsLoading] = useState(false);
     const [detailsData, setDetailsData] = useState(null);
+    const branchCacheInit = readCorporateBranchCache();
+    const [workshops, setWorkshops] = useState(() => branchCacheInit.workshops);
+    const [allBranches, setAllBranches] = useState(() => branchCacheInit.branches);
 
     useEffect(() => {
         setLoading(true);
@@ -63,6 +89,27 @@ export default function CustomersPage() {
             .catch(() => {})
             .finally(() => setLoading(false));
     }, [typeFilter]);
+
+    const [createOpen, setCreateOpen] = useState(false);
+    const [editOpen, setEditOpen] = useState(false);
+    const [editingCustomer, setEditingCustomer] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const [billingTab, setBillingTab] = useState('All');
+    const [newCustomer, setNewCustomer] = useState({
+        customerName: '',
+        type: 'Corporate',
+        mobile: '',
+        email: '',
+        vatNumber: '',
+        status: 'Active',
+        contactPerson: '',
+        companyName: '',
+        password: '',
+        referralId: '',
+        selectedStoreIds: [],
+    });
+    const [referrerOptions, setReferrerOptions] = useState([]);
+    const [editFormLoading, setEditFormLoading] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -83,13 +130,18 @@ export default function CustomersPage() {
                 const workshopRows = Array.isArray(workshopsRes)
                     ? workshopsRes
                     : (workshopsRes?.options ?? workshopsRes?.workshops ?? workshopsRes?.data ?? []);
-                const approvedWorkshops = workshopRows
+                let listedWorkshops = workshopRows
                     .map(normalizeWorkshop)
-                    .filter((w) => w.id && (w.status === 'approved' || w.status === 'active' || !w.status));
+                    .filter(isWorkshopShownForBranchPicker);
+                if (listedWorkshops.length === 0 && workshopRows.length > 0) {
+                    listedWorkshops = workshopRows
+                        .map(normalizeWorkshop)
+                        .filter((w) => !!w.id);
+                }
                 if (cancelled) return;
-                setWorkshops(approvedWorkshops);
+                setWorkshops(listedWorkshops);
                 const branchLists = await Promise.all(
-                    approvedWorkshops.map((w) =>
+                    listedWorkshops.map((w) =>
                         getBranches({ workshopId: w.id })
                             .then((res) => {
                                 const rows = Array.isArray(res) ? res : (res?.branches ?? res?.data ?? []);
@@ -110,7 +162,7 @@ export default function CustomersPage() {
                     localStorage.setItem(
                         CORPORATE_BRANCH_CACHE_KEY,
                         JSON.stringify({
-                            workshops: approvedWorkshops,
+                            workshops: listedWorkshops,
                             branches: branchRows,
                             savedAt: Date.now(),
                         }),
@@ -120,8 +172,9 @@ export default function CustomersPage() {
                 }
             } catch {
                 if (!cancelled) {
-                    setWorkshops([]);
-                    setAllBranches([]);
+                    const fallback = readCorporateBranchCache();
+                    setWorkshops(fallback.workshops);
+                    setAllBranches(fallback.branches);
                 }
             }
         };
@@ -130,28 +183,6 @@ export default function CustomersPage() {
             cancelled = true;
         };
     }, []);
-    const [createOpen, setCreateOpen] = useState(false);
-    const [editOpen, setEditOpen] = useState(false);
-    const [editingCustomer, setEditingCustomer] = useState(null);
-    const [saving, setSaving] = useState(false);
-    const [billingTab, setBillingTab] = useState('All');
-    const [workshops, setWorkshops] = useState([]);
-    const [allBranches, setAllBranches] = useState([]);
-    const [newCustomer, setNewCustomer] = useState({
-        customerName: '',
-        type: 'Corporate',
-        mobile: '',
-        email: '',
-        vatNumber: '',
-        status: 'Active',
-        contactPerson: '',
-        companyName: '',
-        password: '',
-        referralId: '',
-        selectedStoreIds: [],
-    });
-    const [referrerOptions, setReferrerOptions] = useState([]);
-    const [editFormLoading, setEditFormLoading] = useState(false);
 
     const corporateCount = customers.filter((c) => c.customerType === 'corporate').length;
     const walkInCount = customers.filter((c) => c.customerType === 'regular').length;
@@ -239,6 +270,7 @@ export default function CustomersPage() {
             contactPerson: c.corporateAccount?.contactPerson ?? '',
             loginEmail: '',
             newPassword: '',
+            selectedStoreIds: [],
         });
         setEditOpen(true);
         if (!isCorp) {
@@ -251,11 +283,17 @@ export default function CustomersPage() {
             const raw = d?.data && typeof d.data === 'object' ? d.data : d;
             const portalUsers = raw?.corporateAccount?.portalUsers ?? [];
             const primary = portalUsers[0];
+            const branchIds = raw?.corporateAccount?.selectedStoreIds;
             setEditingCustomer((prev) => ({
                 ...prev,
                 loginEmail: primary?.email ?? '',
                 companyName: raw?.corporateAccount?.companyName ?? prev.companyName ?? '',
                 contactPerson: raw?.corporateAccount?.contactPerson ?? prev.contactPerson ?? '',
+                workshopId: raw?.customer?.workshopId != null ? String(raw.customer.workshopId) : prev.workshopId,
+                workshopName: raw?.customer?.workshopName ?? prev.workshopName,
+                selectedStoreIds: Array.isArray(branchIds) && branchIds.length > 0
+                    ? branchIds.map((id) => String(id))
+                    : (Array.isArray(prev.selectedStoreIds) ? prev.selectedStoreIds : []),
             }));
         } catch {
             /* ignore */
@@ -345,6 +383,10 @@ export default function CustomersPage() {
                 alert('Company name is required for corporate customers.');
                 return;
             }
+            if (!Array.isArray(editingCustomer.selectedStoreIds) || editingCustomer.selectedStoreIds.length === 0) {
+                alert('Select at least one branch for this corporate account.');
+                return;
+            }
         }
         setSaving(true);
         try {
@@ -361,6 +403,7 @@ export default function CustomersPage() {
                 payload.email = String(editingCustomer.loginEmail ?? '').trim();
                 const np = String(editingCustomer.newPassword ?? '').trim();
                 if (np) payload.newPassword = np;
+                payload.selectedStoreIds = editingCustomer.selectedStoreIds.map((id) => String(id));
             }
             await updateCustomer(editingCustomer.id, payload);
             const d = await getCustomers({ customerType: typeFilter === 'all' ? undefined : typeFilter });
@@ -835,6 +878,60 @@ export default function CustomersPage() {
                                         value={editingCustomer.newPassword}
                                         onChange={(e) => setEditingCustomer((p) => ({ ...p, newPassword: e.target.value }))}
                                     />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Primary workshop</label>
+                                    <input
+                                        type="text"
+                                        className="form-input-field"
+                                        readOnly
+                                        disabled
+                                        value={editingCustomer.workshopName || '—'}
+                                        title="Taken from the first selected branch (same as new corporate registration)."
+                                    />
+                                    <p className="cell-sub-text" style={{ marginTop: 6 }}>
+                                        Changing branch selection updates the anchor workshop to match the first checked branch on save.
+                                    </p>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Corporate branches *</label>
+                                    <div className="customer-branch-picker">
+                                        {workshops.length === 0 ? (
+                                            <div className="cell-sub-text">No workshops available.</div>
+                                        ) : (
+                                            workshops.map((w) => {
+                                                const branchRows = allBranches.filter((b) => String(b.workshopId) === String(w.id));
+                                                if (branchRows.length === 0) return null;
+                                                return (
+                                                    <div key={w.id} className="customer-branch-workshop">
+                                                        <div className="customer-branch-workshop-title">{w.name}</div>
+                                                        <div className="customer-branch-list">
+                                                            {branchRows.map((b) => {
+                                                                const checked = (editingCustomer.selectedStoreIds || []).includes(String(b.id));
+                                                                return (
+                                                                    <label key={b.id} className="customer-branch-option">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={checked}
+                                                                            onChange={(e) =>
+                                                                                setEditingCustomer((prev) => ({
+                                                                                    ...prev,
+                                                                                    selectedStoreIds: e.target.checked
+                                                                                        ? [...(prev.selectedStoreIds || []), String(b.id)]
+                                                                                        : (prev.selectedStoreIds || []).filter((id) => String(id) !== String(b.id)),
+                                                                                }))
+                                                                            }
+                                                                        />
+                                                                        <span>{b.name}</span>
+                                                                    </label>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
                                 </div>
                             </>
                         )}

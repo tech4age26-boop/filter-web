@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, MoreVertical } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Modal from '../../components/Modal';
@@ -7,6 +7,7 @@ import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal
 import {
     flattenWorkshopStaffRow,
     getWorkshopReportsAnalytics,
+    getWorkshopRecentOpenOrderDetails,
     getWorkshopRecentOrderDetails,
     getWorkshopRecentOrderPdf,
     getWorkshopRecentOrders,
@@ -20,6 +21,7 @@ import {
     getWorkshopReportsByProductDetails,
     getWorkshopReportsByTechnician,
     getWorkshopReportsByTechnicianDetails,
+    getWorkshopReportsDailySalesDetails,
     getWorkshopTechnicians,
     runWorkshopRelativeAction,
     unwrapWorkshopStaffList,
@@ -31,6 +33,38 @@ const toNumber = (value) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
 };
+
+/** `sales_orders.source` → short label (POS / workshop reports). */
+function formatOrderSourceLabel(source) {
+    const s = String(source ?? '')
+        .trim()
+        .toLowerCase();
+    if (s === 'walk_in') return 'Walk-in';
+    if (s === 'walk_in_corporate') return 'Corporate walk-in';
+    if (s === 'takeaway') return 'Takeaway';
+    if (!s) return '—';
+    return s
+        .split('_')
+        .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ''))
+        .join(' ');
+}
+
+/** `sales_orders.status` → readable title (spaces / underscores). */
+function formatOrderStatusLabel(status) {
+    if (status == null || String(status).trim() === '') return '—';
+    return String(status)
+        .trim()
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatDiscountCell(discountType, discountValue) {
+    const t = String(discountType ?? '').toLowerCase();
+    const v = toNumber(discountValue);
+    if (!v) return '—';
+    if (t === 'percent' || t === 'percentage') return `${v}%`;
+    return `SAR ${v.toLocaleString()}`;
+}
 
 const formatCurrency = (value) => `SAR ${toNumber(value).toLocaleString()}`;
 
@@ -90,12 +124,10 @@ function toDatetimeLocalValue(d) {
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-/** Default: last 30 local calendar days, 00:00 first day → 23:59 today. */
-function defaultLocalRange30Days() {
+/** Default: today from local midnight through now (latest window). */
+function defaultLocalRangeLatest() {
     const end = new Date();
-    end.setHours(23, 59, 0, 0);
     const start = new Date(end);
-    start.setDate(start.getDate() - 29);
     start.setHours(0, 0, 0, 0);
     return { start: toDatetimeLocalValue(start), end: toDatetimeLocalValue(end) };
 }
@@ -111,6 +143,110 @@ function rangeToApiIso(rangeFromLocal, rangeToLocal) {
         throw new Error('Start must be on or before end.');
     }
     return { startDate: s.toISOString(), endDate: e.toISOString() };
+}
+
+function isInvoiceDateDetailColumnKey(k) {
+    const n = String(k || '')
+        .toLowerCase()
+        .replace(/-/g, '_');
+    return n === 'invoicedate' || n === 'invoice_date';
+}
+
+function isMoneyDetailColumnKey(k) {
+    const n = String(k || '')
+        .toLowerCase()
+        .replace(/-/g, '_');
+    return (
+        n === 'totalamount' ||
+        n === 'total_amount' ||
+        n === 'subtotal' ||
+        n === 'vatamount' ||
+        n === 'vat_amount' ||
+        n === 'discountamount' ||
+        n === 'discount_amount' ||
+        n === 'departmentlinetotal' ||
+        n === 'invoicetotalamount' ||
+        n === 'invoice_amount' ||
+        n === 'line_total' ||
+        n === 'linetotal' ||
+        n === 'commission' ||
+        n === 'revenue' ||
+        n === 'revenue_sar' ||
+        n === 'revenuesar'
+    );
+}
+
+/** Second line under line-item name in report detail modals (unit, discount, VAT, line). */
+function formatWorkshopLineItemCardSubtext(item) {
+    const qty = item.qty ?? item.quantity;
+    const unit = toNumber(item.unitPrice ?? item.unit_price);
+    const dType = String(item.discountType ?? item.discount_type ?? '').toLowerCase();
+    const dVal = toNumber(item.discountValue ?? item.discount_value);
+    const vatPct = toNumber(item.vatPercent ?? item.vat_percent);
+    const vatMode = String(item.vatMode ?? item.vat_mode ?? '').trim();
+    const line = toNumber(item.lineTotal ?? item.line_total);
+    const disc =
+        dVal > 0
+            ? dType === 'percent' || dType === 'percentage'
+                ? `Discount ${dVal}%`
+                : `Discount SAR ${dVal.toLocaleString()}`
+            : 'Discount —';
+    const line1 = `${item.itemType ?? item.item_type ?? 'item'} · Qty ${qty ?? '—'} · Unit SAR ${unit.toLocaleString()}`;
+    const line2 = `${disc} · VAT ${Number.isFinite(vatPct) && vatPct > 0 ? `${vatPct}%` : '—'}${vatMode ? ` (${vatMode})` : ''} · Line SAR ${line.toLocaleString()}`;
+    return { line1, line2 };
+}
+
+/** Recent orders row or details payload: prefer wall-clock issue time, then calendar invoice date. */
+function formatInvoiceDateTimeForDisplay(rowOrDetails) {
+    const raw =
+        rowOrDetails?.issuedAt ??
+        rowOrDetails?.issued_at ??
+        rowOrDetails?.dateTime ??
+        rowOrDetails?.invoiceDate ??
+        rowOrDetails?.invoice_date;
+    if (raw == null || raw === '') return '—';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return String(raw);
+    return d.toLocaleString(undefined, {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+/** Single ISO instant → local date/time (order modal jobs, placements). */
+function formatReportInstant(iso) {
+    if (iso == null || iso === '') return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString(undefined, {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
+function formatJobCompletedDisplay(job) {
+    if (!job) return '—';
+    if (job.completedAt) return formatReportInstant(job.completedAt);
+    const st = String(job.status ?? '').toLowerCase();
+    if (st === 'edited') return '— (reopened for edit)';
+    return '—';
+}
+
+/** API row: `inv:…` for invoiced, `so:…` for completed-but-not-invoiced. */
+function recentOrderRowTarget(row) {
+    if (!row || typeof row !== 'object') return '';
+    if (row.listingKind === 'open' || row.invoiceId == null || row.invoiceId === '') {
+        return row.salesOrderId != null && String(row.salesOrderId) !== ''
+            ? `so:${row.salesOrderId}`
+            : '';
+    }
+    return `inv:${row.invoiceId}`;
 }
 
 function parseArr(v) {
@@ -161,15 +297,18 @@ function createEmptyTabSearch() {
         by_product: '',
         by_department: '',
         by_branch: '',
-        recent_orders: '',
     };
 }
 
+const ORDERS_PAGE_SIZE = 25;
+
 export default function WorkshopReports({ selectedBranchId = 'all', branches = [] }) {
-    const initialRange = useMemo(() => defaultLocalRange30Days(), []);
+    const initialRange = useMemo(() => defaultLocalRangeLatest(), []);
     const [rangeFromLocal, setRangeFromLocal] = useState(initialRange.start);
     const [rangeToLocal, setRangeToLocal] = useState(initialRange.end);
-    const [activeTab, setActiveTab] = useState('daily_sales');
+    const [activeTab, setActiveTab] = useState('recent_orders');
+    const activeTabRef = useRef(activeTab);
+    activeTabRef.current = activeTab;
     const [tabSearch, setTabSearch] = useState(createEmptyTabSearch);
     const [technicianOptions, setTechnicianOptions] = useState([]);
     const [byProductTechnicianId, setByProductTechnicianId] = useState('');
@@ -177,6 +316,12 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [byProductTechnicianError, setByProductTechnicianError] = useState('');
     const [reportData, setReportData] = useState(null);
     const [recentOrders, setRecentOrders] = useState([]);
+    const [ordersPage, setOrdersPage] = useState(1);
+    const [ordersTotal, setOrdersTotal] = useState(0);
+    const [ordersSearchInput, setOrdersSearchInput] = useState('');
+    const [ordersSearchDebounced, setOrdersSearchDebounced] = useState('');
+    const [ordersListLoading, setOrdersListLoading] = useState(false);
+    const [ordersListError, setOrdersListError] = useState('');
     const [summaryData, setSummaryData] = useState({
         by_technician: [],
         by_customer: [],
@@ -203,20 +348,64 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [invoicePreviewData, setInvoicePreviewData] = useState(null);
     const [autoDownloadAfterPreview, setAutoDownloadAfterPreview] = useState(false);
 
+    /** When set, summary reloads re-fetch the same drill-down row for the new range. */
+    const detailAnchorRef = useRef(null);
+    const loadDetailsRef = useRef(null);
+    const prevBranchIdRef = useRef(null);
+    const recentOrderDetailsTargetRef = useRef(null);
+
     const branchLabel = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
         return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
     }, [branches, selectedBranchId]);
 
+    const fetchRecentOrdersList = useCallback(async () => {
+        setOrdersListLoading(true);
+        setOrdersListError('');
+        try {
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const params = workshopReportsAnalyticsParams(selectedBranchId, {
+                startDate,
+                endDate,
+            });
+            const limit = ORDERS_PAGE_SIZE;
+            const offset = (ordersPage - 1) * limit;
+            const q = ordersSearchDebounced.trim();
+            const res = await getWorkshopRecentOrders({
+                ...params,
+                limit,
+                offset,
+                ...(q ? { search: q } : {}),
+            });
+            const rowsRaw = Array.isArray(res?.rows)
+                ? res.rows
+                : Array.isArray(res?.data?.rows)
+                  ? res.data.rows
+                  : [];
+            setRecentOrders(rowsRaw);
+            const tot = res?.total ?? res?.data?.total;
+            setOrdersTotal(
+                typeof tot === 'number' && Number.isFinite(tot)
+                    ? tot
+                    : Number.parseInt(String(tot ?? ''), 10) || 0,
+            );
+        } catch (e) {
+            setRecentOrders([]);
+            setOrdersTotal(0);
+            setOrdersListError(e?.message || 'Could not load orders for this range.');
+        } finally {
+            setOrdersListLoading(false);
+        }
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal, ordersPage, ordersSearchDebounced]);
+
+    const fetchRecentOrdersListRef = useRef(fetchRecentOrdersList);
+    fetchRecentOrdersListRef.current = fetchRecentOrdersList;
+
     const loadReports = useCallback(async () => {
         setIsLoading(true);
         setLoadError('');
         setDetailsError('');
-        setDetailRows([]);
-        setSelectedDetailKey('');
-        setDetailsTitle('');
-        setByProductTechnicianId('');
-        setByProductTechnicianError('');
+        setOrdersPage(1);
         try {
             const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
@@ -225,7 +414,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             });
             const [
                 response,
-                recentOrdersRes,
                 byTechnicianRes,
                 byCustomerRes,
                 byProductRes,
@@ -234,7 +422,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 techniciansRes,
             ] = await Promise.all([
                 getWorkshopReportsAnalytics(params),
-                getWorkshopRecentOrders(params),
                 getWorkshopReportsByTechnician(params),
                 getWorkshopReportsByCustomer(params),
                 getWorkshopReportsByProduct(params),
@@ -246,7 +433,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 throw new Error('Invalid reports response.');
             }
             setReportData(response);
-            setRecentOrders(Array.isArray(recentOrdersRes?.rows) ? recentOrdersRes.rows : []);
             setSummaryData({
                 by_technician: extractSummaryRows(byTechnicianRes, 'by_technician'),
                 by_customer: extractSummaryRows(byCustomerRes, 'by_customer'),
@@ -275,11 +461,42 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 by_branch: [],
             });
             setRecentOrders([]);
+            setOrdersTotal(0);
+            setOrdersListError('');
             setTechnicianOptions([]);
+            detailAnchorRef.current = null;
+            setDetailRows([]);
+            setSelectedDetailKey('');
+            setDetailsTitle('');
         } finally {
             setIsLoading(false);
+            queueMicrotask(() => {
+                void fetchRecentOrdersListRef.current();
+            });
+            const anchor = detailAnchorRef.current;
+            if (anchor && anchor.tabId === activeTabRef.current) {
+                queueMicrotask(() => {
+                    const fn = loadDetailsRef.current;
+                    if (fn) fn(anchor.tabId, anchor.row);
+                });
+            }
         }
     }, [selectedBranchId, rangeFromLocal, rangeToLocal]);
+
+    useEffect(() => {
+        const t = setTimeout(() => {
+            setOrdersSearchDebounced(ordersSearchInput.trim());
+        }, 380);
+        return () => clearTimeout(t);
+    }, [ordersSearchInput]);
+
+    useLayoutEffect(() => {
+        setOrdersPage(1);
+    }, [ordersSearchDebounced]);
+
+    useEffect(() => {
+        void fetchRecentOrdersList();
+    }, [fetchRecentOrdersList, ordersPage, ordersSearchDebounced]);
 
     const refetchByProductForTechnician = useCallback(
         async (technicianId) => {
@@ -301,6 +518,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const handleByProductTechnicianChange = useCallback(
         async (e) => {
             const id = e.target.value;
+            detailAnchorRef.current = null;
             setByProductTechnicianId(id);
             setSelectedDetailKey('');
             setDetailRows([]);
@@ -320,37 +538,83 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     );
 
     useEffect(() => {
+        const prev = prevBranchIdRef.current;
+        if (prev !== null && prev !== selectedBranchId) {
+            detailAnchorRef.current = null;
+            recentOrderDetailsTargetRef.current = null;
+            setRecentOrderDetails(null);
+            setRecentOrderDetailsError('');
+            setRecentOrderDetailsLoading(false);
+            setDetailRows([]);
+            setSelectedDetailKey('');
+            setDetailsTitle('');
+            setDetailsError('');
+            setByProductTechnicianId('');
+            setByProductTechnicianError('');
+        }
+        prevBranchIdRef.current = selectedBranchId;
+    }, [selectedBranchId]);
+
+    useEffect(() => {
         loadReports();
     }, [loadReports]);
 
-    const fetchRecentOrderDetails = useCallback(async (invoiceId) => {
+    const fetchRecentOrderDetails = useCallback(async (target) => {
         const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
         const params = workshopReportsAnalyticsParams(selectedBranchId, {
             startDate,
             endDate,
         });
-        return await getWorkshopRecentOrderDetails(invoiceId, params);
+        const t = String(target ?? '');
+        if (t.startsWith('so:')) {
+            return await getWorkshopRecentOpenOrderDetails(t.slice(3), params);
+        }
+        const invId = t.startsWith('inv:') ? t.slice(4) : t;
+        return await getWorkshopRecentOrderDetails(invId, params);
     }, [selectedBranchId, rangeFromLocal, rangeToLocal]);
 
-    const openRecentOrderDetails = useCallback(async (invoiceId) => {
-        if (!invoiceId) return;
+    const openRecentOrderDetails = useCallback(async (target) => {
+        if (!target) return;
+        recentOrderDetailsTargetRef.current = target;
         setRecentOrderDetailsLoading(true);
         setRecentOrderDetailsError('');
         try {
-            const res = await fetchRecentOrderDetails(invoiceId);
-            setRecentOrderDetails(res && typeof res === 'object' ? res : null);
+            const res = await fetchRecentOrderDetails(target);
+            const payload =
+                res && typeof res === 'object' && res.data && typeof res.data === 'object'
+                    ? res.data
+                    : res;
+            setRecentOrderDetails(payload && typeof payload === 'object' ? payload : null);
         } catch (error) {
-            setRecentOrderDetailsError(error?.message || 'Failed to load recent order details.');
+            setRecentOrderDetailsError(error?.message || 'Failed to load order details.');
             setRecentOrderDetails(null);
         } finally {
             setRecentOrderDetailsLoading(false);
         }
     }, [fetchRecentOrderDetails]);
 
-    const handleRecentOrderAction = useCallback(async (invoiceId, actionType) => {
-        if (!invoiceId) return;
-        setRecentOrderActionBusyId(String(invoiceId));
+    useEffect(() => {
+        const id = recentOrderDetailsTargetRef.current;
+        if (!id) return;
+        void openRecentOrderDetails(id);
+    }, [rangeFromLocal, rangeToLocal, selectedBranchId, openRecentOrderDetails]);
+
+    const handleRecentOrderAction = useCallback(async (row, actionType) => {
+        if (!row) return;
+        const target = recentOrderRowTarget(row);
+        if (!target) return;
+        const isOpen = target.startsWith('so:');
+        setRecentOrderActionBusyId(target);
         try {
+            if (isOpen) {
+                if (actionType === 'view') {
+                    void openRecentOrderDetails(target);
+                } else {
+                    window.alert('This order does not have an invoice yet.');
+                }
+                return;
+            }
+            const invoiceId = target.startsWith('inv:') ? target.slice(4) : target;
             const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
                 startDate,
@@ -377,7 +641,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             setRecentOrderActionBusyId('');
             setOpenRecentOrderMenuId('');
         }
-    }, [selectedBranchId, rangeFromLocal, rangeToLocal]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal, openRecentOrderDetails]);
 
     useEffect(() => {
         if (!autoDownloadAfterPreview || !invoicePreviewData) return;
@@ -392,6 +656,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     }, [autoDownloadAfterPreview, invoicePreviewData]);
 
     useEffect(() => {
+        detailAnchorRef.current = null;
         setDetailRows([]);
         setDetailsError('');
         setDetailsTitle('');
@@ -463,9 +728,17 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 fetcher = getWorkshopReportsByBranchDetails;
                 key = String(row.branch_id ?? row.branchId ?? '');
                 title = `Branch details: ${row.branch_name ?? row.branchName ?? 'Branch'}`;
+            } else if (tabId === 'daily_sales') {
+                fetcher = getWorkshopReportsDailySalesDetails;
+                key = String(row.date ?? '').trim();
+                title = `Daily sales · ${row.day ? `${row.day} · ` : ''}${key}`;
             }
-            if (!fetcher || !key) return;
+            if (!fetcher || !key) {
+                detailAnchorRef.current = null;
+                return;
+            }
 
+            detailAnchorRef.current = { tabId, row };
             setSelectedDetailKey(`${tabId}:${key || 'all'}`);
             setDetailsLoading(true);
             setDetailsError('');
@@ -560,18 +833,30 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             return next;
                         }),
                     );
+                } else if (tabId === 'daily_sales') {
+                    setDetailRows(
+                        rows.map((r) => {
+                            const next = { ...(r || {}) };
+                            delete next.invoiceId;
+                            delete next.invoice_id;
+                            return next;
+                        }),
+                    );
                 } else {
                     setDetailRows(rows);
                 }
             } catch (error) {
                 setDetailsError(error?.message || 'Failed to load details.');
                 setDetailRows([]);
+                detailAnchorRef.current = null;
             } finally {
                 setDetailsLoading(false);
             }
         },
         [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId],
     );
+
+    loadDetailsRef.current = loadDetails;
 
     const norm = useMemo(() => {
         if (!reportData || typeof reportData !== 'object') return null;
@@ -629,8 +914,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             return [
                 { label: 'Total Revenue', value: formatCurrency(0), color: 'text-green' },
                 { label: 'Revenue Change', value: '0.0%', sub: 'vs previous period', color: 'text-blue' },
-                { label: 'Stock Value (Cost)', value: formatCurrency(0), color: 'text-orange' },
-                { label: 'Potential Profit', value: formatCurrency(0), sub: '0 active SKUs', color: 'text-purple' },
+                { label: 'Stock Value (Cost)', value: formatCurrency(0), sub: 'At period end (est.)', color: 'text-orange' },
+                { label: 'Potential Profit', value: formatCurrency(0), sub: '0 SKUs with stock', color: 'text-purple' },
             ];
         }
         const sign = norm.revenueChangePercent > 0 ? '+' : '';
@@ -642,11 +927,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 sub: 'vs previous period',
                 color: 'text-blue',
             },
-            { label: 'Stock Value (Cost)', value: formatCurrency(norm.stockValueCost), color: 'text-orange' },
+            { label: 'Stock Value (Cost)', value: formatCurrency(norm.stockValueCost), sub: 'At period end (est.)', color: 'text-orange' },
             {
                 label: 'Potential Profit',
                 value: formatCurrency(norm.potentialProfit),
-                sub: `${norm.activeSkus} active SKUs`,
+                sub: `${norm.activeSkus} SKUs with stock`,
                 color: 'text-purple',
             },
         ];
@@ -655,13 +940,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const completedOrdersDisplay = norm?.completedOrdersCount ?? 0;
 
     const tabs = [
+        { id: 'recent_orders', label: 'Orders' },
         { id: 'daily_sales', label: 'Daily Sales' },
         { id: 'by_technician', label: 'By Technician' },
         { id: 'by_customer', label: 'By Customer' },
         { id: 'by_product', label: 'By Product' },
         { id: 'by_department', label: 'By Department' },
         { id: 'by_branch', label: 'By Branch' },
-        { id: 'recent_orders', label: 'Recent Orders' },
     ];
 
     const periodLine = useMemo(() => {
@@ -783,15 +1068,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         );
     }, [norm, tabSearch.by_branch]);
 
-    const filteredRecentOrders = useMemo(() => {
-        const q = tabSearch.recent_orders;
-        return recentOrders.filter((row) =>
-            rowMatchesTabQuery(
-                [row.invoiceNo, row.invoiceDate, row.customerName, row.plateNo, row.invoiceTotal, row.invoiceId],
-                q,
-            ),
-        );
-    }, [recentOrders, tabSearch.recent_orders]);
+    const ordersTotalPages = Math.max(1, Math.ceil(ordersTotal / ORDERS_PAGE_SIZE));
+    const ordersRangeFrom =
+        ordersTotal === 0 ? 0 : (ordersPage - 1) * ORDERS_PAGE_SIZE + 1;
+    const ordersRangeTo = Math.min(ordersPage * ORDERS_PAGE_SIZE, ordersTotal);
 
     return (
         <div className="ws-reports-page">
@@ -885,7 +1165,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <h4 className="ws-chart-title">Daily Revenue</h4>
                             <div style={{ width: '100%', height: 300 }}>
                                 <ResponsiveContainer>
-                                    <BarChart data={filteredDailyRevenue}>
+                                    <BarChart
+                                        data={filteredDailyRevenue}
+                                        onClick={(chartState) => {
+                                            const p = chartState?.activePayload?.[0]?.payload;
+                                            if (p?.date) loadDetails('daily_sales', p);
+                                        }}
+                                    >
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
                                         <XAxis
                                             dataKey="day"
@@ -902,7 +1188,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                                             }}
                                         />
-                                        <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={40} />
+                                        <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={40} style={{ cursor: 'pointer' }} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
@@ -931,7 +1217,17 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         </tr>
                                     ) : (
                                         filteredDailyRevenue.map((d, i) => (
-                                            <tr key={`${d.date}-${i}`}>
+                                            <tr
+                                                key={`${d.date}-${i}`}
+                                                onClick={() => loadDetails('daily_sales', d)}
+                                                style={{
+                                                    cursor: 'pointer',
+                                                    background:
+                                                        selectedDetailKey === `daily_sales:${d.date}`
+                                                            ? '#F8FAFC'
+                                                            : undefined,
+                                                }}
+                                            >
                                                 <td>{d.day}</td>
                                                 <td>{d.date}</td>
                                                 <td className="ws-font-bold">SAR {d.amount.toLocaleString()}</td>
@@ -1319,18 +1615,35 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search invoice, date, customer, plate, total…"
-                                value={tabSearch.recent_orders}
-                                onChange={(e) => setTabSearch((p) => ({ ...p, recent_orders: e.target.value }))}
-                                aria-label="Search recent orders"
+                                placeholder="Search invoice no., order id, customer, plate…"
+                                value={ordersSearchInput}
+                                onChange={(e) => setOrdersSearchInput(e.target.value)}
+                                aria-label="Search orders"
                             />
                         </div>
+                        {ordersListError ? (
+                            <div
+                                role="alert"
+                                style={{
+                                    marginBottom: 12,
+                                    padding: '10px 12px',
+                                    borderRadius: 8,
+                                    background: '#FEF2F2',
+                                    color: '#B91C1C',
+                                    fontSize: '0.875rem',
+                                }}
+                            >
+                                {ordersListError}
+                            </div>
+                        ) : null}
                         <div className="ws-report-table-wrapper ws-report-table-wrapper--actions">
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>INVOICE NO</th>
-                                    <th>INVOICE DATE</th>
+                                    <th>INVOICE / ORDER</th>
+                                    <th>TYPE</th>
+                                    <th>STATUS</th>
+                                    <th>DATE / TIME</th>
                                     <th>CUSTOMER NAME</th>
                                     <th>PLATE NO</th>
                                     <th>TOTAL (SAR)</th>
@@ -1338,27 +1651,43 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 </tr>
                             </thead>
                             <tbody>
-                                {recentOrders.length === 0 ? (
+                                {ordersListLoading && recentOrders.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No recent orders in this scope.
+                                        <td colSpan={8} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            Loading orders…
                                         </td>
                                     </tr>
-                                ) : filteredRecentOrders.length === 0 ? (
+                                ) : ordersTotal === 0 && !ordersListLoading ? (
                                     <tr>
-                                        <td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No rows match your search.
+                                        <td colSpan={8} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            {ordersSearchDebounced
+                                                ? 'No orders match your search in this date range.'
+                                                : 'No orders in this scope.'}
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredRecentOrders.map((row, i) => (
+                                    recentOrders.map((row, i) => {
+                                        const rk = recentOrderRowTarget(row) || `row-${i}`;
+                                        const isOpen = rk.startsWith('so:');
+                                        return (
                                         <tr
-                                            key={row.invoiceId ?? row.invoiceNo ?? i}
-                                            onClick={() => openRecentOrderDetails(row.invoiceId)}
-                                            style={{ cursor: 'pointer' }}
+                                            key={rk}
+                                            onClick={() => openRecentOrderDetails(rk)}
+                                            style={{ cursor: 'pointer', opacity: ordersListLoading ? 0.55 : undefined }}
                                         >
-                                            <td><strong>{row.invoiceNo ?? '—'}</strong></td>
-                                            <td>{row.invoiceDate ?? '—'}</td>
+                                            <td>
+                                                <strong>
+                                                    {isOpen ? 'Pending invoice' : (row.invoiceNo ?? '—')}
+                                                </strong>
+                                                {isOpen && row.salesOrderId != null ? (
+                                                    <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-text-muted)' }}>
+                                                        Order #{row.salesOrderId}
+                                                    </span>
+                                                ) : null}
+                                            </td>
+                                            <td style={{ fontSize: '0.8125rem' }}>{formatOrderSourceLabel(row.orderSource)}</td>
+                                            <td style={{ fontSize: '0.8125rem' }}>{formatOrderStatusLabel(row.orderStatus)}</td>
+                                            <td>{formatInvoiceDateTimeForDisplay(row)}</td>
                                             <td>{row.customerName ?? '—'}</td>
                                             <td>{row.plateNo ?? '—'}</td>
                                             <td className="ws-font-bold">SAR {toNumber(row.invoiceTotal).toLocaleString()}</td>
@@ -1368,68 +1697,297 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                     className="ws-row-actions-trigger"
                                                     onClick={() =>
                                                         setOpenRecentOrderMenuId((prev) =>
-                                                            prev === String(row.invoiceId) ? '' : String(row.invoiceId),
+                                                            prev === rk ? '' : rk,
                                                         )
                                                     }
-                                                    disabled={recentOrderActionBusyId === String(row.invoiceId)}
+                                                    disabled={recentOrderActionBusyId === rk}
                                                 >
                                                     <MoreVertical size={14} />
                                                 </button>
-                                                {openRecentOrderMenuId === String(row.invoiceId) && (
+                                                {openRecentOrderMenuId === rk && (
                                                     <div
-                                                        className={`ws-row-actions-menu ${i >= Math.max(filteredRecentOrders.length - 3, 0) ? 'up' : ''}`}
+                                                        className={`ws-row-actions-menu ${i >= Math.max(recentOrders.length - 3, 0) ? 'up' : ''}`}
                                                     >
-                                                        <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row.invoiceId, 'view')}>
-                                                            View Invoice
+                                                        <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row, 'view')}>
+                                                            {isOpen ? 'View order' : 'View Invoice'}
                                                         </button>
-                                                        <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row.invoiceId, 'download')}>
-                                                            Download PDF
-                                                        </button>
-                                                        <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row.invoiceId, 'whatsapp')}>
-                                                            Send Invoice to WhatsApp (PDF)
-                                                        </button>
+                                                        {!isOpen ? (
+                                                            <>
+                                                                <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row, 'download')}>
+                                                                    Download PDF
+                                                                </button>
+                                                                <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row, 'whatsapp')}>
+                                                                    Send Invoice to WhatsApp (PDF)
+                                                                </button>
+                                                            </>
+                                                        ) : null}
                                                     </div>
                                                 )}
                                             </td>
                                         </tr>
-                                    ))
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>
                         </div>
+                        {ordersTotal > 0 && (
+                            <div className="ws-report-pagination">
+                                <p className="ws-report-pagination__info">
+                                    Showing <strong>{ordersRangeFrom}</strong>–<strong>{ordersRangeTo}</strong> of{' '}
+                                    <strong>{ordersTotal}</strong>
+                                    {ordersListLoading ? <span> · Loading…</span> : null}
+                                </p>
+                                <nav className="ws-report-pagination__nav" aria-label="Orders list pages">
+                                    <button
+                                        type="button"
+                                        className="ws-report-pagination__edge"
+                                        disabled={ordersPage <= 1 || ordersListLoading}
+                                        onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
+                                    >
+                                        Previous
+                                    </button>
+                                    <div className="ws-report-pagination__pages" role="group" aria-label="Page numbers">
+                                        {(() => {
+                                            const totalP = ordersTotalPages;
+                                            const cur = ordersPage;
+                                            const maxBtn = 7;
+                                            let start = Math.max(1, cur - Math.floor(maxBtn / 2));
+                                            let end = Math.min(totalP, start + maxBtn - 1);
+                                            start = Math.max(1, end - maxBtn + 1);
+                                            const nums = [];
+                                            for (let n = start; n <= end; n += 1) nums.push(n);
+                                            return nums.map((n) => (
+                                                <button
+                                                    key={n}
+                                                    type="button"
+                                                    className={`ws-report-pagination__page${n === cur ? ' ws-report-pagination__page--active' : ''}`}
+                                                    aria-current={n === cur ? 'page' : undefined}
+                                                    disabled={ordersListLoading}
+                                                    onClick={() => setOrdersPage(n)}
+                                                >
+                                                    {n}
+                                                </button>
+                                            ));
+                                        })()}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="ws-report-pagination__edge"
+                                        disabled={ordersPage >= ordersTotalPages || ordersListLoading}
+                                        onClick={() => setOrdersPage((p) => Math.min(ordersTotalPages, p + 1))}
+                                    >
+                                        Next
+                                    </button>
+                                </nav>
+                            </div>
+                        )}
                     </>
                 )}
             </div>
 
             {(recentOrderDetailsLoading || recentOrderDetailsError || recentOrderDetails) && (
                 <Modal
-                    title={`Recent Order ${recentOrderDetails?.invoiceNo ? `- ${recentOrderDetails.invoiceNo}` : 'Details'}`}
+                    title={`Order ${
+                        recentOrderDetails?.listingKind === 'open' || !recentOrderDetails?.invoiceNo
+                            ? recentOrderDetails?.salesOrderId
+                                ? `(pending invoice · #${recentOrderDetails.salesOrderId})`
+                                : 'Details'
+                            : `- ${recentOrderDetails.invoiceNo}`
+                    }`}
+                    contentClassName="ws-modal-order-details"
                     onClose={() => {
+                        recentOrderDetailsTargetRef.current = null;
                         setRecentOrderDetails(null);
                         setRecentOrderDetailsError('');
                         setRecentOrderDetailsLoading(false);
                     }}
-                    width="min(980px, 96vw)"
+                    width="min(1100px, 98vw)"
                 >
                     {recentOrderDetailsLoading ? (
                         <ShimmerTextBlock lines={6} />
                     ) : recentOrderDetailsError ? (
                         <div style={{ color: '#B91C1C' }}>{recentOrderDetailsError}</div>
                     ) : recentOrderDetails ? (
-                        <div className="ws-report-table-wrapper">
-                            <table className="ws-table">
-                                <tbody>
-                                    <tr><th>DATE / TIME</th><td>{recentOrderDetails.dateTime ?? '—'}</td></tr>
-                                    <tr><th>CUSTOMER NAME</th><td>{recentOrderDetails.customerName ?? '—'}</td></tr>
-                                    <tr><th>PHONE</th><td>{recentOrderDetails.phone ?? '—'}</td></tr>
-                                    <tr><th>VEHICLE NO</th><td>{recentOrderDetails.vehicleNo ?? '—'}</td></tr>
-                                    <tr><th>DEPARTMENTS</th><td>{(recentOrderDetails.departments ?? []).map((d) => d?.name).filter(Boolean).join(', ') || '—'}</td></tr>
-                                    <tr><th>TECHNICIANS</th><td>{(recentOrderDetails.technicians ?? []).map((t) => t?.name).filter(Boolean).join(', ') || '—'}</td></tr>
-                                    <tr><th>TOTAL AMOUNT</th><td>SAR {toNumber(recentOrderDetails.totalAmount).toLocaleString()}</td></tr>
-                                    <tr><th>PAYMENT METHOD</th><td>{recentOrderDetails.paymentMethod ?? '—'}</td></tr>
-                                    <tr><th>CUSTOMER TYPE</th><td>{recentOrderDetails.customerType ?? '—'}</td></tr>
-                                </tbody>
-                            </table>
+                        <div className="ws-order-details-modal-body">
+                            <div className="ws-report-table-wrapper">
+                                <table className="ws-table">
+                                    <tbody>
+                                        <tr>
+                                            <th>ORDER TYPE</th>
+                                            <td>{formatOrderSourceLabel(recentOrderDetails.orderSource)}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>ORDER STATUS</th>
+                                            <td>{formatOrderStatusLabel(recentOrderDetails.orderStatus)}</td>
+                                        </tr>
+                                        {recentOrderDetails.invoiceNo ? (
+                                            <tr>
+                                                <th>INVOICE NO</th>
+                                                <td>{recentOrderDetails.invoiceNo}</td>
+                                            </tr>
+                                        ) : null}
+                                        {recentOrderDetails.orderPlacedAt ? (
+                                            <tr>
+                                                <th>ORDER PLACED</th>
+                                                <td>{formatReportInstant(recentOrderDetails.orderPlacedAt)}</td>
+                                            </tr>
+                                        ) : null}
+                                        {(recentOrderDetails.listingKind === 'invoice' || recentOrderDetails.invoiceNo) ? (
+                                            <tr>
+                                                <th>INVOICE DATE &amp; TIME</th>
+                                                <td>{formatInvoiceDateTimeForDisplay(recentOrderDetails)}</td>
+                                            </tr>
+                                        ) : null}
+                                        <tr><th>CUSTOMER NAME</th><td>{recentOrderDetails.customerName ?? '—'}</td></tr>
+                                        <tr><th>PHONE</th><td>{recentOrderDetails.phone ?? '—'}</td></tr>
+                                        <tr><th>VEHICLE NO</th><td>{recentOrderDetails.vehicleNo ?? '—'}</td></tr>
+                                        <tr><th>DEPARTMENTS</th><td>{(recentOrderDetails.departments ?? []).map((d) => d?.name).filter(Boolean).join(', ') || '—'}</td></tr>
+                                        <tr><th>TECHNICIANS</th><td>{(recentOrderDetails.technicians ?? []).map((t) => t?.name).filter(Boolean).join(', ') || '—'}</td></tr>
+                                        <tr><th>TOTAL AMOUNT</th><td>SAR {toNumber(recentOrderDetails.totalAmount).toLocaleString()}</td></tr>
+                                        <tr><th>PAYMENT METHOD</th><td>{recentOrderDetails.paymentMethod ?? '—'}</td></tr>
+                                        <tr><th>CUSTOMER TYPE</th><td>{recentOrderDetails.customerType ?? '—'}</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            {recentOrderDetails.orderDiscount ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Order discount &amp; promo</p>
+                                    <table className="ws-table">
+                                        <tbody>
+                                            <tr>
+                                                <th>Order-level discount</th>
+                                                <td>
+                                                    {formatDiscountCell(
+                                                        recentOrderDetails.orderDiscount.totalDiscountType,
+                                                        recentOrderDetails.orderDiscount.totalDiscountValue,
+                                                    )}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <th>Promo discount (order)</th>
+                                                <td>
+                                                    SAR{' '}
+                                                    {toNumber(recentOrderDetails.orderDiscount.promoDiscountAmount).toLocaleString()}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <th>Promo code</th>
+                                                <td>{recentOrderDetails.orderDiscount.promoCode ?? '—'}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : null}
+                            {Array.isArray(recentOrderDetails.jobsDetail) && recentOrderDetails.jobsDetail.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Jobs</p>
+                                    <div className="ws-order-details-table-scroll">
+                                        <table className="ws-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Job #</th>
+                                                    <th>Department</th>
+                                                    <th>Job status</th>
+                                                    <th>Opened</th>
+                                                    <th>Completed</th>
+                                                    <th>Job discount</th>
+                                                    <th>Promo</th>
+                                                    <th>Before disc.</th>
+                                                    <th>After disc.</th>
+                                                    <th>VAT</th>
+                                                    <th>Job total</th>
+                                                    <th>Technicians</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {recentOrderDetails.jobsDetail.map((job) => (
+                                                    <tr key={job.jobId}>
+                                                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>{job.jobId ?? '—'}</td>
+                                                        <td>{job.departmentName ?? '—'}</td>
+                                                        <td>{formatOrderStatusLabel(job.status)}</td>
+                                                        <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
+                                                            {formatReportInstant(job.createdAt)}
+                                                        </td>
+                                                        <td style={{ fontSize: '0.8125rem' }}>{formatJobCompletedDisplay(job)}</td>
+                                                        <td>{formatDiscountCell(job.totalDiscountType, job.totalDiscountValue)}</td>
+                                                        <td>SAR {toNumber(job.promoDiscountAmount).toLocaleString()}</td>
+                                                        <td>SAR {toNumber(job.amountBeforeDiscount).toLocaleString()}</td>
+                                                        <td>SAR {toNumber(job.amountAfterDiscount).toLocaleString()}</td>
+                                                        <td>SAR {toNumber(job.vatAmount).toLocaleString()}</td>
+                                                        <td className="ws-font-bold">SAR {toNumber(job.totalAmount).toLocaleString()}</td>
+                                                        <td style={{ fontSize: '0.8125rem', minWidth: 160 }}>
+                                                            {(job.assignments ?? []).length === 0 ? (
+                                                                '—'
+                                                            ) : (
+                                                                (job.assignments ?? []).map((a, idx) => (
+                                                                    <div
+                                                                        key={`${job.jobId}-${idx}`}
+                                                                        style={{
+                                                                            marginBottom:
+                                                                                idx < (job.assignments ?? []).length - 1 ? 8 : 0,
+                                                                        }}
+                                                                    >
+                                                                        <div>
+                                                                            {[a.technicianName || '—', a.assignmentType, formatOrderStatusLabel(a.assignmentStatus)]
+                                                                                .filter(Boolean)
+                                                                                .join(' · ')}
+                                                                        </div>
+                                                                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
+                                                                            {a.respondedAt
+                                                                                ? `Responded ${formatReportInstant(a.respondedAt)}`
+                                                                                : `Assigned ${formatReportInstant(a.assignedAt)}`}
+                                                                        </div>
+                                                                    </div>
+                                                                ))
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ) : null}
+                            {Array.isArray(recentOrderDetails.lineItems) && recentOrderDetails.lineItems.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Line items</p>
+                                    <div className="ws-order-details-table-scroll">
+                                        <table className="ws-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Job #</th>
+                                                    <th>Dept</th>
+                                                    <th>Item</th>
+                                                    <th>Type</th>
+                                                    <th>Qty</th>
+                                                    <th>Unit (SAR)</th>
+                                                    <th>Discount</th>
+                                                    <th>VAT</th>
+                                                    <th>Line (SAR)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {recentOrderDetails.lineItems.map((row) => (
+                                                    <tr key={row.salesOrderItemId}>
+                                                        <td>{row.jobId ?? '—'}</td>
+                                                        <td>{row.departmentName ?? '—'}</td>
+                                                        <td>{row.name ?? '—'}</td>
+                                                        <td>{row.itemType ?? '—'}</td>
+                                                        <td>{row.qty}</td>
+                                                        <td>{toNumber(row.unitPrice).toLocaleString()}</td>
+                                                        <td>{formatDiscountCell(row.discountType, row.discountValue)}</td>
+                                                        <td style={{ fontSize: '0.8125rem' }}>
+                                                            {toNumber(row.vatPercent)}% · {String(row.vatMode ?? '—')}
+                                                        </td>
+                                                        <td className="ws-font-bold">{toNumber(row.lineTotal).toLocaleString()}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
                     ) : null}
                 </Modal>
@@ -1447,6 +2005,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 <Modal
                     title={detailsTitle || 'Details'}
                     onClose={() => {
+                        detailAnchorRef.current = null;
                         setDetailRows([]);
                         setDetailsError('');
                         setDetailsTitle('');
@@ -1470,6 +2029,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     'branch_id',
                                     'customerId',
                                     'customer_id',
+                                    'issuedAt',
+                                    'issued_at',
                                 ]);
                                 const columns = Object.keys(detailRows[0] || {}).filter((k) => !hiddenCols.has(k));
                                 return (
@@ -1492,7 +2053,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         <thead>
                                             <tr>
                                                 {columns.map((k) => (
-                                                    <th key={k} style={{ padding: '8px 10px' }}>{humanizeKey(k)}</th>
+                                                    <th key={k} style={{ padding: '8px 10px' }}>
+                                                        {isInvoiceDateDetailColumnKey(k)
+                                                            ? 'DATE / TIME'
+                                                            : isMoneyDetailColumnKey(k)
+                                                              ? `${humanizeKey(k)} (SAR)`
+                                                              : humanizeKey(k)}
+                                                    </th>
                                                 ))}
                                             </tr>
                                         </thead>
@@ -1521,15 +2088,29 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                                                 <div style={{ fontWeight: 700, fontSize: 12 }}>
                                                                                     {item.itemName ?? item.name ?? `Item ${idx + 1}`}
                                                                                 </div>
-                                                                                <div style={{ fontSize: 11, color: '#6B7280' }}>
-                                                                                    {item.itemType ?? 'item'} • Qty: {item.qty ?? '—'} • SAR {toNumber(item.lineTotal).toLocaleString()}
-                                                                                </div>
+                                                                                {(() => {
+                                                                                    const sub = formatWorkshopLineItemCardSubtext(item);
+                                                                                    return (
+                                                                                        <>
+                                                                                            <div style={{ fontSize: 11, color: '#6B7280' }}>
+                                                                                                {sub.line1}
+                                                                                            </div>
+                                                                                            <div style={{ fontSize: 11, color: '#6B7280' }}>
+                                                                                                {sub.line2}
+                                                                                            </div>
+                                                                                        </>
+                                                                                    );
+                                                                                })()}
                                                                             </div>
                                                                         ))}
                                                                     </div>
                                                                 ) : (
                                                                     val.join(', ')
                                                                 )
+                                                            ) : isMoneyDetailColumnKey(k) ? (
+                                                                formatCurrency(val)
+                                                            ) : isInvoiceDateDetailColumnKey(k) ? (
+                                                                formatInvoiceDateTimeForDisplay(row)
                                                             ) : val == null || val === '' ? (
                                                                 '—'
                                                             ) : (

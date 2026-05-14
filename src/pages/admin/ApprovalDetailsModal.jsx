@@ -978,6 +978,17 @@ function fmtWalkInDiscount(discountType, discountValue) {
     return fmtMoney(Number.isFinite(v) ? v : 0);
 }
 
+/** Approvals + corporate APIs may use camelCase or snake_case. */
+function pickWalkInQuoteTotals(o) {
+    const raw = o?.quoteTotals ?? o?.quote_totals;
+    if (!raw || typeof raw !== 'object') return null;
+    return {
+        totalAmount: raw.totalAmount ?? raw.total_amount,
+        vatAmount: raw.vatAmount ?? raw.vat_amount,
+        pendingDepartmentCount: raw.pendingDepartmentCount ?? raw.pending_department_count,
+    };
+}
+
 /** Raw Prisma walk-in row (legacy); unified formatter uses `lineItems` + `jobs` + `quoteTotals`. */
 function isLegacyWalkInSalesOrderPayload(o) {
     return (
@@ -1004,7 +1015,7 @@ function CorporateWalkInBookingBodyFormatted({ data: o }) {
     const lineItems = Array.isArray(o.lineItems) ? o.lineItems : [];
     const jobs = Array.isArray(o.jobs) ? o.jobs : [];
     const timeline = Array.isArray(o.timeline) ? o.timeline : [];
-    const qt = o.quoteTotals && typeof o.quoteTotals === 'object' ? o.quoteTotals : null;
+    const qt = pickWalkInQuoteTotals(o);
     const posPayments = Array.isArray(o.posPayments) ? o.posPayments : [];
     const inv = o.invoice && typeof o.invoice === 'object' ? o.invoice : null;
 
@@ -1029,16 +1040,6 @@ function CorporateWalkInBookingBodyFormatted({ data: o }) {
                         span2
                     />
                 </KVGrid>
-            </Section>
-
-            <Section title="Quote totals" empty={!qt ? 'No computed quote totals for this order.' : undefined}>
-                {qt && (
-                    <KVGrid>
-                        <Field label="Total (incl. VAT)" kind="money" value={qt.totalAmount} />
-                        <Field label="VAT" kind="money" value={qt.vatAmount} />
-                        <Field label="Departments (pending)" kind="decimal" value={qt.pendingDepartmentCount} />
-                    </KVGrid>
-                )}
             </Section>
 
             <Section
@@ -1268,6 +1269,42 @@ function CorporateWalkInBookingBodyFormatted({ data: o }) {
                             </li>
                         ))}
                     </ul>
+                )}
+            </Section>
+
+            <Section title="Quote totals" empty={!qt ? 'No computed quote totals for this order.' : undefined}>
+                {qt && (
+                    <div
+                        style={{
+                            border: '1px solid var(--color-border-light, #e5e7eb)',
+                            borderRadius: 10,
+                            padding: '16px 18px',
+                            background: 'var(--color-bg-muted, #f9fafb)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 12,
+                            fontSize: '0.9375rem',
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--color-text-muted, #6b7280)' }}>Total (incl. VAT)</span>
+                            <span style={{ fontWeight: 800, fontSize: '1.0625rem', fontVariantNumeric: 'tabular-nums' }}>
+                                {fmtMoney(qt.totalAmount)}
+                            </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--color-text-muted, #6b7280)' }}>VAT</span>
+                            <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(qt.vatAmount)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16 }}>
+                            <span style={{ fontWeight: 600, color: 'var(--color-text-muted, #6b7280)' }}>Departments (pending)</span>
+                            <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                                {qt.pendingDepartmentCount != null && qt.pendingDepartmentCount !== ''
+                                    ? fmtDecimal(qt.pendingDepartmentCount, 2)
+                                    : NA}
+                            </span>
+                        </div>
+                    </div>
                 )}
             </Section>
         </>

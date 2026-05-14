@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Search, Package, AlertCircle, Wallet, RefreshCw, History, X } from 'lucide-react';
 import './Workshop.css';
 
@@ -520,6 +520,7 @@ export default function WorkshopInventory({
     const [invSuggestOpen, setInvSuggestOpen] = useState(false);
     const [invSuggestIndex, setInvSuggestIndex] = useState(-1);
     const invSearchBlurTimerRef = useRef(null);
+    const invSuggestDropdownRef = useRef(null);
     const [productRows, setProductRows] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
@@ -938,6 +939,21 @@ export default function WorkshopInventory({
         [invSearchSuggestions, invSuggestOpen, invSuggestIndex, applyInventorySearchSuggestion],
     );
 
+    useLayoutEffect(() => {
+        if (!invSuggestOpen || invSuggestIndex < 0) return;
+        const list = invSuggestDropdownRef.current;
+        const item = list?.querySelector(`#workshop-inv-suggest-${invSuggestIndex}`);
+        if (!list || !item) return;
+        const padding = 6;
+        const listRect = list.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+        if (itemRect.bottom > listRect.bottom - padding) {
+            list.scrollTop += itemRect.bottom - listRect.bottom + padding;
+        } else if (itemRect.top < listRect.top + padding) {
+            list.scrollTop -= listRect.top - itemRect.top + padding;
+        }
+    }, [invSuggestIndex, invSuggestOpen, invSearchSuggestions]);
+
     const clearInvSearchBlurTimer = useCallback(() => {
         if (invSearchBlurTimerRef.current != null) {
             clearTimeout(invSearchBlurTimerRef.current);
@@ -1153,6 +1169,7 @@ export default function WorkshopInventory({
                                     )}
                                     {invSuggestOpen && normalizeInventorySearchValue(searchQuery) && (
                                         <div
+                                            ref={invSuggestDropdownRef}
                                             id="workshop-inv-search-suggest-list"
                                             className="mc-inv-search-dropdown"
                                             role="listbox"
