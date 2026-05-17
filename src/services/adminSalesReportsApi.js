@@ -66,6 +66,9 @@ export const getAdminSalesByProduct = (params = {}, options = {}) =>
 export const getAdminSalesByDepartment = (params = {}, options = {}) =>
     apiFetch(`${BASE}/by-department${qs(params)}`, options);
 
+export const getAdminSalesByCategory = (params = {}, options = {}) =>
+    apiFetch(`${BASE}/by-category${qs(params)}`, options);
+
 export const getAdminSalesByBranch = (params = {}, options = {}) =>
     apiFetch(`${BASE}/by-branch${qs(params)}`, options);
 
@@ -99,6 +102,12 @@ export const getAdminSalesByProductDetails = (id, params = {}, options = {}) =>
 export const getAdminSalesByDepartmentDetails = (id, params = {}, options = {}) =>
     apiFetch(
         `${BASE}/by-department/${encodeURIComponent(String(id))}/details${qs(params)}`,
+        options,
+    );
+
+export const getAdminSalesByCategoryDetails = (id, params = {}, options = {}) =>
+    apiFetch(
+        `${BASE}/by-category/${encodeURIComponent(String(id))}/details${qs(params)}`,
         options,
     );
 
