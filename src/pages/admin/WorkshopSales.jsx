@@ -1,26 +1,34 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ShoppingCart, Search, CheckCircle2, XCircle, Clock, Loader } from 'lucide-react';
+import { FileText, Search, Loader } from 'lucide-react';
 import '../../styles/admin/SalesOrders.css';
 import '../workshop/Workshop.css';
 import Modal from '../../components/Modal';
 import { ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import {
     getBranches,
-    getSalesOrder,
-    getSalesOrders,
+    getInvoice,
+    getInvoices,
     getWorkshopOptions,
 } from '../../services/superAdminApi';
 
 const PAGE_SIZE = 25;
 
-const STATUS_VARIANT = {
-    completed: { class: 'so-status-completed', icon: CheckCircle2, label: 'Completed' },
-    invoiced: { class: 'so-status-completed', icon: CheckCircle2, label: 'Invoiced' },
-    cancelled: { class: 'so-status-cancelled', icon: XCircle, label: 'Cancelled' },
-    rejected: { class: 'so-status-cancelled', icon: XCircle, label: 'Rejected' },
-    pending: { class: 'so-status-pending', icon: Clock, label: 'Pending' },
-    draft: { class: 'so-status-pending', icon: Clock, label: 'Draft' },
-    in_progress: { class: 'so-status-pending', icon: Clock, label: 'In progress' },
+const PAYMENT_STATUS_OPTIONS = [
+    { value: '', label: 'All Payment Status' },
+    { value: 'paid', label: 'Paid' },
+    { value: 'unpaid', label: 'Unpaid' },
+    { value: 'partial', label: 'Partial' },
+];
+
+const PAYMENT_STATUS_CLASS = {
+    paid: 'so-status-completed',
+    unpaid: 'so-status-cancelled',
+    partial: 'so-status-pending',
+};
+
+const toNumber = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
 };
 
 function formatStatusLabel(status) {
@@ -31,22 +39,14 @@ function formatStatusLabel(status) {
         .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function StatusBadge({ status }) {
+function PaymentStatusBadge({ status }) {
     const key = String(status ?? '').trim().toLowerCase();
-    const cfg = STATUS_VARIANT[key];
-    const Icon = cfg?.icon ?? Clock;
     return (
-        <span className={`so-status-badge ${cfg?.class ?? 'so-status-pending'}`}>
-            <Icon size={12} />
-            {cfg?.label ?? formatStatusLabel(status)}
+        <span className={`so-status-badge ${PAYMENT_STATUS_CLASS[key] ?? 'so-status-pending'}`}>
+            {formatStatusLabel(status)}
         </span>
     );
 }
-
-const toNumber = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-};
 
 function formatDateTime(raw) {
     if (raw == null || raw === '') return '—';
@@ -61,16 +61,8 @@ function formatDateTime(raw) {
     });
 }
 
-function formatInvoiceDateTime(order) {
-    return formatDateTime(order?.issuedAt ?? order?.invoiceDate ?? order?.createdAt);
-}
-
-/** `datetime-local` (local wall-clock, no TZ) → full ISO instant the backend accepts. */
-function localDateTimeToIso(localValue) {
-    if (!localValue) return '';
-    const d = new Date(localValue);
-    if (Number.isNaN(d.getTime())) return '';
-    return d.toISOString();
+function formatInvoiceDateTime(inv) {
+    return formatDateTime(inv?.issuedAt ?? inv?.invoiceDate);
 }
 
 function formatDiscountCell(discountType, discountValue) {
@@ -81,17 +73,14 @@ function formatDiscountCell(discountType, discountValue) {
     return `SAR ${v.toLocaleString()}`;
 }
 
-const STATUS_OPTIONS = [
-    { value: '', label: 'All Status' },
-    { value: 'draft', label: 'Draft' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'in_progress', label: 'In progress' },
-    { value: 'completed', label: 'Completed' },
-    { value: 'invoiced', label: 'Invoiced' },
-    { value: 'cancelled', label: 'Cancelled' },
-];
+function localDateTimeToIso(localValue) {
+    if (!localValue) return '';
+    const d = new Date(localValue);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString();
+}
 
-export default function SalesOrders() {
+export default function WorkshopSales() {
     const [workshopOptions, setWorkshopOptions] = useState([]);
     const [workshopOptionsLoading, setWorkshopOptionsLoading] = useState(true);
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
@@ -100,13 +89,13 @@ export default function SalesOrders() {
     const [branchOptionsLoading, setBranchOptionsLoading] = useState(false);
     const [selectedBranchId, setSelectedBranchId] = useState('');
 
-    const [statusFilter, setStatusFilter] = useState('');
+    const [paymentStatusFilter, setPaymentStatusFilter] = useState('');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [searchInput, setSearchInput] = useState('');
     const [searchDebounced, setSearchDebounced] = useState('');
 
-    const [orders, setOrders] = useState([]);
+    const [invoices, setInvoices] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
@@ -117,7 +106,6 @@ export default function SalesOrders() {
     const [detailLoading, setDetailLoading] = useState(false);
     const [detailError, setDetailError] = useState('');
 
-    // Load workshops once.
     useEffect(() => {
         let cancelled = false;
         (async () => {
@@ -145,7 +133,6 @@ export default function SalesOrders() {
         };
     }, []);
 
-    // Load branches when workshop changes.
     useEffect(() => {
         if (!selectedWorkshopId) {
             setBranchOptions([]);
@@ -182,37 +169,35 @@ export default function SalesOrders() {
         };
     }, [selectedWorkshopId]);
 
-    // Debounce search.
     useEffect(() => {
         const t = setTimeout(() => setSearchDebounced(searchInput.trim()), 380);
         return () => clearTimeout(t);
     }, [searchInput]);
 
-    // Reset to page 1 whenever filters change.
     useEffect(() => {
         setPage(1);
-    }, [selectedWorkshopId, selectedBranchId, statusFilter, dateFrom, dateTo, searchDebounced]);
+    }, [selectedWorkshopId, selectedBranchId, paymentStatusFilter, dateFrom, dateTo, searchDebounced]);
 
-    const fetchOrders = useCallback(async () => {
+    const fetchInvoices = useCallback(async () => {
         setLoading(true);
         setLoadError('');
         try {
-            const res = await getSalesOrders({
+            const res = await getInvoices({
                 workshopId: selectedWorkshopId || undefined,
                 branchId: selectedBranchId || undefined,
-                status: statusFilter || undefined,
+                paymentStatus: paymentStatusFilter || undefined,
                 search: searchDebounced || undefined,
                 startDate: localDateTimeToIso(dateFrom) || undefined,
                 endDate: localDateTimeToIso(dateTo) || undefined,
                 limit: String(PAGE_SIZE),
                 offset: String((page - 1) * PAGE_SIZE),
             });
-            const rows = Array.isArray(res?.salesOrders)
-                ? res.salesOrders
-                : Array.isArray(res?.data?.salesOrders)
-                  ? res.data.salesOrders
+            const rows = Array.isArray(res?.invoices)
+                ? res.invoices
+                : Array.isArray(res?.data?.invoices)
+                  ? res.data.invoices
                   : [];
-            setOrders(rows);
+            setInvoices(rows);
             const tot = res?.total ?? res?.data?.total;
             setTotal(
                 typeof tot === 'number' && Number.isFinite(tot)
@@ -220,33 +205,33 @@ export default function SalesOrders() {
                     : Number.parseInt(String(tot ?? ''), 10) || rows.length,
             );
         } catch (e) {
-            setOrders([]);
+            setInvoices([]);
             setTotal(0);
-            setLoadError(e?.message || 'Failed to load sales orders.');
+            setLoadError(e?.message || 'Failed to load workshop sales.');
         } finally {
             setLoading(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, statusFilter, searchDebounced, dateFrom, dateTo, page]);
+    }, [selectedWorkshopId, selectedBranchId, paymentStatusFilter, searchDebounced, dateFrom, dateTo, page]);
 
     useEffect(() => {
-        void fetchOrders();
-    }, [fetchOrders]);
+        void fetchInvoices();
+    }, [fetchInvoices]);
 
-    const openDetails = useCallback(async (orderId) => {
-        if (!orderId) return;
-        setDetailId(String(orderId));
+    const openDetails = useCallback(async (invoiceId) => {
+        if (!invoiceId) return;
+        setDetailId(String(invoiceId));
         setDetailLoading(true);
         setDetailError('');
         setDetailData(null);
         try {
-            const res = await getSalesOrder(orderId);
+            const res = await getInvoice(invoiceId);
             const payload =
                 res && typeof res === 'object' && res.data && typeof res.data === 'object'
                     ? res.data
                     : res;
             setDetailData(payload && typeof payload === 'object' ? payload : null);
         } catch (e) {
-            setDetailError(e?.message || 'Failed to load order details.');
+            setDetailError(e?.message || 'Failed to load invoice details.');
         } finally {
             setDetailLoading(false);
         }
@@ -259,34 +244,28 @@ export default function SalesOrders() {
         setDetailLoading(false);
     };
 
-    // KPIs computed from current page (lightweight; full-period KPIs live in Sales Reports).
     const kpis = useMemo(() => {
-        const invoicedRevenue = orders.reduce(
-            (acc, o) => acc + (o.invoiceNo ? toNumber(o.totalAmount) : 0),
-            0,
-        );
-        const invoicedCount = orders.filter((o) => o.invoiceNo).length;
-        const pendingCount = orders.filter(
-            (o) => !o.invoiceNo && !['cancelled', 'rejected'].includes(String(o.status ?? '').toLowerCase()),
-        ).length;
-        const cancelledCount = orders.filter((o) =>
-            ['cancelled', 'rejected'].includes(String(o.status ?? '').toLowerCase()),
+        const totalIssued = invoices.reduce((acc, i) => acc + toNumber(i.totalAmount), 0);
+        const totalPaid = invoices
+            .filter((i) => String(i.paymentStatus ?? '').toLowerCase() === 'paid')
+            .reduce((acc, i) => acc + toNumber(i.totalAmount), 0);
+        const unpaidCount = invoices.filter(
+            (i) => String(i.paymentStatus ?? '').toLowerCase() !== 'paid',
         ).length;
         return [
-            { label: 'Total Orders (matching)', value: total.toLocaleString() },
-            { label: 'Invoiced (this page)', value: invoicedCount.toLocaleString() },
-            { label: 'Pending (this page)', value: pendingCount.toLocaleString() },
+            { label: 'Total Invoices (matching)', value: total.toLocaleString() },
             {
-                label: 'Cancelled (this page)',
-                value: cancelledCount.toLocaleString(),
+                label: 'Issued (this page)',
+                value: `SAR ${totalIssued.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
             },
             {
-                label: 'Invoiced Revenue (this page)',
-                value: `SAR ${invoicedRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`,
+                label: 'Collected (this page)',
+                value: `SAR ${totalPaid.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
                 className: 'revenue',
             },
+            { label: 'Unpaid / Partial (this page)', value: unpaidCount.toLocaleString() },
         ];
-    }, [orders, total]);
+    }, [invoices, total]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const rangeFrom = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
@@ -297,11 +276,11 @@ export default function SalesOrders() {
             <header className="so-header">
                 <div>
                     <h2 className="so-title">
-                        <ShoppingCart size={20} color="#F59E0B" /> All Sales Orders
+                        <FileText size={20} color="#F59E0B" /> Workshop Sales
                     </h2>
-                    <p className="so-sub">POS sales across all workshops &amp; branches</p>
+                    <p className="so-sub">POS invoices across all workshops &amp; branches</p>
                 </div>
-                <div className="so-order-count-badge">{total.toLocaleString()} orders</div>
+                <div className="so-order-count-badge">{total.toLocaleString()} invoices</div>
             </header>
 
             <div className="so-kpi-grid">
@@ -319,7 +298,7 @@ export default function SalesOrders() {
                     <input
                         type="text"
                         className="so-search-input"
-                        placeholder="Search invoice, customer, mobile, plate, order id…"
+                        placeholder="Search invoice no, customer, mobile, plate, order id…"
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
                     />
@@ -352,11 +331,11 @@ export default function SalesOrders() {
                 </select>
                 <select
                     className="so-select"
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    aria-label="Status filter"
+                    value={paymentStatusFilter}
+                    onChange={(e) => setPaymentStatusFilter(e.target.value)}
+                    aria-label="Payment status filter"
                 >
-                    {STATUS_OPTIONS.map((opt) => (
+                    {PAYMENT_STATUS_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                 </select>
@@ -400,66 +379,62 @@ export default function SalesOrders() {
                 <table className="so-table">
                     <thead>
                         <tr>
-                            <th>Invoice / Order</th>
+                            <th>Invoice #</th>
                             <th>Date / Time</th>
                             <th>Workshop</th>
                             <th>Branch</th>
                             <th>Customer</th>
                             <th>Vehicle</th>
-                            <th>Technicians</th>
+                            <th>Items</th>
                             <th>Total (SAR)</th>
-                            <th>Status</th>
+                            <th>Payment</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {loading && orders.length === 0 ? (
+                        {loading && invoices.length === 0 ? (
                             <tr>
                                 <td colSpan={9} style={{ textAlign: 'center', padding: 24 }}>
                                     <Loader size={18} className="spin" /> Loading…
                                 </td>
                             </tr>
-                        ) : orders.length === 0 ? (
+                        ) : invoices.length === 0 ? (
                             <tr>
                                 <td colSpan={9} style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>
-                                    No sales orders match these filters.
+                                    No invoices match these filters.
                                 </td>
                             </tr>
                         ) : (
-                            orders.map((order) => (
+                            invoices.map((inv) => (
                                 <tr
-                                    key={order.id}
-                                    onClick={() => openDetails(order.id)}
+                                    key={inv.id}
+                                    onClick={() => openDetails(inv.id)}
                                     style={{ cursor: 'pointer', opacity: loading ? 0.55 : undefined }}
                                 >
                                     <td>
                                         <div className="so-customer-info">
-                                            <strong className="so-inv-link">
-                                                {order.invoiceNo ?? 'Pending invoice'}
-                                            </strong>
-                                            <span className="so-customer-mobile">Order #{order.id}</span>
+                                            <strong className="so-inv-link">{inv.invoiceNo ?? '—'}</strong>
+                                            <span className="so-customer-mobile">Order #{inv.salesOrderId}</span>
                                         </div>
                                     </td>
-                                    <td>{formatInvoiceDateTime(order)}</td>
-                                    <td className="so-text-dim">{order.workshopName ?? '—'}</td>
-                                    <td className="so-text-dim">{order.branchName ?? '—'}</td>
+                                    <td>{formatInvoiceDateTime(inv)}</td>
+                                    <td className="so-text-dim">{inv.workshopName ?? '—'}</td>
+                                    <td className="so-text-dim">{inv.branchName ?? '—'}</td>
                                     <td>
                                         <div className="so-customer-info">
-                                            <strong>{order.customerName ?? 'Walk-in'}</strong>
-                                            <span className="so-customer-mobile">{order.customerMobile ?? '—'}</span>
+                                            <strong>{inv.customerName ?? 'Walk-in'}</strong>
+                                            <span className="so-customer-mobile">{inv.customerMobile ?? '—'}</span>
                                         </div>
                                     </td>
-                                    <td>{order.plateNo ?? '—'}</td>
-                                    <td style={{ fontSize: '0.8125rem' }}>{order.technicianNames ?? '—'}</td>
+                                    <td>{inv.plateNo ?? '—'}</td>
+                                    <td>{toNumber(inv.itemsCount)}</td>
                                     <td style={{ fontWeight: 600 }}>
-                                        {order.totalAmount != null
-                                            ? toNumber(order.totalAmount).toLocaleString(undefined, {
-                                                  minimumFractionDigits: 2,
-                                                  maximumFractionDigits: 2,
-                                              })
-                                            : '—'}
+                                        {toNumber(inv.totalAmount).toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                        })}
                                     </td>
                                     <td>
-                                        <StatusBadge status={order.status} />
+                                        <PaymentStatusBadge status={inv.paymentStatus} />
                                     </td>
                                 </tr>
                             ))
@@ -475,7 +450,7 @@ export default function SalesOrders() {
                         <strong>{total.toLocaleString()}</strong>
                         {loading ? <span> · Loading…</span> : null}
                     </p>
-                    <nav className="ws-report-pagination__nav" aria-label="Sales orders pages">
+                    <nav className="ws-report-pagination__nav" aria-label="Workshop sales pages">
                         <button
                             type="button"
                             className="ws-report-pagination__edge"
@@ -522,13 +497,7 @@ export default function SalesOrders() {
 
             {detailId && (
                 <Modal
-                    title={`Order ${
-                        detailData?.invoice?.invoiceNo
-                            ? `- ${detailData.invoice.invoiceNo}`
-                            : detailData?.id
-                              ? `#${detailData.id}`
-                              : 'Details'
-                    }`}
+                    title={`Invoice ${detailData?.invoiceNo ? `- ${detailData.invoiceNo}` : 'Details'}`}
                     onClose={closeDetails}
                     width="min(1100px, 98vw)"
                     contentClassName="ws-modal-order-details"
@@ -542,25 +511,19 @@ export default function SalesOrders() {
                             <div className="ws-report-table-wrapper">
                                 <table className="ws-table">
                                     <tbody>
-                                        <tr><th>ORDER STATUS</th><td>{formatStatusLabel(detailData.status)}</td></tr>
-                                        <tr><th>SOURCE</th><td>{formatStatusLabel(detailData.source)}</td></tr>
+                                        <tr><th>INVOICE NO</th><td>{detailData.invoiceNo ?? '—'}</td></tr>
+                                        <tr>
+                                            <th>INVOICE DATE &amp; TIME</th>
+                                            <td>{formatDateTime(detailData.issuedAt ?? detailData.invoiceDate)}</td>
+                                        </tr>
                                         <tr><th>WORKSHOP</th><td>{detailData.workshopName ?? '—'}</td></tr>
                                         <tr><th>BRANCH</th><td>{detailData.branchName ?? '—'}</td></tr>
-                                        <tr><th>ORDER PLACED</th><td>{formatDateTime(detailData.createdAt)}</td></tr>
-                                        {detailData.invoice ? (
-                                            <>
-                                                <tr><th>INVOICE NO</th><td>{detailData.invoice.invoiceNo ?? '—'}</td></tr>
-                                                <tr>
-                                                    <th>INVOICE DATE &amp; TIME</th>
-                                                    <td>
-                                                        {formatDateTime(
-                                                            detailData.invoice.issuedAt ?? detailData.invoice.invoiceDate,
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                                <tr><th>PAYMENT STATUS</th><td>{formatStatusLabel(detailData.invoice.paymentStatus)}</td></tr>
-                                            </>
-                                        ) : null}
+                                        <tr><th>ORDER SOURCE</th><td>{formatStatusLabel(detailData.salesOrder?.source)}</td></tr>
+                                        <tr><th>ORDER STATUS</th><td>{formatStatusLabel(detailData.salesOrder?.status)}</td></tr>
+                                        <tr>
+                                            <th>ORDER PLACED</th>
+                                            <td>{formatDateTime(detailData.salesOrder?.createdAt)}</td>
+                                        </tr>
                                         <tr><th>CUSTOMER NAME</th><td>{detailData.customer?.name ?? '—'}</td></tr>
                                         <tr><th>PHONE</th><td>{detailData.customer?.mobile ?? '—'}</td></tr>
                                         <tr>
@@ -575,10 +538,32 @@ export default function SalesOrders() {
                                                     : ''}
                                             </td>
                                         </tr>
-                                        {detailData.invoice ? (
+                                        <tr><th>SUBTOTAL</th><td>SAR {toNumber(detailData.subtotal).toLocaleString()}</td></tr>
+                                        <tr><th>VAT</th><td>SAR {toNumber(detailData.vatAmount).toLocaleString()}</td></tr>
+                                        <tr><th>DISCOUNT</th><td>SAR {toNumber(detailData.discountAmount).toLocaleString()}</td></tr>
+                                        <tr>
+                                            <th>TOTAL AMOUNT</th>
+                                            <td className="ws-font-bold">
+                                                SAR {toNumber(detailData.totalAmount).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <th>PAYMENT STATUS</th>
+                                            <td>{formatStatusLabel(detailData.paymentStatus)}</td>
+                                        </tr>
+                                        {detailData.deferredPaymentMethod ? (
                                             <tr>
-                                                <th>TOTAL AMOUNT</th>
-                                                <td>SAR {toNumber(detailData.invoice.totalAmount).toLocaleString()}</td>
+                                                <th>DEFERRED METHOD</th>
+                                                <td>{detailData.deferredPaymentMethod}</td>
+                                            </tr>
+                                        ) : null}
+                                        {detailData.createdBy ? (
+                                            <tr>
+                                                <th>CREATED BY</th>
+                                                <td>
+                                                    {detailData.createdBy.name ?? detailData.createdBy.email ?? '—'}
+                                                    {detailData.createdBy.userType ? ` · ${formatStatusLabel(detailData.createdBy.userType)}` : ''}
+                                                </td>
                                             </tr>
                                         ) : null}
                                     </tbody>
@@ -607,8 +592,7 @@ export default function SalesOrders() {
                                             <tr>
                                                 <th>Promo discount (order)</th>
                                                 <td>
-                                                    SAR{' '}
-                                                    {toNumber(detailData.orderDiscount.promoDiscountAmount).toLocaleString()}
+                                                    SAR {toNumber(detailData.orderDiscount.promoDiscountAmount).toLocaleString()}
                                                 </td>
                                             </tr>
                                             <tr>
@@ -715,7 +699,7 @@ export default function SalesOrders() {
                                 </div>
                             ) : null}
 
-                            {detailData.invoice && Array.isArray(detailData.invoice.payments) && detailData.invoice.payments.length > 0 ? (
+                            {Array.isArray(detailData.payments) && detailData.payments.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
                                     <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Payments</p>
                                     <table className="ws-table">
@@ -727,7 +711,7 @@ export default function SalesOrders() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {detailData.invoice.payments.map((p) => (
+                                            {detailData.payments.map((p) => (
                                                 <tr key={p.id}>
                                                     <td>{p.method ?? '—'}</td>
                                                     <td className="ws-font-bold">

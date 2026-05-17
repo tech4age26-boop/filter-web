@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useParams, NavLink } from 'react-router-dom';
 import { Plus, ChevronDown, Calendar, Search, Lightbulb, Trash2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import SalesReports from './SalesReports';
 import SalesOrders from './SalesOrders';
+import WorkshopSales from './WorkshopSales';
+import SuppliersWarehouseSales from './SuppliersWarehouseSales';
 import '../../styles/admin/SalesPage.css';
 
 const SUB_TABS = [
@@ -13,14 +15,6 @@ const SUB_TABS = [
     { path: 'workshop-sales', label: 'Workshop Sales' },
     { path: 'suppliers-warehouse-sales', label: 'Suppliers & Warehouse Sales' },
     { path: 'receipts', label: 'Receipts' },
-];
-
-const MOCK_INVOICES = [
-    { id: 1, invNo: 'INV-82453822', dateTime: '28/02/2026 00:00', workshop: 'Petromin Services', customer: 'Safa Makkah', vehicle: 'ZSA-8030', items: 'Castrol 10W30, Car Wash Normal…', total: 'SAR 128.51', status: 'paid' },
-];
-
-const MOCK_WAREHOUSE_SALES = [
-    { id: 1, ref: 'WH-001', date: '28/02/2026', supplier: 'Gulf Oil', warehouse: 'Main', total: 'SAR 5,200.00', status: 'Completed' },
 ];
 
 const EMPTY_INVOICE = {
@@ -50,14 +44,8 @@ const EMPTY_INVOICE = {
 export default function SalesPage() {
     const { subTab } = useParams();
     const activeSub = subTab || 'sales-reports';
-    const [invoices, setInvoices] = useState(MOCK_INVOICES);
-    const [warehouseSales] = useState(MOCK_WAREHOUSE_SALES);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [invoiceData, setInvoiceData] = useState(EMPTY_INVOICE);
-
-    const totalIssued = invoices.reduce((s, i) => s + parseFloat((i.total || '0').replace(/[^0-9.]/g, '')) || 0, 0);
-    const totalCollected = totalIssued;
-    const outstanding = 0;
 
     // Calculation logic
     const calculateTotals = () => {
@@ -332,105 +320,9 @@ export default function SalesPage() {
                 ))}
             </div>
 
-            {activeSub === 'workshop-sales' && (
-                <>
-                    <header className="sales-invoices-header">
-                        <div>
-                            <h1 className="sales-invoices-title">Workshop Sales</h1>
-                            <p className="sales-invoices-count">{invoices.length} of {invoices.length} invoices across all workshops (POS)</p>
-                        </div>
-                        <button type="button" className="btn-portal" onClick={() => setIsModalOpen(true)}><Plus size={16} /> New Invoice</button>
-                    </header>
-                    <div className="sales-invoices-stats">
-                        <div className="sales-stat-card"><span className="sales-stat-label">Total Issued</span><span className="sales-stat-val">SAR {totalIssued.toFixed(3)}</span></div>
-                        <div className="sales-stat-card"><span className="sales-stat-label">Total Collected</span><span className="sales-stat-val">SAR {totalCollected.toFixed(3)}</span></div>
-                        <div className="sales-stat-card"><span className="sales-stat-label">Outstanding</span><span className="sales-stat-val">SAR {outstanding.toFixed(2)}</span></div>
-                    </div>
-                    <div className="sales-invoices-filters">
-                        <button type="button" className="sales-filter-pill active">All Workshops</button>
-                        <button type="button" className="sales-filter-pill">All Status</button>
-                        <button type="button" className="sales-filter-pill">More Filters</button>
-                    </div>
-                    <section className="premium-table sales-invoices-table">
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr className="table-header-row">
-                                    <th className="table-th">Invoice #</th>
-                                    <th className="table-th">Date & Time</th>
-                                    <th className="table-th">Workshop</th>
-                                    <th className="table-th">Customer</th>
-                                    <th className="table-th">Vehicle</th>
-                                    <th className="table-th">Items</th>
-                                    <th className="table-th">Total</th>
-                                    <th className="table-th">Status</th>
-                                    <th className="table-th">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {invoices.map((inv) => (
-                                    <tr key={inv.id} className="table-row">
-                                        <td className="table-cell cell-main-text">{inv.invNo}</td>
-                                        <td className="table-cell">{inv.dateTime}</td>
-                                        <td className="table-cell">{inv.workshop}</td>
-                                        <td className="table-cell">{inv.customer}</td>
-                                        <td className="table-cell">{inv.vehicle}</td>
-                                        <td className="table-cell">{inv.items}</td>
-                                        <td className="table-cell">{inv.total}</td>
-                                        <td className="table-cell"><span className="status-badge status-completed">{inv.status}</span></td>
-                                        <td className="table-cell"><button type="button" className="btn-edit">View</button></td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </section>
-                    <p className="sales-showing">Showing {invoices.length} invoice{invoices.length !== 1 ? 's' : ''}</p>
-                </>
-            )}
+            {activeSub === 'workshop-sales' && <WorkshopSales />}
 
-            {activeSub === 'suppliers-warehouse-sales' && (
-                <>
-                    <header className="sales-invoices-header">
-                        <div>
-                            <h1 className="sales-invoices-title">Suppliers & Warehouse Sales</h1>
-                            <p className="sales-invoices-count">Supplier and warehouse sales orders</p>
-                        </div>
-                        <button type="button" className="btn-portal"><Plus size={16} /> New Sale</button>
-                    </header>
-                    <div className="sales-invoices-filters">
-                        <button type="button" className="sales-filter-pill active">All</button>
-                        <button type="button" className="sales-filter-pill">Pending</button>
-                        <button type="button" className="sales-filter-pill">Completed</button>
-                    </div>
-                    <section className="premium-table sales-invoices-table">
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr className="table-header-row">
-                                    <th className="table-th">Reference</th>
-                                    <th className="table-th">Date</th>
-                                    <th className="table-th">Supplier</th>
-                                    <th className="table-th">Warehouse</th>
-                                    <th className="table-th">Total</th>
-                                    <th className="table-th">Status</th>
-                                    <th className="table-th">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {warehouseSales.map((row) => (
-                                    <tr key={row.id} className="table-row">
-                                        <td className="table-cell cell-main-text">{row.ref}</td>
-                                        <td className="table-cell">{row.date}</td>
-                                        <td className="table-cell">{row.supplier}</td>
-                                        <td className="table-cell">{row.warehouse}</td>
-                                        <td className="table-cell">{row.total}</td>
-                                        <td className="table-cell"><span className="status-badge status-completed">{row.status}</span></td>
-                                        <td className="table-cell"><button type="button" className="btn-edit">View</button></td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </section>
-                </>
-            )}
+            {activeSub === 'suppliers-warehouse-sales' && <SuppliersWarehouseSales />}
 
             {activeSub === 'receipts' && (
                 <>
