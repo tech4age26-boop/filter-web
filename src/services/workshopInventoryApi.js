@@ -12,7 +12,8 @@ function qs(params) {
 /**
  * Manual stock correction + audit (branch scope).
  *
- * POST updates branch_inventory.qty_on_hand only; branch_products.opening_qty stays the adoption baseline.
+ * Default POST updates branch_inventory.qty_on_hand only.
+ * Reason **Opening qty** updates workshop_products.opening_qty and branch_inventory.qty_on_hand to the same value.
  * previousQty is optional; when sent it must match resolved on-hand (inventory row or else opening) for optimistic locking.
  *
  * ── POST /workshop-catalog/branches/:branchId/products/:productId/inventory-adjustments ──

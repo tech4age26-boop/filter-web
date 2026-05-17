@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, Search, Plus, Receipt, X, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { resolvePlateDisplay } from '../../utils/formatPlate';
 import { usePOS } from '../../context/POSContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -235,24 +236,11 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
             VAT: selections.VAT !== undefined && selections.VAT !== null ? selections.VAT : 15
         };
 
-        console.log(`[OrdersScreen] Step 1: Pricing Job ${jobId}`, pricingPayload);
-        await apiFetch(`/cashier/job/${jobId}/pricing`, {
-            method: 'POST',
-            body: JSON.stringify(pricingPayload)
-        });
-
-        console.log(`[OrdersScreen] Step 2: Ready Job ${jobId} (PATCH)`);
-        await apiFetch(`/cashier/job/${jobId}/complete-ready`, { 
-            method: 'PATCH' 
-        });
-
-        // Per reference (Flutter POS): /pricing already persisted items+VAT+discount; complete-cashier
-        // with an empty body tells the backend to recalculate totals from stored pricing, without
-        // overwriting line items. Sending items again here causes the invoice total to diverge.
-        console.log(`[OrdersScreen] Step 3: Complete Job ${jobId} (recalc only)`);
+        // Unified mark-complete: pricing + readiness + completion in one request.
+        console.log(`[OrdersScreen] Complete Job ${jobId} (unified)`, pricingPayload);
         await apiFetch(`/cashier/job/${jobId}/complete-cashier`, {
             method: 'POST',
-            body: JSON.stringify({})
+            body: JSON.stringify(pricingPayload),
         });
     };
 
@@ -466,7 +454,7 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
             id: o.id,
             orderNumber: o.orderNumber || o.order_number || o.id?.slice?.(-6) || o.id,
             customerName: o.customerName || o.customer?.name || o.guestName || 'Walk-in Customer',
-            plateNumber: o.plateNumber || o.vehicle?.plateNo || o.vehiclePlate || '',
+            plateNumber: resolvePlateDisplay(o) || o.vehiclePlate || '',
             status: o.status || 'active',
             total: parseFloat(o.grandTotal ?? o.totalAmount ?? o.total ?? 0) || 0,
             jobs: o.jobs || [],

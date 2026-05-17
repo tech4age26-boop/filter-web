@@ -28,6 +28,7 @@ import {
     workshopReportsAnalyticsParams,
     workshopStaffListScopeQuery,
 } from '../../services/workshopStaffApi';
+import { formatPlateLettersFirst } from '../../utils/formatPlate';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -94,7 +95,9 @@ const mapRecentPdfToInvoice = (raw) => {
         customerName: src.customerName || customer.name,
         customerMobile: src.phone || src.customerMobile || customer.mobile,
         customerTaxId: src.taxId ?? src.customerTaxId ?? customer.taxId ?? null,
-        plateNo: src.vehicleNo || src.plateNo || vehicle.plateNo,
+        plateNo: formatPlateLettersFirst(
+            src.vehicleNo || src.plateNo || src.plateDisplay || vehicle.plateDisplay || vehicle.plateNo || '',
+        ),
         vehicleModel: src.model ?? src.vehicleModel ?? vehicle.model ?? null,
         vehicleYear: src.year ?? src.vehicleYear ?? vehicle.year ?? null,
         vehicleMake: src.make ?? src.vehicleMake ?? vehicle.make ?? null,
@@ -302,6 +305,53 @@ function createEmptyTabSearch() {
 
 const ORDERS_PAGE_SIZE = 25;
 
+function KpiProofStat({ label, value }) {
+    return (
+        <div className="ws-kpi-proof-stat">
+            <span className="ws-kpi-proof-stat-label">{label}</span>
+            <span className="ws-kpi-proof-stat-value">{value}</span>
+        </div>
+    );
+}
+
+function KpiProofSummaryGrid({ items }) {
+    return (
+        <div className="ws-kpi-proof-summary-grid">
+            {items.map((item) => (
+                <KpiProofStat key={item.label} label={item.label} value={item.value} />
+            ))}
+        </div>
+    );
+}
+
+function KpiProofTable({ headers, rows, emptyMessage }) {
+    if (!rows.length) {
+        return <p className="ws-kpi-proof-note">{emptyMessage}</p>;
+    }
+    return (
+        <div className="ws-kpi-proof-scroll">
+            <table className="ws-table ws-kpi-proof-table">
+                <thead>
+                    <tr>
+                        {headers.map((h) => (
+                            <th key={h}>{h}</th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows.map((row, rowIdx) => (
+                        <tr key={rowIdx}>
+                            {row.map((cell, cellIdx) => (
+                                <td key={cellIdx}>{cell}</td>
+                            ))}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
 export default function WorkshopReports({ selectedBranchId = 'all', branches = [] }) {
     const initialRange = useMemo(() => defaultLocalRangeLatest(), []);
     const [rangeFromLocal, setRangeFromLocal] = useState(initialRange.start);
@@ -347,6 +397,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [recentOrderActionBusyId, setRecentOrderActionBusyId] = useState('');
     const [invoicePreviewData, setInvoicePreviewData] = useState(null);
     const [autoDownloadAfterPreview, setAutoDownloadAfterPreview] = useState(false);
+    const [kpiProofModalId, setKpiProofModalId] = useState(null);
 
     /** When set, summary reloads re-fetch the same drill-down row for the new range. */
     const detailAnchorRef = useRef(null);
@@ -890,6 +941,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             revenue: toNumber(e.revenue_sar ?? e.revenue),
         }));
 
+        const kpiProof = r.kpi_proof ?? r.kpiProof ?? null;
+
         return {
             completedOrdersCount: toNumber(r.completed_orders_count),
             totalRevenue,
@@ -905,30 +958,39 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             byBranch: parseArr(summaryData.by_branch).length ? summaryData.by_branch : parseArr(r.by_branch),
             period: r.period ?? null,
             previousPeriod: r.previous_period ?? null,
-            definitions: typeof r.definitions === 'string' ? r.definitions : '',
+            definitions: r.definitions && typeof r.definitions === 'object' ? r.definitions : {},
+            kpiProof,
         };
     }, [reportData, summaryData]);
 
     const kpis = useMemo(() => {
         if (!norm) {
             return [
-                { label: 'Total Revenue', value: formatCurrency(0), color: 'text-green' },
-                { label: 'Revenue Change', value: '0.0%', sub: 'vs previous period', color: 'text-blue' },
-                { label: 'Stock Value (Cost)', value: formatCurrency(0), sub: 'At period end (est.)', color: 'text-orange' },
-                { label: 'Potential Profit', value: formatCurrency(0), sub: '0 SKUs with stock', color: 'text-purple' },
+                { id: 'revenue', label: 'Total Revenue', value: formatCurrency(0), color: 'text-green' },
+                { id: 'revenue_change', label: 'Revenue Change', value: '0.0%', sub: 'vs previous period', color: 'text-blue' },
+                { id: 'stock_value', label: 'Stock Value (Cost)', value: formatCurrency(0), sub: 'At period end (est.)', color: 'text-orange' },
+                { id: 'potential_profit', label: 'Potential Profit', value: formatCurrency(0), sub: '0 SKUs with stock', color: 'text-purple' },
             ];
         }
         const sign = norm.revenueChangePercent > 0 ? '+' : '';
         return [
-            { label: 'Total Revenue', value: formatCurrency(norm.totalRevenue), color: 'text-green' },
+            { id: 'revenue', label: 'Total Revenue', value: formatCurrency(norm.totalRevenue), color: 'text-green' },
             {
+                id: 'revenue_change',
                 label: 'Revenue Change',
                 value: `${sign}${norm.revenueChangePercent.toFixed(1)}%`,
                 sub: 'vs previous period',
                 color: 'text-blue',
             },
-            { label: 'Stock Value (Cost)', value: formatCurrency(norm.stockValueCost), sub: 'At period end (est.)', color: 'text-orange' },
             {
+                id: 'stock_value',
+                label: 'Stock Value (Cost)',
+                value: formatCurrency(norm.stockValueCost),
+                sub: 'At period end (est.)',
+                color: 'text-orange',
+            },
+            {
+                id: 'potential_profit',
                 label: 'Potential Profit',
                 value: formatCurrency(norm.potentialProfit),
                 sub: `${norm.activeSkus} SKUs with stock`,
@@ -936,6 +998,149 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             },
         ];
     }, [norm]);
+
+    const kpiProofModalTitle = useMemo(() => {
+        const k = kpis.find((x) => x.id === kpiProofModalId);
+        return k ? `${k.label} — calculation` : 'KPI calculation';
+    }, [kpis, kpiProofModalId]);
+
+    const renderKpiProofBody = () => {
+        const proof = norm?.kpiProof;
+        if (!proof || !kpiProofModalId) {
+            return (
+                <p className="ws-kpi-proof-methodology">
+                    Refresh reports to load calculation breakdown (requires an updated backend).
+                </p>
+            );
+        }
+        const scopeLine = `Scope: ${branchLabel}${periodLine ? ` · ${periodLine}` : ''}`;
+
+        if (kpiProofModalId === 'revenue') {
+            const rev = proof.revenue ?? {};
+            const invoices = parseArr(rev.invoices);
+            return (
+                <>
+                    <p className="ws-kpi-proof-methodology">{rev.formula}</p>
+                    <p className="ws-kpi-proof-methodology">{scopeLine}</p>
+                    <KpiProofSummaryGrid
+                        items={[
+                            { label: 'Invoices in period', value: String(rev.invoice_count ?? 0) },
+                            { label: 'Reported total', value: formatCurrency(rev.total) },
+                            { label: 'Sum of lines below', value: formatCurrency(rev.line_sum_check) },
+                        ]}
+                    />
+                    {rev.invoices_truncated ? (
+                        <p className="ws-kpi-proof-note">
+                            Showing first {invoices.length} of {rev.invoices_total_count} invoices.
+                        </p>
+                    ) : null}
+                    <KpiProofTable
+                        headers={['Invoice', 'Date', 'Amount (SAR)']}
+                        rows={invoices.map((inv) => [
+                            inv.invoice_no ?? inv.invoiceNo ?? '—',
+                            inv.issued_at
+                                ? formatReportInstant(inv.issued_at)
+                                : inv.invoice_date ?? inv.invoiceDate ?? '—',
+                            formatCurrency(inv.amount),
+                        ])}
+                        emptyMessage="No invoices in this period."
+                    />
+                </>
+            );
+        }
+
+        if (kpiProofModalId === 'revenue_change') {
+            const ch = proof.revenue_change ?? {};
+            const cur = ch.current_period ?? {};
+            const prev = ch.previous_period ?? {};
+            return (
+                <>
+                    <p className="ws-kpi-proof-methodology">{ch.formula}</p>
+                    <p className="ws-kpi-proof-methodology">{scopeLine}</p>
+                    <KpiProofTable
+                        headers={['', 'Period', 'Total revenue (SAR)']}
+                        rows={[
+                            [
+                                'Current',
+                                `${cur.start_date ?? '—'} → ${cur.end_date ?? '—'}`,
+                                formatCurrency(ch.current_period_total),
+                            ],
+                            [
+                                'Previous',
+                                `${prev.start_date ?? '—'} → ${prev.end_date ?? '—'}`,
+                                formatCurrency(ch.previous_period_total),
+                            ],
+                            [
+                                'Change',
+                                '—',
+                                `${ch.change_percent > 0 ? '+' : ''}${Number(ch.change_percent ?? 0).toFixed(1)}%`,
+                            ],
+                        ]}
+                    />
+                </>
+            );
+        }
+
+        if (kpiProofModalId === 'stock_value' || kpiProofModalId === 'potential_profit') {
+            const inv = proof.inventory_valuation ?? proof.inventoryValuation ?? {};
+            const lines = parseArr(inv.lines);
+            const showProfit = kpiProofModalId === 'potential_profit';
+            return (
+                <>
+                    <p className="ws-kpi-proof-methodology">{inv.methodology}</p>
+                    <p className="ws-kpi-proof-methodology">
+                        {inv.unwind_formula}
+                        <br />
+                        {showProfit ? inv.potential_profit_formula : inv.stock_value_formula}
+                    </p>
+                    <p className="ws-kpi-proof-methodology">{scopeLine}</p>
+                    <p className="ws-kpi-proof-methodology">
+                        Period end (est.): <strong>{inv.period_end_date ?? '—'}</strong>
+                    </p>
+                    <KpiProofSummaryGrid
+                        items={[
+                            { label: 'SKUs with stock', value: String(inv.active_skus ?? 0) },
+                            {
+                                label: 'Stock value total',
+                                value: formatCurrency(inv.stock_value_total),
+                            },
+                            {
+                                label: 'Potential profit total',
+                                value: formatCurrency(inv.potential_profit_total),
+                            },
+                        ]}
+                    />
+                    <KpiProofTable
+                        headers={[
+                            'Product',
+                            'Branch',
+                            'On hand now',
+                            'Unwind after period',
+                            'Qty @ period end',
+                            'Cost',
+                            'Sale',
+                            'Stock value',
+                            'Line profit',
+                        ]}
+                        rows={lines.map((row) => [
+                            row.product_name ?? '—',
+                            row.branch_name ?? '—',
+                            row.qty_on_hand_now,
+                            row.unwind_after_period_end,
+                            row.qty_at_period_end,
+                            formatCurrency(row.purchase_price),
+                            formatCurrency(row.sale_price),
+                            formatCurrency(row.stock_value),
+                            formatCurrency(row.line_potential_profit),
+                        ])}
+                        emptyMessage="No branch inventory with stock at period end."
+                    />
+                </>
+            );
+        }
+
+        return <p className="ws-kpi-proof-methodology">No breakdown available for this KPI.</p>;
+    };
 
     const completedOrdersDisplay = norm?.completedOrdersCount ?? 0;
 
@@ -985,7 +1190,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         return rows.filter((row) => {
             const plates = Array.isArray(row.plate_numbers ?? row.plateNumbers)
                 ? (row.plate_numbers ?? row.plateNumbers).join(' ')
-                : row.plate_no ?? row.plateNo ?? '';
+                : formatPlateLettersFirst(row.plate_no ?? row.plateNo ?? '');
             return rowMatchesTabQuery(
                 [
                     row.customer_mobile,
@@ -1127,11 +1332,18 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
 
             <div className="ws-reports-kpi-grid">
                 {kpis.map((k) => (
-                    <div key={k.label} className="ws-kpi-card">
+                    <button
+                        key={k.id}
+                        type="button"
+                        className="ws-kpi-card ws-kpi-card--clickable"
+                        onClick={() => setKpiProofModalId(k.id)}
+                        aria-label={`${k.label}: view calculation breakdown`}
+                    >
                         <p className="ws-kpi-label">{k.label}</p>
                         <h3 className={`ws-kpi-value ${k.color}`}>{k.value}</h3>
                         {k.sub && <p className="ws-kpi-sub">{k.sub}</p>}
-                    </div>
+                        <p className="ws-kpi-proof-hint">Click for breakdown</p>
+                    </button>
                 ))}
             </div>
 
@@ -1384,7 +1596,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 {Array.isArray(row.plate_numbers ?? row.plateNumbers) &&
                                                 (row.plate_numbers ?? row.plateNumbers).length > 0
                                                     ? (row.plate_numbers ?? row.plateNumbers).join(', ')
-                                                    : row.plate_no ?? row.plateNo ?? '—'}
+                                                    : formatPlateLettersFirst(row.plate_no ?? row.plateNo ?? '') || '—'}
                                             </td>
                                             <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
                                             <td className="ws-font-bold">
@@ -1689,7 +1901,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             <td style={{ fontSize: '0.8125rem' }}>{formatOrderStatusLabel(row.orderStatus)}</td>
                                             <td>{formatInvoiceDateTimeForDisplay(row)}</td>
                                             <td>{row.customerName ?? '—'}</td>
-                                            <td>{row.plateNo ?? '—'}</td>
+                                            <td>{row.plateNo ? formatPlateLettersFirst(row.plateNo) : '—'}</td>
                                             <td className="ws-font-bold">SAR {toNumber(row.invoiceTotal).toLocaleString()}</td>
                                             <td onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
                                                 <button
@@ -1786,6 +1998,17 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 )}
             </div>
 
+            {kpiProofModalId && (
+                <Modal
+                    title={kpiProofModalTitle}
+                    contentClassName="ws-modal-kpi-proof"
+                    onClose={() => setKpiProofModalId(null)}
+                    width="min(960px, 96vw)"
+                >
+                    {renderKpiProofBody()}
+                </Modal>
+            )}
+
             {(recentOrderDetailsLoading || recentOrderDetailsError || recentOrderDetails) && (
                 <Modal
                     title={`Order ${
@@ -1841,44 +2064,23 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         ) : null}
                                         <tr><th>CUSTOMER NAME</th><td>{recentOrderDetails.customerName ?? '—'}</td></tr>
                                         <tr><th>PHONE</th><td>{recentOrderDetails.phone ?? '—'}</td></tr>
-                                        <tr><th>VEHICLE NO</th><td>{recentOrderDetails.vehicleNo ?? '—'}</td></tr>
+                                        <tr><th>VEHICLE NO</th><td>{recentOrderDetails.vehicleNo ? formatPlateLettersFirst(recentOrderDetails.vehicleNo) : '—'}</td></tr>
                                         <tr><th>DEPARTMENTS</th><td>{(recentOrderDetails.departments ?? []).map((d) => d?.name).filter(Boolean).join(', ') || '—'}</td></tr>
                                         <tr><th>TECHNICIANS</th><td>{(recentOrderDetails.technicians ?? []).map((t) => t?.name).filter(Boolean).join(', ') || '—'}</td></tr>
-                                        <tr><th>TOTAL AMOUNT</th><td>SAR {toNumber(recentOrderDetails.totalAmount).toLocaleString()}</td></tr>
+                                        <tr className="ws-order-details-total-row">
+                                            <th>TOTAL AMOUNT</th>
+                                            <td className="ws-font-bold">
+                                                SAR {toNumber(recentOrderDetails.totalAmount).toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                })}
+                                            </td>
+                                        </tr>
                                         <tr><th>PAYMENT METHOD</th><td>{recentOrderDetails.paymentMethod ?? '—'}</td></tr>
                                         <tr><th>CUSTOMER TYPE</th><td>{recentOrderDetails.customerType ?? '—'}</td></tr>
                                     </tbody>
                                 </table>
                             </div>
-                            {recentOrderDetails.orderDiscount ? (
-                                <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Order discount &amp; promo</p>
-                                    <table className="ws-table">
-                                        <tbody>
-                                            <tr>
-                                                <th>Order-level discount</th>
-                                                <td>
-                                                    {formatDiscountCell(
-                                                        recentOrderDetails.orderDiscount.totalDiscountType,
-                                                        recentOrderDetails.orderDiscount.totalDiscountValue,
-                                                    )}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <th>Promo discount (order)</th>
-                                                <td>
-                                                    SAR{' '}
-                                                    {toNumber(recentOrderDetails.orderDiscount.promoDiscountAmount).toLocaleString()}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <th>Promo code</th>
-                                                <td>{recentOrderDetails.orderDiscount.promoCode ?? '—'}</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : null}
                             {Array.isArray(recentOrderDetails.jobsDetail) && recentOrderDetails.jobsDetail.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
                                     <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Jobs</p>
@@ -2131,21 +2333,21 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     )}
                 </Modal>
             )}
-            {norm?.definitions ? (
+            {norm?.definitions && typeof norm.definitions === 'object' && Object.keys(norm.definitions).length > 0 ? (
                 <details className="ws-section" style={{ marginTop: 20 }}>
                     <summary className="ws-text-dim" style={{ cursor: 'pointer', fontWeight: 600 }}>
                         Metric definitions (from API)
                     </summary>
-                    <pre
-                        style={{
-                            marginTop: 12,
-                            fontSize: '0.8125rem',
-                            whiteSpace: 'pre-wrap',
-                            color: 'var(--color-text-muted)',
-                        }}
+                    <div
+                        className="ws-kpi-proof-methodology"
+                        style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}
                     >
-                        {norm.definitions}
-                    </pre>
+                        {Object.entries(norm.definitions).map(([key, text]) => (
+                            <p key={key} style={{ margin: 0 }}>
+                                <strong>{key.replace(/_/g, ' ')}:</strong> {String(text ?? '')}
+                            </p>
+                        ))}
+                    </div>
                 </details>
             ) : null}
         </div>
