@@ -1,7 +1,7 @@
 
-// export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 
-export const BASE_URL = 'http://localhost:3000';
+// export const BASE_URL = 'http://localhost:3000';
 const API_LOADING_EVENT = 'filter-api-loading';
 let activeApiRequests = 0;
 
@@ -12,7 +12,7 @@ function notifyApiLoading() {
             detail: {
                 pending: activeApiRequests,
                 loading: activeApiRequests > 0,
-            },  
+            },
         }),
     );
 }
@@ -110,8 +110,8 @@ export async function apiFetch(path, options = {}) {
                     options.body instanceof FormData
                         ? '[FormData]'
                         : options.body
-                          ? safeJsonParse(options.body)
-                          : undefined,
+                            ? safeJsonParse(options.body)
+                            : undefined,
             };
             if (traceImport) {
                 console.error(`[apiFetch] ${csvImportLabel} — error body`, {
@@ -126,12 +126,12 @@ export async function apiFetch(path, options = {}) {
             const msgStr = Array.isArray(msgRaw)
                 ? msgRaw.filter(Boolean).map(String).join(' ')
                 : typeof msgRaw === 'string'
-                  ? msgRaw.trim()
-                  : '';
+                    ? msgRaw.trim()
+                    : '';
             throw new Error(
                 msgStr ||
-                    (typeof err.error === 'string' ? err.error : '') ||
-                    `Request failed: ${res.status} ${res.statusText} (${options.method || 'GET'} ${path})`,
+                (typeof err.error === 'string' ? err.error : '') ||
+                `Request failed: ${res.status} ${res.statusText} (${options.method || 'GET'} ${path})`,
             );
         }
 

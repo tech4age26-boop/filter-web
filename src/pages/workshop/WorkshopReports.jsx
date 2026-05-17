@@ -13,6 +13,8 @@ import {
     getWorkshopRecentOrders,
     getWorkshopReportsByBranch,
     getWorkshopReportsByBranchDetails,
+    getWorkshopReportsByCashier,
+    getWorkshopReportsByCashierDetails,
     getWorkshopReportsByCustomer,
     getWorkshopReportsByCustomerDetails,
     getWorkshopReportsByDepartment,
@@ -297,6 +299,7 @@ function createEmptyTabSearch() {
         by_product: '',
         by_department: '',
         by_branch: '',
+        by_cashier: '',
     };
 }
 
@@ -328,6 +331,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         by_product: [],
         by_department: [],
         by_branch: [],
+        by_cashier: [],
     });
     const [detailRows, setDetailRows] = useState([]);
     const [detailsLoading, setDetailsLoading] = useState(false);
@@ -419,6 +423,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 byProductRes,
                 byDepartmentRes,
                 byBranchRes,
+                byCashierRes,
                 techniciansRes,
             ] = await Promise.all([
                 getWorkshopReportsAnalytics(params),
@@ -427,6 +432,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 getWorkshopReportsByProduct(params),
                 getWorkshopReportsByDepartment(params),
                 getWorkshopReportsByBranch(params),
+                getWorkshopReportsByCashier(params),
                 getWorkshopTechnicians(workshopStaffListScopeQuery(selectedBranchId)),
             ]);
             if (!response?.success) {
@@ -439,6 +445,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 by_product: extractSummaryRows(byProductRes, 'by_product'),
                 by_department: extractSummaryRows(byDepartmentRes, 'by_department'),
                 by_branch: extractSummaryRows(byBranchRes, 'by_branch'),
+                by_cashier: extractSummaryRows(byCashierRes, 'by_cashier'),
             });
             const rawTech = unwrapWorkshopStaffList(techniciansRes, 'technician');
             const opts = rawTech
@@ -459,6 +466,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 by_product: [],
                 by_department: [],
                 by_branch: [],
+                by_cashier: [],
             });
             setRecentOrders([]);
             setOrdersTotal(0);
@@ -728,6 +736,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 fetcher = getWorkshopReportsByBranchDetails;
                 key = String(row.branch_id ?? row.branchId ?? '');
                 title = `Branch details: ${row.branch_name ?? row.branchName ?? 'Branch'}`;
+            } else if (tabId === 'by_cashier') {
+                fetcher = getWorkshopReportsByCashierDetails;
+                key = String(row.cashier_id ?? row.cashierId ?? row.user_id ?? row.userId ?? '');
+                title = `Cashier details: ${row.name ?? 'Cashier'}`;
             } else if (tabId === 'daily_sales') {
                 fetcher = getWorkshopReportsDailySalesDetails;
                 key = String(row.date ?? '').trim();
@@ -833,6 +845,19 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             return next;
                         }),
                     );
+                } else if (tabId === 'by_cashier') {
+                    setDetailRows(
+                        rows.map((r) => {
+                            const next = { ...(r || {}) };
+                            delete next.invoiceId;
+                            delete next.invoice_id;
+                            delete next.salesOrderId;
+                            delete next.sales_order_id;
+                            delete next.vehicleId;
+                            delete next.vehicle_id;
+                            return next;
+                        }),
+                    );
                 } else if (tabId === 'daily_sales') {
                     setDetailRows(
                         rows.map((r) => {
@@ -903,6 +928,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             byProduct: parseArr(summaryData.by_product).length ? summaryData.by_product : parseArr(r.by_product),
             byDepartment: parseArr(summaryData.by_department).length ? summaryData.by_department : parseArr(r.by_department),
             byBranch: parseArr(summaryData.by_branch).length ? summaryData.by_branch : parseArr(r.by_branch),
+            byCashier: parseArr(summaryData.by_cashier).length ? summaryData.by_cashier : parseArr(r.by_cashier),
             period: r.period ?? null,
             previousPeriod: r.previous_period ?? null,
             definitions: typeof r.definitions === 'string' ? r.definitions : '',
@@ -947,6 +973,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         { id: 'by_product', label: 'By Product' },
         { id: 'by_department', label: 'By Department' },
         { id: 'by_branch', label: 'By Branch' },
+        { id: 'by_cashier', label: 'By Cashier' },
     ];
 
     const periodLine = useMemo(() => {
@@ -1067,6 +1094,27 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             ),
         );
     }, [norm, tabSearch.by_branch]);
+
+    const filteredByCashier = useMemo(() => {
+        const rows = norm?.byCashier ?? [];
+        const q = tabSearch.by_cashier;
+        return rows.filter((row) =>
+            rowMatchesTabQuery(
+                [
+                    row.name,
+                    row.cashier_id,
+                    row.cashierId,
+                    row.user_id,
+                    row.userId,
+                    row.orders_count,
+                    row.ordersCount,
+                    row.revenue_sar,
+                    row.revenueSar,
+                ],
+                q,
+            ),
+        );
+    }, [norm, tabSearch.by_cashier]);
 
     const ordersTotalPages = Math.max(1, Math.ceil(ordersTotal / ORDERS_PAGE_SIZE));
     const ordersRangeFrom =
@@ -1602,6 +1650,72 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             </td>
                                         </tr>
                                     ))
+                                )}
+                            </tbody>
+                        </table>
+                        </div>
+                    </>
+                )}
+
+                {activeTab === 'by_cashier' && (
+                    <>
+                        <div className="ws-report-tab-toolbar">
+                            <input
+                                type="search"
+                                className="ws-report-tab-search"
+                                placeholder="Search cashier, orders, revenue…"
+                                value={tabSearch.by_cashier}
+                                onChange={(e) => setTabSearch((p) => ({ ...p, by_cashier: e.target.value }))}
+                                aria-label="Search by cashier"
+                            />
+                        </div>
+                        <div className="ws-report-table-wrapper">
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>CASHIER</th>
+                                    <th>TOTAL ORDERS</th>
+                                    <th>TOTAL REVENUE (SAR)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(norm?.byCashier ?? []).length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No cashier sales in this scope.
+                                        </td>
+                                    </tr>
+                                ) : filteredByCashier.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No rows match your search.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    filteredByCashier.map((row, i) => {
+                                        const rowKey = String(
+                                            row.cashier_id ?? row.cashierId ?? row.user_id ?? row.userId ?? i,
+                                        );
+                                        return (
+                                            <tr
+                                                key={rowKey}
+                                                onClick={() => loadDetails('by_cashier', row)}
+                                                style={{
+                                                    cursor: 'pointer',
+                                                    background:
+                                                        selectedDetailKey === `by_cashier:${rowKey}` ? '#F8FAFC' : undefined,
+                                                }}
+                                            >
+                                                <td>
+                                                    <strong>{row.name ?? '—'}</strong>
+                                                </td>
+                                                <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
+                                                <td className="ws-font-bold">
+                                                    SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>

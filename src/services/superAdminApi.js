@@ -426,13 +426,91 @@ export const saveTaxCodesConfig = (body) =>
 
 // ─── Sales Orders ─────────────────────────────────────────────────────────────
 
-export const getSalesOrders = ({ workshopId, limit, offset } = {}) =>
-    apiFetch(`/super-admin/sales-orders${qs({ workshopId, limit, offset })}`);
+export const getSalesOrders = ({
+    workshopId,
+    branchId,
+    status,
+    search,
+    startDate,
+    endDate,
+    limit,
+    offset,
+} = {}) =>
+    apiFetch(
+        `/super-admin/sales-orders${qs({
+            workshopId,
+            branchId,
+            status,
+            search,
+            startDate,
+            endDate,
+            limit,
+            offset,
+        })}`,
+    );
+
+export const getSalesOrder = (id) =>
+    apiFetch(`/super-admin/sales-orders/${encodeURIComponent(String(id))}`);
 
 // ─── Invoices ─────────────────────────────────────────────────────────────────
 
-export const getInvoices = ({ workshopId, limit, offset } = {}) =>
-    apiFetch(`/super-admin/invoices${qs({ workshopId, limit, offset })}`);
+export const getInvoices = ({
+    workshopId,
+    branchId,
+    paymentStatus,
+    search,
+    startDate,
+    endDate,
+    limit,
+    offset,
+} = {}) =>
+    apiFetch(
+        `/super-admin/invoices${qs({
+            workshopId,
+            branchId,
+            paymentStatus,
+            search,
+            startDate,
+            endDate,
+            limit,
+            offset,
+        })}`,
+    );
+
+export const getInvoice = (id) =>
+    apiFetch(`/super-admin/invoices/${encodeURIComponent(String(id))}`);
+
+// ─── Supplier Invoices (supplier → workshop sales / AR) ───────────────────────
+
+export const getSupplierInvoices = ({
+    workshopId,
+    branchId,
+    supplierId,
+    status,
+    workshopReviewStatus,
+    search,
+    startDate,
+    endDate,
+    limit,
+    offset,
+} = {}) =>
+    apiFetch(
+        `/super-admin/supplier-invoices${qs({
+            workshopId,
+            branchId,
+            supplierId,
+            status,
+            workshopReviewStatus,
+            search,
+            startDate,
+            endDate,
+            limit,
+            offset,
+        })}`,
+    );
+
+export const getSupplierInvoice = (id) =>
+    apiFetch(`/super-admin/supplier-invoices/${encodeURIComponent(String(id))}`);
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 

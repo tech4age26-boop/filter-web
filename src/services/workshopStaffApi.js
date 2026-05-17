@@ -584,6 +584,9 @@ export const getWorkshopReportsByDepartment = (params = {}, options = {}) =>
 export const getWorkshopReportsByBranch = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-branch${qs(params)}`, options);
 
+export const getWorkshopReportsByCashier = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-cashier${qs(params)}`, options);
+
 export const getWorkshopReportsByTechnicianDetails = (id, params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-technician/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
 
@@ -598,6 +601,9 @@ export const getWorkshopReportsByDepartmentDetails = (id, params = {}, options =
 
 export const getWorkshopReportsByBranchDetails = (id, params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-branch/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
+
+export const getWorkshopReportsByCashierDetails = (id, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-cashier/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
 
 /** `date` = YYYY-MM-DD (invoice date key; same as Daily Sales row). */
 export const getWorkshopReportsDailySalesDetails = (date, params = {}, options = {}) =>

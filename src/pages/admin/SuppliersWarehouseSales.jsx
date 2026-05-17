@@ -1,26 +1,43 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ShoppingCart, Search, CheckCircle2, XCircle, Clock, Loader } from 'lucide-react';
+import { Truck, Search, Loader } from 'lucide-react';
 import '../../styles/admin/SalesOrders.css';
 import '../workshop/Workshop.css';
 import Modal from '../../components/Modal';
 import { ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import {
     getBranches,
-    getSalesOrder,
-    getSalesOrders,
+    getSuppliers,
+    getSupplierInvoice,
+    getSupplierInvoices,
     getWorkshopOptions,
 } from '../../services/superAdminApi';
 
 const PAGE_SIZE = 25;
 
-const STATUS_VARIANT = {
-    completed: { class: 'so-status-completed', icon: CheckCircle2, label: 'Completed' },
-    invoiced: { class: 'so-status-completed', icon: CheckCircle2, label: 'Invoiced' },
-    cancelled: { class: 'so-status-cancelled', icon: XCircle, label: 'Cancelled' },
-    rejected: { class: 'so-status-cancelled', icon: XCircle, label: 'Rejected' },
-    pending: { class: 'so-status-pending', icon: Clock, label: 'Pending' },
-    draft: { class: 'so-status-pending', icon: Clock, label: 'Draft' },
-    in_progress: { class: 'so-status-pending', icon: Clock, label: 'In progress' },
+const PAYMENT_STATUS_CLASS = {
+    paid: 'so-status-completed',
+    unpaid: 'so-status-cancelled',
+    partial: 'so-status-pending',
+};
+
+const REVIEW_STATUS_OPTIONS = [
+    { value: '', label: 'All Review Status' },
+    { value: 'pending', label: 'Pending review' },
+    { value: 'accepted', label: 'Accepted' },
+    { value: 'rejected', label: 'Rejected' },
+];
+
+const STATUS_OPTIONS = [
+    { value: '', label: 'All Status' },
+    { value: 'pending_payment', label: 'Pending payment' },
+    { value: 'partially_paid', label: 'Partially paid' },
+    { value: 'paid', label: 'Paid' },
+    { value: 'cancelled', label: 'Cancelled' },
+];
+
+const toNumber = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
 };
 
 function formatStatusLabel(status) {
@@ -31,22 +48,40 @@ function formatStatusLabel(status) {
         .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function StatusBadge({ status }) {
+function PaymentBadge({ status }) {
     const key = String(status ?? '').trim().toLowerCase();
-    const cfg = STATUS_VARIANT[key];
-    const Icon = cfg?.icon ?? Clock;
     return (
-        <span className={`so-status-badge ${cfg?.class ?? 'so-status-pending'}`}>
-            <Icon size={12} />
-            {cfg?.label ?? formatStatusLabel(status)}
+        <span className={`so-status-badge ${PAYMENT_STATUS_CLASS[key] ?? 'so-status-pending'}`}>
+            {formatStatusLabel(status)}
         </span>
     );
 }
 
-const toNumber = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-};
+function ReviewBadge({ status }) {
+    const key = String(status ?? '').trim().toLowerCase();
+    const cls =
+        key === 'accepted'
+            ? 'so-status-completed'
+            : key === 'rejected'
+              ? 'so-status-cancelled'
+              : 'so-status-pending';
+    return (
+        <span className={`so-status-badge ${cls}`}>
+            {status ? formatStatusLabel(status) : 'Pending'}
+        </span>
+    );
+}
+
+function formatDateOnly(raw) {
+    if (raw == null || raw === '') return '—';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return String(raw);
+    return d.toLocaleDateString(undefined, {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    });
+}
 
 function formatDateTime(raw) {
     if (raw == null || raw === '') return '—';
@@ -61,11 +96,14 @@ function formatDateTime(raw) {
     });
 }
 
-function formatInvoiceDateTime(order) {
-    return formatDateTime(order?.issuedAt ?? order?.invoiceDate ?? order?.createdAt);
+function formatDiscountCell(mode, value) {
+    const t = String(mode ?? '').toLowerCase();
+    const v = toNumber(value);
+    if (!v) return '—';
+    if (t === 'percent' || t === 'percentage') return `${v}%`;
+    return `SAR ${v.toLocaleString()}`;
 }
 
-/** `datetime-local` (local wall-clock, no TZ) → full ISO instant the backend accepts. */
 function localDateTimeToIso(localValue) {
     if (!localValue) return '';
     const d = new Date(localValue);
@@ -73,25 +111,7 @@ function localDateTimeToIso(localValue) {
     return d.toISOString();
 }
 
-function formatDiscountCell(discountType, discountValue) {
-    const t = String(discountType ?? '').toLowerCase();
-    const v = toNumber(discountValue);
-    if (!v) return '—';
-    if (t === 'percent' || t === 'percentage') return `${v}%`;
-    return `SAR ${v.toLocaleString()}`;
-}
-
-const STATUS_OPTIONS = [
-    { value: '', label: 'All Status' },
-    { value: 'draft', label: 'Draft' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'in_progress', label: 'In progress' },
-    { value: 'completed', label: 'Completed' },
-    { value: 'invoiced', label: 'Invoiced' },
-    { value: 'cancelled', label: 'Cancelled' },
-];
-
-export default function SalesOrders() {
+export default function SuppliersWarehouseSales() {
     const [workshopOptions, setWorkshopOptions] = useState([]);
     const [workshopOptionsLoading, setWorkshopOptionsLoading] = useState(true);
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
@@ -100,13 +120,18 @@ export default function SalesOrders() {
     const [branchOptionsLoading, setBranchOptionsLoading] = useState(false);
     const [selectedBranchId, setSelectedBranchId] = useState('');
 
+    const [supplierOptions, setSupplierOptions] = useState([]);
+    const [supplierOptionsLoading, setSupplierOptionsLoading] = useState(true);
+    const [selectedSupplierId, setSelectedSupplierId] = useState('');
+
     const [statusFilter, setStatusFilter] = useState('');
+    const [reviewStatusFilter, setReviewStatusFilter] = useState('');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [searchInput, setSearchInput] = useState('');
     const [searchDebounced, setSearchDebounced] = useState('');
 
-    const [orders, setOrders] = useState([]);
+    const [invoices, setInvoices] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(true);
@@ -117,7 +142,6 @@ export default function SalesOrders() {
     const [detailLoading, setDetailLoading] = useState(false);
     const [detailError, setDetailError] = useState('');
 
-    // Load workshops once.
     useEffect(() => {
         let cancelled = false;
         (async () => {
@@ -145,7 +169,39 @@ export default function SalesOrders() {
         };
     }, []);
 
-    // Load branches when workshop changes.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            setSupplierOptionsLoading(true);
+            try {
+                const res = await getSuppliers(
+                    selectedWorkshopId ? { workshopId: selectedWorkshopId } : {},
+                );
+                const list = Array.isArray(res?.suppliers)
+                    ? res.suppliers
+                    : Array.isArray(res?.data?.suppliers)
+                      ? res.data.suppliers
+                      : [];
+                if (!cancelled) {
+                    setSupplierOptions(
+                        list.map((s) => ({ id: String(s.id), name: String(s.name || '').trim() || 'Supplier' })),
+                    );
+                    setSelectedSupplierId('');
+                }
+            } catch {
+                if (!cancelled) {
+                    setSupplierOptions([]);
+                    setSelectedSupplierId('');
+                }
+            } finally {
+                if (!cancelled) setSupplierOptionsLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedWorkshopId]);
+
     useEffect(() => {
         if (!selectedWorkshopId) {
             setBranchOptions([]);
@@ -182,37 +238,46 @@ export default function SalesOrders() {
         };
     }, [selectedWorkshopId]);
 
-    // Debounce search.
     useEffect(() => {
         const t = setTimeout(() => setSearchDebounced(searchInput.trim()), 380);
         return () => clearTimeout(t);
     }, [searchInput]);
 
-    // Reset to page 1 whenever filters change.
     useEffect(() => {
         setPage(1);
-    }, [selectedWorkshopId, selectedBranchId, statusFilter, dateFrom, dateTo, searchDebounced]);
+    }, [
+        selectedWorkshopId,
+        selectedBranchId,
+        selectedSupplierId,
+        statusFilter,
+        reviewStatusFilter,
+        dateFrom,
+        dateTo,
+        searchDebounced,
+    ]);
 
-    const fetchOrders = useCallback(async () => {
+    const fetchInvoices = useCallback(async () => {
         setLoading(true);
         setLoadError('');
         try {
-            const res = await getSalesOrders({
+            const res = await getSupplierInvoices({
                 workshopId: selectedWorkshopId || undefined,
                 branchId: selectedBranchId || undefined,
+                supplierId: selectedSupplierId || undefined,
                 status: statusFilter || undefined,
+                workshopReviewStatus: reviewStatusFilter || undefined,
                 search: searchDebounced || undefined,
                 startDate: localDateTimeToIso(dateFrom) || undefined,
                 endDate: localDateTimeToIso(dateTo) || undefined,
                 limit: String(PAGE_SIZE),
                 offset: String((page - 1) * PAGE_SIZE),
             });
-            const rows = Array.isArray(res?.salesOrders)
-                ? res.salesOrders
-                : Array.isArray(res?.data?.salesOrders)
-                  ? res.data.salesOrders
+            const rows = Array.isArray(res?.supplierInvoices)
+                ? res.supplierInvoices
+                : Array.isArray(res?.data?.supplierInvoices)
+                  ? res.data.supplierInvoices
                   : [];
-            setOrders(rows);
+            setInvoices(rows);
             const tot = res?.total ?? res?.data?.total;
             setTotal(
                 typeof tot === 'number' && Number.isFinite(tot)
@@ -220,33 +285,43 @@ export default function SalesOrders() {
                     : Number.parseInt(String(tot ?? ''), 10) || rows.length,
             );
         } catch (e) {
-            setOrders([]);
+            setInvoices([]);
             setTotal(0);
-            setLoadError(e?.message || 'Failed to load sales orders.');
+            setLoadError(e?.message || 'Failed to load supplier sales invoices.');
         } finally {
             setLoading(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, statusFilter, searchDebounced, dateFrom, dateTo, page]);
+    }, [
+        selectedWorkshopId,
+        selectedBranchId,
+        selectedSupplierId,
+        statusFilter,
+        reviewStatusFilter,
+        searchDebounced,
+        dateFrom,
+        dateTo,
+        page,
+    ]);
 
     useEffect(() => {
-        void fetchOrders();
-    }, [fetchOrders]);
+        void fetchInvoices();
+    }, [fetchInvoices]);
 
-    const openDetails = useCallback(async (orderId) => {
-        if (!orderId) return;
-        setDetailId(String(orderId));
+    const openDetails = useCallback(async (invoiceId) => {
+        if (!invoiceId) return;
+        setDetailId(String(invoiceId));
         setDetailLoading(true);
         setDetailError('');
         setDetailData(null);
         try {
-            const res = await getSalesOrder(orderId);
+            const res = await getSupplierInvoice(invoiceId);
             const payload =
                 res && typeof res === 'object' && res.data && typeof res.data === 'object'
                     ? res.data
                     : res;
             setDetailData(payload && typeof payload === 'object' ? payload : null);
         } catch (e) {
-            setDetailError(e?.message || 'Failed to load order details.');
+            setDetailError(e?.message || 'Failed to load invoice details.');
         } finally {
             setDetailLoading(false);
         }
@@ -259,34 +334,27 @@ export default function SalesOrders() {
         setDetailLoading(false);
     };
 
-    // KPIs computed from current page (lightweight; full-period KPIs live in Sales Reports).
     const kpis = useMemo(() => {
-        const invoicedRevenue = orders.reduce(
-            (acc, o) => acc + (o.invoiceNo ? toNumber(o.totalAmount) : 0),
-            0,
-        );
-        const invoicedCount = orders.filter((o) => o.invoiceNo).length;
-        const pendingCount = orders.filter(
-            (o) => !o.invoiceNo && !['cancelled', 'rejected'].includes(String(o.status ?? '').toLowerCase()),
-        ).length;
-        const cancelledCount = orders.filter((o) =>
-            ['cancelled', 'rejected'].includes(String(o.status ?? '').toLowerCase()),
-        ).length;
+        const totalIssued = invoices.reduce((acc, i) => acc + toNumber(i.grandTotal), 0);
+        const totalPaid = invoices.reduce((acc, i) => acc + toNumber(i.paidAmount), 0);
+        const totalBalance = invoices.reduce((acc, i) => acc + toNumber(i.balance), 0);
         return [
-            { label: 'Total Orders (matching)', value: total.toLocaleString() },
-            { label: 'Invoiced (this page)', value: invoicedCount.toLocaleString() },
-            { label: 'Pending (this page)', value: pendingCount.toLocaleString() },
+            { label: 'Total Invoices (matching)', value: total.toLocaleString() },
             {
-                label: 'Cancelled (this page)',
-                value: cancelledCount.toLocaleString(),
+                label: 'Issued (this page)',
+                value: `SAR ${totalIssued.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
             },
             {
-                label: 'Invoiced Revenue (this page)',
-                value: `SAR ${invoicedRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`,
+                label: 'Collected (this page)',
+                value: `SAR ${totalPaid.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
                 className: 'revenue',
             },
+            {
+                label: 'Outstanding (this page)',
+                value: `SAR ${totalBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
+            },
         ];
-    }, [orders, total]);
+    }, [invoices, total]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const rangeFrom = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
@@ -297,11 +365,13 @@ export default function SalesOrders() {
             <header className="so-header">
                 <div>
                     <h2 className="so-title">
-                        <ShoppingCart size={20} color="#F59E0B" /> All Sales Orders
+                        <Truck size={20} color="#F59E0B" /> Suppliers &amp; Warehouse Sales
                     </h2>
-                    <p className="so-sub">POS sales across all workshops &amp; branches</p>
+                    <p className="so-sub">
+                        Sales invoices issued by suppliers / warehouses to workshops
+                    </p>
                 </div>
-                <div className="so-order-count-badge">{total.toLocaleString()} orders</div>
+                <div className="so-order-count-badge">{total.toLocaleString()} invoices</div>
             </header>
 
             <div className="so-kpi-grid">
@@ -319,7 +389,7 @@ export default function SalesOrders() {
                     <input
                         type="text"
                         className="so-search-input"
-                        placeholder="Search invoice, customer, mobile, plate, order id…"
+                        placeholder="Search invoice no, supplier, mobile, workshop, branch…"
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
                     />
@@ -352,11 +422,33 @@ export default function SalesOrders() {
                 </select>
                 <select
                     className="so-select"
+                    value={selectedSupplierId}
+                    onChange={(e) => setSelectedSupplierId(e.target.value)}
+                    disabled={supplierOptionsLoading}
+                    aria-label="Supplier filter"
+                >
+                    <option value="">{supplierOptionsLoading ? 'Loading suppliers…' : 'All Suppliers'}</option>
+                    {supplierOptions.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                </select>
+                <select
+                    className="so-select"
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                     aria-label="Status filter"
                 >
                     {STATUS_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                </select>
+                <select
+                    className="so-select"
+                    value={reviewStatusFilter}
+                    onChange={(e) => setReviewStatusFilter(e.target.value)}
+                    aria-label="Workshop review status filter"
+                >
+                    {REVIEW_STATUS_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                 </select>
@@ -400,67 +492,79 @@ export default function SalesOrders() {
                 <table className="so-table">
                     <thead>
                         <tr>
-                            <th>Invoice / Order</th>
-                            <th>Date / Time</th>
+                            <th>Invoice #</th>
+                            <th>Invoice Date</th>
+                            <th>Due Date</th>
+                            <th>Supplier</th>
                             <th>Workshop</th>
                             <th>Branch</th>
-                            <th>Customer</th>
-                            <th>Vehicle</th>
-                            <th>Technicians</th>
+                            <th>Items</th>
                             <th>Total (SAR)</th>
-                            <th>Status</th>
+                            <th>Paid (SAR)</th>
+                            <th>Balance (SAR)</th>
+                            <th>Payment</th>
+                            <th>Review</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {loading && orders.length === 0 ? (
+                        {loading && invoices.length === 0 ? (
                             <tr>
-                                <td colSpan={9} style={{ textAlign: 'center', padding: 24 }}>
+                                <td colSpan={12} style={{ textAlign: 'center', padding: 24 }}>
                                     <Loader size={18} className="spin" /> Loading…
                                 </td>
                             </tr>
-                        ) : orders.length === 0 ? (
+                        ) : invoices.length === 0 ? (
                             <tr>
-                                <td colSpan={9} style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>
-                                    No sales orders match these filters.
+                                <td colSpan={12} style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>
+                                    No supplier sales invoices match these filters.
                                 </td>
                             </tr>
                         ) : (
-                            orders.map((order) => (
+                            invoices.map((inv) => (
                                 <tr
-                                    key={order.id}
-                                    onClick={() => openDetails(order.id)}
+                                    key={inv.id}
+                                    onClick={() => openDetails(inv.id)}
                                     style={{ cursor: 'pointer', opacity: loading ? 0.55 : undefined }}
                                 >
                                     <td>
                                         <div className="so-customer-info">
-                                            <strong className="so-inv-link">
-                                                {order.invoiceNo ?? 'Pending invoice'}
-                                            </strong>
-                                            <span className="so-customer-mobile">Order #{order.id}</span>
+                                            <strong className="so-inv-link">{inv.invoiceNo ?? '—'}</strong>
+                                            <span className="so-customer-mobile">
+                                                Status: {formatStatusLabel(inv.status)}
+                                            </span>
                                         </div>
                                     </td>
-                                    <td>{formatInvoiceDateTime(order)}</td>
-                                    <td className="so-text-dim">{order.workshopName ?? '—'}</td>
-                                    <td className="so-text-dim">{order.branchName ?? '—'}</td>
+                                    <td>{formatDateOnly(inv.invoiceDate)}</td>
+                                    <td>{formatDateOnly(inv.dueDate)}</td>
                                     <td>
                                         <div className="so-customer-info">
-                                            <strong>{order.customerName ?? 'Walk-in'}</strong>
-                                            <span className="so-customer-mobile">{order.customerMobile ?? '—'}</span>
+                                            <strong>{inv.supplierName ?? '—'}</strong>
+                                            <span className="so-customer-mobile">{inv.supplierMobile ?? '—'}</span>
                                         </div>
                                     </td>
-                                    <td>{order.plateNo ?? '—'}</td>
-                                    <td style={{ fontSize: '0.8125rem' }}>{order.technicianNames ?? '—'}</td>
+                                    <td className="so-text-dim">{inv.workshopName ?? '—'}</td>
+                                    <td className="so-text-dim">{inv.branchName ?? '—'}</td>
+                                    <td>{toNumber(inv.itemsCount)}</td>
                                     <td style={{ fontWeight: 600 }}>
-                                        {order.totalAmount != null
-                                            ? toNumber(order.totalAmount).toLocaleString(undefined, {
-                                                  minimumFractionDigits: 2,
-                                                  maximumFractionDigits: 2,
-                                              })
-                                            : '—'}
+                                        {toNumber(inv.grandTotal).toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                        })}
                                     </td>
                                     <td>
-                                        <StatusBadge status={order.status} />
+                                        {toNumber(inv.paidAmount).toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                        })}
                                     </td>
+                                    <td>
+                                        {toNumber(inv.balance).toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                        })}
+                                    </td>
+                                    <td><PaymentBadge status={inv.paymentStatus} /></td>
+                                    <td><ReviewBadge status={inv.workshopReviewStatus} /></td>
                                 </tr>
                             ))
                         )}
@@ -475,7 +579,7 @@ export default function SalesOrders() {
                         <strong>{total.toLocaleString()}</strong>
                         {loading ? <span> · Loading…</span> : null}
                     </p>
-                    <nav className="ws-report-pagination__nav" aria-label="Sales orders pages">
+                    <nav className="ws-report-pagination__nav" aria-label="Supplier invoices pages">
                         <button
                             type="button"
                             className="ws-report-pagination__edge"
@@ -522,13 +626,7 @@ export default function SalesOrders() {
 
             {detailId && (
                 <Modal
-                    title={`Order ${
-                        detailData?.invoice?.invoiceNo
-                            ? `- ${detailData.invoice.invoiceNo}`
-                            : detailData?.id
-                              ? `#${detailData.id}`
-                              : 'Details'
-                    }`}
+                    title={`Supplier Invoice ${detailData?.invoiceNo ? `- ${detailData.invoiceNo}` : 'Details'}`}
                     onClose={closeDetails}
                     width="min(1100px, 98vw)"
                     contentClassName="ws-modal-order-details"
@@ -542,148 +640,78 @@ export default function SalesOrders() {
                             <div className="ws-report-table-wrapper">
                                 <table className="ws-table">
                                     <tbody>
-                                        <tr><th>ORDER STATUS</th><td>{formatStatusLabel(detailData.status)}</td></tr>
-                                        <tr><th>SOURCE</th><td>{formatStatusLabel(detailData.source)}</td></tr>
-                                        <tr><th>WORKSHOP</th><td>{detailData.workshopName ?? '—'}</td></tr>
-                                        <tr><th>BRANCH</th><td>{detailData.branchName ?? '—'}</td></tr>
-                                        <tr><th>ORDER PLACED</th><td>{formatDateTime(detailData.createdAt)}</td></tr>
-                                        {detailData.invoice ? (
-                                            <>
-                                                <tr><th>INVOICE NO</th><td>{detailData.invoice.invoiceNo ?? '—'}</td></tr>
-                                                <tr>
-                                                    <th>INVOICE DATE &amp; TIME</th>
-                                                    <td>
-                                                        {formatDateTime(
-                                                            detailData.invoice.issuedAt ?? detailData.invoice.invoiceDate,
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                                <tr><th>PAYMENT STATUS</th><td>{formatStatusLabel(detailData.invoice.paymentStatus)}</td></tr>
-                                            </>
+                                        <tr><th>INVOICE NO</th><td>{detailData.invoiceNo ?? '—'}</td></tr>
+                                        <tr><th>INVOICE DATE</th><td>{formatDateOnly(detailData.invoiceDate)}</td></tr>
+                                        <tr><th>DUE DATE</th><td>{formatDateOnly(detailData.dueDate)}</td></tr>
+                                        {detailData.paymentTerms ? (
+                                            <tr><th>PAYMENT TERMS</th><td>{detailData.paymentTerms}</td></tr>
                                         ) : null}
-                                        <tr><th>CUSTOMER NAME</th><td>{detailData.customer?.name ?? '—'}</td></tr>
-                                        <tr><th>PHONE</th><td>{detailData.customer?.mobile ?? '—'}</td></tr>
+                                        <tr><th>STATUS</th><td>{formatStatusLabel(detailData.status)}</td></tr>
                                         <tr>
-                                            <th>VEHICLE</th>
+                                            <th>WORKSHOP REVIEW</th>
                                             <td>
-                                                {detailData.vehicle?.plateNo ?? '—'}
-                                                {detailData.vehicle &&
-                                                (detailData.vehicle.make || detailData.vehicle.model || detailData.vehicle.year)
-                                                    ? ` · ${[detailData.vehicle.year, detailData.vehicle.make, detailData.vehicle.model]
-                                                          .filter(Boolean)
-                                                          .join(' ')}`
+                                                {formatStatusLabel(detailData.workshopReviewStatus) || 'Pending'}
+                                                {detailData.workshopReviewedAt
+                                                    ? ` · ${formatDateTime(detailData.workshopReviewedAt)}`
                                                     : ''}
                                             </td>
                                         </tr>
-                                        {detailData.invoice ? (
+                                        {detailData.workshopRejectionReason ? (
                                             <tr>
-                                                <th>TOTAL AMOUNT</th>
-                                                <td>SAR {toNumber(detailData.invoice.totalAmount).toLocaleString()}</td>
+                                                <th>REJECTION REASON</th>
+                                                <td>{detailData.workshopRejectionReason}</td>
                                             </tr>
                                         ) : null}
+                                        <tr>
+                                            <th>SUPPLIER</th>
+                                            <td>
+                                                <div style={{ fontWeight: 600 }}>{detailData.supplier?.name ?? '—'}</div>
+                                                <div style={{ fontSize: 12, color: '#6B7280' }}>
+                                                    {[detailData.supplier?.mobile, detailData.supplier?.email]
+                                                        .filter(Boolean)
+                                                        .join(' · ') || '—'}
+                                                </div>
+                                                {detailData.supplier?.vatId ? (
+                                                    <div style={{ fontSize: 12, color: '#6B7280' }}>
+                                                        VAT: {detailData.supplier.vatId}
+                                                    </div>
+                                                ) : null}
+                                            </td>
+                                        </tr>
+                                        <tr><th>WORKSHOP</th><td>{detailData.workshop?.name ?? '—'}</td></tr>
+                                        <tr><th>BRANCH</th><td>{detailData.branch?.name ?? '—'}</td></tr>
+                                        {detailData.po ? (
+                                            <tr>
+                                                <th>PURCHASE ORDER</th>
+                                                <td>#{detailData.po.id} · {formatStatusLabel(detailData.po.status)}</td>
+                                            </tr>
+                                        ) : null}
+                                        <tr><th>SUBTOTAL</th><td>SAR {toNumber(detailData.subtotal).toLocaleString()}</td></tr>
+                                        <tr><th>INVOICE DISCOUNT</th><td>SAR {toNumber(detailData.invoiceDiscount).toLocaleString()}</td></tr>
+                                        <tr><th>FREIGHT IN</th><td>SAR {toNumber(detailData.freightIn).toLocaleString()}</td></tr>
+                                        <tr><th>VAT</th><td>SAR {toNumber(detailData.vatAmount).toLocaleString()}</td></tr>
+                                        <tr>
+                                            <th>GRAND TOTAL</th>
+                                            <td className="ws-font-bold">
+                                                SAR {toNumber(detailData.grandTotal).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                        <tr><th>PAID</th><td>SAR {toNumber(detailData.paidAmount).toLocaleString()}</td></tr>
+                                        <tr><th>BALANCE</th><td className="ws-font-bold">SAR {toNumber(detailData.balance).toLocaleString()}</td></tr>
+                                        <tr><th>PAYMENT</th><td>{formatStatusLabel(detailData.paymentStatus)}</td></tr>
                                     </tbody>
                                 </table>
                             </div>
 
-                            {detailData.orderDiscount &&
-                            (toNumber(detailData.orderDiscount.totalDiscountValue) > 0 ||
-                                toNumber(detailData.orderDiscount.promoDiscountAmount) > 0 ||
-                                detailData.orderDiscount.promoCode) ? (
-                                <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
-                                        Order discount &amp; promo
-                                    </p>
-                                    <table className="ws-table">
-                                        <tbody>
-                                            <tr>
-                                                <th>Order-level discount</th>
-                                                <td>
-                                                    {formatDiscountCell(
-                                                        detailData.orderDiscount.totalDiscountType,
-                                                        detailData.orderDiscount.totalDiscountValue,
-                                                    )}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <th>Promo discount (order)</th>
-                                                <td>
-                                                    SAR{' '}
-                                                    {toNumber(detailData.orderDiscount.promoDiscountAmount).toLocaleString()}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <th>Promo code</th>
-                                                <td>{detailData.orderDiscount.promoCode ?? '—'}</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : null}
-
-                            {Array.isArray(detailData.jobs) && detailData.jobs.length > 0 ? (
-                                <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Jobs</p>
-                                    <div className="ws-order-details-table-scroll">
-                                        <table className="ws-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Job #</th>
-                                                    <th>Department</th>
-                                                    <th>Status</th>
-                                                    <th>Opened</th>
-                                                    <th>Completed</th>
-                                                    <th>Before disc.</th>
-                                                    <th>After disc.</th>
-                                                    <th>VAT</th>
-                                                    <th>Job total</th>
-                                                    <th>Technicians</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {detailData.jobs.map((job) => (
-                                                    <tr key={job.id}>
-                                                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>{job.id}</td>
-                                                        <td>{job.departmentName ?? '—'}</td>
-                                                        <td>{formatStatusLabel(job.status)}</td>
-                                                        <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
-                                                            {formatDateTime(job.createdAt)}
-                                                        </td>
-                                                        <td style={{ fontSize: '0.8125rem' }}>
-                                                            {job.completedAt ? formatDateTime(job.completedAt) : '—'}
-                                                        </td>
-                                                        <td>SAR {toNumber(job.amountBeforeDiscount).toLocaleString()}</td>
-                                                        <td>SAR {toNumber(job.amountAfterDiscount).toLocaleString()}</td>
-                                                        <td>SAR {toNumber(job.vatAmount).toLocaleString()}</td>
-                                                        <td className="ws-font-bold">
-                                                            SAR {toNumber(job.totalAmount).toLocaleString()}
-                                                        </td>
-                                                        <td style={{ fontSize: '0.8125rem', minWidth: 160 }}>
-                                                            {(job.assignments ?? []).length === 0
-                                                                ? '—'
-                                                                : (job.assignments ?? [])
-                                                                      .map((a) => a.technicianName)
-                                                                      .filter(Boolean)
-                                                                      .join(', ') || '—'}
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            ) : null}
-
-                            {Array.isArray(detailData.lineItems) && detailData.lineItems.length > 0 ? (
+                            {Array.isArray(detailData.items) && detailData.items.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
                                     <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Line items</p>
                                     <div className="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Job #</th>
-                                                    <th>Dept</th>
                                                     <th>Item</th>
-                                                    <th>Type</th>
+                                                    <th>Description</th>
                                                     <th>Qty</th>
                                                     <th>Unit (SAR)</th>
                                                     <th>Discount</th>
@@ -692,20 +720,18 @@ export default function SalesOrders() {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {detailData.lineItems.map((row) => (
-                                                    <tr key={row.id}>
-                                                        <td>{row.jobId ?? '—'}</td>
-                                                        <td>{row.departmentName ?? '—'}</td>
-                                                        <td>{row.itemName ?? '—'}</td>
-                                                        <td>{row.itemType ?? '—'}</td>
-                                                        <td>{row.qty}</td>
-                                                        <td>{toNumber(row.unitPrice).toLocaleString()}</td>
-                                                        <td>{formatDiscountCell(row.discountType, row.discountValue)}</td>
-                                                        <td style={{ fontSize: '0.8125rem' }}>
-                                                            {toNumber(row.vatPercent)}% · {String(row.vatMode ?? '—')}
+                                                {detailData.items.map((it) => (
+                                                    <tr key={it.id}>
+                                                        <td><strong>{it.itemName ?? '—'}</strong></td>
+                                                        <td style={{ fontSize: '0.8125rem', color: '#6B7280' }}>
+                                                            {it.lineDescription ?? '—'}
                                                         </td>
+                                                        <td>{it.qty}</td>
+                                                        <td>{toNumber(it.unitPrice).toLocaleString()}</td>
+                                                        <td>{formatDiscountCell(it.lineDiscountMode, it.lineDiscountValue)}</td>
+                                                        <td>{toNumber(it.vatRate)}%</td>
                                                         <td className="ws-font-bold">
-                                                            {toNumber(row.lineTotal).toLocaleString()}
+                                                            {toNumber(it.lineTotal).toLocaleString()}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -715,7 +741,7 @@ export default function SalesOrders() {
                                 </div>
                             ) : null}
 
-                            {detailData.invoice && Array.isArray(detailData.invoice.payments) && detailData.invoice.payments.length > 0 ? (
+                            {Array.isArray(detailData.payments) && detailData.payments.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
                                     <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Payments</p>
                                     <table className="ws-table">
@@ -723,17 +749,49 @@ export default function SalesOrders() {
                                             <tr>
                                                 <th>Method</th>
                                                 <th>Amount (SAR)</th>
-                                                <th>Paid at</th>
+                                                <th>Paid on</th>
+                                                <th>Reference</th>
+                                                <th>Recorded by</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {detailData.invoice.payments.map((p) => (
+                                            {detailData.payments.map((p) => (
                                                 <tr key={p.id}>
                                                     <td>{p.method ?? '—'}</td>
                                                     <td className="ws-font-bold">
                                                         {toNumber(p.amount).toLocaleString()}
                                                     </td>
-                                                    <td>{formatDateTime(p.paidAt)}</td>
+                                                    <td>{formatDateOnly(p.paidAt)}</td>
+                                                    <td>{p.reference ?? '—'}</td>
+                                                    <td>{p.recordedBy?.name ?? p.recordedBy?.email ?? '—'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : null}
+
+                            {Array.isArray(detailData.returns) && detailData.returns.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Returns</p>
+                                    <table className="ws-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Return #</th>
+                                                <th>Date</th>
+                                                <th>Status</th>
+                                                <th>Total (SAR)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {detailData.returns.map((r) => (
+                                                <tr key={r.id}>
+                                                    <td>{r.returnNo ?? '—'}</td>
+                                                    <td>{formatDateOnly(r.returnDate)}</td>
+                                                    <td>{formatStatusLabel(r.status)}</td>
+                                                    <td className="ws-font-bold">
+                                                        {toNumber(r.grandTotal).toLocaleString()}
+                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>
