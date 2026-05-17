@@ -275,50 +275,26 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
                 // match, the catch block below self-heals by re-opening the payment modal.
             }
 
-            // Step 1 — Create invoice (no payment info). Reference shape:
-            //   POST /cashier/invoice/create  { orderId, discountAmount, invoiceDate }
-            // Backend responds with the authoritative invoice.totalAmount.
-            const createRes = await apiFetch('/cashier/invoice/create', {
-                method: 'POST',
-                body: JSON.stringify({
-                    orderId: selected.id,
-                    discountAmount: 0,
-                    invoiceDate: new Date().toISOString(),
-                })
-            });
+            const estimatedTotal = calculateOrderTotal(selected)
+                || parseFloat(selected.grandTotal ?? selected.totalAmount ?? selected.total ?? 0)
+                || 0;
 
-            // Extract backend-authoritative total (VAT-inclusive per backend).
-            const createdInvoice = createRes.invoice || createRes.data?.invoice || createRes.data || createRes;
-            const authoritativeTotal = parseFloat(
-                createdInvoice?.totalAmount
-                ?? createdInvoice?.total_amount
-                ?? createdInvoice?.grandTotal
-                ?? createdInvoice?.grand_total
-                ?? 0
-            ) || 0;
-
-            // Step 2 — Persist payment(s) separately.
-            //   POST /cashier/invoice/:orderId/payment  { paymentMethod?, payments: [{method, amount}] }
-            // Reuse user's chosen split when provided; otherwise single-row with authoritative total.
             let paymentsOut = (localPayments.payments || [])
                 .map(p => ({ method: p.method, amount: parseFloat(p.amount) || 0 }))
                 .filter(p => p.method && p.amount > 0);
 
             if (paymentsOut.length === 0 && localPayments.method) {
-                paymentsOut = [{ method: localPayments.method, amount: authoritativeTotal }];
-            } else if (paymentsOut.length === 1 && authoritativeTotal > 0) {
-                // Single-method split: force backend total so amount reconciles exactly.
-                paymentsOut = [{ method: paymentsOut[0].method, amount: authoritativeTotal }];
-            } else if (paymentsOut.length > 1 && authoritativeTotal > 0) {
-                // Multi-method split: scale proportionally so sum matches backend total exactly.
+                paymentsOut = [{ method: localPayments.method, amount: estimatedTotal }];
+            } else if (paymentsOut.length === 1 && estimatedTotal > 0) {
+                paymentsOut = [{ method: paymentsOut[0].method, amount: estimatedTotal }];
+            } else if (paymentsOut.length > 1 && estimatedTotal > 0) {
                 const userSum = paymentsOut.reduce((s, p) => s + p.amount, 0);
-                if (userSum > 0 && Math.abs(userSum - authoritativeTotal) > 0.01) {
-                    const ratio = authoritativeTotal / userSum;
+                if (userSum > 0 && Math.abs(userSum - estimatedTotal) > 0.01) {
+                    const ratio = estimatedTotal / userSum;
                     let allocated = 0;
                     paymentsOut = paymentsOut.map((p, i) => {
                         if (i === paymentsOut.length - 1) {
-                            // Last entry gets remainder to avoid rounding drift
-                            return { method: p.method, amount: Math.round((authoritativeTotal - allocated) * 100) / 100 };
+                            return { method: p.method, amount: Math.round((estimatedTotal - allocated) * 100) / 100 };
                         }
                         const scaled = Math.round(p.amount * ratio * 100) / 100;
                         allocated += scaled;
@@ -327,35 +303,30 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
                 }
             }
 
-            const paymentBody = {
-                ...(localPayments.method ? { paymentMethod: localPayments.method } : {}),
-                payments: paymentsOut,
-            };
+            if (paymentsOut.length === 0) {
+                throw new Error('Payment method is required before generating invoice.');
+            }
 
-            const paymentRes = await apiFetch(`/cashier/invoice/${selected.id}/payment`, {
+            // Single call: create invoice with payment snapshot (backend returns full invoice).
+            const createRes = await apiFetch('/cashier/invoice/create', {
                 method: 'POST',
-                body: JSON.stringify(paymentBody)
+                body: JSON.stringify({
+                    orderId: selected.id,
+                    discountAmount: 0,
+                    invoiceDate: new Date().toISOString(),
+                    ...(localPayments.method ? { paymentMethod: localPayments.method } : {}),
+                    payments: paymentsOut,
+                })
             });
 
             setLocalPayments(null);
 
-            // Step 3 — Fetch the full invoice for the detail dialog (reference:
-            // posRepository.getInvoiceByOrder after saveInvoicePayment). Merge priority
-            // mirrors the Flutter flow: detailedResponse.invoice first, then the createRes,
-            // then the paymentRes — whichever has the most complete record.
-            let resolvedInvoice = null;
-            try {
-                const detailedRes = await apiFetch('/cashier/invoice/by-order', {
-                    method: 'POST',
-                    body: JSON.stringify({ orderId: selected.id })
-                });
-                resolvedInvoice = detailedRes?.invoice || detailedRes?.data?.invoice || detailedRes?.data || detailedRes;
-            } catch (byOrderErr) {
-                console.warn('getInvoiceByOrder failed, falling back to inline invoice objects:', byOrderErr);
-            }
-            if (!resolvedInvoice) {
-                resolvedInvoice = createdInvoice || paymentRes?.invoice || paymentRes?.data?.invoice || null;
-            }
+            const resolvedInvoice =
+                createRes?.invoice
+                || createRes?.data?.invoice
+                || createRes?.data
+                || createRes
+                || null;
             if (resolvedInvoice) {
                 // Backend invoice response typically only carries totals — line items
                 // live in the order's jobs. Merge them so the modal can display details.
