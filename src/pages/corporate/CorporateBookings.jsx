@@ -801,6 +801,7 @@ export default function CorporateBookings({ setBookingOpen, onTabChange }) {
             <InvoiceDetailsModal
                 invoice={activeInvoice}
                 isOpen={invoiceModalOpen}
+                footerVariant="corporate"
                 onClose={() => {
                     setInvoiceModalOpen(false);
                     setActiveInvoice(null);

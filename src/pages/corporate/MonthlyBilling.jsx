@@ -1411,15 +1411,11 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
             <InvoiceDetailsModal
                 invoice={activeInvoice}
                 isOpen={invoiceModalOpen && !!activeInvoice}
+                footerVariant="corporate"
                 onClose={() => {
                     setInvoiceModalOpen(false);
                     setActiveInvoice(null);
                 }}
-                onDownload={
-                    activeInvoice?.id
-                        ? () => handleDownload(String(activeInvoice.id))
-                        : undefined
-                }
             />
         </div>
     );
