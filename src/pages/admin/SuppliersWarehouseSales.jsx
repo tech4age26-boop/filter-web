@@ -8,6 +8,7 @@ import {
     getBranches,
     getSuppliers,
     getSupplierInvoice,
+    getLocalSupplierInvoice,
     getSupplierInvoices,
     getWorkshopOptions,
 } from '../../services/superAdminApi';
@@ -68,6 +69,21 @@ function ReviewBadge({ status }) {
     return (
         <span className={`so-status-badge ${cls}`}>
             {status ? formatStatusLabel(status) : 'Pending'}
+        </span>
+    );
+}
+
+function AffiliationBadge({ isAffiliated }) {
+    return (
+        <span
+            className={`so-status-badge ${isAffiliated ? 'so-status-completed' : 'so-status-pending'}`}
+            title={
+                isAffiliated
+                    ? 'Supplier is linked to this workshop via WorkshopSupplier.'
+                    : 'No active WorkshopSupplier link between this supplier and workshop.'
+            }
+        >
+            {isAffiliated ? 'Affiliated' : 'Non-affiliated'}
         </span>
     );
 }
@@ -307,14 +323,15 @@ export default function SuppliersWarehouseSales() {
         void fetchInvoices();
     }, [fetchInvoices]);
 
-    const openDetails = useCallback(async (invoiceId) => {
+    const openDetails = useCallback(async (invoiceId, source) => {
         if (!invoiceId) return;
         setDetailId(String(invoiceId));
         setDetailLoading(true);
         setDetailError('');
         setDetailData(null);
         try {
-            const res = await getSupplierInvoice(invoiceId);
+            const fetcher = source === 'local' ? getLocalSupplierInvoice : getSupplierInvoice;
+            const res = await fetcher(invoiceId);
             const payload =
                 res && typeof res === 'object' && res.data && typeof res.data === 'object'
                     ? res.data
@@ -496,6 +513,7 @@ export default function SuppliersWarehouseSales() {
                             <th>Invoice Date</th>
                             <th>Due Date</th>
                             <th>Supplier</th>
+                            <th>Affiliation</th>
                             <th>Workshop</th>
                             <th>Branch</th>
                             <th>Items</th>
@@ -509,13 +527,13 @@ export default function SuppliersWarehouseSales() {
                     <tbody>
                         {loading && invoices.length === 0 ? (
                             <tr>
-                                <td colSpan={12} style={{ textAlign: 'center', padding: 24 }}>
+                                <td colSpan={13} style={{ textAlign: 'center', padding: 24 }}>
                                     <Loader size={18} className="spin" /> Loading…
                                 </td>
                             </tr>
                         ) : invoices.length === 0 ? (
                             <tr>
-                                <td colSpan={12} style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>
+                                <td colSpan={13} style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>
                                     No supplier sales invoices match these filters.
                                 </td>
                             </tr>
@@ -523,7 +541,7 @@ export default function SuppliersWarehouseSales() {
                             invoices.map((inv) => (
                                 <tr
                                     key={inv.id}
-                                    onClick={() => openDetails(inv.id)}
+                                    onClick={() => openDetails(inv.id, inv.source)}
                                     style={{ cursor: 'pointer', opacity: loading ? 0.55 : undefined }}
                                 >
                                     <td>
@@ -542,6 +560,7 @@ export default function SuppliersWarehouseSales() {
                                             <span className="so-customer-mobile">{inv.supplierMobile ?? '—'}</span>
                                         </div>
                                     </td>
+                                    <td><AffiliationBadge isAffiliated={!!inv.isAffiliated} /></td>
                                     <td className="so-text-dim">{inv.workshopName ?? '—'}</td>
                                     <td className="so-text-dim">{inv.branchName ?? '—'}</td>
                                     <td>{toNumber(inv.itemsCount)}</td>
@@ -626,7 +645,7 @@ export default function SuppliersWarehouseSales() {
 
             {detailId && (
                 <Modal
-                    title={`Supplier Invoice ${detailData?.invoiceNo ? `- ${detailData.invoiceNo}` : 'Details'}`}
+                    title={`${detailData?.source === 'local' ? 'Local Supplier Purchase Invoice' : 'Supplier Invoice'} ${detailData?.invoiceNo ? `- ${detailData.invoiceNo}` : 'Details'}`}
                     onClose={closeDetails}
                     width="min(1100px, 98vw)"
                     contentClassName="ws-modal-order-details"

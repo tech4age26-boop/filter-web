@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Building2, Wallet, Edit, Phone, Mail, MapPin, Loader2 } from 'lucide-react';
+import { Building2, Wallet, Edit, Phone, Mail, MapPin, Loader2, Lock, Eye, EyeOff } from 'lucide-react';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
@@ -7,10 +7,16 @@ import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 export function EditProfileModal({ profile, onClose, onSave, saving }) {
     const [formData, setFormData] = useState({
         name: profile?.name || '',
+        email: profile?.email || '',
+        companyName: profile?.corporateAccount?.companyName || '',
+        vatNumber: profile?.corporateAccount?.vatNumber || '',
         billingAddress: profile?.corporateAccount?.billingAddress || '',
         phoneNumber: profile?.corporateAccount?.phoneNumber || '',
         selectedStoreIds: (profile?.corporateAccount?.selectedStoreIds || []).map(String),
+        newPassword: '',
     });
+    const [showNew, setShowNew] = useState(false);
+    const [formError, setFormError] = useState('');
     const availableWorkshops = Array.isArray(profile?.availableWorkshops)
         ? profile.availableWorkshops
         : [];
@@ -18,11 +24,35 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+        if (formError) setFormError('');
     };
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        onSave(formData);
+
+        if (formData.newPassword && formData.newPassword.length < 6) {
+            setFormError('New password must be at least 6 characters.');
+            return;
+        }
+        if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+            setFormError('Please enter a valid email address.');
+            return;
+        }
+
+        // Send only what's relevant: omit newPassword entirely if blank.
+        const payload = {
+            name: formData.name,
+            email: formData.email,
+            companyName: formData.companyName,
+            vatNumber: formData.vatNumber,
+            billingAddress: formData.billingAddress,
+            phoneNumber: formData.phoneNumber,
+            selectedStoreIds: formData.selectedStoreIds,
+        };
+        if (formData.newPassword) {
+            payload.newPassword = formData.newPassword;
+        }
+        onSave(payload);
     };
 
     const toggleBranch = (branchId) => {
@@ -51,41 +81,109 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
                     </button>
                 </div>
             } 
-            width="620px"
+            width="720px"
         >
             <form onSubmit={handleSubmit} style={{display:'flex',flexDirection:'column',gap:16}}>
-                <div className="ws-form-group" style={{marginBottom: 12}}>
-                    <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>User Name</label>
-                    <input 
-                        type="text" 
-                        name="name"
-                        style={{width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem'}}
-                        value={formData.name} 
-                        onChange={handleChange} 
-                        placeholder="e.g. John Doe"
-                        required
-                    />
+                {formError && (
+                    <div style={{padding:'10px 12px', borderRadius:10, background:'#FEF2F2', color:'#B91C1C', fontSize:'0.8125rem', border:'1px solid #FECACA'}}>
+                        {formError}
+                    </div>
+                )}
+
+                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12}}>
+                    <div className="ws-form-group">
+                        <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>User Name</label>
+                        <input
+                            type="text"
+                            name="name"
+                            style={{width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem'}}
+                            value={formData.name}
+                            onChange={handleChange}
+                            placeholder="e.g. John Doe"
+                            required
+                        />
+                    </div>
+                    <div className="ws-form-group">
+                        <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>Email</label>
+                        <input
+                            type="email"
+                            name="email"
+                            style={{width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem'}}
+                            value={formData.email}
+                            onChange={handleChange}
+                            placeholder="name@company.com"
+                            autoComplete="email"
+                        />
+                    </div>
                 </div>
-                <div className="ws-form-group" style={{marginBottom: 12}}>
+
+                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12}}>
+                    <div className="ws-form-group">
+                        <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>Company Name</label>
+                        <input
+                            type="text"
+                            name="companyName"
+                            style={{width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem'}}
+                            value={formData.companyName}
+                            onChange={handleChange}
+                            placeholder="e.g. Acme Logistics LLC"
+                        />
+                    </div>
+                    <div className="ws-form-group">
+                        <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>VAT Number</label>
+                        <input
+                            type="text"
+                            name="vatNumber"
+                            style={{width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem'}}
+                            value={formData.vatNumber}
+                            onChange={handleChange}
+                            placeholder="e.g. 310123456700003"
+                        />
+                    </div>
+                </div>
+
+                <div className="ws-form-group">
                     <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>Phone Number</label>
-                    <input 
-                        type="text" 
+                    <input
+                        type="text"
                         name="phoneNumber"
                         style={{width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem'}}
-                        value={formData.phoneNumber} 
-                        onChange={handleChange} 
+                        value={formData.phoneNumber}
+                        onChange={handleChange}
                         placeholder="+966..."
                     />
                 </div>
+
                 <div className="ws-form-group">
                     <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>Billing Address</label>
-                    <textarea 
+                    <textarea
                         name="billingAddress"
                         style={{width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem', minHeight:80, resize:'vertical'}}
-                        value={formData.billingAddress} 
-                        onChange={handleChange} 
+                        value={formData.billingAddress}
+                        onChange={handleChange}
                         placeholder="Enter full billing address"
                     />
+                </div>
+
+                <div className="ws-form-group">
+                    <label style={{display:'flex', alignItems:'center', gap:6, fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>
+                        <Lock size={12}/> New Password
+                        <span style={{fontSize:'0.6875rem', fontWeight:500, textTransform:'none', color:'var(--color-text-muted)'}}>(leave blank to keep current)</span>
+                    </label>
+                    <div style={{position:'relative'}}>
+                        <input
+                            type={showNew ? 'text' : 'password'}
+                            name="newPassword"
+                            style={{width:'100%', padding:'10px 36px 10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem'}}
+                            value={formData.newPassword}
+                            onChange={handleChange}
+                            placeholder="At least 6 characters"
+                            autoComplete="new-password"
+                        />
+                        <button type="button" onClick={() => setShowNew(s => !s)} style={{position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'var(--color-text-muted)', padding:4}} tabIndex={-1}>
+                            {showNew ? <EyeOff size={16}/> : <Eye size={16}/>}
+                        </button>
+                    </div>
                 </div>
                 <div className="ws-form-group">
                     <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>

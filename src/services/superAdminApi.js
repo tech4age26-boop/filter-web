@@ -512,6 +512,9 @@ export const getSupplierInvoices = ({
 export const getSupplierInvoice = (id) =>
     apiFetch(`/super-admin/supplier-invoices/${encodeURIComponent(String(id))}`);
 
+export const getLocalSupplierInvoice = (id) =>
+    apiFetch(`/super-admin/local-supplier-invoices/${encodeURIComponent(String(id))}`);
+
 // ─── Services ─────────────────────────────────────────────────────────────────
 
 /** Newest first (`createdAt` desc). Rows include `categoryId`, `categoryName`, `isPriceEditable`, `vatMode`, `createdAt` (ISO-8601), etc. */

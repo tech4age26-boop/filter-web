@@ -12,6 +12,8 @@ import {
     getAdminSalesByCashierDetails,
     getAdminSalesByCustomer,
     getAdminSalesByCustomerDetails,
+    getAdminSalesByCategory,
+    getAdminSalesByCategoryDetails,
     getAdminSalesByDepartment,
     getAdminSalesByDepartmentDetails,
     getAdminSalesByProduct,
@@ -231,9 +233,53 @@ function createEmptyTabSearch() {
         by_customer: '',
         by_product: '',
         by_department: '',
+        by_category: '',
         by_branch: '',
         by_cashier: '',
     };
+}
+
+/** Per-tab amount sort: 'default' keeps server/order order; 'asc'/'desc' sort by primary number. */
+function createDefaultTabSort() {
+    return {
+        recent_orders: 'default',
+        daily_sales: 'default',
+        by_technician: 'default',
+        by_customer: 'default',
+        by_product: 'default',
+        by_department: 'default',
+        by_category: 'default',
+        by_branch: 'default',
+        by_cashier: 'default',
+    };
+}
+
+function applyTabSort(rows, mode, getter) {
+    if (!Array.isArray(rows) || mode === 'default' || rows.length < 2) return rows;
+    const sign = mode === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+        const av = Number(getter(a));
+        const bv = Number(getter(b));
+        const an = Number.isFinite(av) ? av : 0;
+        const bn = Number.isFinite(bv) ? bv : 0;
+        return (an - bn) * sign;
+    });
+}
+
+function TabSortSelect({ value, onChange, ariaLabel = 'Sort by amount' }) {
+    return (
+        <select
+            className="ws-report-tab-search"
+            style={{ maxWidth: 170, minWidth: 140 }}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            aria-label={ariaLabel}
+        >
+            <option value="default">Sort: Default</option>
+            <option value="asc">Low → High</option>
+            <option value="desc">High → Low</option>
+        </select>
+    );
 }
 
 const ORDERS_PAGE_SIZE = 25;
@@ -255,6 +301,11 @@ export default function SalesReports() {
     const activeTabRef = useRef(activeTab);
     activeTabRef.current = activeTab;
     const [tabSearch, setTabSearch] = useState(createEmptyTabSearch);
+    const [tabSort, setTabSort] = useState(createDefaultTabSort);
+    const setSortFor = useCallback(
+        (tabId) => (next) => setTabSort((p) => ({ ...p, [tabId]: next })),
+        [],
+    );
 
     const [technicianOptions, setTechnicianOptions] = useState([]);
     const [byProductTechnicianId, setByProductTechnicianId] = useState('');
@@ -275,6 +326,7 @@ export default function SalesReports() {
         by_customer: [],
         by_product: [],
         by_department: [],
+        by_category: [],
         by_branch: [],
         by_cashier: [],
     });
@@ -430,6 +482,7 @@ export default function SalesReports() {
                 by_customer: [],
                 by_product: [],
                 by_department: [],
+                by_category: [],
                 by_branch: [],
                 by_cashier: [],
             });
@@ -460,6 +513,7 @@ export default function SalesReports() {
                 byCustomerRes,
                 byProductRes,
                 byDepartmentRes,
+                byCategoryRes,
                 byBranchRes,
                 byCashierRes,
                 techniciansRes,
@@ -469,6 +523,7 @@ export default function SalesReports() {
                 getAdminSalesByCustomer(params),
                 getAdminSalesByProduct(params),
                 getAdminSalesByDepartment(params),
+                getAdminSalesByCategory(params),
                 getAdminSalesByBranch(params),
                 getAdminSalesByCashier(params),
                 getTechnicians(techQuery).catch(() => null),
@@ -482,6 +537,7 @@ export default function SalesReports() {
                 by_customer: extractSummaryRows(byCustomerRes, 'by_customer'),
                 by_product: extractSummaryRows(byProductRes, 'by_product'),
                 by_department: extractSummaryRows(byDepartmentRes, 'by_department'),
+                by_category: extractSummaryRows(byCategoryRes, 'by_category'),
                 by_branch: extractSummaryRows(byBranchRes, 'by_branch'),
                 by_cashier: extractSummaryRows(byCashierRes, 'by_cashier'),
             });
@@ -510,6 +566,7 @@ export default function SalesReports() {
                 by_customer: [],
                 by_product: [],
                 by_department: [],
+                by_category: [],
                 by_branch: [],
                 by_cashier: [],
             });
@@ -725,6 +782,10 @@ export default function SalesReports() {
                 fetcher = getAdminSalesByDepartmentDetails;
                 key = String(row.department_id ?? row.departmentId ?? '');
                 title = `Department details: ${row.department_name ?? row.departmentName ?? 'Department'}`;
+            } else if (tabId === 'by_category') {
+                fetcher = getAdminSalesByCategoryDetails;
+                key = String(row.category_id ?? row.categoryId ?? '');
+                title = `Category details: ${row.category_name ?? row.categoryName ?? 'Category'}`;
             } else if (tabId === 'by_branch') {
                 fetcher = getAdminSalesByBranchDetails;
                 key = String(row.branch_id ?? row.branchId ?? '');
@@ -837,6 +898,7 @@ export default function SalesReports() {
             byCustomer: parseArr(summaryData.by_customer).length ? summaryData.by_customer : parseArr(r.by_customer),
             byProduct: parseArr(summaryData.by_product).length ? summaryData.by_product : parseArr(r.by_product),
             byDepartment: parseArr(summaryData.by_department).length ? summaryData.by_department : parseArr(r.by_department),
+            byCategory: parseArr(summaryData.by_category).length ? summaryData.by_category : parseArr(r.by_category),
             byBranch: parseArr(summaryData.by_branch).length ? summaryData.by_branch : parseArr(r.by_branch),
             byCashier: parseArr(summaryData.by_cashier).length ? summaryData.by_cashier : parseArr(r.by_cashier),
             period: r.period ?? null,
@@ -882,6 +944,7 @@ export default function SalesReports() {
         { id: 'by_customer', label: 'By Customer' },
         { id: 'by_product', label: 'By Product' },
         { id: 'by_department', label: 'By Department' },
+        { id: 'by_category', label: 'By Categories' },
         { id: 'by_branch', label: 'By Branch' },
         { id: 'by_cashier', label: 'By Cashier' },
     ];
@@ -984,6 +1047,28 @@ export default function SalesReports() {
             ),
         );
     }, [norm, tabSearch.by_department]);
+
+    const filteredByCategory = useMemo(() => {
+        const rows = norm?.byCategory ?? [];
+        const q = tabSearch.by_category;
+        return rows.filter((row) =>
+            rowMatchesTabQuery(
+                [
+                    row.category_name,
+                    row.categoryName,
+                    row.category_id,
+                    row.categoryId,
+                    row.qty_sold,
+                    row.qtySold,
+                    row.orders_count,
+                    row.ordersCount,
+                    row.revenue_sar,
+                    row.revenueSar,
+                ],
+                q,
+            ),
+        );
+    }, [norm, tabSearch.by_category]);
 
     const filteredByBranch = useMemo(() => {
         const rows = norm?.byBranch ?? [];
@@ -1160,6 +1245,7 @@ export default function SalesReports() {
                                         onChange={(e) => setTabSearch((p) => ({ ...p, daily_sales: e.target.value }))}
                                         aria-label="Search daily sales"
                                     />
+                                    <TabSortSelect value={tabSort.daily_sales} onChange={setSortFor('daily_sales')} ariaLabel="Sort daily revenue" />
                                 </div>
                                 <div className="ws-chart-container">
                                     <h4 className="ws-chart-title">Daily Revenue</h4>
@@ -1204,7 +1290,7 @@ export default function SalesReports() {
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                filteredDailyRevenue.map((d, i) => (
+                                                applyTabSort(filteredDailyRevenue, tabSort.daily_sales, (d) => d.amount).map((d, i) => (
                                                     <tr
                                                         key={`${d.date}-${i}`}
                                                         onClick={() => loadDetails('daily_sales', d)}
@@ -1236,6 +1322,7 @@ export default function SalesReports() {
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_technician: e.target.value }))}
                                         aria-label="Search by technician"
                                     />
+                                    <TabSortSelect value={tabSort.by_technician} onChange={setSortFor('by_technician')} ariaLabel="Sort technicians by revenue" />
                                 </div>
                                 <div className="ws-chart-container">
                                     <h4 className="ws-chart-title">Revenue by Technician</h4>
@@ -1275,7 +1362,7 @@ export default function SalesReports() {
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                filteredByTechnician.map((t) => (
+                                                applyTabSort(filteredByTechnician, tabSort.by_technician, (t) => t.revenue).map((t) => (
                                                     <tr
                                                         key={t.id || t.name}
                                                         onClick={() => loadDetails('by_technician', t)}
@@ -1305,6 +1392,7 @@ export default function SalesReports() {
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_customer: e.target.value }))}
                                         aria-label="Search by customer"
                                     />
+                                    <TabSortSelect value={tabSort.by_customer} onChange={setSortFor('by_customer')} ariaLabel="Sort customers by revenue" />
                                 </div>
                                 <div className="ws-report-table-wrapper">
                                     <table className="ws-table">
@@ -1330,7 +1418,7 @@ export default function SalesReports() {
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                filteredByCustomer.map((row, i) => (
+                                                applyTabSort(filteredByCustomer, tabSort.by_customer, (r) => r.revenue_sar ?? r.revenueSar).map((row, i) => (
                                                     <tr
                                                         key={row.customer_id ?? row.customerId ?? i}
                                                         onClick={() => loadDetails('by_customer', row)}
@@ -1391,6 +1479,7 @@ export default function SalesReports() {
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_product: e.target.value }))}
                                         aria-label="Search by product"
                                     />
+                                    <TabSortSelect value={tabSort.by_product} onChange={setSortFor('by_product')} ariaLabel="Sort products by revenue" />
                                 </div>
                                 {byProductTechnicianError && (
                                     <p className="ws-report-tab-inline-error" role="alert">
@@ -1421,7 +1510,7 @@ export default function SalesReports() {
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                filteredByProduct.map((row, i) => (
+                                                applyTabSort(filteredByProduct, tabSort.by_product, (r) => r.revenue_sar ?? r.revenueSar).map((row, i) => (
                                                     <tr
                                                         key={row.product_id ?? row.productId ?? i}
                                                         onClick={() => {
@@ -1461,6 +1550,7 @@ export default function SalesReports() {
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_department: e.target.value }))}
                                         aria-label="Search by department"
                                     />
+                                    <TabSortSelect value={tabSort.by_department} onChange={setSortFor('by_department')} ariaLabel="Sort departments by revenue" />
                                 </div>
                                 <div className="ws-report-table-wrapper">
                                     <table className="ws-table">
@@ -1485,13 +1575,71 @@ export default function SalesReports() {
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                filteredByDepartment.map((row, i) => (
+                                                applyTabSort(filteredByDepartment, tabSort.by_department, (r) => r.revenue_sar ?? r.revenueSar).map((row, i) => (
                                                     <tr
                                                         key={row.department_id ?? row.departmentId ?? i}
                                                         onClick={() => loadDetails('by_department', row)}
                                                         style={{ cursor: 'pointer', background: selectedDetailKey === `by_department:${String(row.department_id ?? row.departmentId ?? '')}` ? '#F8FAFC' : undefined }}
                                                     >
                                                         <td><strong>{row.department_name ?? row.departmentName ?? '—'}</strong></td>
+                                                        <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
+                                                        <td className="ws-font-bold">
+                                                            SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                        )}
+
+                        {activeTab === 'by_category' && (
+                            <>
+                                <div className="ws-report-tab-toolbar">
+                                    <input
+                                        type="search"
+                                        className="ws-report-tab-search"
+                                        placeholder="Search category, qty, orders, revenue…"
+                                        value={tabSearch.by_category}
+                                        onChange={(e) => setTabSearch((p) => ({ ...p, by_category: e.target.value }))}
+                                        aria-label="Search by category"
+                                    />
+                                    <TabSortSelect value={tabSort.by_category} onChange={setSortFor('by_category')} ariaLabel="Sort categories by revenue" />
+                                </div>
+                                <div className="ws-report-table-wrapper">
+                                    <table className="ws-table">
+                                        <thead>
+                                            <tr>
+                                                <th>CATEGORY</th>
+                                                <th>QTY SOLD</th>
+                                                <th>ORDERS</th>
+                                                <th>REVENUE (SAR)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {(norm?.byCategory ?? []).length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                                        No category breakdown for this scope.
+                                                    </td>
+                                                </tr>
+                                            ) : filteredByCategory.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                                        No rows match your search.
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                applyTabSort(filteredByCategory, tabSort.by_category, (r) => r.revenue_sar ?? r.revenueSar).map((row, i) => (
+                                                    <tr
+                                                        key={row.category_id ?? row.categoryId ?? i}
+                                                        onClick={() => loadDetails('by_category', row)}
+                                                        style={{ cursor: 'pointer', background: selectedDetailKey === `by_category:${String(row.category_id ?? row.categoryId ?? '')}` ? '#F8FAFC' : undefined }}
+                                                    >
+                                                        <td><strong>{row.category_name ?? row.categoryName ?? '—'}</strong></td>
+                                                        <td>{toNumber(row.qty_sold ?? row.qtySold)}</td>
                                                         <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
                                                         <td className="ws-font-bold">
                                                             SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
@@ -1516,6 +1664,7 @@ export default function SalesReports() {
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_branch: e.target.value }))}
                                         aria-label="Search by branch"
                                     />
+                                    <TabSortSelect value={tabSort.by_branch} onChange={setSortFor('by_branch')} ariaLabel="Sort branches by revenue" />
                                 </div>
                                 <div className="ws-report-table-wrapper">
                                     <table className="ws-table">
@@ -1540,7 +1689,7 @@ export default function SalesReports() {
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                filteredByBranch.map((row, i) => (
+                                                applyTabSort(filteredByBranch, tabSort.by_branch, (r) => r.revenue_sar ?? r.revenueSar).map((row, i) => (
                                                     <tr
                                                         key={row.branch_id ?? row.branchId ?? i}
                                                         onClick={() => loadDetails('by_branch', row)}
@@ -1571,6 +1720,7 @@ export default function SalesReports() {
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_cashier: e.target.value }))}
                                         aria-label="Search by cashier"
                                     />
+                                    <TabSortSelect value={tabSort.by_cashier} onChange={setSortFor('by_cashier')} ariaLabel="Sort cashiers by revenue" />
                                 </div>
                                 <div className="ws-report-table-wrapper">
                                     <table className="ws-table">
@@ -1595,7 +1745,7 @@ export default function SalesReports() {
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                filteredByCashier.map((row, i) => {
+                                                applyTabSort(filteredByCashier, tabSort.by_cashier, (r) => r.revenue_sar ?? r.revenueSar).map((row, i) => {
                                                     const rowKey = String(
                                                         row.cashier_id ?? row.cashierId ?? row.user_id ?? row.userId ?? i,
                                                     );
@@ -1634,6 +1784,7 @@ export default function SalesReports() {
                                         onChange={(e) => setOrdersSearchInput(e.target.value)}
                                         aria-label="Search orders"
                                     />
+                                    <TabSortSelect value={tabSort.recent_orders} onChange={setSortFor('recent_orders')} ariaLabel="Sort orders by total" />
                                 </div>
                                 {ordersListError ? (
                                     <div
@@ -1679,7 +1830,7 @@ export default function SalesReports() {
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                recentOrders.map((row, i) => {
+                                                applyTabSort(recentOrders, tabSort.recent_orders, (r) => r.invoiceTotal).map((row, i) => {
                                                     const rk = recentOrderRowTarget(row) || `row-${i}`;
                                                     const isOpen = rk.startsWith('so:');
                                                     return (
