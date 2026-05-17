@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
-import { BASE_URL, apiFetch } from '../services/api';
+import { BASE_URL, apiFetch, clientUtcOffsetMinutes } from '../services/api';
 import { useAuth } from './AuthContext';
 
 const POSContext = createContext(null);
@@ -19,7 +19,9 @@ export const POSProvider = ({ children }) => {
     // Fetch initial orders
     const refreshOrders = useCallback(async () => {
         try {
-            const d = await apiFetch('/cashier/orders?limit=100');
+            const d = await apiFetch(
+                `/cashier/orders?limit=100&utcOffsetMinutes=${clientUtcOffsetMinutes()}`,
+            );
             setOrders(d.orders || d.data || []);
         } catch (err) {
             console.error('Failed to fetch orders:', err);

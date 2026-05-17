@@ -30,7 +30,9 @@ export default function WalkInOrderModal({ isOpen, onClose, onSubmit, department
         }
         onSubmit({
             ...formData,
-            odometerReading: parseInt(formData.odometerReading) || 0
+            odometerReading: parseInt(formData.odometerReading) || 0,
+            clientSubmittedAt: new Date().toISOString(),
+            utcOffsetMinutes: -new Date().getTimezoneOffset(),
         });
     };
 

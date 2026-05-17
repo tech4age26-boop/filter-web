@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Clock, CheckCircle2, Receipt, RefreshCw, Package, Plus, Minus, Trash2, Check, X, Banknote, CreditCard, Building2 } from 'lucide-react';
-import { apiFetch } from '../../services/api';
+import { apiFetch, clientUtcOffsetMinutes } from '../../services/api';
 
 const WF_LABELS = {
     draft:              { label: 'Draft — Add items & proceed', color: '#f1f5f9', textColor: '#475569' },
@@ -28,7 +28,9 @@ export default function ActiveOrdersManager() {
         if (showRefresh) setRefreshing(true);
         else setLoading(true);
         try {
-            const d = await apiFetch('/cashier/orders?status=active&limit=50&offset=0');
+            const d = await apiFetch(
+                `/cashier/orders?status=active&limit=50&offset=0&utcOffsetMinutes=${clientUtcOffsetMinutes()}`,
+            );
             const raw = d.orders || d.data || [];
             setOrders(raw.map(o => ({
                 id: o.id,

@@ -89,6 +89,40 @@ function pickNumber(...vals) {
     return 0;
 }
 
+function formatSar(amount, { decimals = 0 } = {}) {
+    const n = Number(amount);
+    if (!Number.isFinite(n)) return 'SAR —';
+    return `SAR ${n.toLocaleString(undefined, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+    })}`;
+}
+
+/**
+ * Branch adoption opening from `workshop_products` (or top-level list fields).
+ * Never use global catalog `products.opening_qty` — that is not the branch adoption baseline.
+ */
+function pickBranchAdoptionOpeningQty(row) {
+    if (!row || typeof row !== 'object') return null;
+    const wps = row.workshopProducts ?? row.workshop_products;
+    if (Array.isArray(wps)) {
+        for (const wp of wps) {
+            const v = wp?.openingQty ?? wp?.opening_qty;
+            if (v != null && v !== '') {
+                const n = Number(v);
+                if (Number.isFinite(n)) return n;
+            }
+        }
+    }
+    for (const v of [row.openingQty, row.opening_qty]) {
+        if (v != null && v !== '') {
+            const n = Number(v);
+            if (Number.isFinite(n)) return n;
+        }
+    }
+    return null;
+}
+
 /** First numeric value, or `null` if none set (so we can fall back to opening qty). */
 function firstFiniteNumber(values) {
     for (const v of values) {
@@ -99,8 +133,22 @@ function firstFiniteNumber(values) {
     return null;
 }
 
+export const INVENTORY_ADJUSTMENT_REASON_OPENING_QTY = 'Opening qty';
+
+function isOpeningQtyAdjustmentEntry(entry) {
+    if (!entry) return false;
+    const reason = String(entry.reason ?? '').trim();
+    const source = String(entry.source ?? '').toLowerCase();
+    return (
+        reason === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY ||
+        source === 'manual_opening_qty' ||
+        source === 'super_admin_starting_stock'
+    );
+}
+
 function humanizeInventoryLogSource(source) {
     const s = String(source || 'manual').toLowerCase();
+    if (s === 'manual_opening_qty') return 'Manual (opening qty)';
     if (s === 'supplier_purchase_invoice') return 'Supplier purchase (approved)';
     if (s === 'local_supplier_purchase_invoice') return 'Non-affiliated supplier purchase';
     if (s === 'super_admin_starting_stock') return 'Super admin (opening stock)';
@@ -179,6 +227,7 @@ function normalizeAdjustmentEntry(raw) {
         source,
         reference,
         movementType: movementType || undefined,
+        affectsOpening: isOpeningQtyAdjustmentEntry({ reason, source }),
     };
 }
 
@@ -324,6 +373,7 @@ const INV_SEARCH_SUGGEST_LIMIT = 12;
  */
 function mergeBranchProductRowForInventory(row) {
     const master = row?.product && typeof row.product === 'object' ? row.product : {};
+    const branchOpening = pickBranchAdoptionOpeningQty(row);
     return {
         ...row,
         ...master,
@@ -331,8 +381,8 @@ function mergeBranchProductRowForInventory(row) {
         /** Keep branch-scoped inventory from the workshop row; nested `product` must not wipe it. */
         branchInventory: row?.branchInventory ?? row?.branch_inventory ?? master?.branchInventory,
         branch_inventory: row?.branch_inventory ?? row?.branchInventory ?? master?.branch_inventory,
-        openingQty: row?.openingQty ?? master?.openingQty,
-        opening_qty: row?.opening_qty ?? master?.opening_qty,
+        openingQty: branchOpening ?? row?.openingQty ?? row?.opening_qty,
+        opening_qty: branchOpening ?? row?.opening_qty ?? row?.opening_qty,
         currentQty: row?.currentQty ?? master?.currentQty,
         current_qty: row?.current_qty ?? master?.current_qty,
         qtyOnHand: row?.qtyOnHand ?? master?.qtyOnHand,
@@ -371,7 +421,10 @@ function mapApiRowToInventory(row) {
         row?.service_id;
     if (id == null || String(id).trim() === '') return null;
 
-    const openingQty = pickNumber(row.openingQty, row.opening_qty, merged.openingQty, merged.opening_qty);
+    const openingQty =
+        pickBranchAdoptionOpeningQty(row) ??
+        pickBranchAdoptionOpeningQty(merged) ??
+        pickNumber(row.openingQty, row.opening_qty, merged.openingQty, merged.opening_qty);
     const invQtyRow = pickBranchInventoryQtyFromRow(row);
     const invQtyMerged = pickBranchInventoryQtyFromRow(merged);
     const onHand = firstFiniteNumber([
@@ -679,15 +732,74 @@ export default function WorkshopInventory({
     const [criticalInput, setCriticalInput] = useState('');
     const [criticalSubmitError, setCriticalSubmitError] = useState('');
     const [criticalSaving, setCriticalSaving] = useState(false);
+    const [isInvValueProofOpen, setIsInvValueProofOpen] = useState(false);
+    const [isLowStockProofOpen, setIsLowStockProofOpen] = useState(false);
+
+    const inventoryValueBreakdown = useMemo(() => {
+        const lines = productRows
+            .map((p) => {
+                const qty = Number(p.qty) || 0;
+                const purchasePrice = Number(p.purchasePrice) || 0;
+                const lineValue = qty * purchasePrice;
+                return {
+                    id: String(p.id),
+                    name: p.name || '—',
+                    sku: p.sku || '—',
+                    departmentName: p.departmentName || '—',
+                    qty,
+                    purchasePrice,
+                    lineValue,
+                };
+            })
+            .sort((a, b) => b.lineValue - a.lineValue || a.name.localeCompare(b.name));
+        const total = lines.reduce((sum, row) => sum + row.lineValue, 0);
+        const skusWithStock = lines.filter((row) => row.qty > 0).length;
+        const skusWithValue = lines.filter((row) => row.lineValue > 0).length;
+        return { lines, total, skusWithStock, skusWithValue, skuCount: lines.length };
+    }, [productRows]);
+
+    const lowStockBreakdown = useMemo(() => {
+        const lines = productRows
+            .filter(isLowStockRow)
+            .map((p) => {
+                const qty = Number(p.qty) || 0;
+                const critical = Number(p.critical_level) || 0;
+                const gap = Math.max(0, critical - qty);
+                const status = qty <= 0 ? 'Out of stock' : 'Low stock';
+                return {
+                    id: String(p.id),
+                    name: p.name || '—',
+                    sku: p.sku || '—',
+                    departmentName: p.departmentName || '—',
+                    categoryName: p.categoryName || '—',
+                    qty,
+                    critical,
+                    gap,
+                    status,
+                };
+            })
+            .sort((a, b) => {
+                if (a.qty <= 0 && b.qty > 0) return -1;
+                if (b.qty <= 0 && a.qty > 0) return 1;
+                return b.gap - a.gap || a.name.localeCompare(b.name);
+            });
+        const withCriticalSet = productRows.filter((p) => (Number(p.critical_level) || 0) > 0).length;
+        const outOfStock = lines.filter((row) => row.qty <= 0).length;
+        const lowOnly = lines.length - outOfStock;
+        return {
+            lines,
+            count: lines.length,
+            outOfStock,
+            lowOnly,
+            withCriticalSet,
+            skuCount: productRows.length,
+            withoutCritical: productRows.length - withCriticalSet,
+        };
+    }, [productRows]);
 
     const stats = useMemo(() => {
         const totalProducts = productRows.length;
-        let lowStock = 0;
-        let inventoryValue = 0;
-        for (const p of productRows) {
-            if (isLowStockRow(p)) lowStock += 1;
-            inventoryValue += (Number(p.qty) || 0) * (Number(p.purchasePrice) || 0);
-        }
+        const inventoryValue = inventoryValueBreakdown.total;
         return [
             {
                 label: 'Total products',
@@ -695,23 +807,29 @@ export default function WorkshopInventory({
                 sub: `SKUs in scope · ${selectedBranchName}`,
                 icon: Package,
                 color: '#3B82F6',
+                clickable: false,
+                proofKey: null,
             },
             {
                 label: 'Low stock (SKUs)',
-                value: lowStock,
+                value: lowStockBreakdown.count,
                 sub: `At or below critical level · ${selectedBranchName}`,
                 icon: AlertCircle,
                 color: '#EF4444',
+                clickable: true,
+                proofKey: 'lowStock',
             },
             {
                 label: 'Total inventory value',
-                value: `SAR ${Math.round(inventoryValue).toLocaleString()}`,
+                value: formatSar(Math.round(inventoryValue)),
                 sub: `Current stock × purchase price · ${selectedBranchName}`,
                 icon: Wallet,
                 color: '#10B981',
+                clickable: true,
+                proofKey: 'inventoryValue',
             },
         ];
-    }, [productRows, selectedBranchName]);
+    }, [productRows, selectedBranchName, inventoryValueBreakdown.total, lowStockBreakdown.count]);
 
     const handleOpenRequest = (item) => {
         if (updateProductStatus) {
@@ -746,6 +864,19 @@ export default function WorkshopInventory({
         setAdjustReason('');
         setAdjustSubmitError('');
         setIsAdjustModalOpen(true);
+    };
+
+    const isAdjustOpeningQty = adjustReason === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY;
+
+    const handleAdjustReasonChange = (value) => {
+        setAdjustReason(value);
+        if (!adjustItem) return;
+        if (value === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY) {
+            const o = adjustItem.openingQty != null ? adjustItem.openingQty : adjustItem.qty;
+            setNewQty(o != null ? String(o) : '0');
+        } else {
+            setNewQty(adjustItem.qty != null ? String(adjustItem.qty) : '0');
+        }
     };
 
     const closeCriticalModal = () => {
@@ -804,7 +935,10 @@ export default function WorkshopInventory({
 
     const handleAdjustSubmit = async () => {
         if (!adjustItem || !adjustReason.trim()) return;
-        const prevQty = Number(adjustItem.qty) || 0;
+        const openingQtyAdjust = adjustReason.trim() === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY;
+        const prevQty = openingQtyAdjust
+            ? Number(adjustItem.openingQty ?? adjustItem.qty) || 0
+            : Number(adjustItem.qty) || 0;
         const parsed = Number.parseFloat(String(newQty).trim().replace(/,/g, ''));
         if (!Number.isFinite(parsed) || parsed < 0) return;
         const qtyNum = Math.round(parsed);
@@ -839,6 +973,11 @@ export default function WorkshopInventory({
                     delta: d.delta != null ? Number(d.delta) : qtyNum - prevQty,
                     reason: d.reason || reasonTrim,
                     adjustedBy: d.adjustedBy || null,
+                    source: d.source || (openingQtyAdjust ? 'manual_opening_qty' : 'manual'),
+                    affectsOpening:
+                        d.adjustmentTarget === 'opening' ||
+                        openingQtyAdjust ||
+                        d.source === 'manual_opening_qty',
                 };
 
                 setAdjustmentLogs((prevMap) => {
@@ -848,14 +987,58 @@ export default function WorkshopInventory({
                     return next;
                 });
 
+                const nextOpening =
+                    openingQtyAdjust || d.adjustmentTarget === 'opening'
+                        ? d.openingQty != null
+                            ? Number(d.openingQty)
+                            : serverEntry.newQty
+                        : null;
+                const nextStock =
+                    openingQtyAdjust || d.adjustmentTarget === 'opening'
+                        ? d.qtyOnHand != null
+                            ? Number(d.qtyOnHand)
+                            : d.qty_on_hand != null
+                              ? Number(d.qty_on_hand)
+                              : nextOpening
+                        : serverEntry.newQty;
+
                 setProductRows((prev) =>
-                    prev.map((p) =>
-                        p.id === adjustItem.id
-                            ? { ...p, qty: serverEntry.newQty, status: undefined }
-                            : p,
-                    ),
+                    prev.map((p) => {
+                        if (p.id !== adjustItem.id) return p;
+                        if (openingQtyAdjust || d.adjustmentTarget === 'opening') {
+                            return {
+                                ...p,
+                                openingQty: nextOpening,
+                                qty: nextStock,
+                                status: undefined,
+                            };
+                        }
+                        return { ...p, qty: nextStock, status: undefined };
+                    }),
                 );
+
+                if (logProduct && String(logProduct.id) === pid) {
+                    setLogProduct((lp) => {
+                        if (!lp || String(lp.id) !== pid) return lp;
+                        if (openingQtyAdjust || d.adjustmentTarget === 'opening') {
+                            return { ...lp, openingQty: nextOpening, qty: nextStock };
+                        }
+                        return { ...lp, qty: nextStock };
+                    });
+                    setFetchedLogEntries((prev) => {
+                        const normalized = normalizeAdjustmentEntry({
+                            ...serverEntry,
+                            createdAt: serverEntry.at,
+                        });
+                        if (!normalized) return prev;
+                        const list = Array.isArray(prev) ? prev : [];
+                        if (list.some((e) => e.id === normalized.id)) return list;
+                        return [normalized, ...list];
+                    });
+                }
+
                 closeAdjustModal();
+                void loadInventory();
             } catch (err) {
                 setAdjustSubmitError(err.message || 'Adjustment failed. If stock changed elsewhere, refresh and try again.');
             } finally {
@@ -1003,21 +1186,20 @@ export default function WorkshopInventory({
                     marginBottom: '24px',
                 }}
             >
-                {stats.map((stat, i) => (
-                    <div
-                        key={i}
-                        className="mc-stat-card"
-                        style={{
-                            background: '#fff',
-                            padding: '24px',
-                            borderRadius: '24px',
-                            border: '1px solid var(--color-border)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '20px',
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
-                        }}
-                    >
+                {stats.map((stat, i) => {
+                    const cardStyle = {
+                        background: '#fff',
+                        padding: '24px',
+                        borderRadius: '24px',
+                        border: '1px solid var(--color-border)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '20px',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+                        width: '100%',
+                    };
+                    const inner = (
+                        <>
                         <div
                             style={{
                                 width: '54px',
@@ -1032,7 +1214,7 @@ export default function WorkshopInventory({
                         >
                             <stat.icon size={26} />
                         </div>
-                        <div>
+                        <div style={{ minWidth: 0, textAlign: 'left' }}>
                             <p
                                 style={{
                                     fontSize: '0.8125rem',
@@ -1053,12 +1235,44 @@ export default function WorkshopInventory({
                             >
                                 {stat.value}
                             </h4>
-                            {stat.sub && (
+                            {stat.sub ? (
                                 <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '6px 0 0' }}>{stat.sub}</p>
-                            )}
+                            ) : null}
+                            {stat.clickable ? (
+                                <p className="ws-kpi-proof-hint" style={{ marginTop: 8 }}>
+                                    Click for line-by-line breakdown
+                                </p>
+                            ) : null}
                         </div>
-                    </div>
-                ))}
+                        </>
+                    );
+                    if (stat.clickable) {
+                        const proofClass =
+                            stat.proofKey === 'lowStock'
+                                ? 'mc-stat-card ws-inv-stat-card--clickable ws-inv-stat-card--clickable-danger'
+                                : 'mc-stat-card ws-inv-stat-card--clickable';
+                        return (
+                            <button
+                                key={i}
+                                type="button"
+                                className={proofClass}
+                                style={cardStyle}
+                                onClick={() => {
+                                    if (stat.proofKey === 'lowStock') setIsLowStockProofOpen(true);
+                                    else if (stat.proofKey === 'inventoryValue') setIsInvValueProofOpen(true);
+                                }}
+                                aria-label={`${stat.label}: view calculation breakdown`}
+                            >
+                                {inner}
+                            </button>
+                        );
+                    }
+                    return (
+                        <div key={i} className="mc-stat-card" style={cardStyle}>
+                            {inner}
+                        </div>
+                    );
+                })}
             </div>
 
             <div className="mc-selection-layout">
@@ -1276,7 +1490,7 @@ export default function WorkshopInventory({
                                                 color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase',
                                             }}
-                                            title="branch_products.opening_qty — set at catalog adoption; unchanged by manual stock adjustments"
+                                            title="workshop_products.opening_qty — adoption baseline; Opening qty manual adjust also sets current stock"
                                         >
                                             Opening (adoption)
                                         </th>
@@ -1432,8 +1646,20 @@ export default function WorkshopInventory({
                                                     </td>
                                                     <td style={{ padding: '16px 24px', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>{item.departmentName}</td>
                                                     <td style={{ padding: '16px 24px', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>{item.categoryName}</td>
-                                                    <td style={{ padding: '16px 24px', textAlign: 'center', fontSize: '0.875rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
-                                                        {item.openingQty != null ? item.openingQty : '—'}
+                                                    <td style={{ padding: '16px 24px', textAlign: 'center' }}>
+                                                        <span
+                                                            style={{
+                                                                display: 'inline-block',
+                                                                padding: '4px 10px',
+                                                                borderRadius: '6px',
+                                                                fontSize: '0.875rem',
+                                                                fontWeight: 700,
+                                                                color: 'var(--color-text-dark)',
+                                                                background: '#F3F4F6',
+                                                            }}
+                                                        >
+                                                            {item.openingQty != null ? item.openingQty : '—'}
+                                                        </span>
                                                     </td>
                                                     <td style={{ padding: '16px 24px', textAlign: 'center' }}>
                                                         <span
@@ -1582,7 +1808,20 @@ export default function WorkshopInventory({
                                 <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', margin: '0 0 6px' }}>Product</p>
                                 <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>{logProduct.name}</h4>
                                 <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                    SKU: {logProduct.sku || '—'} · Opening (adoption): <strong>{logProduct.openingQty ?? '—'}</strong> · Current stock:{' '}
+                                    SKU: {logProduct.sku || '—'} · Opening (adoption):{' '}
+                                    <strong
+                                        style={{
+                                            padding: '2px 8px',
+                                            borderRadius: 6,
+                                            background: '#FEF3C7',
+                                            color: '#92400E',
+                                        }}
+                                    >
+                                        {productRows.find((p) => String(p.id) === String(logProduct.id))?.openingQty ??
+                                            logProduct.openingQty ??
+                                            '—'}
+                                    </strong>{' '}
+                                    · Current stock:{' '}
                                     <strong>{productRows.find((p) => String(p.id) === String(logProduct.id))?.qty ?? logProduct.qty}</strong>
                                     {isAllBranches ? ' · All branches: offline log only' : ` · ${selectedBranchName}`}
                                 </p>
@@ -1637,10 +1876,31 @@ export default function WorkshopInventory({
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {merged.map((e) => (
-                                                    <tr key={e.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
-                                                        <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', color: 'var(--color-text-muted)' }}>
+                                                {merged.map((e) => {
+                                                    const openingRow = isOpeningQtyAdjustmentEntry(e);
+                                                    return (
+                                                    <tr
+                                                        key={e.id}
+                                                        style={{
+                                                            borderBottom: '1px solid var(--color-border-light)',
+                                                            background: openingRow ? '#FEF9C3' : undefined,
+                                                        }}
+                                                    >
+                                                        <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', color: openingRow ? '#92400E' : 'var(--color-text-muted)' }}>
                                                             {new Date(e.at).toLocaleString()}
+                                                            {openingRow ? (
+                                                                <span
+                                                                    style={{
+                                                                        display: 'block',
+                                                                        fontSize: '0.65rem',
+                                                                        fontWeight: 800,
+                                                                        textTransform: 'uppercase',
+                                                                        marginTop: 4,
+                                                                    }}
+                                                                >
+                                                                    Opening (adoption)
+                                                                </span>
+                                                            ) : null}
                                                         </td>
                                                         <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>{e.previousQty == null ? '—' : e.previousQty}</td>
                                                         <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>{e.newQty == null ? '—' : e.newQty}</td>
@@ -1670,7 +1930,8 @@ export default function WorkshopInventory({
                                                             </td>
                                                         ) : null}
                                                     </tr>
-                                                ))}
+                                                );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
@@ -1691,23 +1952,47 @@ export default function WorkshopInventory({
                                 <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                                     Current stock: <strong>{adjustItem?.qty ?? 0}</strong>
                                     {adjustItem?.openingQty != null ? (
-                                        <> · Opening (adoption): <strong>{adjustItem.openingQty}</strong></>
+                                        <>
+                                            {' '}
+                                            · Opening (adoption):{' '}
+                                            <strong
+                                                style={{
+                                                    padding: '2px 8px',
+                                                    borderRadius: 6,
+                                                    background: isAdjustOpeningQty ? '#FEF3C7' : 'transparent',
+                                                    color: isAdjustOpeningQty ? '#92400E' : 'inherit',
+                                                }}
+                                            >
+                                                {adjustItem.openingQty}
+                                            </strong>
+                                        </>
                                     ) : null}
                                 </p>
                             </div>
 
                             <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
-                                Sets <strong>current stock</strong> (effective on-hand per branch; not adoption opening). Enter a new total — higher to increase, lower to decrease. Must be ≥ 0.
-                                {isAllBranches ? ' Select a single branch to save on the server.' : ' The server checks <strong>previousQty</strong> matches current stock — refresh if it changed elsewhere.'}
+                                {isAdjustOpeningQty ? (
+                                    <>
+                                        Sets <strong>Opening (adoption)</strong> and <strong>Current stock</strong> to the same
+                                        value (initial / reset). Enter the new total (≥ 0).
+                                    </>
+                                ) : (
+                                    <>
+                                        Sets <strong>current stock</strong> (effective on-hand per branch; not adoption opening). Enter a new total — higher to increase, lower to decrease. Must be ≥ 0.
+                                    </>
+                                )}
+                                {isAllBranches ? ' Select a single branch to save on the server.' : ' The server checks <strong>previousQty</strong> matches the value shown — refresh if it changed elsewhere.'}
                             </p>
 
                             <div className="mc-form-group" style={{ marginBottom: '16px' }}>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>NEW QUANTITY</label>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>
+                                    {isAdjustOpeningQty ? 'NEW OPENING QTY (ADOPTION)' : 'NEW QUANTITY (CURRENT STOCK)'}
+                                </label>
                                 <input
                                     type="number"
                                     className="mc-filter-select"
                                     style={{ width: '100%', height: '45px' }}
-                                    placeholder="Enter new stock level..."
+                                    placeholder={isAdjustOpeningQty ? 'Enter new opening qty…' : 'Enter new stock level…'}
                                     min={0}
                                     step={1}
                                     value={newQty}
@@ -1722,10 +2007,11 @@ export default function WorkshopInventory({
                                     className="mc-filter-select"
                                     style={{ width: '100%', height: '45px' }}
                                     value={adjustReason}
-                                    onChange={(e) => setAdjustReason(e.target.value)}
+                                    onChange={(e) => handleAdjustReasonChange(e.target.value)}
                                     disabled={adjustSaving}
                                 >
                                     <option value="">Select a reason...</option>
+                                    <option value={INVENTORY_ADJUSTMENT_REASON_OPENING_QTY}>Opening qty</option>
                                     <option value="Damaged Stock">Damaged Stock</option>
                                     <option value="Inventory Count Correction">Inventory Count Correction</option>
                                     <option value="Expired Item">Expired Item</option>
@@ -1753,7 +2039,10 @@ export default function WorkshopInventory({
                                         if (adjustSaving || !adjustItem || !adjustReason.trim()) return true;
                                         const parsed = Number.parseFloat(String(newQty).trim().replace(/,/g, ''));
                                         if (!Number.isFinite(parsed) || parsed < 0) return true;
-                                        return Math.round(parsed) === (Number(adjustItem.qty) || 0);
+                                        const baseline = isAdjustOpeningQty
+                                            ? Number(adjustItem.openingQty ?? adjustItem.qty) || 0
+                                            : Number(adjustItem.qty) || 0;
+                                        return Math.round(parsed) === baseline;
                                     })()}
                                 >
                                     {adjustSaving ? 'Saving…' : 'Apply Adjustment'}
@@ -1835,6 +2124,234 @@ export default function WorkshopInventory({
                                     {criticalSaving ? 'Saving…' : 'Save'}
                                 </button>
                             </div>
+                        </div>
+                    </Modal>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {isLowStockProofOpen && (
+                    <Modal
+                        onClose={() => setIsLowStockProofOpen(false)}
+                        title="Low stock (SKUs) — breakdown"
+                        width="920px"
+                    >
+                        <div style={{ padding: '0 24px 24px' }}>
+                            <p className="ws-kpi-proof-methodology">
+                                <strong>Rule:</strong> a SKU counts as <em>low stock</em> only when{' '}
+                                <strong>critical level &gt; 0</strong> and <strong>current stock ≤ critical level</strong>.
+                                Products with critical set to 0 are excluded (not monitored for low stock).
+                            </p>
+                            <p className="ws-kpi-proof-methodology">
+                                <strong>Scope:</strong> {selectedBranchName}
+                                {isAllBranches ? ' (all adopted SKUs in this list)' : ''}.{' '}
+                                <strong>Current stock</strong> is branch on-hand when present; otherwise adoption opening
+                                qty. <strong>Critical</strong> is{' '}
+                                <code style={{ fontSize: '0.8em' }}>branch_products.criticalStockPoint</code> for this
+                                branch.
+                            </p>
+
+                            <div className="ws-kpi-proof-summary-grid">
+                                <div className="ws-kpi-proof-stat">
+                                    <span className="ws-kpi-proof-stat-label">KPI count (low stock)</span>
+                                    <span className="ws-kpi-proof-stat-value">{lowStockBreakdown.count}</span>
+                                </div>
+                                <div className="ws-kpi-proof-stat">
+                                    <span className="ws-kpi-proof-stat-label">Out of stock (qty = 0)</span>
+                                    <span className="ws-kpi-proof-stat-value">{lowStockBreakdown.outOfStock}</span>
+                                </div>
+                                <div className="ws-kpi-proof-stat">
+                                    <span className="ws-kpi-proof-stat-label">Low (qty &gt; 0, ≤ critical)</span>
+                                    <span className="ws-kpi-proof-stat-value">{lowStockBreakdown.lowOnly}</span>
+                                </div>
+                                <div className="ws-kpi-proof-stat">
+                                    <span className="ws-kpi-proof-stat-label">SKUs with critical set</span>
+                                    <span className="ws-kpi-proof-stat-value">{lowStockBreakdown.withCriticalSet}</span>
+                                </div>
+                                <div className="ws-kpi-proof-stat">
+                                    <span className="ws-kpi-proof-stat-label">SKUs without critical (excluded)</span>
+                                    <span className="ws-kpi-proof-stat-value">{lowStockBreakdown.withoutCritical}</span>
+                                </div>
+                            </div>
+
+                            {lowStockBreakdown.lines.length === 0 ? (
+                                <p className="ws-kpi-proof-note">
+                                    No low-stock SKUs in this scope — either stock is above critical for monitored items,
+                                    or critical level is not set on any product.
+                                </p>
+                            ) : (
+                                <div className="ws-kpi-proof-scroll">
+                                    <table className="ws-table ws-kpi-proof-table">
+                                        <thead>
+                                            <tr>
+                                                <th style={{ textAlign: 'left' }}>Product</th>
+                                                <th style={{ textAlign: 'left' }}>SKU</th>
+                                                <th style={{ textAlign: 'left' }}>Department</th>
+                                                <th style={{ textAlign: 'right' }}>Current stock</th>
+                                                <th style={{ textAlign: 'right' }}>Critical</th>
+                                                <th style={{ textAlign: 'right' }}>Shortfall</th>
+                                                <th style={{ textAlign: 'left' }}>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {lowStockBreakdown.lines.map((row) => (
+                                                <tr key={row.id}>
+                                                    <td style={{ fontWeight: 600 }}>{row.name}</td>
+                                                    <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{row.sku}</td>
+                                                    <td>{row.departmentName}</td>
+                                                    <td
+                                                        style={{
+                                                            textAlign: 'right',
+                                                            fontWeight: 700,
+                                                            color: row.qty <= 0 ? '#B91C1C' : '#D97706',
+                                                        }}
+                                                    >
+                                                        {row.qty}
+                                                    </td>
+                                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{row.critical}</td>
+                                                    <td
+                                                        style={{
+                                                            textAlign: 'right',
+                                                            fontWeight: 700,
+                                                            color: '#B91C1C',
+                                                        }}
+                                                    >
+                                                        {row.gap}
+                                                    </td>
+                                                    <td>
+                                                        <span
+                                                            style={{
+                                                                display: 'inline-block',
+                                                                padding: '2px 8px',
+                                                                borderRadius: 6,
+                                                                fontSize: '0.7rem',
+                                                                fontWeight: 800,
+                                                                textTransform: 'uppercase',
+                                                                background: row.qty <= 0 ? '#FEE2E2' : '#FFFBEB',
+                                                                color: row.qty <= 0 ? '#991B1B' : '#92400E',
+                                                            }}
+                                                        >
+                                                            {row.status}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </Modal>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {isInvValueProofOpen && (
+                    <Modal
+                        onClose={() => setIsInvValueProofOpen(false)}
+                        title="Total inventory value — calculation"
+                        width="920px"
+                    >
+                        <div style={{ padding: '0 24px 24px' }}>
+                            <p className="ws-kpi-proof-methodology">
+                                <strong>Formula:</strong> for each product in scope,{' '}
+                                <em>line value = current stock × purchase price</em>. The KPI total is the sum of all
+                                line values (displayed rounded to the nearest SAR).
+                            </p>
+                            <p className="ws-kpi-proof-methodology">
+                                <strong>Scope:</strong> {selectedBranchName}
+                                {isAllBranches ? ' (all adopted SKUs across branches in this list)' : ''}.{' '}
+                                <strong>Current stock</strong> uses branch on-hand quantity when set; otherwise adoption
+                                opening qty. <strong>Purchase price</strong> is the branch/catalog purchase price on each
+                                row.
+                            </p>
+
+                            <div className="ws-kpi-proof-summary-grid">
+                                <div className="ws-kpi-proof-stat">
+                                    <span className="ws-kpi-proof-stat-label">SKUs in list</span>
+                                    <span className="ws-kpi-proof-stat-value">{inventoryValueBreakdown.skuCount}</span>
+                                </div>
+                                <div className="ws-kpi-proof-stat">
+                                    <span className="ws-kpi-proof-stat-label">SKUs with stock &gt; 0</span>
+                                    <span className="ws-kpi-proof-stat-value">{inventoryValueBreakdown.skusWithStock}</span>
+                                </div>
+                                <div className="ws-kpi-proof-stat">
+                                    <span className="ws-kpi-proof-stat-label">SKUs with value &gt; 0</span>
+                                    <span className="ws-kpi-proof-stat-value">{inventoryValueBreakdown.skusWithValue}</span>
+                                </div>
+                                <div className="ws-kpi-proof-stat">
+                                    <span className="ws-kpi-proof-stat-label">Total (exact)</span>
+                                    <span className="ws-kpi-proof-stat-value">
+                                        {formatSar(inventoryValueBreakdown.total, { decimals: 2 })}
+                                    </span>
+                                </div>
+                                <div className="ws-kpi-proof-stat">
+                                    <span className="ws-kpi-proof-stat-label">KPI display (rounded)</span>
+                                    <span className="ws-kpi-proof-stat-value">
+                                        {formatSar(Math.round(inventoryValueBreakdown.total))}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {inventoryValueBreakdown.lines.length === 0 ? (
+                                <p className="ws-kpi-proof-note">No products in this scope yet.</p>
+                            ) : (
+                                <div className="ws-kpi-proof-scroll">
+                                    <table className="ws-table ws-kpi-proof-table">
+                                        <thead>
+                                            <tr>
+                                                <th style={{ textAlign: 'left' }}>Product</th>
+                                                <th style={{ textAlign: 'left' }}>SKU</th>
+                                                <th style={{ textAlign: 'left' }}>Department</th>
+                                                <th style={{ textAlign: 'right' }}>Purchase price</th>
+                                                <th style={{ textAlign: 'right' }}>Current stock</th>
+                                                <th style={{ textAlign: 'right' }}>Line value</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {inventoryValueBreakdown.lines.map((row) => (
+                                                <tr key={row.id}>
+                                                    <td style={{ fontWeight: 600 }}>{row.name}</td>
+                                                    <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{row.sku}</td>
+                                                    <td>{row.departmentName}</td>
+                                                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                        {formatSar(row.purchasePrice, { decimals: 2 })}
+                                                    </td>
+                                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{row.qty}</td>
+                                                    <td
+                                                        style={{
+                                                            textAlign: 'right',
+                                                            fontWeight: 700,
+                                                            color: row.lineValue > 0 ? '#047857' : 'var(--color-text-muted)',
+                                                            whiteSpace: 'nowrap',
+                                                        }}
+                                                    >
+                                                        {formatSar(row.lineValue, { decimals: 2 })}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                        <tfoot>
+                                            <tr style={{ borderTop: '2px solid var(--color-border)' }}>
+                                                <td colSpan={5} style={{ textAlign: 'right', fontWeight: 800, paddingTop: 14 }}>
+                                                    Total
+                                                </td>
+                                                <td
+                                                    style={{
+                                                        textAlign: 'right',
+                                                        fontWeight: 800,
+                                                        paddingTop: 14,
+                                                        color: '#047857',
+                                                        whiteSpace: 'nowrap',
+                                                    }}
+                                                >
+                                                    {formatSar(inventoryValueBreakdown.total, { decimals: 2 })}
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            )}
                         </div>
                     </Modal>
                 )}
