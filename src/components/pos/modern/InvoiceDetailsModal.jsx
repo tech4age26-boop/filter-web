@@ -127,18 +127,38 @@ export default function InvoiceDetailsModal({
           color: #23262d;
         }
         @media print {
+          /* Hide the rest of the app (sidebar, page chrome, other modals) so
+             only the invoice prints — without this, window.print() captures
+             the whole portal layout. */
+          body * {
+            visibility: hidden !important;
+          }
+          .invoice-modal-root,
+          .invoice-modal-root * {
+            visibility: visible !important;
+          }
+          html, body {
+            background: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
           .invoice-modal-root {
             position: absolute !important;
             inset: 0 !important;
             padding: 0 !important;
             background: #fff !important;
+            overflow: visible !important;
           }
           .invoice-modal-card {
+            position: static !important;
             max-width: none !important;
             max-height: none !important;
+            width: 100% !important;
             border: none !important;
             box-shadow: none !important;
             border-radius: 0 !important;
+            overflow: visible !important;
+            display: block !important;
           }
           .invoice-modal-close-fab,
           .invoice-actions {
@@ -146,6 +166,7 @@ export default function InvoiceDetailsModal({
           }
           .invoice-scroll {
             overflow: visible !important;
+            max-height: none !important;
             padding: 0 !important;
           }
         }

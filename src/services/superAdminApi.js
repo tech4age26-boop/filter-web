@@ -515,6 +515,29 @@ export const getSupplierInvoice = (id) =>
 export const getLocalSupplierInvoice = (id) =>
     apiFetch(`/super-admin/local-supplier-invoices/${encodeURIComponent(String(id))}`);
 
+// ─── Corporate payment approvals (proof images) ───────────────────────────────
+
+export const listCorporatePaymentApprovals = ({ status, corporateAccountId, limit, offset } = {}) =>
+    apiFetch(`/super-admin/corporate-payment-approvals${qs({ status, corporateAccountId, limit, offset })}`);
+
+export const getCorporatePaymentApproval = (id) =>
+    apiFetch(`/super-admin/corporate-payment-approvals/${encodeURIComponent(String(id))}`);
+
+export const approveCorporatePaymentApproval = (id) =>
+    apiFetch(`/super-admin/corporate-payment-approvals/${encodeURIComponent(String(id))}/approve`, {
+        method: 'POST',
+    });
+
+export const rejectCorporatePaymentApproval = (id, reason) =>
+    apiFetch(`/super-admin/corporate-payment-approvals/${encodeURIComponent(String(id))}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+    });
+
+/** Same bilingual simplified-tax-invoice shape used by the corporate portal modal. */
+export const getSuperAdminInvoiceView = (id) =>
+    apiFetch(`/super-admin/invoices/${encodeURIComponent(String(id))}/view`);
+
 // ─── Services ─────────────────────────────────────────────────────────────────
 
 /** Newest first (`createdAt` desc). Rows include `categoryId`, `categoryName`, `isPriceEditable`, `vatMode`, `createdAt` (ISO-8601), etc. */
