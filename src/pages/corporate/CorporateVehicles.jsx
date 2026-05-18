@@ -31,9 +31,10 @@ export default function CorporateVehicles({ vehicles, setVehicles }) {
     const [editVehicle, setEditVehicle] = useState(null);
     const [form, setForm] = useState(EMPTY_FORM);
     const [saving, setSaving] = useState(false);
+    const [formError, setFormError] = useState('');
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-    const openAdd = () => { setEditVehicle(null); setForm(EMPTY_FORM); setModalOpen(true); };
+    const openAdd = () => { setEditVehicle(null); setForm(EMPTY_FORM); setFormError(''); setModalOpen(true); };
     const openEdit = (v) => {
         setEditVehicle(v);
         setForm({
@@ -44,24 +45,34 @@ export default function CorporateVehicles({ vehicles, setVehicles }) {
             color: v.color || '',
             odometer: v.odometer || '',
         });
+        setFormError('');
         setModalOpen(true);
     };
 
     const handleSave = async () => {
         if (!form.plateNo) return;
         setSaving(true);
+        setFormError('');
         try {
-            const payload = { plateNo: form.plateNo, make: form.make, model: form.model, year: Number(form.year) || undefined, color: form.color, odometer: Number(form.odometer) || undefined };
+            const payload = {
+                plateNo: form.plateNo,
+                make: form.make,
+                model: form.model,
+                year: Number(form.year) || undefined,
+                color: form.color,
+                odometer: Number(form.odometer) || undefined,
+            };
             if (editVehicle) {
                 const data = await apiFetch(`/corporate/vehicles/${editVehicle.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-                setVehicles(prev => prev.map(v => (v.id === editVehicle.id ? mapVehicleRow(data) : v)));
+                const row = mapVehicleRow(data);
+                setVehicles(prev => prev.map(v => (String(v.id) === String(editVehicle.id) ? row : v)));
             } else {
                 const data = await apiFetch('/corporate/vehicles', { method: 'POST', body: JSON.stringify(payload) });
                 setVehicles(prev => [...prev, mapVehicleRow(data)]);
             }
             setModalOpen(false); setEditVehicle(null); setForm(EMPTY_FORM);
-        } catch {
-            // keep modal open on error
+        } catch (err) {
+            setFormError(err?.message || 'Could not save vehicle');
         } finally {
             setSaving(false);
         }
@@ -71,8 +82,10 @@ export default function CorporateVehicles({ vehicles, setVehicles }) {
         if (!window.confirm('Delete this vehicle?')) return;
         try {
             await apiFetch(`/corporate/vehicles/${id}`, { method: 'DELETE' });
-            setVehicles(prev => prev.filter(v => v.id !== id));
-        } catch {}
+            setVehicles(prev => prev.filter(v => String(v.id) !== String(id)));
+        } catch (err) {
+            alert(err?.message || 'Could not delete vehicle');
+        }
     };
 
     const list = vehicles || [];
@@ -118,6 +131,11 @@ export default function CorporateVehicles({ vehicles, setVehicles }) {
                         <button className="btn-portal" disabled={!form.plateNo || saving} onClick={handleSave}>{saving ? 'Saving…' : editVehicle ? 'Update Vehicle' : 'Add Vehicle'}</button>
                     </div>
                 } width="420px">
+                    {formError ? (
+                        <div style={{padding:'10px 12px', borderRadius:10, background:'#FEF2F2', color:'#B91C1C', fontSize:'0.8125rem', border:'1px solid #FECACA', marginBottom:12}}>
+                            {formError}
+                        </div>
+                    ) : null}
                     <div className="ws-form-grid">
                         <div className="ws-field"><label>Plate Number *</label><input value={form.plateNo} onChange={e=>set('plateNo',e.target.value)} placeholder="ABC 1234"/></div>
                         <div className="ws-field"><label>Make</label><input value={form.make} onChange={e=>set('make',e.target.value)} placeholder="Toyota"/></div>

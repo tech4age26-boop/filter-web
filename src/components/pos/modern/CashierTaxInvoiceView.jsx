@@ -24,7 +24,15 @@ function dash(s) {
   return v || '—';
 }
 
-function MetaLabel({ en, ar }) {
+function MetaLabel({ en, ar, twoLine = false }) {
+  if (twoLine) {
+    return (
+      <div className="cti-meta-label">
+        <span className="ar" style={{ display: 'block', lineHeight: 1.15 }}>{ar}</span>
+        <span style={{ display: 'block', lineHeight: 1.15 }}>{en}</span>
+      </div>
+    );
+  }
   return (
     <div className="cti-meta-label">
       <span className="ar">{ar}</span>
@@ -156,15 +164,15 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice }) {
             <td className="cti-meta-value">{plate}</td>
             <td><MetaLabel en="VIN" ar="رقم الهيكل" /></td>
             <td className="cti-meta-value">{dash(invoice.vehicleVin)}</td>
-            <td><MetaLabel en="Next Change" ar="غيار الزيت القادم" /></td>
+            <td><MetaLabel en="Next Change" ar="غيار الزيت القادم" twoLine /></td>
             <td className="cti-meta-value">{nextKm}</td>
           </tr>
           <tr>
             <td><MetaLabel en="Year" ar="سنة الصنع" /></td>
             <td className="cti-meta-value">{dash(invoice.vehicleYear)}</td>
-            <td><MetaLabel en="Customer Type" ar="نوع العميل" /></td>
+            <td><MetaLabel en="Customer Type" ar="نوع العميل" twoLine /></td>
             <td className="cti-meta-value">{dash(invoice.customerType)}</td>
-            <td><MetaLabel en="Customer Tax ID" ar="الرقم الضريبي للعميل" /></td>
+            <td><MetaLabel en="Customer Tax ID" ar="الرقم الضريبي للعميل" twoLine /></td>
             <td className="cti-meta-value">{dash(invoice.customerTaxId)}</td>
           </tr>
         </tbody>

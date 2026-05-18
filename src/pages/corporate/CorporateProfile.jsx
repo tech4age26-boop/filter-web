@@ -327,14 +327,6 @@ export default function CorporateProfile({ onTabChange }) {
                             </div>
                         </div>
                         <div style={{display:'flex',gap:12,alignItems:'center'}}>
-                            <div style={{textAlign:'center',padding:'10px 16px',background:'var(--color-bg-muted)',borderRadius:10}}>
-                                <p style={{fontSize:'0.625rem',fontWeight:800,color:'var(--color-text-muted)',textTransform:'uppercase',margin:'0 0 3px 0'}}>Credit Limit</p>
-                                <p style={{fontSize:'0.9375rem',fontWeight:900,color:'var(--color-text-dark)',margin:0}}>SAR {(ca?.creditLimit || 0).toLocaleString()}</p>
-                            </div>
-                            <div style={{textAlign:'center',padding:'10px 16px',background: (ca?.dueBalance || 0) > 0 ? '#FEF2F2' : 'var(--color-bg-muted)',borderRadius:10}}>
-                                <p style={{fontSize:'0.625rem',fontWeight:800,color:'var(--color-text-muted)',textTransform:'uppercase',margin:'0 0 3px 0'}}>Outstanding</p>
-                                <p style={{fontSize:'0.9375rem',fontWeight:900,color: (ca?.dueBalance || 0) > 0 ? '#DC2626' : '#16A34A',margin:0}}>SAR {(ca?.dueBalance || 0).toLocaleString()}</p>
-                            </div>
                             <button className="btn-portal-outline" style={{padding:'8px 12px', fontSize:'0.75rem'}} onClick={() => setEditModalOpen(true)}><Edit size={14}/> Edit Profile</button>
                         </div>
                     </div>
