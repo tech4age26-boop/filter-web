@@ -129,9 +129,15 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
             const list = Array.isArray(res?.approvals) ? res.approvals : [];
             const map = {};
             // Latest-first from server — first hit wins per invoice.
+            // For multi-invoice approvals, index by EVERY invoice in allocations
+            // so each row in the billing list shows the right Pending/Rejected badge.
             for (const a of list) {
-                const k = String(a.invoiceId);
-                if (!map[k]) map[k] = a;
+                const ids = Array.isArray(a.allocations) && a.allocations.length > 0
+                    ? a.allocations.map((x) => String(x.invoiceId))
+                    : [String(a.invoiceId)];
+                for (const k of ids) {
+                    if (!map[k]) map[k] = a;
+                }
             }
             setApprovalsByInvoiceId(map);
         } catch {
@@ -177,7 +183,7 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
 
     const toggleRow = (id) => {
         const row = items.find((r) => r.id === id);
-        if (!row || row.isMonthlyBilling === false || row.balanceDue <= 0.05) return;
+        if (!row || row.balanceDue <= 0.05) return;
         const a = approvalsByInvoiceId[String(id)];
         if (a?.status === 'pending') return;
         setSelected((prev) => {
@@ -191,7 +197,6 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
     const toggleAllOnPage = () => {
         const pageIds = items
             .filter((r) => {
-                if (r.isMonthlyBilling === false) return false;
                 if (r.balanceDue <= 0.05) return false;
                 const a = approvalsByInvoiceId[String(r.id)];
                 return a?.status !== 'pending';
@@ -232,12 +237,7 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
         const approval = approvalsByInvoiceId[String(row.id)];
         if (approval && approval.status === 'pending' && !opts.allowPending) return;
         const isResubmit = opts.resubmit === true && approval?.status === 'rejected';
-        setPayError('');
-        setPayAmount(
-            String(Number(isResubmit ? approval.amount : row.balanceDue).toFixed(2)),
-        );
-        const monthlyEligible = row.isMonthlyBilling !== false;
-        const walletAvailable = monthlyEligible && Number(walletBal) > 0.05;
+        const walletAvailable = Number(walletBal) > 0.05;
         // Restrict to the new allowed set: Cash | wallet | Card.
         const normalizeMethod = (m) => {
             const v = String(m ?? '').trim().toLowerCase();
@@ -245,6 +245,32 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
             if (v === 'card') return 'Card';
             return 'Cash';
         };
+
+        // Multi-invoice rejected approval — open the BULK modal pre-filled
+        // with every invoice from the original allocation set.
+        if (
+            isResubmit &&
+            Array.isArray(approval.allocations) &&
+            approval.allocations.length > 1
+        ) {
+            setPayError('');
+            const init = {};
+            for (const a of approval.allocations) {
+                init[String(a.invoiceId)] = String(Number(a.amount).toFixed(2));
+            }
+            setBulkAmounts(init);
+            setPayMethod(normalizeMethod(approval.paymentMethod));
+            setProofFile(null);
+            setProofNotes(approval.notes || '');
+            setResubmittingApprovalId(approval.id);
+            setBulkModal(true);
+            return;
+        }
+
+        setPayError('');
+        setPayAmount(
+            String(Number(isResubmit ? approval.amount : row.balanceDue).toFixed(2)),
+        );
         const initialMethod = isResubmit
             ? normalizeMethod(approval.paymentMethod)
             : walletAvailable
@@ -258,9 +284,14 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
     };
 
     const openBulkPay = () => {
-        const rows = items.filter(
-            (r) => selected.has(r.id) && r.balanceDue > 0.05 && r.isMonthlyBilling !== false,
-        );
+        // Bulk modal now supports both Wallet (instant) and Cash/Card (proof
+        // approval). Include all selected unpaid rows without a pending approval.
+        const rows = items.filter((r) => {
+            if (!selected.has(r.id)) return false;
+            if (r.balanceDue <= 0.05) return false;
+            const a = approvalsByInvoiceId[String(r.id)];
+            return a?.status !== 'pending';
+        });
         if (!rows.length) return;
         setPayError('');
         const init = {};
@@ -268,6 +299,9 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
             init[r.id] = String(Number(r.balanceDue).toFixed(2));
         });
         setBulkAmounts(init);
+        setPayMethod(Number(walletBal) > 0.05 ? 'wallet' : 'Cash');
+        setProofFile(null);
+        setProofNotes('');
         setBulkModal(true);
     };
 
@@ -365,6 +399,39 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
         void submitPaymentProof();
     };
 
+    const submitBulkPaymentProof = async (payload) => {
+        if (!payload?.length) return;
+        if (!proofFile) {
+            setPayError('Upload a payment proof image');
+            return;
+        }
+        setPaySubmitting(true);
+        setPayError('');
+        try {
+            const fd = new FormData();
+            fd.append('allocations', JSON.stringify(payload));
+            fd.append('paymentMethod', payMethod);
+            if (proofNotes.trim()) fd.append('notes', proofNotes.trim());
+            fd.append('proof', proofFile);
+            const url = resubmittingApprovalId
+                ? `/corporate/billing/payment-approvals/${encodeURIComponent(resubmittingApprovalId)}/resubmit`
+                : '/corporate/billing/payment-approvals';
+            await apiFetch(url, { method: 'POST', body: fd });
+            setBulkModal(false);
+            setBulkAmounts({});
+            setProofFile(null);
+            setProofNotes('');
+            setResubmittingApprovalId(null);
+            setSelected(new Set());
+            await loadApprovals();
+            load();
+        } catch (e) {
+            setPayError(e?.message || 'Could not submit proof');
+        } finally {
+            setPaySubmitting(false);
+        }
+    };
+
     const confirmBulkPay = () => {
         const payload = Object.entries(bulkAmounts).map(([invoiceId, v]) => ({
             invoiceId,
@@ -376,11 +443,20 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                 return;
             }
         }
-        if (payload.reduce((s, p) => s + p.amount, 0) - walletBal > 0.05) {
-            setPayError('Total exceeds wallet balance');
+        const totalAmt = payload.reduce((s, p) => s + p.amount, 0);
+        if (payMethod === 'wallet') {
+            if (Number(walletBal) <= 0.05) {
+                setPayError('Your wallet balance is empty. Top up the wallet first.');
+                return;
+            }
+            if (totalAmt - Number(walletBal) > 0.05) {
+                setPayError(`Total exceeds wallet balance (SAR ${Number(walletBal).toFixed(2)})`);
+                return;
+            }
+            submitWalletPay(payload);
             return;
         }
-        submitWalletPay(payload);
+        void submitBulkPaymentProof(payload);
     };
 
     const modalBackdrop = {
@@ -454,9 +530,12 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
             : [];
 
     const payEnabled =
-        items.some(
-            (r) => selected.has(r.id) && r.balanceDue > 0.05 && r.isMonthlyBilling !== false,
-        ) && !paySubmitting;
+        items.some((r) => {
+            if (!selected.has(r.id)) return false;
+            if (r.balanceDue <= 0.05) return false;
+            const a = approvalsByInvoiceId[String(r.id)];
+            return a?.status !== 'pending';
+        }) && !paySubmitting;
 
     return (
         <div style={{ width: '100%', maxWidth: 'none', margin: 0, paddingBottom: 32 }}>
@@ -1030,8 +1109,10 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                         const monthlyEligible = row.isMonthlyBilling !== false;
                                         const fullyPaid = row.balanceDue <= 0.05;
                                         const approval = approvalsByInvoiceId[String(row.id)];
-                                        const pendingApproval = approval?.status === 'pending';
-                                        const rejectedApproval = approval?.status === 'rejected';
+                                        // Hide pending/rejected badges once the invoice is fully paid —
+                                        // a stale approval shouldn't keep nagging on a settled row.
+                                        const pendingApproval = !fullyPaid && approval?.status === 'pending';
+                                        const rejectedApproval = !fullyPaid && approval?.status === 'rejected';
                                         // Any outstanding invoice is clickable for the proof-submit flow
                                         // (unless an approval is already pending — wait for review first).
                                         const canPay = !fullyPaid && !pendingApproval;
@@ -1061,12 +1142,12 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                                     type="checkbox"
                                                     checked={selected.has(row.id)}
                                                     onChange={() => toggleRow(row.id)}
-                                                    disabled={!selectable}
+                                                    disabled={fullyPaid || pendingApproval}
                                                     title={
-                                                        !monthlyEligible
-                                                            ? 'Wallet settlement only available for Monthly Billing invoices'
-                                                            : fullyPaid
-                                                                ? 'This invoice is fully paid'
+                                                        fullyPaid
+                                                            ? 'This invoice is fully paid'
+                                                            : pendingApproval
+                                                                ? 'A payment approval is already pending'
                                                                 : ''
                                                     }
                                                     aria-label={`Select invoice ${row.invoiceNo}`}
@@ -1606,7 +1687,11 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                     aria-modal="true"
                     aria-labelledby="mb-bulk-title"
                     style={modalBackdrop}
-                    onClick={() => !paySubmitting && setBulkModal(false)}
+                    onClick={() => {
+                        if (paySubmitting) return;
+                        setBulkModal(false);
+                        setResubmittingApprovalId(null);
+                    }}
                 >
                     <div
                         style={{ ...modalCard, maxWidth: 560 }}
@@ -1632,17 +1717,21 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                         textTransform: 'uppercase',
                                     }}
                                 >
-                                    Pay multiple from wallet
+                                    {resubmittingApprovalId
+                                        ? 'Resubmit payment proof'
+                                        : payMethod === 'wallet'
+                                            ? 'Pay multiple from wallet'
+                                            : 'Pay multiple — submit proof'}
                                 </p>
                                 <h3 style={{ margin: '6px 0 0', fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>
-                                    Selected invoices
+                                    {resubmittingApprovalId ? 'Resubmitting' : 'Selected invoices'} ({Object.keys(bulkAmounts).length})
                                 </h3>
                             </div>
                             <button
                                 type="button"
                                 aria-label="Close"
                                 disabled={paySubmitting}
-                                onClick={() => setBulkModal(false)}
+                                onClick={() => { setBulkModal(false); setResubmittingApprovalId(null); }}
                                 style={{
                                     border: 'none',
                                     background: '#f1f5f9',
@@ -1655,10 +1744,38 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                             </button>
                         </div>
                         <div style={{ padding: '14px 22px 20px' }}>
-                            <p style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: '#64748b' }}>
+                            <p style={{ margin: '0 0 10px', fontSize: '0.8125rem', color: '#64748b' }}>
                                 Wallet: <strong>SAR {Number(walletBal).toFixed(2)}</strong> · Total to pay:{' '}
                                 <strong>SAR {bulkTotal.toFixed(2)}</strong>
                             </p>
+
+                            <label
+                                htmlFor="mb-bulk-method"
+                                style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}
+                            >
+                                Payment method
+                            </label>
+                            <select
+                                id="mb-bulk-method"
+                                value={payMethod}
+                                onChange={(e) => setPayMethod(e.target.value)}
+                                disabled={paySubmitting}
+                                style={{
+                                    width: '100%',
+                                    marginTop: 6,
+                                    marginBottom: 12,
+                                    padding: '10px 12px',
+                                    borderRadius: 10,
+                                    border: '1px solid #cbd5e1',
+                                    fontSize: '0.9375rem',
+                                    fontWeight: 600,
+                                    background: '#fff',
+                                }}
+                            >
+                                <option value="Cash">Cash</option>
+                                <option value="wallet">Wallet — SAR {Number(walletBal).toFixed(2)} available</option>
+                                <option value="Card">Card</option>
+                            </select>
                             <div style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 14 }}>
                                 {Object.keys(bulkAmounts).map((id) => {
                                     const row = items.find((r) => r.id === id);
@@ -1702,6 +1819,77 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                     );
                                 })}
                             </div>
+                            {payMethod !== 'wallet' ? (
+                                <>
+                                    <label
+                                        htmlFor="mb-bulk-proof"
+                                        style={{
+                                            display: 'block',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            color: '#334155',
+                                        }}
+                                    >
+                                        Payment proof (image or PDF)
+                                    </label>
+                                    <input
+                                        id="mb-bulk-proof"
+                                        type="file"
+                                        accept="image/*,application/pdf"
+                                        disabled={paySubmitting}
+                                        onChange={(e) => setProofFile(e.target.files?.[0] ?? null)}
+                                        style={{
+                                            width: '100%',
+                                            marginTop: 6,
+                                            marginBottom: 4,
+                                            padding: '10px 12px',
+                                            borderRadius: 10,
+                                            border: '1px dashed #94a3b8',
+                                            background: '#f8fafc',
+                                            fontSize: '0.8125rem',
+                                        }}
+                                    />
+                                    {proofFile ? (
+                                        <p style={{ margin: '0 0 8px', fontSize: '0.75rem', color: '#0f766e' }}>
+                                            Selected: {proofFile.name} ({Math.round(proofFile.size / 1024)} KB)
+                                        </p>
+                                    ) : (
+                                        <p style={{ margin: '0 0 8px', fontSize: '0.7rem', color: '#94a3b8' }}>
+                                            Max 4 MB. One proof covers all selected invoices.
+                                        </p>
+                                    )}
+
+                                    <label
+                                        htmlFor="mb-bulk-notes"
+                                        style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}
+                                    >
+                                        Notes (optional)
+                                    </label>
+                                    <textarea
+                                        id="mb-bulk-notes"
+                                        value={proofNotes}
+                                        onChange={(e) => setProofNotes(e.target.value)}
+                                        rows={2}
+                                        disabled={paySubmitting}
+                                        placeholder="Reference / bank / payer name"
+                                        style={{
+                                            width: '100%',
+                                            marginTop: 6,
+                                            marginBottom: 10,
+                                            padding: '10px 12px',
+                                            borderRadius: 10,
+                                            border: '1px solid #cbd5e1',
+                                            fontSize: '0.875rem',
+                                            resize: 'vertical',
+                                        }}
+                                    />
+                                    <p style={{ margin: '0 0 12px', fontSize: '0.7rem', color: '#64748b' }}>
+                                        Your payment + proof will be sent to the platform admin for approval.
+                                        Once approved, balances on the selected invoices update automatically.
+                                    </p>
+                                </>
+                            ) : null}
+
                             {payError ? (
                                 <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginBottom: 10 }}>{payError}</p>
                             ) : null}
@@ -1710,18 +1898,28 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                     type="button"
                                     className="btn-portal-outline"
                                     disabled={paySubmitting}
-                                    onClick={() => setBulkModal(false)}
+                                    onClick={() => { setBulkModal(false); setResubmittingApprovalId(null); }}
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="button"
                                     className="btn-portal"
-                                    disabled={paySubmitting || bulkTotal <= 0 || bulkTotal - walletBal > 0.05}
+                                    disabled={
+                                        paySubmitting ||
+                                        bulkTotal <= 0 ||
+                                        (payMethod === 'wallet' && bulkTotal - walletBal > 0.05)
+                                    }
                                     onClick={confirmBulkPay}
-                                    style={{ background: '#059669', border: 'none', minWidth: 120 }}
+                                    style={{ background: '#059669', border: 'none', minWidth: 140 }}
                                 >
-                                    {paySubmitting ? 'Processing…' : 'Pay all'}
+                                    {paySubmitting
+                                        ? 'Processing…'
+                                        : payMethod === 'wallet'
+                                            ? 'Pay all'
+                                            : resubmittingApprovalId
+                                                ? 'Resubmit for approval'
+                                                : 'Submit for approval'}
                                 </button>
                             </div>
                         </div>
