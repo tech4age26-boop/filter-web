@@ -119,8 +119,14 @@ function mapLineItem(it) {
 function accumulateItems(invoice, emit) {
   const depts = Array.isArray(invoice.departments) ? invoice.departments : [];
   if (depts.length > 0) {
-    depts.forEach((d) => (d.items || []).forEach((it) => emit(mapLineItem(it))));
-    return;
+    let lineCount = 0;
+    depts.forEach((d) => {
+      (d.items || []).forEach((it) => {
+        emit(mapLineItem(it));
+        lineCount += 1;
+      });
+    });
+    if (lineCount > 0) return;
   }
   const jobs =
     Array.isArray(invoice.jobs) ? invoice.jobs
