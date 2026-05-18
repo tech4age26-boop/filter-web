@@ -222,12 +222,15 @@ function buildMetaChips(item) {
             break;
         case 'corporate_payment_approval':
             push('Company', m.companyName);
-            push('Invoice', m.invoiceNo);
+            if (m.allocationsCount && m.allocationsCount > 1) {
+                push('Invoices', `${m.allocationsCount} (first: ${m.invoiceNo ?? '—'})`);
+            } else {
+                push('Invoice', m.invoiceNo);
+            }
             push('Workshop', m.workshopName);
             push('Branch', m.branchName);
             push('Method', m.paymentMethod);
-            push('Amount', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
-            if (m.invoiceBalance != null) push('Balance', `SAR ${Number(m.invoiceBalance).toFixed(2)}`);
+            push('Total', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
             if (m.rejectionReason) push('Reason', m.rejectionReason);
             break;
         default:
@@ -510,10 +513,13 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
         return () => { cancelled = true; };
     }, [id]);
 
-    const openInvoice = async () => {
-        const invoiceId = data?.invoice?.id ?? item?.meta?.invoiceId;
+    const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
+
+    const openInvoice = async (invoiceIdArg) => {
+        const invoiceId = invoiceIdArg ?? data?.invoice?.id ?? item?.meta?.invoiceId;
         if (!invoiceId) return;
         setInvoiceLoading(true);
+        setInvoiceLoadingId(String(invoiceId));
         setInvoiceErr('');
         try {
             const raw = await getSuperAdminInvoiceView(invoiceId);
@@ -523,6 +529,7 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
             setInvoiceErr(e?.message || 'Could not load invoice');
         } finally {
             setInvoiceLoading(false);
+            setInvoiceLoadingId(null);
         }
     };
 
@@ -540,14 +547,6 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
             footer={(
                 <>
                     <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
-                    <button
-                        type="button"
-                        className="btn-view-details"
-                        onClick={openInvoice}
-                        disabled={invoiceLoading || !data?.invoice?.id}
-                    >
-                        {invoiceLoading ? <Loader size={14} className="spin" /> : <FileText size={16} />} View Invoice
-                    </button>
                     {data?.status === 'pending' && (
                         <>
                             <button type="button" className="btn-reject" onClick={onReject}>
@@ -603,6 +602,74 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
                             <strong>Notes:</strong> {data.notes}
                         </div>
                     ) : null}
+
+                    {/* Invoice allocations table — one row per invoice in this approval. */}
+                    <p style={{ margin: '0 0 6px', fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Invoices covered ({Array.isArray(data.allocations) && data.allocations.length > 0 ? data.allocations.length : 1})
+                    </p>
+                    <div style={{ marginBottom: 14, border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                            <thead style={{ background: '#f8fafc' }}>
+                                <tr>
+                                    <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Invoice</th>
+                                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Invoice total</th>
+                                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Balance</th>
+                                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Allocated</th>
+                                    <th style={{ padding: '8px 10px', textAlign: 'right', fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>View</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(Array.isArray(data.allocations) && data.allocations.length > 0
+                                    ? data.allocations
+                                    : [{
+                                          invoiceId: data.invoice?.id,
+                                          invoiceNo: data.invoice?.invoiceNo,
+                                          invoiceTotal: data.invoice?.totalAmount,
+                                          invoiceBalance: data.invoice?.balance,
+                                          amount: data.amount,
+                                      }]
+                                ).map((alloc, idx) => (
+                                    <tr key={`${alloc.invoiceId}-${idx}`} style={{ borderTop: idx === 0 ? 'none' : '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '10px', fontWeight: 700 }}>
+                                            {alloc.invoiceNo ?? `#${alloc.invoiceId}`}
+                                        </td>
+                                        <td style={{ padding: '10px', textAlign: 'right' }}>
+                                            {alloc.invoiceTotal != null ? num(alloc.invoiceTotal) : '—'}
+                                        </td>
+                                        <td style={{ padding: '10px', textAlign: 'right' }}>
+                                            {alloc.invoiceBalance != null ? num(alloc.invoiceBalance) : '—'}
+                                        </td>
+                                        <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700 }}>
+                                            {num(alloc.amount)}
+                                        </td>
+                                        <td style={{ padding: '10px', textAlign: 'right' }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => openInvoice(alloc.invoiceId)}
+                                                disabled={invoiceLoadingId === String(alloc.invoiceId)}
+                                                style={{
+                                                    padding: '6px 10px',
+                                                    borderRadius: 8,
+                                                    border: '1px solid #bfdbfe',
+                                                    background: '#eff6ff',
+                                                    color: '#1d4ed8',
+                                                    cursor: invoiceLoadingId === String(alloc.invoiceId) ? 'wait' : 'pointer',
+                                                    fontSize: '0.75rem',
+                                                    fontWeight: 700,
+                                                }}
+                                            >
+                                                {invoiceLoadingId === String(alloc.invoiceId)
+                                                    ? <Loader size={12} className="spin" />
+                                                    : <FileText size={12} />}
+                                                {' '}View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
                     <p style={{ margin: '0 0 6px', fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Proof</p>
                     {data.proofImage ? (
                         data.proofMimeType === 'application/pdf' ? (
@@ -782,7 +849,14 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                           type: 'corporate_payment_approval',
                           typeLabel: 'Corporate payment proof',
                           status: r.status,
-                          title: `Payment proof · ${r.invoice?.invoiceNo ?? '#' + r.invoice?.id}`,
+                          title:
+                              Array.isArray(r.allocations) && r.allocations.length > 1
+                                  ? `Payment proof · ${r.allocations.length} invoices (${r.allocations
+                                        .map((a) => a.invoiceNo)
+                                        .filter(Boolean)
+                                        .slice(0, 3)
+                                        .join(', ')}${r.allocations.length > 3 ? '…' : ''})`
+                                  : `Payment proof · ${r.invoice?.invoiceNo ?? '#' + r.invoice?.id}`,
                           meta: {
                               companyName: r.corporate?.companyName,
                               invoiceNo: r.invoice?.invoiceNo,
@@ -796,6 +870,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                               invoiceTotal: r.invoice?.totalAmount,
                               invoiceBalance: r.invoice?.balance,
                               proofMimeType: r.proofMimeType,
+                              allocationsCount: Array.isArray(r.allocations) ? r.allocations.length : null,
                           },
                           submittedBy: r.requestedByUser,
                           reviewer: r.reviewedByUser,
