@@ -330,7 +330,10 @@ function BookingHistoryView() {
                                 {orders.map((o, i) => (
                                     <tr key={o.id || i}>
                                         <td style={{ fontWeight: 600, color: '#2563EB' }}>{o.bookingCode || o.orderNumber || `#${o.id}`}</td>
-                                        <td>{o.bookedFor ? new Date(o.bookedFor).toLocaleDateString('en-SA') : '—'}</td>
+                                        <td>{(() => {
+                                            const raw = o.bookedFor || o.submittedAt || o.createdAt || o.created_at;
+                                            return raw ? new Date(raw).toLocaleDateString('en-SA') : '—';
+                                        })()}</td>
                                         <td>{o.vehicle?.plateNo || o.vehiclePlate || '—'}</td>
                                         <td>{o.branchName || o.branch?.name || '—'}</td>
                                         <td><span className={`ws-badge ${STATUS_BADGE[o.status] || 'ws-badge--gray'}`}>{(o.status || '—').replace(/_/g, ' ')}</span></td>
@@ -655,7 +658,13 @@ function VehicleUsageView() {
                                                 return (
                                                     <tr key={o.id || idx}>
                                                         <td>{o.date ? new Date(o.date).toLocaleDateString('en-SA') : '—'}</td>
-                                                        <td style={{ fontWeight: 600, color: '#2563EB' }}>{o.bookingCode || '—'}</td>
+                                                        <td style={{ fontWeight: 600, color: '#2563EB' }}>
+                                                            {o.bookingCode
+                                                                ? o.bookingCode
+                                                                : (o.source && String(o.source).startsWith('walk_in'))
+                                                                    ? `Walk-in · SO-${o.id}`
+                                                                    : `SO-${o.id}`}
+                                                        </td>
                                                         <td>{o.invoiceNo || '—'}</td>
                                                         <td>{o.branch || '—'}</td>
                                                         <td><strong>SAR {Number(o.amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
@@ -721,7 +730,7 @@ function PaymentsReportView() {
                                 <td>{p.date || p.createdAt ? new Date(p.date || p.createdAt).toLocaleDateString('en-SA') : '—'}</td>
                                 <td><strong>SAR {Number(p.amount || 0).toLocaleString()}</strong></td>
                                 <td>{p.method || p.paymentMethod || '—'}</td>
-                                <td style={{ color: '#2563EB' }}>{p.invoiceNumber || p.invoice || p.reference || '—'}</td>
+                                <td style={{ color: '#2563EB' }}>{p.invoiceNo || p.invoiceNumber || p.invoice || p.reference || '—'}</td>
                                 <td><span className={`ws-badge ${['paid','success'].includes((p.status||'').toLowerCase()) ? 'ws-badge--green' : 'ws-badge--yellow'}`}>{p.status || '—'}</span></td>
                             </tr>
                         ))}
@@ -733,6 +742,169 @@ function PaymentsReportView() {
 }
 
 // ─── CUSTOM REPORT ───────────────────────────────────────────────────────────
+const SAR = (v) =>
+    `SAR ${Number(v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtDate = (raw) => {
+    if (!raw) return '—';
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleDateString('en-SA');
+};
+const titleCase = (s) =>
+    String(s ?? '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Render custom report result as a typed table (replaces raw JSON dump). */
+function CustomReportResult({ result }) {
+    const rows = Array.isArray(result?.data) ? result.data : [];
+    const empty = rows.length === 0;
+    const cellTd = { padding: '10px 12px', verticalAlign: 'middle', fontSize: '0.8125rem' };
+    const cellTh = { padding: '10px 12px', textAlign: 'left', fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' };
+
+    const headerInfo = (
+        <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <strong style={{ fontSize: '0.9375rem', color: '#0f172a' }}>{result.type}</strong>
+            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                {fmtDate(result.from)} → {fmtDate(result.to)} · {result.count ?? rows.length} {rows.length === 1 ? 'row' : 'rows'}
+            </span>
+        </div>
+    );
+
+    if (empty) {
+        return (
+            <div style={{ marginTop: 16, padding: 16, background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                {headerInfo}
+                <p style={{ color: '#64748b', textAlign: 'center', padding: 24, margin: 0 }}>
+                    No data found for this period.
+                </p>
+            </div>
+        );
+    }
+
+    let cols;
+    switch (result.type) {
+        case 'Monthly billing Summary':
+            cols = [
+                { h: 'Invoice', r: (x) => <span style={{ fontWeight: 700, color: '#2563EB' }}>{x.invoiceNo}</span> },
+                { h: 'Date', r: (x) => fmtDate(x.date) },
+                { h: 'Vehicle', r: (x) => x.vehicle },
+                { h: 'Description', r: (x) => x.description },
+                { h: 'Subtotal', r: (x) => SAR(x.subtotal) },
+                { h: 'VAT', r: (x) => SAR(x.vatAmount) },
+                { h: 'Discount', r: (x) => SAR(x.discountAmount) },
+                { h: 'Total', r: (x) => <strong>{SAR(x.totalAmount)}</strong> },
+                { h: 'Status', r: (x) => <span className={`ws-badge ${x.paymentStatus === 'paid' ? 'ws-badge--green' : x.paymentStatus === 'partial' ? 'ws-badge--yellow' : 'ws-badge--gray'}`}>{titleCase(x.paymentStatus)}</span> },
+            ];
+            break;
+        case 'Booking and service history':
+            cols = [
+                { h: 'Ref', r: (x) => <span style={{ fontWeight: 700, color: '#2563EB' }}>{x.id}</span> },
+                { h: 'Date', r: (x) => fmtDate(x.date) },
+                { h: 'Type', r: (x) => x.type },
+                { h: 'Vehicle', r: (x) => x.vehicle },
+                { h: 'Department', r: (x) => x.department },
+                { h: 'Branch', r: (x) => x.branch },
+                { h: 'Amount', r: (x) => <strong>{SAR(x.amount)}</strong> },
+                { h: 'Status', r: (x) => <span className={`ws-badge ${['completed','invoiced','delivered','approved'].includes((x.status||'').toLowerCase()) ? 'ws-badge--green' : ['cancelled','rejected'].includes((x.status||'').toLowerCase()) ? 'ws-badge--red' : 'ws-badge--blue'}`}>{titleCase(x.status)}</span> },
+            ];
+            break;
+        case 'Quotation History':
+            cols = [
+                { h: 'Quotation', r: (x) => <span style={{ fontWeight: 700, color: '#2563EB' }}>{x.quotationNo}</span> },
+                { h: 'Date', r: (x) => fmtDate(x.date) },
+                { h: 'Vehicle', r: (x) => x.vehicle },
+                { h: 'Branch', r: (x) => x.branch },
+                { h: 'Item', r: (x) => x.productService },
+                { h: 'Quoted Price', r: (x) => <strong>{SAR(x.quotedPrice)}</strong> },
+                { h: 'Status', r: (x) => <span className={`ws-badge ${x.status === 'APPROVED' ? 'ws-badge--green' : x.status === 'REJECTED' ? 'ws-badge--red' : 'ws-badge--yellow'}`}>{x.status}</span> },
+            ];
+            break;
+        case 'Wallet Transaction History':
+            cols = [
+                { h: 'Date', r: (x) => fmtDate(x.date) },
+                { h: 'Type', r: (x) => <span className={`ws-badge ${x.type === 'credit' ? 'ws-badge--green' : 'ws-badge--red'}`}>{titleCase(x.type)}</span> },
+                { h: 'Amount', r: (x) => <strong style={{ color: x.type === 'credit' ? '#047857' : '#B91C1C' }}>{x.type === 'credit' ? '+' : '-'} {SAR(x.amount)}</strong> },
+                { h: 'Description', r: (x) => x.description || '—' },
+                { h: 'Reference', r: (x) => x.referenceId || '—' },
+                { h: 'Status', r: (x) => <span className={`ws-badge ${x.status === 'completed' ? 'ws-badge--green' : 'ws-badge--yellow'}`}>{titleCase(x.status)}</span> },
+            ];
+            break;
+        case 'Savings and discount report':
+            cols = [
+                { h: 'Invoice', r: (x) => <span style={{ fontWeight: 700, color: '#2563EB' }}>{x.invoiceNo}</span> },
+                { h: 'Date', r: (x) => fmtDate(x.date) },
+                { h: 'Vehicle', r: (x) => x.vehicle },
+                { h: 'Market Price', r: (x) => SAR(x.marketPrice) },
+                { h: 'Corporate Price', r: (x) => SAR(x.corporatePrice) },
+                { h: 'Savings', r: (x) => <strong style={{ color: '#047857' }}>{SAR(x.savings)}</strong> },
+            ];
+            break;
+        case 'Vehicle-wise usage Report':
+            cols = [
+                { h: 'Plate', r: (x) => <span style={{ fontWeight: 700 }}>{x.plateNo}</span> },
+                { h: 'Make', r: (x) => x.make || '—' },
+                { h: 'Model', r: (x) => x.model || '—' },
+                { h: 'Services', r: (x) => x.usageCount ?? 0 },
+                { h: 'Total Spent', r: (x) => <strong>{SAR(x.totalSpent)}</strong> },
+            ];
+            break;
+        case 'Payment history':
+            cols = [
+                { h: 'Date', r: (x) => fmtDate(x.paidAt || x.date) },
+                { h: 'Method', r: (x) => titleCase(x.method) },
+                { h: 'Amount', r: (x) => <strong>{SAR(x.amount)}</strong> },
+                { h: 'Reference', r: (x) => x.referenceNote || '—' },
+            ];
+            break;
+        default:
+            // Generic dump fallback for unknown shapes.
+            return (
+                <div style={{ marginTop: 16, padding: 16, background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                    {headerInfo}
+                    <pre style={{ fontSize: '0.75rem', overflow: 'auto', maxHeight: 300, margin: 0 }}>{JSON.stringify(rows, null, 2)}</pre>
+                </div>
+            );
+    }
+
+    const summary = result.summary && typeof result.summary === 'object' ? result.summary : null;
+
+    return (
+        <div style={{ marginTop: 16, padding: 16, background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+            {headerInfo}
+            {summary ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+                    {Object.entries(summary).map(([k, v]) => (
+                        <div key={k} style={{ padding: '8px 12px', borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0', minWidth: 130 }}>
+                            <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>
+                                {titleCase(k)}
+                            </div>
+                            <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0f172a', marginTop: 2 }}>
+                                {typeof v === 'number' && k.toLowerCase().includes('spent') ? SAR(v) : String(v)}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : null}
+            <div style={{ overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr>{cols.map((c) => <th key={c.h} style={cellTh}>{c.h}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                        {rows.map((row, i) => (
+                            <tr key={row.id ?? i} style={{ borderTop: i === 0 ? 'none' : '1px solid #f1f5f9' }}>
+                                {cols.map((c, j) => (
+                                    <td key={`${c.h}-${j}`} style={cellTd}>{c.r(row)}</td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
 function CustomReportSection() {
     const [type, setType] = useState(CUSTOM_REPORT_TYPES[0]);
     const [fromDate, setFromDate] = useState('');
@@ -769,12 +941,7 @@ function CustomReportSection() {
                 </button>
             </div>
             {error && <p style={{ color: '#DC2626', fontSize: '0.8125rem', margin: '8px 0 0 0' }}>{error}</p>}
-            {result && (
-                <div style={{ marginTop: 16, padding: 16, background: 'var(--color-bg-muted)', borderRadius: 10 }}>
-                    <p style={{ fontWeight: 600, margin: '0 0 8px 0', fontSize: '0.875rem' }}>Report Generated</p>
-                    <pre style={{ fontSize: '0.75rem', overflow: 'auto', maxHeight: 200, margin: 0 }}>{JSON.stringify(result, null, 2)}</pre>
-                </div>
-            )}
+            {result ? <CustomReportResult result={result}/> : null}
         </div>
     );
 }
