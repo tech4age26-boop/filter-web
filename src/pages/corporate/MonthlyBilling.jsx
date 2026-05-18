@@ -99,6 +99,14 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
     const [bulkAmounts, setBulkAmounts] = useState({});
     const [paySubmitting, setPaySubmitting] = useState(false);
     const [payError, setPayError] = useState('');
+    /** 'wallet' = monthly wallet settlement; anything else routes through proof approval. */
+    const [payMethod, setPayMethod] = useState('wallet');
+    const [proofFile, setProofFile] = useState(null);
+    const [proofNotes, setProofNotes] = useState('');
+    /** When set, the next proof submit becomes a resubmit of this rejected approval. */
+    const [resubmittingApprovalId, setResubmittingApprovalId] = useState(null);
+    /** Map invoiceId → latest approval { id, status, rejectionReason, paymentMethod, amount }. */
+    const [approvalsByInvoiceId, setApprovalsByInvoiceId] = useState({});
 
     const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
     const [activeInvoice, setActiveInvoice] = useState(null);
@@ -115,6 +123,22 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
         return p.toString();
     }, [year, month, settlementFilter, offset]);
 
+    const loadApprovals = useCallback(async () => {
+        try {
+            const res = await apiFetch('/corporate/billing/payment-approvals');
+            const list = Array.isArray(res?.approvals) ? res.approvals : [];
+            const map = {};
+            // Latest-first from server — first hit wins per invoice.
+            for (const a of list) {
+                const k = String(a.invoiceId);
+                if (!map[k]) map[k] = a;
+            }
+            setApprovalsByInvoiceId(map);
+        } catch {
+            setApprovalsByInvoiceId({});
+        }
+    }, []);
+
     const load = useCallback(() => {
         setLoading(true);
         setError('');
@@ -122,7 +146,8 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
             .then((d) => setData(d))
             .catch((e) => setError(e?.message || 'Could not load billing'))
             .finally(() => setLoading(false));
-    }, [qs]);
+        void loadApprovals();
+    }, [qs, loadApprovals]);
 
     useEffect(() => {
         load();
@@ -151,6 +176,10 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
     const hasNext = offset + items.length < total;
 
     const toggleRow = (id) => {
+        const row = items.find((r) => r.id === id);
+        if (!row || row.isMonthlyBilling === false || row.balanceDue <= 0.05) return;
+        const a = approvalsByInvoiceId[String(id)];
+        if (a?.status === 'pending') return;
         setSelected((prev) => {
             const n = new Set(prev);
             if (n.has(id)) n.delete(id);
@@ -160,8 +189,16 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
     };
 
     const toggleAllOnPage = () => {
-        const pageIds = items.map((r) => r.id);
-        const allOn = pageIds.length && pageIds.every((id) => selected.has(id));
+        const pageIds = items
+            .filter((r) => {
+                if (r.isMonthlyBilling === false) return false;
+                if (r.balanceDue <= 0.05) return false;
+                const a = approvalsByInvoiceId[String(r.id)];
+                return a?.status !== 'pending';
+            })
+            .map((r) => r.id);
+        if (!pageIds.length) return;
+        const allOn = pageIds.every((id) => selected.has(id));
         setSelected((prev) => {
             const n = new Set(prev);
             if (allOn) pageIds.forEach((id) => n.delete(id));
@@ -190,15 +227,40 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
         }
     };
 
-    const openSinglePay = (row) => {
+    const openSinglePay = (row, opts = {}) => {
         if (row.balanceDue <= 0.05) return;
+        const approval = approvalsByInvoiceId[String(row.id)];
+        if (approval && approval.status === 'pending' && !opts.allowPending) return;
+        const isResubmit = opts.resubmit === true && approval?.status === 'rejected';
         setPayError('');
-        setPayAmount(String(Number(row.balanceDue).toFixed(2)));
+        setPayAmount(
+            String(Number(isResubmit ? approval.amount : row.balanceDue).toFixed(2)),
+        );
+        const monthlyEligible = row.isMonthlyBilling !== false;
+        const walletAvailable = monthlyEligible && Number(walletBal) > 0.05;
+        // Restrict to the new allowed set: Cash | wallet | Card.
+        const normalizeMethod = (m) => {
+            const v = String(m ?? '').trim().toLowerCase();
+            if (v === 'wallet') return walletAvailable ? 'wallet' : 'Cash';
+            if (v === 'card') return 'Card';
+            return 'Cash';
+        };
+        const initialMethod = isResubmit
+            ? normalizeMethod(approval.paymentMethod)
+            : walletAvailable
+              ? 'wallet'
+              : 'Cash';
+        setPayMethod(initialMethod);
+        setProofFile(null);
+        setProofNotes(isResubmit ? approval.notes || '' : '');
+        setResubmittingApprovalId(isResubmit ? approval.id : null);
         setSingleModal(row);
     };
 
     const openBulkPay = () => {
-        const rows = items.filter((r) => selected.has(r.id) && r.balanceDue > 0.05);
+        const rows = items.filter(
+            (r) => selected.has(r.id) && r.balanceDue > 0.05 && r.isMonthlyBilling !== false,
+        );
         if (!rows.length) return;
         setPayError('');
         const init = {};
@@ -236,13 +298,71 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
         }
     };
 
+    const submitPaymentProof = async () => {
+        if (!singleModal) return;
+        const amt = parseFloat(payAmount);
+        if (!Number.isFinite(amt) || amt <= 0) {
+            setPayError('Enter a valid amount');
+            return;
+        }
+        if (amt - Number(singleModal.balanceDue) > 0.05) {
+            setPayError(`Amount exceeds outstanding balance (SAR ${Number(singleModal.balanceDue).toFixed(2)})`);
+            return;
+        }
+        if (!payMethod || payMethod === 'wallet') {
+            setPayError('Choose a payment method');
+            return;
+        }
+        if (!proofFile) {
+            setPayError('Upload a payment proof image');
+            return;
+        }
+        setPaySubmitting(true);
+        setPayError('');
+        try {
+            const fd = new FormData();
+            fd.append('amount', String(amt));
+            fd.append('paymentMethod', payMethod);
+            if (proofNotes.trim()) fd.append('notes', proofNotes.trim());
+            fd.append('proof', proofFile);
+            const url = resubmittingApprovalId
+                ? `/corporate/billing/payment-approvals/${encodeURIComponent(resubmittingApprovalId)}/resubmit`
+                : '/corporate/billing/payment-approvals';
+            if (!resubmittingApprovalId) {
+                fd.append('invoiceId', String(singleModal.id));
+            }
+            await apiFetch(url, { method: 'POST', body: fd });
+            setSingleModal(null);
+            setProofFile(null);
+            setProofNotes('');
+            setResubmittingApprovalId(null);
+            await loadApprovals();
+        } catch (e) {
+            setPayError(e?.message || 'Could not submit proof');
+        } finally {
+            setPaySubmitting(false);
+        }
+    };
+
     const confirmSinglePay = () => {
         const amt = parseFloat(payAmount);
         if (!singleModal || !Number.isFinite(amt) || amt <= 0) {
             setPayError('Enter a valid amount');
             return;
         }
-        submitWalletPay([{ invoiceId: singleModal.id, amount: amt }]);
+        if (payMethod === 'wallet') {
+            if (Number(walletBal) <= 0.05) {
+                setPayError('Your wallet balance is empty. Top up the wallet first.');
+                return;
+            }
+            if (amt - Number(walletBal) > 0.05) {
+                setPayError(`Amount exceeds wallet balance (SAR ${Number(walletBal).toFixed(2)})`);
+                return;
+            }
+            submitWalletPay([{ invoiceId: singleModal.id, amount: amt }]);
+            return;
+        }
+        void submitPaymentProof();
     };
 
     const confirmBulkPay = () => {
@@ -333,7 +453,10 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
               ]
             : [];
 
-    const payEnabled = items.some((r) => selected.has(r.id) && r.balanceDue > 0.05) && !paySubmitting;
+    const payEnabled =
+        items.some(
+            (r) => selected.has(r.id) && r.balanceDue > 0.05 && r.isMonthlyBilling !== false,
+        ) && !paySubmitting;
 
     return (
         <div style={{ width: '100%', maxWidth: 'none', margin: 0, paddingBottom: 32 }}>
@@ -381,8 +504,8 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                             fontSize: '0.9rem',
                         }}
                     >
-                        Review Pay Monthly invoices, filter by settlement status, and settle balances from your
-                        corporate wallet.
+                        Review all invoices for the selected month — regardless of payment method — and settle
+                        Monthly Billing balances from your corporate wallet.
                     </p>
                 </div>
                 <button
@@ -903,13 +1026,24 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {items.map((row) => (
+                                    {items.map((row) => {
+                                        const monthlyEligible = row.isMonthlyBilling !== false;
+                                        const fullyPaid = row.balanceDue <= 0.05;
+                                        const approval = approvalsByInvoiceId[String(row.id)];
+                                        const pendingApproval = approval?.status === 'pending';
+                                        const rejectedApproval = approval?.status === 'rejected';
+                                        // Any outstanding invoice is clickable for the proof-submit flow
+                                        // (unless an approval is already pending — wait for review first).
+                                        const canPay = !fullyPaid && !pendingApproval;
+                                        const selectable = monthlyEligible && !fullyPaid && !pendingApproval;
+                                        return (
                                         <tr
                                             key={row.id}
                                             style={{
                                                 borderBottom: '1px solid #f1f5f9',
-                                                cursor: row.balanceDue > 0.05 ? 'pointer' : 'default',
+                                                cursor: canPay ? 'pointer' : 'default',
                                                 transition: 'background 0.12s',
+                                                opacity: monthlyEligible ? 1 : 0.85,
                                             }}
                                             onMouseEnter={(e) => {
                                                 e.currentTarget.style.background = '#fafafa';
@@ -927,6 +1061,14 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                                     type="checkbox"
                                                     checked={selected.has(row.id)}
                                                     onChange={() => toggleRow(row.id)}
+                                                    disabled={!selectable}
+                                                    title={
+                                                        !monthlyEligible
+                                                            ? 'Wallet settlement only available for Monthly Billing invoices'
+                                                            : fullyPaid
+                                                                ? 'This invoice is fully paid'
+                                                                : ''
+                                                    }
                                                     aria-label={`Select invoice ${row.invoiceNo}`}
                                                 />
                                             </td>
@@ -941,7 +1083,18 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                                     whiteSpace: 'nowrap',
                                                 }}
                                             >
-                                                {row.invoiceNo}
+                                                <div>{row.invoiceNo}</div>
+                                                {row.paymentMethod ? (
+                                                    <div style={{
+                                                        fontSize: '0.6875rem',
+                                                        fontWeight: 500,
+                                                        color: monthlyEligible ? '#0d9488' : '#64748b',
+                                                        marginTop: 2,
+                                                        textTransform: 'capitalize',
+                                                    }}>
+                                                        {String(row.paymentMethod).replace(/_/g, ' ').replace(/\|/g, ' / ')}
+                                                    </div>
+                                                ) : null}
                                             </td>
                                             <td
                                                 style={{
@@ -1007,6 +1160,41 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                                 <span className={badgeClass(row.settlementStatus)}>
                                                     {statusLabel(row.settlementStatus)}
                                                 </span>
+                                                {pendingApproval ? (
+                                                    <div style={{
+                                                        marginTop: 4,
+                                                        display: 'inline-block',
+                                                        padding: '2px 8px',
+                                                        borderRadius: 999,
+                                                        background: '#fef3c7',
+                                                        color: '#92400e',
+                                                        fontSize: '0.6875rem',
+                                                        fontWeight: 700,
+                                                    }} title={`Awaiting super admin approval · ${approval.paymentMethod} · SAR ${Number(approval.amount).toFixed(2)}`}>
+                                                        Pending approval
+                                                    </div>
+                                                ) : null}
+                                                {rejectedApproval ? (
+                                                    <div
+                                                        style={{
+                                                            marginTop: 4,
+                                                            display: 'inline-block',
+                                                            padding: '2px 8px',
+                                                            borderRadius: 999,
+                                                            background: '#fee2e2',
+                                                            color: '#991b1b',
+                                                            fontSize: '0.6875rem',
+                                                            fontWeight: 700,
+                                                        }}
+                                                        title={
+                                                            approval.rejectionReason
+                                                                ? `Rejected: ${approval.rejectionReason}`
+                                                                : 'Rejected'
+                                                        }
+                                                    >
+                                                        Rejected
+                                                    </div>
+                                                ) : null}
                                             </td>
                                             <td
                                                 style={{
@@ -1056,9 +1244,30 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                                 >
                                                     <Download size={15} />
                                                 </button>
+                                                {rejectedApproval ? (
+                                                    <button
+                                                        type="button"
+                                                        title={approval.rejectionReason ? `Rejected: ${approval.rejectionReason}` : 'Resubmit payment proof'}
+                                                        style={{
+                                                            marginLeft: 6,
+                                                            padding: '8px 10px',
+                                                            background: '#fef2f2',
+                                                            border: '1px solid #fecaca',
+                                                            borderRadius: 8,
+                                                            cursor: 'pointer',
+                                                            color: '#b91c1c',
+                                                            fontSize: '0.75rem',
+                                                            fontWeight: 700,
+                                                        }}
+                                                        onClick={() => openSinglePay(row, { resubmit: true })}
+                                                    >
+                                                        Resubmit
+                                                    </button>
+                                                ) : null}
                                             </td>
                                         </tr>
-                                    ))}
+                                    );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -1141,7 +1350,7 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                         textTransform: 'uppercase',
                                     }}
                                 >
-                                    Pay from wallet
+                                    {resubmittingApprovalId ? 'Resubmit payment proof' : 'Pay invoice'}
                                 </p>
                                 <h3 style={{ margin: '6px 0 0', fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
                                     {singleModal.invoiceNo}
@@ -1223,6 +1432,34 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                 </div>
                             </div>
                             <label
+                                htmlFor="mb-pay-method"
+                                style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}
+                            >
+                                Payment method
+                            </label>
+                            <select
+                                id="mb-pay-method"
+                                value={payMethod}
+                                onChange={(e) => setPayMethod(e.target.value)}
+                                disabled={paySubmitting}
+                                style={{
+                                    width: '100%',
+                                    marginTop: 6,
+                                    marginBottom: 12,
+                                    padding: '12px 14px',
+                                    borderRadius: 10,
+                                    border: '1px solid #cbd5e1',
+                                    fontSize: '0.9375rem',
+                                    fontWeight: 600,
+                                    background: '#fff',
+                                }}
+                            >
+                                <option value="Cash">Cash</option>
+                                <option value="wallet">Wallet — SAR {Number(walletBal).toFixed(2)} available</option>
+                                <option value="Card">Card</option>
+                            </select>
+
+                            <label
                                 htmlFor="mb-pay-amt"
                                 style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}
                             >
@@ -1233,7 +1470,11 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                 type="number"
                                 step="0.01"
                                 min="0.01"
-                                max={Math.min(walletBal, singleModal.balanceDue)}
+                                max={
+                                    payMethod === 'wallet'
+                                        ? Math.min(walletBal, singleModal.balanceDue)
+                                        : singleModal.balanceDue
+                                }
                                 value={payAmount}
                                 onChange={(e) => setPayAmount(e.target.value)}
                                 disabled={paySubmitting}
@@ -1248,10 +1489,84 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                     fontWeight: 600,
                                 }}
                             />
-                            <p style={{ margin: '0 0 12px', fontSize: '0.75rem', color: '#64748b' }}>
-                                Paying the full balance due marks this invoice as fully paid; otherwise it will show as
-                                partially paid.
-                            </p>
+
+                            {payMethod !== 'wallet' ? (
+                                <>
+                                    <label
+                                        htmlFor="mb-pay-proof"
+                                        style={{
+                                            display: 'block',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            color: '#334155',
+                                            marginTop: 6,
+                                        }}
+                                    >
+                                        Payment proof (image or PDF)
+                                    </label>
+                                    <input
+                                        id="mb-pay-proof"
+                                        type="file"
+                                        accept="image/*,application/pdf"
+                                        disabled={paySubmitting}
+                                        onChange={(e) => setProofFile(e.target.files?.[0] ?? null)}
+                                        style={{
+                                            width: '100%',
+                                            marginTop: 6,
+                                            marginBottom: 4,
+                                            padding: '10px 12px',
+                                            borderRadius: 10,
+                                            border: '1px dashed #94a3b8',
+                                            background: '#f8fafc',
+                                            fontSize: '0.8125rem',
+                                        }}
+                                    />
+                                    {proofFile ? (
+                                        <p style={{ margin: '0 0 8px', fontSize: '0.75rem', color: '#0f766e' }}>
+                                            Selected: {proofFile.name} ({Math.round(proofFile.size / 1024)} KB)
+                                        </p>
+                                    ) : (
+                                        <p style={{ margin: '0 0 8px', fontSize: '0.7rem', color: '#94a3b8' }}>
+                                            Max 4 MB. Receipt / bank slip / cheque image preferred.
+                                        </p>
+                                    )}
+
+                                    <label
+                                        htmlFor="mb-pay-notes"
+                                        style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}
+                                    >
+                                        Notes (optional)
+                                    </label>
+                                    <textarea
+                                        id="mb-pay-notes"
+                                        value={proofNotes}
+                                        onChange={(e) => setProofNotes(e.target.value)}
+                                        rows={2}
+                                        disabled={paySubmitting}
+                                        placeholder="Reference / bank / payer name"
+                                        style={{
+                                            width: '100%',
+                                            marginTop: 6,
+                                            marginBottom: 10,
+                                            padding: '10px 12px',
+                                            borderRadius: 10,
+                                            border: '1px solid #cbd5e1',
+                                            fontSize: '0.875rem',
+                                            resize: 'vertical',
+                                        }}
+                                    />
+                                    <p style={{ margin: '0 0 12px', fontSize: '0.7rem', color: '#64748b' }}>
+                                        Your payment + proof will be sent to the platform admin for approval.
+                                        Once approved, the invoice balance updates automatically.
+                                    </p>
+                                </>
+                            ) : (
+                                <p style={{ margin: '0 0 12px', fontSize: '0.75rem', color: '#64748b' }}>
+                                    Paying the full balance due marks this invoice as fully paid;
+                                    otherwise it will show as partially paid.
+                                </p>
+                            )}
+
                             {payError ? (
                                 <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginBottom: 10 }}>{payError}</p>
                             ) : null}
@@ -1271,7 +1586,13 @@ export default function MonthlyBilling({ onTabChange, onWalletBalanceChange }) {
                                     onClick={confirmSinglePay}
                                     style={{ background: '#059669', border: 'none', minWidth: 120 }}
                                 >
-                                    {paySubmitting ? 'Processing…' : 'Confirm payment'}
+                                    {paySubmitting
+                                        ? 'Processing…'
+                                        : payMethod === 'wallet'
+                                            ? 'Confirm payment'
+                                            : resubmittingApprovalId
+                                                ? 'Resubmit for approval'
+                                                : 'Submit for approval'}
                                 </button>
                             </div>
                         </div>

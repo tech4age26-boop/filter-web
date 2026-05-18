@@ -14,9 +14,15 @@ import {
     approveSuperAdminCorporatePriceQuotation,
     rejectSuperAdminCorporatePriceQuotation,
     getBranches,
+    listCorporatePaymentApprovals,
+    getCorporatePaymentApproval,
+    approveCorporatePaymentApproval,
+    rejectCorporatePaymentApproval,
+    getSuperAdminInvoiceView,
 } from '../../services/superAdminApi';
 import Modal from '../../components/Modal';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
+import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 
 const ENTITY_TYPES = [
     { value: '', label: 'All Types' },
@@ -28,6 +34,7 @@ const ENTITY_TYPES = [
     { value: 'corporate_registration', label: 'Corporate' },
     { value: 'corporate_price_quotation', label: 'Corporate price quotation' },
     { value: 'corporate_walk_in_booking', label: 'Corporate walk-in booking' },
+    { value: 'corporate_payment_approval', label: 'Corporate payment proof' },
     { value: 'technician_registration', label: 'Technician' },
 ];
 
@@ -212,6 +219,16 @@ function buildMetaChips(item) {
             push('Company', m.companyName);
             push('Order', m.salesOrderId);
             if (m.approvalStatusLabel) push('Approval', m.approvalStatusLabel);
+            break;
+        case 'corporate_payment_approval':
+            push('Company', m.companyName);
+            push('Invoice', m.invoiceNo);
+            push('Workshop', m.workshopName);
+            push('Branch', m.branchName);
+            push('Method', m.paymentMethod);
+            push('Amount', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
+            if (m.invoiceBalance != null) push('Balance', `SAR ${Number(m.invoiceBalance).toFixed(2)}`);
+            if (m.rejectionReason) push('Reason', m.rejectionReason);
             break;
         default:
             break;
@@ -444,6 +461,180 @@ function CorporateApproveModal({ item, busy, onCancel, onConfirm }) {
     );
 }
 
+/** Flatten /super-admin/invoices/:id/view into the shape InvoiceDetailsModal/CashierTaxInvoiceView expects. */
+function normalizeInvoiceForModal(invoice) {
+    if (!invoice || typeof invoice !== 'object') return invoice;
+    const srcOrder = invoice.salesOrder || invoice.sales_order || {};
+    const srcCustomer = srcOrder.customer || invoice.customer || {};
+    const srcVehicle = srcOrder.vehicle || invoice.vehicle || {};
+    const srcJobs = Array.isArray(srcOrder.jobs)
+        ? srcOrder.jobs
+        : Array.isArray(invoice.jobs)
+            ? invoice.jobs
+            : [];
+    return {
+        ...invoice,
+        order: { ...srcOrder, jobs: srcJobs },
+        jobs: srcJobs,
+        customer: srcCustomer,
+        vehicle: srcVehicle,
+        branch: invoice.branch || srcOrder.branch,
+        workshop: invoice.workshop || srcOrder.workshop,
+        paymentMethod: invoice.paymentMethod || invoice.payments?.[0]?.method,
+    };
+}
+
+/** Proof preview for a Corporate Payment Approval — fetches base64 image, shows full detail. */
+function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, onReject }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+    const [invoice, setInvoice] = useState(null);
+    const [invoiceLoading, setInvoiceLoading] = useState(false);
+    const [invoiceErr, setInvoiceErr] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr('');
+        getCorporatePaymentApproval(id)
+            .then((res) => {
+                if (!cancelled) setData(res);
+            })
+            .catch((e) => {
+                if (!cancelled) setErr(e?.message || 'Could not load proof');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [id]);
+
+    const openInvoice = async () => {
+        const invoiceId = data?.invoice?.id ?? item?.meta?.invoiceId;
+        if (!invoiceId) return;
+        setInvoiceLoading(true);
+        setInvoiceErr('');
+        try {
+            const raw = await getSuperAdminInvoiceView(invoiceId);
+            const inv = raw?.invoice ?? raw?.data?.invoice ?? raw?.data ?? raw;
+            setInvoice(normalizeInvoiceForModal(inv));
+        } catch (e) {
+            setInvoiceErr(e?.message || 'Could not load invoice');
+        } finally {
+            setInvoiceLoading(false);
+        }
+    };
+
+    const num = (v) =>
+        `SAR ${Number(v || 0).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        })}`;
+
+    return (
+        <Modal
+            title={`Payment proof · ${data?.invoice?.invoiceNo ?? item?.meta?.invoiceNo ?? `#${id}`}`}
+            onClose={onClose}
+            width={760}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
+                    <button
+                        type="button"
+                        className="btn-view-details"
+                        onClick={openInvoice}
+                        disabled={invoiceLoading || !data?.invoice?.id}
+                    >
+                        {invoiceLoading ? <Loader size={14} className="spin" /> : <FileText size={16} />} View Invoice
+                    </button>
+                    {data?.status === 'pending' && (
+                        <>
+                            <button type="button" className="btn-reject" onClick={onReject}>
+                                <X size={16} /> Reject
+                            </button>
+                            <button type="button" className="btn-approve" onClick={onApprove}>
+                                <Check size={16} /> Approve
+                            </button>
+                        </>
+                    )}
+                </>
+            )}
+        >
+            {loading ? (
+                <div style={{ padding: 24, textAlign: 'center' }}>
+                    <Loader size={20} className="spin" /> Loading…
+                </div>
+            ) : err ? (
+                <p style={{ color: '#b91c1c' }}>{err}</p>
+            ) : data ? (
+                <div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Corporate</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>{data.corporate?.companyName ?? '—'}</p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                {data.requestedByUser?.name ?? data.requestedByUser?.email ?? '—'}
+                            </p>
+                        </div>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Invoice</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>{data.invoice?.invoiceNo ?? '—'}</p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                {data.invoice?.workshopName ?? '—'} · {data.invoice?.branchName ?? '—'}
+                            </p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.75rem' }}>
+                                Total {num(data.invoice?.totalAmount)} · Paid {num(data.invoice?.paidSum)} · Balance <strong>{num(data.invoice?.balance)}</strong>
+                            </p>
+                        </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Method</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700, textTransform: 'capitalize' }}>{data.paymentMethod}</p>
+                        </div>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Amount requested</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>{num(data.amount)}</p>
+                        </div>
+                    </div>
+                    {data.notes ? (
+                        <div style={{ marginBottom: 12, padding: 10, background: '#fefce8', borderRadius: 10, fontSize: '0.875rem' }}>
+                            <strong>Notes:</strong> {data.notes}
+                        </div>
+                    ) : null}
+                    <p style={{ margin: '0 0 6px', fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Proof</p>
+                    {data.proofImage ? (
+                        data.proofMimeType === 'application/pdf' ? (
+                            <iframe title="proof-pdf" src={data.proofImage} style={{ width: '100%', height: 460, border: '1px solid #e2e8f0', borderRadius: 10 }} />
+                        ) : (
+                            <img alt="payment proof" src={data.proofImage} style={{ width: '100%', maxHeight: 540, objectFit: 'contain', borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc' }} />
+                        )
+                    ) : (
+                        <p style={{ color: '#94a3b8' }}>No proof attached.</p>
+                    )}
+                    {data.status === 'rejected' && data.rejectionReason ? (
+                        <div style={{ marginTop: 12, padding: 10, background: '#fef2f2', color: '#991b1b', borderRadius: 10, fontSize: '0.875rem' }}>
+                            <strong>Rejection reason:</strong> {data.rejectionReason}
+                        </div>
+                    ) : null}
+                    {invoiceErr ? (
+                        <div style={{ marginTop: 12, padding: 10, background: '#fef2f2', color: '#991b1b', borderRadius: 10, fontSize: '0.8125rem' }}>
+                            {invoiceErr}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+            <InvoiceDetailsModal
+                invoice={invoice}
+                isOpen={!!invoice}
+                footerVariant="corporate"
+                onClose={() => setInvoice(null)}
+            />
+        </Modal>
+    );
+}
+
 function RejectModal({ item, busy, onCancel, onConfirm }) {
     const [reason, setReason] = useState('');
     const [touched, setTouched] = useState(false);
@@ -566,11 +757,62 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         setError(null);
 
         const status = TAB_TO_STATUS[currentTab];
-        listApprovals({ status, entityType: entityTypeFilter })
-            .then((data) => {
+        // Skip the corporate-payment-proof fetch when the user has narrowed the
+        // entityType filter to something else.
+        const wantPaymentApprovals =
+            !entityTypeFilter || entityTypeFilter === 'corporate_payment_approval';
+
+        // When the filter is narrowed to corporate_payment_approval, skip the
+        // standard approvals endpoint entirely (it doesn't know that entityType).
+        const stdReq = entityTypeFilter === 'corporate_payment_approval'
+            ? Promise.resolve([])
+            : listApprovals({ status, entityType: entityTypeFilter }).then(
+                (data) => unwrapApprovalsListResponse(data).map(normalizeItem),
+            );
+        const cpaReq = wantPaymentApprovals
+            ? listCorporatePaymentApprovals({
+                  status: status ?? 'all',
+                  limit: 100,
+              })
+                  .then((res) => {
+                      const list = Array.isArray(res?.approvals) ? res.approvals : [];
+                      return list.map((r) => ({
+                          id: String(r.id),
+                          entityType: 'corporate_payment_approval',
+                          type: 'corporate_payment_approval',
+                          typeLabel: 'Corporate payment proof',
+                          status: r.status,
+                          title: `Payment proof · ${r.invoice?.invoiceNo ?? '#' + r.invoice?.id}`,
+                          meta: {
+                              companyName: r.corporate?.companyName,
+                              invoiceNo: r.invoice?.invoiceNo,
+                              invoiceDate: r.invoice?.invoiceDate,
+                              workshopName: r.invoice?.workshopName,
+                              branchName: r.invoice?.branchName,
+                              amount: r.amount,
+                              paymentMethod: r.paymentMethod,
+                              notes: r.notes,
+                              rejectionReason: r.rejectionReason,
+                              invoiceTotal: r.invoice?.totalAmount,
+                              invoiceBalance: r.invoice?.balance,
+                              proofMimeType: r.proofMimeType,
+                          },
+                          submittedBy: r.requestedByUser,
+                          reviewer: r.reviewedByUser,
+                          date: r.createdAt,
+                          reference: r.invoice?.invoiceNo ?? '',
+                          raw: r,
+                      }));
+                  })
+                  .catch(() => [])
+            : Promise.resolve([]);
+
+        Promise.all([stdReq, cpaReq])
+            .then(([stdItems, cpaItems]) => {
                 if (cancelled) return;
-                const arr = unwrapApprovalsListResponse(data);
-                setItems(arr.map(normalizeItem));
+                // Merge — payment proofs first (most actionable) then standard.
+                const merged = [...cpaItems, ...stdItems];
+                setItems(merged);
             })
             .catch((err) => {
                 if (!cancelled) setError(err.message);
@@ -588,6 +830,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
 
     const isCorporatePriceQuotation = (et) =>
         et === 'corporate_price_quotation' || et === 'corporate_price_quotations';
+    const isCorporatePaymentApproval = (et) => et === 'corporate_payment_approval';
 
     const handleApproveConfirm = async (item, remarksOrPayload) => {
         setActionLoading(item.id);
@@ -596,7 +839,9 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 typeof remarksOrPayload === 'string'
                     ? (remarksOrPayload.trim() ? { remarks: remarksOrPayload.trim() } : {})
                     : (remarksOrPayload && typeof remarksOrPayload === 'object' ? remarksOrPayload : {});
-            if (isCorporatePriceQuotation(item.entityType)) {
+            if (isCorporatePaymentApproval(item.entityType)) {
+                await approveCorporatePaymentApproval(item.id);
+            } else if (isCorporatePriceQuotation(item.entityType)) {
                 await approveSuperAdminCorporatePriceQuotation(item.id);
             } else {
                 await approveApi(item.entityType, item.id, payload);
@@ -615,7 +860,9 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const handleRejectConfirm = async (item, reason) => {
         setActionLoading(item.id);
         try {
-            if (isCorporatePriceQuotation(item.entityType)) {
+            if (isCorporatePaymentApproval(item.entityType)) {
+                await rejectCorporatePaymentApproval(item.id, reason);
+            } else if (isCorporatePriceQuotation(item.entityType)) {
                 await rejectSuperAdminCorporatePriceQuotation(item.id, { reason });
             } else {
                 await rejectApi(item.entityType, item.id, reason);
@@ -666,6 +913,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 return <CreditCard size={14} />;
             case 'workshop_portal_staff':
                 return <Users size={14} />;
+            case 'corporate_payment_approval':
+                return <DollarSign size={14} />;
             default:
                 return <FileText size={14} />;
         }
@@ -863,7 +1112,17 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 </div>
             )}
 
-            {detailsTarget && (
+            {detailsTarget && detailsTarget.entityType === 'corporate_payment_approval' && (
+                <CorporatePaymentApprovalDetailsModal
+                    id={detailsTarget.id}
+                    item={detailsTarget.item}
+                    onClose={() => setDetailsTarget(null)}
+                    onApprove={() => setApproveTarget(detailsTarget.item)}
+                    onReject={() => setRejectTarget(detailsTarget.item)}
+                />
+            )}
+
+            {detailsTarget && detailsTarget.entityType !== 'corporate_payment_approval' && (
                 <ApprovalDetailsModal
                     entityType={detailsTarget.entityType}
                     id={detailsTarget.id}
