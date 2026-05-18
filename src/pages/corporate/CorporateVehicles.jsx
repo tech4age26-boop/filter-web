@@ -3,8 +3,28 @@ import { Car, Plus, Pencil, Trash2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
+import { formatPlateLettersFirst } from '../../utils/formatPlate';
 
 const EMPTY_FORM = { plateNo: '', make: '', model: '', year: '', color: '', odometer: '' };
+
+function displayPlate(v) {
+    const raw = v?.plateDisplay || v?.plateNumber || v?.plateNo || '';
+    return formatPlateLettersFirst(raw) || raw;
+}
+
+function mapVehicleRow(v) {
+    const plate = displayPlate(v);
+    return {
+        id: v.id,
+        plateNo: plate,
+        plateDisplay: plate,
+        make: v.make || '',
+        model: v.model || '',
+        year: v.year,
+        color: v.color || '',
+        odometer: v.odometer ?? 0,
+    };
+}
 
 export default function CorporateVehicles({ vehicles, setVehicles }) {
     const [modalOpen, setModalOpen] = useState(false);
@@ -16,7 +36,14 @@ export default function CorporateVehicles({ vehicles, setVehicles }) {
     const openAdd = () => { setEditVehicle(null); setForm(EMPTY_FORM); setModalOpen(true); };
     const openEdit = (v) => {
         setEditVehicle(v);
-        setForm({ plateNo: v.plateNo || '', make: v.make || '', model: v.model || '', year: v.year || '', color: v.color || '', odometer: v.odometer || '' });
+        setForm({
+            plateNo: displayPlate(v),
+            make: v.make || '',
+            model: v.model || '',
+            year: v.year || '',
+            color: v.color || '',
+            odometer: v.odometer || '',
+        });
         setModalOpen(true);
     };
 
@@ -26,11 +53,11 @@ export default function CorporateVehicles({ vehicles, setVehicles }) {
         try {
             const payload = { plateNo: form.plateNo, make: form.make, model: form.model, year: Number(form.year) || undefined, color: form.color, odometer: Number(form.odometer) || undefined };
             if (editVehicle) {
-                await apiFetch(`/corporate/vehicles/${editVehicle.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-                setVehicles(prev => prev.map(v => v.id === editVehicle.id ? { ...v, ...payload } : v));
+                const data = await apiFetch(`/corporate/vehicles/${editVehicle.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+                setVehicles(prev => prev.map(v => (v.id === editVehicle.id ? mapVehicleRow(data) : v)));
             } else {
                 const data = await apiFetch('/corporate/vehicles', { method: 'POST', body: JSON.stringify(payload) });
-                setVehicles(prev => [...prev, { id: data.id, plateNo: data.plateNo, make: data.make, model: data.model, year: data.year, color: data.color, odometer: data.odometer }]);
+                setVehicles(prev => [...prev, mapVehicleRow(data)]);
             }
             setModalOpen(false); setEditVehicle(null); setForm(EMPTY_FORM);
         } catch {
@@ -68,7 +95,7 @@ export default function CorporateVehicles({ vehicles, setVehicles }) {
                             <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
                                 <div style={{width:40,height:40,borderRadius:12,background:'var(--color-bg-muted)',display:'flex',alignItems:'center',justifyContent:'center'}}><Car size={20} style={{color:'var(--color-text-muted)'}}/></div>
                                 <div style={{flex:1}}>
-                                    <p style={{fontWeight:700,fontSize:'0.9375rem',color:'var(--color-text-dark)',margin:0}}>{v.plateNo}</p>
+                                    <p style={{fontWeight:700,fontSize:'0.9375rem',color:'var(--color-text-dark)',margin:0}}>{displayPlate(v)}</p>
                                     <p style={{fontSize:'0.75rem',color:'var(--color-text-muted)',margin:'2px 0 0 0'}}>{v.make} {v.model} · {v.year}</p>
                                 </div>
                             </div>

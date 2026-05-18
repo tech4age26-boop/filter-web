@@ -41,6 +41,12 @@ import {
     approveProductRequest,
     rejectProductRequest,
 } from '../../services/superAdminApi';
+import {
+    findFirstNegativeMoneyField,
+    NON_NEGATIVE_MONEY_INPUT_ATTRS,
+    parseNonNegativeNumberOr,
+    sanitizeNonNegativeMoneyInput,
+} from '../../utils/nonNegativeMoney';
 
 const KPI_CARD_DEFS = [
     {
@@ -127,11 +133,27 @@ const MASTER_TABS = [
     { id: 'services', label: 'Services', icon: Layers },
 ];
 
-const parseNumberOr = (value, fallback = 0) => {
-    if (value === '' || value == null) return fallback;
-    const n = Number(value);
-    return Number.isNaN(n) ? fallback : n;
-};
+const parseNumberOr = parseNonNegativeNumberOr;
+
+function validateCatalogProductPrices(form, { includePurchase = true } = {}) {
+    const fields = [
+        { label: 'Sale price', value: form.salePrice },
+        { label: 'Min corporate price', value: form.minCorpPrice },
+        { label: 'Max corporate price', value: form.maxCorpPrice },
+    ];
+    if (includePurchase) {
+        fields.unshift({ label: 'Purchase price', value: form.purchasePrice });
+    }
+    return findFirstNegativeMoneyField(fields);
+}
+
+function validateCatalogServicePrices(form) {
+    return findFirstNegativeMoneyField([
+        { label: 'Selling price', value: form.sellingPrice },
+        { label: 'Min corporate price', value: form.minPriceCorporate },
+        { label: 'Max corporate price', value: form.maxPriceCorporate },
+    ]);
+}
 
 const toBoolPriceEditable = (obj) => {
     if (!obj || typeof obj !== 'object') return false;
@@ -635,6 +657,13 @@ export default function MasterCatalog() {
             showToast('Department is required', 'error');
             return;
         }
+        const prPriceErr = findFirstNegativeMoneyField([
+            { label: 'Expected price', value: prApproveForm.expectedPrice },
+        ]);
+        if (prPriceErr) {
+            showToast(`${prPriceErr} cannot be negative.`, 'error');
+            return;
+        }
         setPrActionBusy(true);
         try {
             const payload = {
@@ -772,6 +801,11 @@ export default function MasterCatalog() {
     };
 
     const handleCreateProduct = async () => {
+        const priceErr = validateCatalogProductPrices(newProduct);
+        if (priceErr) {
+            alert(`${priceErr} cannot be negative.`);
+            return;
+        }
         setSaving(true);
         try {
             const kmRaw = newProduct.kmTypeValue;
@@ -829,6 +863,11 @@ export default function MasterCatalog() {
             alert('Please select a category.');
             return;
         }
+        const priceErr = validateCatalogProductPrices(editingProduct);
+        if (priceErr) {
+            alert(`${priceErr} cannot be negative.`);
+            return;
+        }
         setSaving(true);
         try {
             // PATCH /super-admin/products/:id — never send departmentId (not supported; department fixed after create).
@@ -876,6 +915,11 @@ export default function MasterCatalog() {
     };
 
     const handleCreateCatalogService = async () => {
+        const priceErr = validateCatalogServicePrices(newService);
+        if (priceErr) {
+            alert(`${priceErr} cannot be negative.`);
+            return;
+        }
         setSaving(true);
         try {
             await createService({
@@ -941,6 +985,11 @@ export default function MasterCatalog() {
 
     const handleUpdateCatalogService = async () => {
         if (!editingService?.id) return;
+        const priceErr = validateCatalogServicePrices(editingService);
+        if (priceErr) {
+            alert(`${priceErr} cannot be negative.`);
+            return;
+        }
         setSaving(true);
         try {
             const payload = {
@@ -2380,10 +2429,15 @@ export default function MasterCatalog() {
                                 <div className="mc-form-group">
                                     <label>Default Sale Price (SAR)</label>
                                     <input
-                                        type="number"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={newService.sellingPrice}
-                                        onChange={(e) => setNewService((prev) => ({ ...prev, sellingPrice: e.target.value }))}
+                                        onChange={(e) =>
+                                            setNewService((prev) => ({
+                                                ...prev,
+                                                sellingPrice: sanitizeNonNegativeMoneyInput(e.target.value),
+                                            }))
+                                        }
                                     />
                                 </div>
                             </div>
@@ -2392,19 +2446,29 @@ export default function MasterCatalog() {
                                 <div className="mc-form-group">
                                     <label>Min Corporate Price (SAR)</label>
                                     <input
-                                        type="number"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={newService.minPriceCorporate}
-                                        onChange={(e) => setNewService((prev) => ({ ...prev, minPriceCorporate: e.target.value }))}
+                                        onChange={(e) =>
+                                            setNewService((prev) => ({
+                                                ...prev,
+                                                minPriceCorporate: sanitizeNonNegativeMoneyInput(e.target.value),
+                                            }))
+                                        }
                                     />
                                 </div>
                                 <div className="mc-form-group">
                                     <label>Max Corporate Price (SAR)</label>
                                     <input
-                                        type="number"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={newService.maxPriceCorporate}
-                                        onChange={(e) => setNewService((prev) => ({ ...prev, maxPriceCorporate: e.target.value }))}
+                                        onChange={(e) =>
+                                            setNewService((prev) => ({
+                                                ...prev,
+                                                maxPriceCorporate: sanitizeNonNegativeMoneyInput(e.target.value),
+                                            }))
+                                        }
                                     />
                                 </div>
                             </div>
@@ -2510,10 +2574,15 @@ export default function MasterCatalog() {
                                 <div className="mc-form-group">
                                     <label>Selling Price (SAR)</label>
                                     <input
-                                        type="number"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="Leave empty for null"
                                         value={editingService.sellingPrice}
-                                        onChange={(e) => setEditingService((prev) => ({ ...prev, sellingPrice: e.target.value }))}
+                                        onChange={(e) =>
+                                            setEditingService((prev) => ({
+                                                ...prev,
+                                                sellingPrice: sanitizeNonNegativeMoneyInput(e.target.value),
+                                            }))
+                                        }
                                     />
                                 </div>
                             </div>
@@ -2522,13 +2591,13 @@ export default function MasterCatalog() {
                                 <div className="mc-form-group">
                                     <label>Min Corporate Price (SAR)</label>
                                     <input
-                                        type="number"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={editingService.minPriceCorporate ?? ''}
                                         onChange={(e) =>
                                             setEditingService((prev) => ({
                                                 ...prev,
-                                                minPriceCorporate: e.target.value,
+                                                minPriceCorporate: sanitizeNonNegativeMoneyInput(e.target.value),
                                             }))
                                         }
                                     />
@@ -2536,13 +2605,13 @@ export default function MasterCatalog() {
                                 <div className="mc-form-group">
                                     <label>Max Corporate Price (SAR)</label>
                                     <input
-                                        type="number"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={editingService.maxPriceCorporate ?? ''}
                                         onChange={(e) =>
                                             setEditingService((prev) => ({
                                                 ...prev,
-                                                maxPriceCorporate: e.target.value,
+                                                maxPriceCorporate: sanitizeNonNegativeMoneyInput(e.target.value),
                                             }))
                                         }
                                     />
@@ -2790,17 +2859,17 @@ export default function MasterCatalog() {
                                 <div className="mc-form-group">
                                     <label>Default Sale Price (SAR)</label>
                                     <input 
-                                        type="number" 
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         value={editingProduct.salePrice} 
-                                        onChange={(e) => setEditingProduct({...editingProduct, salePrice: e.target.value})}
+                                        onChange={(e) => setEditingProduct({...editingProduct, salePrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                                 <div className="mc-form-group">
                                     <label>Default Purchase Price (SAR)</label>
                                     <input 
-                                        type="number" 
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         value={editingProduct.purchasePrice || ''} 
-                                        onChange={(e) => setEditingProduct({...editingProduct, purchasePrice: e.target.value})}
+                                        onChange={(e) => setEditingProduct({...editingProduct, purchasePrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                             </div>
@@ -2809,19 +2878,19 @@ export default function MasterCatalog() {
                                 <div className="mc-form-group">
                                     <label>Min Corporate Price (SAR)</label>
                                     <input 
-                                        type="number" 
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={editingProduct.minCorpPrice || ''} 
-                                        onChange={(e) => setEditingProduct({...editingProduct, minCorpPrice: e.target.value})}
+                                        onChange={(e) => setEditingProduct({...editingProduct, minCorpPrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                                 <div className="mc-form-group">
                                     <label>Max Corporate Price (SAR)</label>
                                     <input 
-                                        type="number" 
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={editingProduct.maxCorpPrice || ''} 
-                                        onChange={(e) => setEditingProduct({...editingProduct, maxCorpPrice: e.target.value})}
+                                        onChange={(e) => setEditingProduct({...editingProduct, maxCorpPrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                             </div>
@@ -3020,19 +3089,19 @@ export default function MasterCatalog() {
                                 <div className="mc-form-group">
                                     <label>Default Sale Price (SAR)</label>
                                     <input
-                                        type="number"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={newProduct.salePrice}
-                                        onChange={(e) => setNewProduct({...newProduct, salePrice: e.target.value})}
+                                        onChange={(e) => setNewProduct({...newProduct, salePrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                                 <div className="mc-form-group">
                                     <label>Default Purchase Price (SAR)</label>
                                     <input
-                                        type="number"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={newProduct.purchasePrice}
-                                        onChange={(e) => setNewProduct({...newProduct, purchasePrice: e.target.value})}
+                                        onChange={(e) => setNewProduct({...newProduct, purchasePrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                             </div>
@@ -3041,19 +3110,19 @@ export default function MasterCatalog() {
                                 <div className="mc-form-group">
                                     <label>Min Corporate Price (SAR)</label>
                                     <input
-                                        type="number"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={newProduct.minCorpPrice || ''}
-                                        onChange={(e) => setNewProduct({...newProduct, minCorpPrice: e.target.value})}
+                                        onChange={(e) => setNewProduct({...newProduct, minCorpPrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                                 <div className="mc-form-group">
                                     <label>Max Corporate Price (SAR)</label>
                                     <input
-                                        type="number"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         placeholder="0.00"
                                         value={newProduct.maxCorpPrice || ''}
-                                        onChange={(e) => setNewProduct({...newProduct, maxCorpPrice: e.target.value})}
+                                        onChange={(e) => setNewProduct({...newProduct, maxCorpPrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                             </div>
@@ -3346,11 +3415,14 @@ export default function MasterCatalog() {
                                 <div className="mc-form-group">
                                     <label>Expected price</label>
                                     <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         value={prApproveForm.expectedPrice}
-                                        onChange={(e) => setPrApproveForm((prev) => ({ ...prev, expectedPrice: e.target.value }))}
+                                        onChange={(e) =>
+                                            setPrApproveForm((prev) => ({
+                                                ...prev,
+                                                expectedPrice: sanitizeNonNegativeMoneyInput(e.target.value),
+                                            }))
+                                        }
                                         disabled={prActionBusy}
                                         placeholder="0.00"
                                     />
