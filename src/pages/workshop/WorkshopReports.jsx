@@ -108,12 +108,11 @@ const mapRecentPdfToInvoice = (raw) => {
         totalAmount: src.totalAmount ?? src.invoiceTotal,
         paymentMethod,
         maintenanceChecklist: src.maintenanceChecklist,
-        departments: departments.length > 0 ? departments : jobs.map((j) => ({
-            departmentId: j?.departmentId,
-            departmentName: j?.department || j?.departmentName,
-            items: [],
-        })),
+        // Use API departments when present; otherwise line items live on salesOrder.jobs[].items
+        // (do not synthesize departments with empty items — that hides rows in CashierTaxInvoiceView).
+        departments,
         jobs,
+        salesOrder,
         customerType: src.customerType,
         splitPayments,
     };
