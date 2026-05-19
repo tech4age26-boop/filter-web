@@ -389,6 +389,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [ordersTotal, setOrdersTotal] = useState(0);
     const [ordersSearchInput, setOrdersSearchInput] = useState('');
     const [ordersSearchDebounced, setOrdersSearchDebounced] = useState('');
+    const [ordersPaymentMethod, setOrdersPaymentMethod] = useState('');
     const [ordersListLoading, setOrdersListLoading] = useState(false);
     const [ordersListError, setOrdersListError] = useState('');
     const [summaryData, setSummaryData] = useState({
@@ -447,6 +448,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 limit,
                 offset,
                 ...(q ? { search: q } : {}),
+                ...(ordersPaymentMethod ? { paymentMethod: ordersPaymentMethod } : {}),
             });
             const rowsRaw = Array.isArray(res?.rows)
                 ? res.rows
@@ -467,7 +469,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         } finally {
             setOrdersListLoading(false);
         }
-    }, [selectedBranchId, rangeFromLocal, rangeToLocal, ordersPage, ordersSearchDebounced]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal, ordersPage, ordersSearchDebounced, ordersPaymentMethod]);
 
     const fetchRecentOrdersListRef = useRef(fetchRecentOrdersList);
     fetchRecentOrdersListRef.current = fetchRecentOrdersList;
@@ -567,7 +569,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
 
     useLayoutEffect(() => {
         setOrdersPage(1);
-    }, [ordersSearchDebounced]);
+    }, [ordersSearchDebounced, ordersPaymentMethod]);
 
     useEffect(() => {
         void fetchRecentOrdersList();
@@ -705,15 +707,19 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 setInvoicePreviewData(invoiceObj);
                 setAutoDownloadAfterPreview(true);
             } else if (actionType === 'whatsapp') {
+                // Send the invoice as a WhatsApp DOCUMENT via the configured
+                // provider (Bevatel template). Server fetches phone + ensures
+                // the public invoice URL, then calls the provider API.
                 const res = await apiFetch(
-                    `/workshop-staff/invoices/${encodeURIComponent(String(invoiceId))}/whatsapp-link`,
+                    `/workshop-staff/invoices/${encodeURIComponent(String(invoiceId))}/send-whatsapp`,
+                    { method: 'POST' },
                 );
-                const waMeUrl = res?.waMeUrl || res?.data?.waMeUrl;
-                if (!waMeUrl) {
-                    throw new Error('Could not build WhatsApp link for this invoice.');
-                }
-                // Open WhatsApp (app/web) with message pre-filled — user taps Send.
-                window.open(waMeUrl, '_blank', 'noopener,noreferrer');
+                const to = res?.to || res?.data?.to;
+                window.alert(
+                    to
+                        ? `Invoice sent to WhatsApp (${to}).`
+                        : 'Invoice sent to WhatsApp.',
+                );
             }
         } catch (error) {
             window.alert(error?.message || 'Failed to execute action.');
@@ -1958,14 +1964,32 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
 
                 {activeTab === 'recent_orders' && (
                     <>
-                        <div className="ws-report-tab-toolbar">
+                        <div className="ws-report-tab-toolbar" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <select
+                                value={ordersPaymentMethod}
+                                onChange={(e) => setOrdersPaymentMethod(e.target.value)}
+                                className="ws-report-tab-search"
+                                style={{ maxWidth: 200, minWidth: 160 }}
+                                aria-label="Filter by payment method"
+                            >
+                                <option value="">All payment methods</option>
+                                <option value="cash">Cash</option>
+                                <option value="card">Card</option>
+                                <option value="bank">Bank Transfer</option>
+                                <option value="wallet">Wallet</option>
+                                <option value="corporate_credit">Corporate Credit</option>
+                                <option value="monthly_billing">Monthly Billing</option>
+                                <option value="pay_monthly">Pay Monthly</option>
+                                <option value="unpaid">Unpaid</option>
+                            </select>
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search invoice no., order id, customer, plate…"
+                                placeholder="Search invoice no., order id, customer, plate, phone…"
                                 value={ordersSearchInput}
                                 onChange={(e) => setOrdersSearchInput(e.target.value)}
                                 aria-label="Search orders"
+                                style={{ flex: 1, minWidth: 220 }}
                             />
                         </div>
                         {ordersListError ? (
@@ -2035,7 +2059,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             <td style={{ fontSize: '0.8125rem' }}>{formatOrderSourceLabel(row.orderSource)}</td>
                                             <td style={{ fontSize: '0.8125rem' }}>{formatOrderStatusLabel(row.orderStatus)}</td>
                                             <td>{formatInvoiceDateTimeForDisplay(row)}</td>
-                                            <td>{row.customerName ?? '—'}</td>
+                                            <td>
+                                                <div>{row.customerName ?? '—'}</div>
+                                                {row.customerMobile || row.phone ? (
+                                                    <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
+                                                        {row.customerMobile ?? row.phone}
+                                                    </div>
+                                                ) : null}
+                                            </td>
                                             <td>{row.plateNo ? formatPlateLettersFirst(row.plateNo) : '—'}</td>
                                             <td className="ws-font-bold">SAR {toNumber(row.invoiceTotal).toLocaleString()}</td>
                                             <td onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
