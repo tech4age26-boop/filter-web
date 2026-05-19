@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import Modal from '../../components/Modal';
 import { ShimmerTextBlock, ShimmerTable } from '../../components/supplier/Shimmer';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
+import { apiFetch } from '../../services/api';
 import {
     flattenWorkshopStaffRow,
     getWorkshopReportsAnalytics,
@@ -94,6 +95,14 @@ const mapRecentPdfToInvoice = (raw) => {
         invoiceNo: src.invoiceNo,
         invoiceDate: src.invoiceDate,
         issuedAt: src.issuedAt || src.dateTime || src.invoiceDate,
+        // Surface the nested objects at the root too — `normalizeCashierInvoice`
+        // prefers `raw.customer / raw.vehicle / raw.branch / raw.workshop` and
+        // falls back to `raw.salesOrder.*`. Pushing both paths so every detail
+        // (make / model / year / VIN / taxId) survives regardless of shape.
+        customer,
+        vehicle,
+        branch: src.branch || salesOrder.branch,
+        workshop: src.workshop || salesOrder.workshop,
         customerName: src.customerName || customer.name,
         customerMobile: src.phone || src.customerMobile || customer.mobile,
         customerTaxId: src.taxId ?? src.customerTaxId ?? customer.taxId ?? null,
@@ -103,8 +112,16 @@ const mapRecentPdfToInvoice = (raw) => {
         vehicleModel: src.model ?? src.vehicleModel ?? vehicle.model ?? null,
         vehicleYear: src.year ?? src.vehicleYear ?? vehicle.year ?? null,
         vehicleMake: src.make ?? src.vehicleMake ?? vehicle.make ?? null,
-        vehicleVin: src.vin ?? src.vehicleVin ?? vehicle.vin ?? null,
-        branchName: src.branchName || src.branch?.name,
+        vehicleVin: src.vin ?? src.vehicleVin ?? vehicle.vin ?? vehicle.carNo ?? null,
+        odometerReading:
+            src.odometerReading ??
+            salesOrder.odometerReading ??
+            salesOrder.odometer ??
+            vehicle.odometer ??
+            null,
+        nextOilChangeKm:
+            src.nextOilChangeKm ?? salesOrder.nextOilChangeKm ?? null,
+        branchName: src.branchName || src.branch?.name || salesOrder.branch?.name,
         totalAmount: src.totalAmount ?? src.invoiceTotal,
         paymentMethod,
         maintenanceChecklist: src.maintenanceChecklist,
@@ -688,10 +705,15 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 setInvoicePreviewData(invoiceObj);
                 setAutoDownloadAfterPreview(true);
             } else if (actionType === 'whatsapp') {
-                const endpoint = `/workshop-staff/invoices/${encodeURIComponent(String(invoiceId))}/whatsapp-pdf`;
-                const method = 'POST';
-                await runWorkshopRelativeAction(endpoint, method);
-                window.alert('Invoice sent to WhatsApp successfully.');
+                const res = await apiFetch(
+                    `/workshop-staff/invoices/${encodeURIComponent(String(invoiceId))}/whatsapp-link`,
+                );
+                const waMeUrl = res?.waMeUrl || res?.data?.waMeUrl;
+                if (!waMeUrl) {
+                    throw new Error('Could not build WhatsApp link for this invoice.');
+                }
+                // Open WhatsApp (app/web) with message pre-filled — user taps Send.
+                window.open(waMeUrl, '_blank', 'noopener,noreferrer');
             }
         } catch (error) {
             window.alert(error?.message || 'Failed to execute action.');
@@ -2311,6 +2333,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             <InvoiceDetailsModal
                 invoice={invoicePreviewData}
                 isOpen={!!invoicePreviewData}
+                footerVariant="corporate"
                 onClose={() => {
                     setInvoicePreviewData(null);
                     setAutoDownloadAfterPreview(false);
