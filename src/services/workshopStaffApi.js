@@ -1119,3 +1119,14 @@ export const postCorporateRegister = (body) =>
         method: 'POST',
         body: JSON.stringify(body),
     });
+
+/** System totals for an open POS session (force-close preview). */
+export const getPosSessionShiftSummary = (posSessionId) =>
+    apiFetch(`/workshop-staff/pos-monitoring/${encodeURIComponent(posSessionId)}/shift-summary`);
+
+/** Force close shift + logout cashier on POS (counter closing). */
+export const forceClosePosSession = (posSessionId, body) =>
+    apiFetch(`/workshop-staff/pos-monitoring/${encodeURIComponent(posSessionId)}/force-close`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
