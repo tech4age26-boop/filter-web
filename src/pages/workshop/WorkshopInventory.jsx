@@ -12,7 +12,11 @@ import {
     getWorkshopStaffProducts,
     unwrapWorkshopBranchListResponse,
 } from '../../services/workshopStaffApi';
-import { postBranchProductInventoryAdjustment, getBranchProductInventoryAdjustments } from '../../services/workshopInventoryApi';
+import {
+    postBranchProductInventoryAdjustment,
+    postBranchBulkInventoryAdjustment,
+    getBranchProductInventoryAdjustments,
+} from '../../services/workshopInventoryApi';
 import { useAuth } from '../../context/AuthContext';
 
 /** Match WorkshopDashboard / WorkshopDepartments response shapes. */
@@ -135,6 +139,53 @@ function firstFiniteNumber(values) {
 
 export const INVENTORY_ADJUSTMENT_REASON_OPENING_QTY = 'Opening qty';
 
+const INVENTORY_ADJUST_REASON_OPTIONS = [
+    { value: INVENTORY_ADJUSTMENT_REASON_OPENING_QTY, label: 'Opening qty' },
+    { value: 'Damaged Stock', label: 'Damaged Stock' },
+    { value: 'Inventory Count Correction', label: 'Inventory Count Correction' },
+    { value: 'Expired Item', label: 'Expired Item' },
+    { value: 'Returns/Exchanges', label: 'Returns/Exchanges' },
+    { value: 'Other', label: 'Other (Manual Entry)' },
+];
+
+function computeBulkAdjustmentRow(item, amount, isOpeningReason) {
+    const amt = Math.max(0, Math.round(Number(amount) || 0));
+    if (isOpeningReason) {
+        const prevOpening =
+            item.openingQty != null && item.openingQty !== ''
+                ? Number(item.openingQty)
+                : Number(item.qty) || 0;
+        const prevCurrent = Number(item.qty) || 0;
+        return {
+            id: String(item.id),
+            name: item.name || '—',
+            sku: item.sku || '—',
+            isOpening: true,
+            prevQty: prevOpening,
+            prevOpening,
+            prevCurrent,
+            newQty: amt,
+            newOpening: amt,
+            newCurrent: amt,
+            unchanged: prevOpening === amt && prevCurrent === amt,
+        };
+    }
+    const prevQty = Number(item.qty) || 0;
+    return {
+        id: String(item.id),
+        name: item.name || '—',
+        sku: item.sku || '—',
+        isOpening: false,
+        prevQty,
+        prevOpening: item.openingQty != null ? Number(item.openingQty) : null,
+        prevCurrent: prevQty,
+        newQty: amt,
+        newOpening: null,
+        newCurrent: amt,
+        unchanged: amt === prevQty,
+    };
+}
+
 function isOpeningQtyAdjustmentEntry(entry) {
     if (!entry) return false;
     const reason = String(entry.reason ?? '').trim();
@@ -241,6 +292,28 @@ function extractAdjustmentEntries(res) {
     return list.map(normalizeAdjustmentEntry).filter(Boolean);
 }
 
+function extractTimelineMeta(res) {
+    const data = res?.data && typeof res.data === 'object' ? res.data : res;
+    if (!data || typeof data !== 'object') return null;
+    const stored =
+        data.storedOpeningQty != null
+            ? Number(data.storedOpeningQty)
+            : data.stored_opening_qty != null
+              ? Number(data.stored_opening_qty)
+              : null;
+    const current =
+        data.currentQtyOnHand != null
+            ? Number(data.currentQtyOnHand)
+            : data.current_qty_on_hand != null
+              ? Number(data.current_qty_on_hand)
+              : null;
+    if (!Number.isFinite(stored) && !Number.isFinite(current)) return null;
+    return {
+        storedOpeningQty: Number.isFinite(stored) ? stored : null,
+        currentQtyOnHand: Number.isFinite(current) ? current : null,
+    };
+}
+
 function mergeLogEntries(localList, serverList) {
     const byId = new Map();
     for (const e of serverList || []) byId.set(e.id, e);
@@ -248,6 +321,17 @@ function mergeLogEntries(localList, serverList) {
         if (!byId.has(e.id)) byId.set(e.id, e);
     }
     return [...byId.values()].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
+/** Latest adoption baseline from audit rows (opening-qty adjustments only). */
+function latestOpeningQtyFromLogEntries(entries) {
+    if (!Array.isArray(entries) || entries.length === 0) return null;
+    const openingRows = entries.filter((e) => isOpeningQtyAdjustmentEntry(e));
+    if (openingRows.length === 0) return null;
+    openingRows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    const latest = openingRows[0];
+    if (latest?.newQty == null || !Number.isFinite(Number(latest.newQty))) return null;
+    return Number(latest.newQty);
 }
 
 /** Same low-stock rule as the dashboard & Dept & Products. */
@@ -421,10 +505,15 @@ function mapApiRowToInventory(row) {
         row?.service_id;
     if (id == null || String(id).trim() === '') return null;
 
-    const openingQty =
-        pickBranchAdoptionOpeningQty(row) ??
-        pickBranchAdoptionOpeningQty(merged) ??
-        pickNumber(row.openingQty, row.opening_qty, merged.openingQty, merged.opening_qty);
+    const openingFromWorkshopLink =
+        pickBranchAdoptionOpeningQty(row) ?? pickBranchAdoptionOpeningQty(merged);
+    const openingFromScalars = firstFiniteNumber([
+        row.openingQty,
+        row.opening_qty,
+        merged.openingQty,
+        merged.opening_qty,
+    ]);
+    const openingQty = openingFromWorkshopLink != null ? openingFromWorkshopLink : openingFromScalars;
     const invQtyRow = pickBranchInventoryQtyFromRow(row);
     const invQtyMerged = pickBranchInventoryQtyFromRow(merged);
     const onHand = firstFiniteNumber([
@@ -595,16 +684,128 @@ export default function WorkshopInventory({
     const [logLoading, setLogLoading] = useState(false);
     const [logFetchError, setLogFetchError] = useState('');
     const [fetchedLogEntries, setFetchedLogEntries] = useState(null);
+    const [timelineMeta, setTimelineMeta] = useState(null);
+    const [alignOpeningSaving, setAlignOpeningSaving] = useState(false);
+    const [alignOpeningError, setAlignOpeningError] = useState('');
+
+    const logOpeningContext = useMemo(() => {
+        if (!logProduct) return null;
+        const pid = String(logProduct.id);
+        const row = productRows.find((p) => String(p.id) === pid);
+        const rowOpening =
+            timelineMeta?.storedOpeningQty != null && Number.isFinite(timelineMeta.storedOpeningQty)
+                ? timelineMeta.storedOpeningQty
+                : row?.openingQty != null && row?.openingQty !== ''
+                  ? Number(row.openingQty)
+                  : logProduct.openingQty != null && logProduct.openingQty !== ''
+                    ? Number(logProduct.openingQty)
+                    : null;
+        const mergedForOpening = isAllBranches
+            ? adjustmentLogs[pid] || []
+            : logLoading
+              ? null
+              : mergeLogEntries(adjustmentLogs[pid] || [], fetchedLogEntries || []);
+        const timelineOpening =
+            mergedForOpening != null ? latestOpeningQtyFromLogEntries(mergedForOpening) : null;
+        const storedDrift =
+            rowOpening === 0 && timelineOpening != null && timelineOpening > 0;
+        const displayOpening =
+            rowOpening != null && !storedDrift ? rowOpening : timelineOpening ?? rowOpening;
+        return {
+            pid,
+            rowOpening,
+            timelineOpening,
+            storedDrift,
+            displayOpening,
+        };
+    }, [logProduct, productRows, fetchedLogEntries, timelineMeta, adjustmentLogs, isAllBranches, logLoading]);
+
+    useEffect(() => {
+        if (!logProduct) {
+            setAlignOpeningError('');
+            setAlignOpeningSaving(false);
+            setTimelineMeta(null);
+        }
+    }, [logProduct]);
+
+    const alignOpeningAdoptionFromTimeline = async () => {
+        if (!logOpeningContext?.storedDrift || !logOpeningContext.timelineOpening || isAllBranches) return;
+        const target = logOpeningContext.timelineOpening;
+        const pid = logOpeningContext.pid;
+        setAlignOpeningSaving(true);
+        setAlignOpeningError('');
+        try {
+            const res = await postBranchProductInventoryAdjustment(
+                String(selectedBranchId),
+                pid,
+                {
+                    newQty: target,
+                    reason: INVENTORY_ADJUSTMENT_REASON_OPENING_QTY,
+                },
+                { workshopId: workshopIdQuery },
+            );
+            if (!res?.success) {
+                throw new Error(res?.message || 'Could not update opening adoption.');
+            }
+            const d = res.data || {};
+            const nextOpening =
+                d.openingQty != null
+                    ? Number(d.openingQty)
+                    : d.opening_qty != null
+                      ? Number(d.opening_qty)
+                      : target;
+            const nextStock =
+                d.qtyOnHand != null
+                    ? Number(d.qtyOnHand)
+                    : d.qty_on_hand != null
+                      ? Number(d.qty_on_hand)
+                      : nextOpening;
+            setProductRows((prev) =>
+                prev.map((p) =>
+                    String(p.id) === pid
+                        ? { ...p, openingQty: nextOpening, qty: nextStock, status: undefined }
+                        : p,
+                ),
+            );
+            setLogProduct((lp) =>
+                lp && String(lp.id) === pid ? { ...lp, openingQty: nextOpening, qty: nextStock } : lp,
+            );
+            const serverEntry = normalizeAdjustmentEntry({
+                id: d.logId,
+                createdAt: d.createdAt,
+                previousQty: d.previousQty,
+                newQty: d.newQty,
+                delta: d.delta,
+                reason: d.reason || INVENTORY_ADJUSTMENT_REASON_OPENING_QTY,
+                source: d.source || 'manual_opening_qty',
+                adjustedBy: d.adjustedBy,
+            });
+            if (serverEntry) {
+                setFetchedLogEntries((prev) => {
+                    const list = Array.isArray(prev) ? prev : [];
+                    if (list.some((e) => e.id === serverEntry.id)) return list;
+                    return [serverEntry, ...list];
+                });
+            }
+            setTimelineMeta({ storedOpeningQty: nextOpening, currentQtyOnHand: nextStock });
+        } catch (err) {
+            setAlignOpeningError(err.message || 'Could not align opening adoption.');
+        } finally {
+            setAlignOpeningSaving(false);
+        }
+    };
 
     useEffect(() => {
         if (!logProduct) {
             setFetchedLogEntries(null);
+            setTimelineMeta(null);
             setLogFetchError('');
             setLogLoading(false);
             return;
         }
         if (isAllBranches) {
             setFetchedLogEntries(null);
+            setTimelineMeta(null);
             setLogFetchError('');
             setLogLoading(false);
             return;
@@ -620,11 +821,13 @@ export default function WorkshopInventory({
                 });
                 if (!ctrl.signal.aborted) {
                     setFetchedLogEntries(extractAdjustmentEntries(res));
+                    setTimelineMeta(extractTimelineMeta(res));
                 }
             } catch (e) {
                 if (e.name === 'AbortError') return;
                 if (!ctrl.signal.aborted) {
                     setFetchedLogEntries([]);
+                    setTimelineMeta(null);
                     setLogFetchError(e.message || 'Could not load adjustment history.');
                 }
             } finally {
@@ -702,6 +905,10 @@ export default function WorkshopInventory({
         loadInventory();
     }, [loadInventory]);
 
+    useEffect(() => {
+        setSelectedProductIds([]);
+    }, [selectedBranchId]);
+
     /**
      * Live-refresh when a workshop approval (or QR receive) just adjusted stock
      * for any branch. We always reload the open list — backend filters by the
@@ -726,6 +933,15 @@ export default function WorkshopInventory({
     const [adjustReason, setAdjustReason] = useState('');
     const [adjustSubmitError, setAdjustSubmitError] = useState('');
     const [adjustSaving, setAdjustSaving] = useState(false);
+
+    const [selectedProductIds, setSelectedProductIds] = useState([]);
+    const selectAllCheckboxRef = useRef(null);
+    const [isBulkAdjustModalOpen, setIsBulkAdjustModalOpen] = useState(false);
+    const [bulkAdjustAmount, setBulkAdjustAmount] = useState('');
+    const [bulkAdjustReason, setBulkAdjustReason] = useState('');
+    const [bulkAdjustSaving, setBulkAdjustSaving] = useState(false);
+    const [bulkAdjustError, setBulkAdjustError] = useState('');
+    const [bulkAdjustProgress, setBulkAdjustProgress] = useState({ done: 0, total: 0 });
 
     const [isCriticalModalOpen, setIsCriticalModalOpen] = useState(false);
     const [criticalItem, setCriticalItem] = useState(null);
@@ -858,9 +1074,30 @@ export default function WorkshopInventory({
         setAdjustSaving(false);
     };
 
+    const resolveEffectiveOpeningForItem = useCallback(
+        (item) => {
+            if (!item) return item;
+            const pid = String(item.id);
+            const rowOpening =
+                item.openingQty != null && item.openingQty !== ''
+                    ? Number(item.openingQty)
+                    : null;
+            const timelineOpening = latestOpeningQtyFromLogEntries(adjustmentLogs[pid] || []);
+            const effectiveOpening =
+                rowOpening != null && !(rowOpening === 0 && timelineOpening != null && timelineOpening > 0)
+                    ? rowOpening
+                    : timelineOpening ?? rowOpening;
+            if (effectiveOpening == null || !Number.isFinite(effectiveOpening)) return item;
+            if (effectiveOpening === rowOpening) return item;
+            return { ...item, openingQty: effectiveOpening };
+        },
+        [adjustmentLogs],
+    );
+
     const handleOpenAdjust = (item) => {
-        setAdjustItem(item);
-        setNewQty(item.qty != null ? String(item.qty) : '0');
+        const resolved = resolveEffectiveOpeningForItem(item);
+        setAdjustItem(resolved);
+        setNewQty(resolved.qty != null ? String(resolved.qty) : '0');
         setAdjustReason('');
         setAdjustSubmitError('');
         setIsAdjustModalOpen(true);
@@ -871,11 +1108,10 @@ export default function WorkshopInventory({
     const handleAdjustReasonChange = (value) => {
         setAdjustReason(value);
         if (!adjustItem) return;
+        // Keep the quantity the user typed; only refresh adoption metadata for opening-qty mode.
         if (value === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY) {
-            const o = adjustItem.openingQty != null ? adjustItem.openingQty : adjustItem.qty;
-            setNewQty(o != null ? String(o) : '0');
-        } else {
-            setNewQty(adjustItem.qty != null ? String(adjustItem.qty) : '0');
+            const resolved = resolveEffectiveOpeningForItem(adjustItem);
+            if (resolved !== adjustItem) setAdjustItem(resolved);
         }
     };
 
@@ -942,7 +1178,7 @@ export default function WorkshopInventory({
         const parsed = Number.parseFloat(String(newQty).trim().replace(/,/g, ''));
         if (!Number.isFinite(parsed) || parsed < 0) return;
         const qtyNum = Math.round(parsed);
-        if (qtyNum === prevQty) return;
+        if (!openingQtyAdjust && qtyNum === prevQty) return;
 
         const pid = String(adjustItem.id);
         const reasonTrim = adjustReason.trim();
@@ -951,14 +1187,18 @@ export default function WorkshopInventory({
             setAdjustSaving(true);
             setAdjustSubmitError('');
             try {
+                const adjustBody = {
+                    newQty: qtyNum,
+                    reason: reasonTrim,
+                };
+                // Opening qty: server reads workshop_products.opening_qty (list row can be stale).
+                if (!openingQtyAdjust) {
+                    adjustBody.previousQty = prevQty;
+                }
                 const res = await postBranchProductInventoryAdjustment(
                     String(selectedBranchId),
                     pid,
-                    {
-                        previousQty: prevQty,
-                        newQty: qtyNum,
-                        reason: reasonTrim,
-                    },
+                    adjustBody,
                     { workshopId: workshopIdQuery },
                 );
                 if (!res?.success) {
@@ -1038,7 +1278,9 @@ export default function WorkshopInventory({
                 }
 
                 closeAdjustModal();
-                void loadInventory();
+                if (!openingQtyAdjust) {
+                    void loadInventory();
+                }
             } catch (err) {
                 setAdjustSubmitError(err.message || 'Adjustment failed. If stock changed elsewhere, refresh and try again.');
             } finally {
@@ -1075,6 +1317,238 @@ export default function WorkshopInventory({
         if (!normalizeInventorySearchValue(searchQuery)) return productRows;
         return productRows.filter((p) => matchesProductNameSearch(p, searchQuery));
     }, [productRows, searchQuery]);
+
+    const selectedIdSet = useMemo(() => new Set(selectedProductIds), [selectedProductIds]);
+
+    const visibleProductIds = useMemo(
+        () => filteredProducts.map((p) => String(p.id)).filter(Boolean),
+        [filteredProducts],
+    );
+
+    const allVisibleSelected =
+        visibleProductIds.length > 0 && visibleProductIds.every((id) => selectedIdSet.has(id));
+
+    const someVisibleSelected = visibleProductIds.some((id) => selectedIdSet.has(id));
+
+    const selectedProductsForBulk = useMemo(
+        () => productRows.filter((p) => selectedIdSet.has(String(p.id))),
+        [productRows, selectedIdSet],
+    );
+
+    const isBulkOpeningQty =
+        bulkAdjustReason.trim() === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY;
+
+    const bulkAdjustPreview = useMemo(() => {
+        const amt = bulkAdjustAmount;
+        return selectedProductsForBulk.map((item) =>
+            computeBulkAdjustmentRow(item, amt, isBulkOpeningQty),
+        );
+    }, [selectedProductsForBulk, bulkAdjustAmount, isBulkOpeningQty]);
+
+    const bulkAdjustWillChangeCount = bulkAdjustPreview.filter((row) => !row.unchanged).length;
+
+    useLayoutEffect(() => {
+        const el = selectAllCheckboxRef.current;
+        if (!el) return;
+        el.indeterminate = someVisibleSelected && !allVisibleSelected;
+    }, [someVisibleSelected, allVisibleSelected]);
+
+    const toggleProductSelection = useCallback((productId) => {
+        const sid = String(productId);
+        setSelectedProductIds((prev) =>
+            prev.includes(sid) ? prev.filter((id) => id !== sid) : [...prev, sid],
+        );
+    }, []);
+
+    const toggleSelectAllVisible = useCallback(() => {
+        if (allVisibleSelected) {
+            setSelectedProductIds((prev) => prev.filter((id) => !visibleProductIds.includes(id)));
+            return;
+        }
+        setSelectedProductIds((prev) => {
+            const next = new Set([...prev, ...visibleProductIds]);
+            return [...next];
+        });
+    }, [allVisibleSelected, visibleProductIds]);
+
+    const clearProductSelection = useCallback(() => {
+        setSelectedProductIds([]);
+    }, []);
+
+    const openBulkAdjustModal = () => {
+        setBulkAdjustAmount('');
+        setBulkAdjustReason('');
+        setBulkAdjustError('');
+        setBulkAdjustProgress({ done: 0, total: 0 });
+        setIsBulkAdjustModalOpen(true);
+    };
+
+    const closeBulkAdjustModal = () => {
+        setIsBulkAdjustModalOpen(false);
+        setBulkAdjustSaving(false);
+        setBulkAdjustError('');
+        setBulkAdjustProgress({ done: 0, total: 0 });
+    };
+
+    const handleBulkAdjustSubmit = async () => {
+        if (selectedProductsForBulk.length === 0) return;
+        if (!bulkAdjustReason.trim()) return;
+        const parsedAmt = Number.parseFloat(String(bulkAdjustAmount).trim().replace(/,/g, ''));
+        if (!Number.isFinite(parsedAmt) || parsedAmt < 0) {
+            setBulkAdjustError('Enter a valid amount ≥ 0.');
+            return;
+        }
+        if (bulkAdjustWillChangeCount === 0) {
+            setBulkAdjustError('No selected products would change with this amount.');
+            return;
+        }
+        if (isBulkOpeningQty && parsedAmt === 0) {
+            setBulkAdjustError(
+                'Bulk opening adoption cannot be set to 0 when products would change. That overwrites stored adoption with zero.',
+            );
+            return;
+        }
+
+        const reasonTrim = bulkAdjustReason.trim();
+        const targets = bulkAdjustPreview.filter((row) => !row.unchanged);
+        const total = targets.length;
+
+        if (!isAllBranches) {
+            setBulkAdjustSaving(true);
+            setBulkAdjustError('');
+            setBulkAdjustProgress({ done: 0, total });
+            try {
+                const res = await postBranchBulkInventoryAdjustment(
+                    String(selectedBranchId),
+                    {
+                        reason: reasonTrim,
+                        items: targets.map((row) => ({
+                            productId: row.id,
+                            newQty: row.newQty,
+                            ...(row.isOpening ? {} : { previousQty: row.prevQty }),
+                        })),
+                    },
+                    { workshopId: workshopIdQuery },
+                );
+                if (!res?.success) {
+                    throw new Error(res?.message || 'Bulk adjustment failed.');
+                }
+
+                const updatedCount = Number(res.updated) || 0;
+                const apiFailures = Array.isArray(res.failures) ? res.failures : [];
+                const failedIds = new Set(apiFailures.map((f) => String(f.productId)));
+                const openingQtyAdjust =
+                    reasonTrim === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY;
+
+                const succeededRows = targets.filter((row) => !failedIds.has(String(row.id)));
+                if (succeededRows.length > 0) {
+                    setProductRows((prev) =>
+                        prev.map((p) => {
+                            const row = succeededRows.find((t) => String(t.id) === String(p.id));
+                            if (!row) return p;
+                            const next = {
+                                ...p,
+                                qty: row.newCurrent ?? row.newQty,
+                                status: undefined,
+                            };
+                            if (openingQtyAdjust) {
+                                next.openingQty = row.newOpening ?? row.newQty;
+                            }
+                            return next;
+                        }),
+                    );
+                    const at = new Date().toISOString();
+                    setAdjustmentLogs((prevMap) => {
+                        const next = { ...prevMap };
+                        for (const row of succeededRows) {
+                            const entry = {
+                                id: `bulk-${at}-${row.id}`,
+                                at,
+                                previousQty: row.prevQty,
+                                newQty: row.newQty,
+                                delta: row.newQty - row.prevQty,
+                                reason: reasonTrim,
+                                source: openingQtyAdjust ? 'manual_opening_qty' : 'manual',
+                                affectsOpening: openingQtyAdjust,
+                            };
+                            next[row.id] = [...(next[row.id] || []), entry];
+                        }
+                        saveAdjustmentLogsToStorage(logStorageKey, next);
+                        return next;
+                    });
+                    if (!openingQtyAdjust) {
+                        void loadInventory();
+                    }
+                }
+
+                setBulkAdjustProgress({ done: total, total });
+
+                if (apiFailures.length === 0) {
+                    clearProductSelection();
+                    closeBulkAdjustModal();
+                } else if (updatedCount > 0) {
+                    const failLabels = apiFailures
+                        .slice(0, 8)
+                        .map((f) => {
+                            const item = selectedProductsForBulk.find(
+                                (p) => String(p.id) === String(f.productId),
+                            );
+                            return item?.name || f.productId;
+                        })
+                        .join(', ');
+                    setBulkAdjustError(
+                        `Updated ${updatedCount} of ${total}. Failed ${apiFailures.length}${failLabels ? `: ${failLabels}${apiFailures.length > 8 ? '…' : ''}` : ''}.`,
+                    );
+                } else {
+                    setBulkAdjustError(apiFailures[0]?.message || 'Bulk adjustment failed.');
+                }
+            } catch (err) {
+                setBulkAdjustError(err.message || 'Bulk adjustment failed.');
+            } finally {
+                setBulkAdjustSaving(false);
+            }
+            return;
+        }
+
+        setBulkAdjustSaving(true);
+        setBulkAdjustError('');
+        setAdjustmentLogs((prevMap) => {
+            const next = { ...prevMap };
+            for (const row of targets) {
+                const entry = {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+                    at: new Date().toISOString(),
+                    previousQty: row.prevQty,
+                    newQty: row.newQty,
+                    delta: row.newQty - row.prevQty,
+                    reason: reasonTrim,
+                    source: row.isOpening ? 'manual_opening_qty' : 'manual',
+                    affectsOpening: Boolean(row.isOpening),
+                };
+                next[row.id] = [...(next[row.id] || []), entry];
+            }
+            saveAdjustmentLogsToStorage(logStorageKey, next);
+            return next;
+        });
+        setProductRows((prev) =>
+            prev.map((p) => {
+                const row = targets.find((t) => t.id === String(p.id));
+                if (!row) return p;
+                if (row.isOpening) {
+                    return {
+                        ...p,
+                        openingQty: row.newOpening,
+                        qty: row.newCurrent,
+                        status: undefined,
+                    };
+                }
+                return { ...p, qty: row.newQty, status: undefined };
+            }),
+        );
+        clearProductSelection();
+        closeBulkAdjustModal();
+        setBulkAdjustSaving(false);
+    };
 
     const invSearchSuggestions = useMemo(() => {
         const q = normalizeInventorySearchValue(searchQuery);
@@ -1420,7 +1894,57 @@ export default function WorkshopInventory({
                                 <strong>{productRows.length}</strong> products
                                 {searchQuery ? ` for "${searchQuery}"` : ''}.
                             </p>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    alignItems: 'center',
+                                    gap: 10,
+                                    marginTop: 4,
+                                }}
+                            >
+                                <button
+                                    type="button"
+                                    className="mc-btn-ghost"
+                                    style={{ padding: '8px 14px', fontSize: '0.8125rem', border: '1px solid var(--color-border)', borderRadius: 10 }}
+                                    onClick={toggleSelectAllVisible}
+                                    disabled={isLoading || filteredProducts.length === 0}
+                                >
+                                    {allVisibleSelected && visibleProductIds.length > 0
+                                        ? 'Deselect all on page'
+                                        : 'Select all on page'}
+                                </button>
+                                {selectedProductIds.length > 0 ? (
+                                    <>
+                                        <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-text-dark)' }}>
+                                            {selectedProductIds.length} selected
+                                        </span>
+                                        <button
+                                            type="button"
+                                            className="mc-btn-primary"
+                                            style={{ padding: '8px 14px', fontSize: '0.8125rem' }}
+                                            onClick={openBulkAdjustModal}
+                                        >
+                                            Bulk adjust
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="mc-btn-ghost"
+                                            style={{ padding: '8px 14px', fontSize: '0.8125rem', border: '1px solid var(--color-border)', borderRadius: 10 }}
+                                            onClick={clearProductSelection}
+                                        >
+                                            Clear selection
+                                        </button>
+                                    </>
+                                ) : null}
+                                {isAllBranches && selectedProductIds.length > 0 ? (
+                                    <span style={{ fontSize: '0.75rem', color: '#B45309' }}>
+                                        Select a single branch to save bulk adjustments on the server.
+                                    </span>
+                                ) : null}
+                            </div>
                             <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                                Use checkboxes to select products for <strong>bulk adjust</strong>, or <strong>Select all on page</strong>.
                                 Click a <strong>row</strong> for adjustment history. Use <strong>↑</strong> <strong>↓</strong> and{' '}
                                 <strong>Enter</strong> to pick a search suggestion.
                                 {isAllBranches
@@ -1433,6 +1957,23 @@ export default function WorkshopInventory({
                             <table className="mc-data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ background: '#F9FAFB', borderBottom: '1px solid var(--color-border-light)' }}>
+                                        <th
+                                            style={{
+                                                padding: '16px 12px',
+                                                width: 48,
+                                                textAlign: 'center',
+                                            }}
+                                        >
+                                            <input
+                                                ref={selectAllCheckboxRef}
+                                                type="checkbox"
+                                                checked={allVisibleSelected && visibleProductIds.length > 0}
+                                                onChange={toggleSelectAllVisible}
+                                                disabled={isLoading || filteredProducts.length === 0}
+                                                aria-label="Select all products on this page"
+                                                onClick={(e) => e.stopPropagation()}
+                                            />
+                                        </th>
                                         <th
                                             style={{
                                                 padding: '16px 24px',
@@ -1560,10 +2101,10 @@ export default function WorkshopInventory({
                                 </thead>
                                 <tbody>
                                     {isLoading ? (
-                                        <ShimmerTableBodyRows rows={8} columns={10} />
+                                        <ShimmerTableBodyRows rows={8} columns={11} />
                                     ) : filteredProducts.length === 0 ? (
                                         <tr>
-                                            <td colSpan={10} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                            <td colSpan={11} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <div style={{ marginBottom: '16px', opacity: 0.3 }}>
                                                     <Package size={48} style={{ margin: '0 auto' }} />
                                                 </div>
@@ -1618,6 +2159,17 @@ export default function WorkshopInventory({
                                                     }}
                                                     className="ws-inv-row-clickable"
                                                 >
+                                                    <td
+                                                        style={{ padding: '16px 12px', textAlign: 'center' }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedIdSet.has(String(item.id))}
+                                                            onChange={() => toggleProductSelection(item.id)}
+                                                            aria-label={`Select ${item.name || 'product'}`}
+                                                        />
+                                                    </td>
                                                     <td style={{ padding: '16px 24px' }}>
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                                             <span
@@ -1658,7 +2210,9 @@ export default function WorkshopInventory({
                                                                 background: '#F3F4F6',
                                                             }}
                                                         >
-                                                            {item.openingQty != null ? item.openingQty : '—'}
+                                                            {item.openingQty != null && item.openingQty !== ''
+                                                                ? item.openingQty
+                                                                : '—'}
                                                         </span>
                                                     </td>
                                                     <td style={{ padding: '16px 24px', textAlign: 'center' }}>
@@ -1817,14 +2371,43 @@ export default function WorkshopInventory({
                                             color: '#92400E',
                                         }}
                                     >
-                                        {productRows.find((p) => String(p.id) === String(logProduct.id))?.openingQty ??
-                                            logProduct.openingQty ??
-                                            '—'}
-                                    </strong>{' '}
+                                        {logOpeningContext?.displayOpening != null &&
+                                        Number.isFinite(logOpeningContext.displayOpening)
+                                            ? logOpeningContext.displayOpening
+                                            : '—'}
+                                    </strong>
+                                    {logOpeningContext?.storedDrift ? (
+                                        <span style={{ display: 'block', marginTop: 8, fontSize: '0.75rem', color: '#B45309' }}>
+                                            Stored adoption on this branch is <strong>0</strong>, but your timeline&apos;s last
+                                            opening-qty entry is <strong>{logOpeningContext.timelineOpening}</strong>. That
+                                            usually means a later bulk/manual change wrote 0 to adoption, or only current stock was
+                                            updated (not opening). The inventory table uses the stored value (0), not the history
+                                            alone.
+                                        </span>
+                                    ) : null}
+                                    {' '}
                                     · Current stock:{' '}
                                     <strong>{productRows.find((p) => String(p.id) === String(logProduct.id))?.qty ?? logProduct.qty}</strong>
                                     {isAllBranches ? ' · All branches: offline log only' : ` · ${selectedBranchName}`}
                                 </p>
+                                {logOpeningContext?.storedDrift && !isAllBranches ? (
+                                    <div style={{ marginTop: 12 }}>
+                                        <button
+                                            type="button"
+                                            className="mc-btn-primary"
+                                            style={{ padding: '10px 16px', fontSize: '0.8125rem' }}
+                                            disabled={alignOpeningSaving || logLoading}
+                                            onClick={alignOpeningAdoptionFromTimeline}
+                                        >
+                                            {alignOpeningSaving
+                                                ? 'Saving…'
+                                                : `Set opening adoption to ${logOpeningContext.timelineOpening}`}
+                                        </button>
+                                        {alignOpeningError ? (
+                                            <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: '#B91C1C' }}>{alignOpeningError}</p>
+                                        ) : null}
+                                    </div>
+                                ) : null}
                             </div>
                             {logFetchError && (
                                 <p style={{ margin: '0 0 12px', padding: '10px 12px', background: '#FEF3C7', borderRadius: 8, color: '#92400E', fontSize: '0.8125rem' }}>
@@ -1981,7 +2564,11 @@ export default function WorkshopInventory({
                                         Sets <strong>current stock</strong> (effective on-hand per branch; not adoption opening). Enter a new total — higher to increase, lower to decrease. Must be ≥ 0.
                                     </>
                                 )}
-                                {isAllBranches ? ' Select a single branch to save on the server.' : ' The server checks <strong>previousQty</strong> matches the value shown — refresh if it changed elsewhere.'}
+                                {isAllBranches
+                                    ? ' Select a single branch to save on the server.'
+                                    : isAdjustOpeningQty
+                                      ? ' Uses the stored opening adoption on the server (the list can show 0 while the real value is higher).'
+                                      : ' The server checks previousQty matches current stock — refresh if it changed elsewhere.'}
                             </p>
 
                             <div className="mc-form-group" style={{ marginBottom: '16px' }}>
@@ -2011,12 +2598,11 @@ export default function WorkshopInventory({
                                     disabled={adjustSaving}
                                 >
                                     <option value="">Select a reason...</option>
-                                    <option value={INVENTORY_ADJUSTMENT_REASON_OPENING_QTY}>Opening qty</option>
-                                    <option value="Damaged Stock">Damaged Stock</option>
-                                    <option value="Inventory Count Correction">Inventory Count Correction</option>
-                                    <option value="Expired Item">Expired Item</option>
-                                    <option value="Returns/Exchanges">Returns/Exchanges</option>
-                                    <option value="Other">Other (Manual Entry)</option>
+                                    {INVENTORY_ADJUST_REASON_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                            {opt.label}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
 
@@ -2046,6 +2632,215 @@ export default function WorkshopInventory({
                                     })()}
                                 >
                                     {adjustSaving ? 'Saving…' : 'Apply Adjustment'}
+                                </button>
+                            </div>
+                        </div>
+                    </Modal>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {isBulkAdjustModalOpen && (
+                    <Modal
+                        onClose={closeBulkAdjustModal}
+                        title={`Bulk adjust — ${selectedProductsForBulk.length} product${selectedProductsForBulk.length !== 1 ? 's' : ''}`}
+                        width="560px"
+                    >
+                        <div className="mc-modal-form" style={{ padding: '24px' }}>
+                            <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+                                {isBulkOpeningQty ? (
+                                    <>
+                                        <strong>Opening qty</strong> sets <strong>Opening (adoption)</strong> and{' '}
+                                        <strong>current stock</strong> to the value you enter.
+                                    </>
+                                ) : (
+                                    <>
+                                        Any other reason sets <strong>current stock only</strong> to the exact quantity you
+                                        enter (not added on top). Opening (adoption) is unchanged.
+                                    </>
+                                )}
+                                {isAllBranches
+                                    ? ' All branches: changes are saved in this browser only until you pick a branch.'
+                                    : ` Saved on the server for ${selectedBranchName}.`}
+                            </p>
+
+                            <div className="mc-form-group" style={{ marginBottom: '16px' }}>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>
+                                    REASON FOR ADJUSTMENT
+                                </label>
+                                <select
+                                    className="mc-filter-select"
+                                    style={{ width: '100%', height: '45px' }}
+                                    value={bulkAdjustReason}
+                                    onChange={(e) => setBulkAdjustReason(e.target.value)}
+                                    disabled={bulkAdjustSaving}
+                                >
+                                    <option value="">Select a reason...</option>
+                                    {INVENTORY_ADJUST_REASON_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                            {opt.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="mc-form-group" style={{ marginBottom: '16px' }}>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>
+                                    {isBulkOpeningQty
+                                        ? 'NEW OPENING QTY (ADOPTION + CURRENT STOCK)'
+                                        : 'NEW QUANTITY (CURRENT STOCK ONLY)'}
+                                </label>
+                                <input
+                                    type="number"
+                                    className="mc-filter-select"
+                                    style={{ width: '100%', height: '45px' }}
+                                    min={0}
+                                    step={1}
+                                    placeholder="e.g. 90"
+                                    value={bulkAdjustAmount}
+                                    onChange={(e) => setBulkAdjustAmount(e.target.value)}
+                                    disabled={bulkAdjustSaving || !bulkAdjustReason.trim()}
+                                />
+                            </div>
+
+                            {bulkAdjustPreview.length > 0 && (
+                                <div
+                                    style={{
+                                        marginBottom: 16,
+                                        maxHeight: 200,
+                                        overflowY: 'auto',
+                                        border: '1px solid var(--color-border-light)',
+                                        borderRadius: 12,
+                                        background: '#F9FAFB',
+                                    }}
+                                >
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                                        <thead>
+                                            <tr style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                                                <th style={{ padding: '10px 12px', textAlign: 'left' }}>Product</th>
+                                                {isBulkOpeningQty ? (
+                                                    <>
+                                                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>Opening</th>
+                                                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>New opening</th>
+                                                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>Current</th>
+                                                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>New stock</th>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>Current</th>
+                                                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>New</th>
+                                                    </>
+                                                )}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {bulkAdjustPreview.slice(0, 12).map((row) => (
+                                                <tr key={row.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
+                                                    <td style={{ padding: '8px 12px' }}>
+                                                        <strong>{row.name}</strong>
+                                                        {row.sku !== '—' ? (
+                                                            <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{row.sku}</span>
+                                                        ) : null}
+                                                    </td>
+                                                    {isBulkOpeningQty ? (
+                                                        <>
+                                                            <td
+                                                                style={{
+                                                                    padding: '8px 12px',
+                                                                    textAlign: 'center',
+                                                                    color: '#92400E',
+                                                                    background: '#FFFBEB',
+                                                                    fontWeight: 600,
+                                                                }}
+                                                            >
+                                                                {row.prevOpening}
+                                                            </td>
+                                                            <td
+                                                                style={{
+                                                                    padding: '8px 12px',
+                                                                    textAlign: 'center',
+                                                                    fontWeight: 700,
+                                                                    color: row.unchanged ? 'var(--color-text-muted)' : '#92400E',
+                                                                    background: row.unchanged ? undefined : '#FEF3C7',
+                                                                }}
+                                                            >
+                                                                {row.newOpening}
+                                                            </td>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                                                {row.prevCurrent}
+                                                            </td>
+                                                            <td
+                                                                style={{
+                                                                    padding: '8px 12px',
+                                                                    textAlign: 'center',
+                                                                    fontWeight: 700,
+                                                                    color: row.unchanged ? 'var(--color-text-muted)' : '#047857',
+                                                                }}
+                                                            >
+                                                                {row.newCurrent}
+                                                                {row.unchanged ? ' (skip)' : ''}
+                                                            </td>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <td style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--color-text-muted)' }}>{row.prevQty}</td>
+                                                            <td
+                                                                style={{
+                                                                    padding: '8px 12px',
+                                                                    textAlign: 'center',
+                                                                    fontWeight: 700,
+                                                                    color: row.unchanged ? 'var(--color-text-muted)' : '#047857',
+                                                                }}
+                                                            >
+                                                                {row.newQty}
+                                                                {row.unchanged ? ' (skip)' : ''}
+                                                            </td>
+                                                        </>
+                                                    )}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                    {bulkAdjustPreview.length > 12 ? (
+                                        <p style={{ margin: 0, padding: '8px 12px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                            + {bulkAdjustPreview.length - 12} more…
+                                        </p>
+                                    ) : null}
+                                </div>
+                            )}
+
+                            <p style={{ margin: '0 0 12px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+                                <strong>{bulkAdjustWillChangeCount}</strong> of {bulkAdjustPreview.length} will be updated.
+                                {bulkAdjustSaving && bulkAdjustProgress.total > 0
+                                    ? bulkAdjustProgress.done >= bulkAdjustProgress.total
+                                        ? ' Done.'
+                                        : ` Applying to ${bulkAdjustProgress.total} products on the server (one request)…`
+                                    : ''}
+                            </p>
+
+                            {bulkAdjustError && (
+                                <p style={{ margin: '0 0 16px', padding: '12px', background: '#FEE2E2', borderRadius: 8, color: '#991B1B', fontSize: '0.8125rem' }}>
+                                    {bulkAdjustError}
+                                </p>
+                            )}
+
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <button type="button" className="mc-btn-ghost" style={{ flex: 1, padding: '12px' }} onClick={closeBulkAdjustModal} disabled={bulkAdjustSaving}>
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="mc-btn-primary"
+                                    style={{ flex: 2, padding: '12px' }}
+                                    onClick={handleBulkAdjustSubmit}
+                                    disabled={
+                                        bulkAdjustSaving ||
+                                        !bulkAdjustReason.trim() ||
+                                        bulkAdjustWillChangeCount === 0 ||
+                                        !Number.isFinite(Number.parseFloat(String(bulkAdjustAmount).trim().replace(/,/g, '')))
+                                    }
+                                >
+                                    {bulkAdjustSaving ? 'Applying…' : `Apply to ${bulkAdjustWillChangeCount} product${bulkAdjustWillChangeCount !== 1 ? 's' : ''}`}
                                 </button>
                             </div>
                         </div>
