@@ -73,3 +73,15 @@ export function getBranchProductInventoryAdjustments(branchId, productId, { limi
         { signal },
     );
 }
+
+/**
+ * Bulk adjust many products on one branch in a single request (server runs adjustments in parallel).
+ * Body: { reason, note?, items: [{ productId, newQty, previousQty? }] }
+ * Response: { success, updated, failed, failures: [{ productId, message }] }
+ */
+export function postBranchBulkInventoryAdjustment(branchId, body, { workshopId, signal } = {}) {
+    return apiFetch(
+        `/workshop-catalog/branches/${encodeURIComponent(branchId)}/products/inventory-adjustments/bulk${qs({ workshopId })}`,
+        { method: 'POST', body: JSON.stringify(body), signal },
+    );
+}
