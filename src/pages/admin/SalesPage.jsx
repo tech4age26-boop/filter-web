@@ -7,6 +7,7 @@ import SalesReports from './SalesReports';
 import SalesOrders from './SalesOrders';
 import WorkshopSales from './WorkshopSales';
 import SuppliersWarehouseSales from './SuppliersWarehouseSales';
+import CorporateTransactions from './CorporateTransactions';
 import '../../styles/admin/SalesPage.css';
 
 const SUB_TABS = [
@@ -14,6 +15,7 @@ const SUB_TABS = [
     { path: 'sales-orders', label: 'Sales Orders' },
     { path: 'workshop-sales', label: 'Workshop Sales' },
     { path: 'suppliers-warehouse-sales', label: 'Suppliers & Warehouse Sales' },
+    { path: 'corporate-transactions', label: 'Corporate Transactions' },
     { path: 'receipts', label: 'Receipts' },
 ];
 
@@ -323,6 +325,8 @@ export default function SalesPage() {
             {activeSub === 'workshop-sales' && <WorkshopSales />}
 
             {activeSub === 'suppliers-warehouse-sales' && <SuppliersWarehouseSales />}
+
+            {activeSub === 'corporate-transactions' && <CorporateTransactions />}
 
             {activeSub === 'receipts' && (
                 <>
