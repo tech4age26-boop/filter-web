@@ -2947,6 +2947,7 @@ function GeneralJournalView() {
                         onChange={(e) => setTypeFilter(e.target.value)}
                     >
                         <option>All Types</option>
+                        <option value="counter_closing">Counter closing</option>
                         <option>General</option>
                         <option>Payment</option>
                         <option>Receipt</option>
