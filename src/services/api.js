@@ -1,12 +1,12 @@
 // staging url
-export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+//export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 
 
 // production url
 //export const BASE_URL = 'https://www.filtercarservices.com';
 
 // development url
-//export const BASE_URL = 'http://localhost:3000';
+export const BASE_URL = 'http://localhost:3000';
 const API_LOADING_EVENT = 'filter-api-loading';
 
 /** Device UTC offset in minutes (e.g. 300 Pakistan, 240 UAE) for cashier order timestamps. */
