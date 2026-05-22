@@ -1813,3 +1813,220 @@
         transform: rotate(360deg);
     }
 }
+
+/* ============= Workshop Locker Management ============= */
+.wlk-page {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+.wlk-topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.wlk-title {
+    margin: 0 0 4px;
+    font-size: 22px;
+    font-weight: 700;
+    color: #111827;
+}
+.wlk-subtitle {
+    margin: 0;
+    color: #6b7280;
+    max-width: 720px;
+    font-size: 13px;
+}
+.wlk-topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.wlk-topbar-actions .btn-primary,
+.wlk-topbar-actions .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.wlk-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+}
+.wlk-grid {
+    display: grid;
+    gap: 16px;
+}
+.wlk-grid--kpi {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.wlk-grid--two {
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+}
+.wlk-grid--form {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.wlk-stat {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+.wlk-stat-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: #eef2ff;
+    color: #4338ca;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.wlk-stat-label {
+    font-size: 12px;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.wlk-stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: #111827;
+    margin-top: 2px;
+}
+.wlk-stat-hint {
+    font-size: 11px;
+    color: #6b7280;
+    margin-top: 4px;
+}
+.wlk-stat--warn .wlk-stat-icon { background: #fef3c7; color: #b45309; }
+.wlk-stat--danger .wlk-stat-icon { background: #fee2e2; color: #b91c1c; }
+.wlk-stat--success .wlk-stat-icon { background: #dcfce7; color: #15803d; }
+.wlk-stat--info .wlk-stat-icon { background: #dbeafe; color: #1d4ed8; }
+.wlk-section {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    overflow: hidden;
+}
+.wlk-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+}
+.wlk-section-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #111827;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.wlk-count {
+    background: #e0e7ff;
+    color: #3730a3;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.wlk-section-body {
+    overflow-x: auto;
+}
+.wlk-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.wlk-table th,
+.wlk-table td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: middle;
+}
+.wlk-table th {
+    background: #fafafa;
+    font-weight: 600;
+    color: #374151;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.wlk-table tr:last-child td {
+    border-bottom: none;
+}
+.wlk-table code {
+    background: #f3f4f6;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+.wlk-empty {
+    text-align: center;
+    color: #9ca3af;
+    padding: 24px 0;
+    font-style: italic;
+}
+.wlk-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: #f3f4f6;
+    color: #374151;
+}
+.wlk-pill--warn { background: #fef3c7; color: #b45309; }
+.wlk-pill--info { background: #dbeafe; color: #1d4ed8; }
+.wlk-pill--success { background: #dcfce7; color: #15803d; }
+.wlk-pill--danger { background: #fee2e2; color: #b91c1c; }
+.wlk-pos { color: #15803d; font-weight: 600; }
+.wlk-neg { color: #b91c1c; font-weight: 600; }
+.wlk-create-user {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 16px;
+}
+.wlk-create-user label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: #374151;
+}
+.wlk-create-user input,
+.wlk-create-user select {
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    background: #ffffff;
+}
+.wlk-create-user-footer {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+}
+.spin {
+    animation: ws-global-loader-spin 0.8s linear infinite;
+}

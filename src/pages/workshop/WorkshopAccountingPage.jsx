@@ -2947,7 +2947,14 @@ function GeneralJournalView() {
                         onChange={(e) => setTypeFilter(e.target.value)}
                     >
                         <option>All Types</option>
-                        <option value="counter_closing">Counter closing</option>
+                        <option value="counter_closing">Counter closing (variance)</option>
+                        <option value="locker_pickup">Locker pickup (cashier → locker)</option>
+                        <option value="locker_bank_deposit">Locker → bank deposit</option>
+                        <option value="locker_petty_cash_issue">Locker → cashier petty cash</option>
+                        <option value="petty_cash_replenishment">Petty cash replenishment</option>
+                        <option value="petty_cash_expense">Petty cash expense</option>
+                        <option value="internal_transfer">Cash/Bank internal transfer</option>
+                        <option value="sales">Sales (invoice)</option>
                         <option>General</option>
                         <option>Payment</option>
                         <option>Receipt</option>
