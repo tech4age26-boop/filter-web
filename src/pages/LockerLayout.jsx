@@ -9,6 +9,8 @@ import ApprovalsScreen from './locker/ApprovalsScreen';
 import CollectionsHistory from './locker/CollectionsHistory';
 import DifferencesReport from './locker/DifferencesReport';
 import PettyCash from './locker/PettyCash';
+import DepositToBank from './locker/DepositToBank';
+import IssuePettyCash from './locker/IssuePettyCash';
 import './workshop/Workshop.css';
 
 export default function LockerLayout() {
@@ -29,9 +31,11 @@ export default function LockerLayout() {
     const renderContent = () => {
         switch (activeTab) {
             case 'dashboard': return <LockerDashboard onTabChange={setActiveTab}/>;
-            case 'pending': return <PendingRequests/>;
+            case 'pending': return <PendingRequests onTabChange={setActiveTab}/>;
             case 'record': return <RecordCollection/>;
             case 'approvals': return <ApprovalsScreen/>;
+            case 'deposit_to_bank': return <DepositToBank/>;
+            case 'issue_petty_cash': return <IssuePettyCash/>;
             case 'history': return <CollectionsHistory/>;
             case 'differences': return <DifferencesReport/>;
             case 'petty_cash': return <PettyCash/>;

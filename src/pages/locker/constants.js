@@ -1,10 +1,12 @@
-import { LayoutDashboard, Clock, DollarSign, AlertTriangle, History, FileText, Wallet } from 'lucide-react';
+import { LayoutDashboard, Clock, DollarSign, AlertTriangle, History, FileText, Wallet, Send, Coins } from 'lucide-react';
 
 export const NAV_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'pending', label: 'Pending Requests', icon: Clock, badge: 3 },
+    { id: 'pending', label: 'Pending Requests', icon: Clock },
     { id: 'record', label: 'Record Collection', icon: DollarSign },
-    { id: 'approvals', label: 'Approvals', icon: AlertTriangle, badge: 2 },
+    { id: 'approvals', label: 'Approvals', icon: AlertTriangle },
+    { id: 'deposit_to_bank', label: 'Deposit to Bank', icon: Send },
+    { id: 'issue_petty_cash', label: 'Issue Petty Cash', icon: Coins },
     { id: 'history', label: 'Collections History', icon: History },
     { id: 'differences', label: 'Differences Report', icon: FileText },
     { id: 'petty_cash', label: 'Petty Cash', icon: Wallet },
