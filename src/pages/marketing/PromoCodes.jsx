@@ -1,341 +1,430 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
-import { Copy, Pencil, Trash2 } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
-import Modal from '../../components/Modal';
-import { generateCode } from './MarketingUtils';
+import React, { useMemo, useState } from 'react';
 import {
-    marketingCreatePromoCode,
-    marketingDeletePromoCode,
-    marketingGeneratePromoAutoCode,
-    marketingListPromoCodes,
-    marketingUpdatePromoCode,
-} from '../../services/superAdminMarketingApi';
-import { datetimeLocalToYmd, mapPromoCodeRowToCard } from './marketingFormMappers';
-import { MarketingCardGridSkeleton } from './MarketingShimmer';
+Plus,
+Search,
+X,
+Tag,
+Copy,
+ChevronDown,
+Hourglass,
+} from 'lucide-react';
+import './MarketingUniversal.css';
 
-function badgeClass(statusLabel) {
-    const s = String(statusLabel || '').toLowerCase();
-    if (s === 'active') return 'marketing-card-badge badge-active';
-    if (s === 'expired') return 'marketing-card-badge badge-expired';
-    return 'marketing-card-badge badge-inactive';
+const initialCodes = [];
+
+const statusOptions = ['Active', 'Draft', 'Expired'];
+const discountTypeOptions = ['Percentage (%)', 'Fixed (SAR)'];
+
+function randomCode() {
+return Math.random().toString(36).slice(2, 9).toUpperCase();
 }
 
-export const PromoCodes = ({
-    showAdd: propsShowAdd,
-    setShowAdd: propsSetShowAdd,
-    onCancel,
-    promoCodes: propsPromoCodes,
-    setPromoCodes: propsSetPromoCodes
-}) => {
-    const ctx = useOutletContext() || {};
-    const promoCodes = propsPromoCodes || ctx.promoCodes || [];
-    const setPromoCodes = propsSetPromoCodes || ctx.setPromoCodes;
-    const showAdd = propsShowAdd !== undefined ? propsShowAdd : ctx.showAddModal;
-    const setShowAdd = propsSetShowAdd || ctx.setShowAddModal;
-    const marketingWorkshopId = ctx.marketingWorkshopId ?? '';
-    const workshops = ctx.workshops || [];
+const SelectField = ({ value, onChange, options }) => {
+return (
+<div className="mk-code-select-wrap">
+<select
+value={value}
+onChange={(e) => onChange(e.target.value)}
+className="mk-code-input mk-code-select"
+>
+{options.map((option) => (
+<option key={option.value || option} value={option.value || option}>
+{option.label || option}
+</option>
+))}
+</select>
 
-    const [editingCode, setEditingCode] = useState(null);
-    const [newCode, setNewCode] = useState('');
-    const [loadError, setLoadError] = useState('');
-    const [listLoading, setListLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const isModalOpen = showAdd || !!editingCode;
-
-    const resolveWorkshopIdForAuto = () => {
-        if (marketingWorkshopId) return String(marketingWorkshopId);
-        const w0 = workshops[0];
-        const id = w0?.id ?? w0?._id ?? w0?.workshopId;
-        return id != null ? String(id) : '';
-    };
-
-    const loadList = useCallback(async () => {
-        setListLoading(true);
-        setLoadError('');
-        try {
-            const res = await marketingListPromoCodes({
-                ...(marketingWorkshopId ? { workshopId: marketingWorkshopId } : {}),
-                status: 'all',
-                limit: 100,
-                offset: 0,
-            });
-            const rows = res?.promoCodes ?? res?.data?.promoCodes ?? [];
-            const mapped = Array.isArray(rows) ? rows.map(mapPromoCodeRowToCard) : [];
-            setPromoCodes(mapped);
-        } catch (e) {
-            setPromoCodes([]);
-            setLoadError(e?.message || 'Failed to load promo codes.');
-        } finally {
-            setListLoading(false);
-        }
-    }, [marketingWorkshopId, setPromoCodes]);
-
-    useEffect(() => {
-        loadList();
-    }, [loadList]);
-
-    const closeModal = () => {
-        if (onCancel) onCancel();
-        else if (setShowAdd) setShowAdd(false);
-        setEditingCode(null);
-        setNewCode('');
-    };
-
-    const handleCopy = (code) => {
-        navigator.clipboard.writeText(code);
-        alert('Code copied to clipboard!');
-    };
-
-    const handleSave = async (e) => {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        const data = Object.fromEntries(formData.entries());
-        const code = String(newCode || '').trim().toUpperCase();
-        if (!code) {
-            alert('Promo code is required.');
-            return;
-        }
-        const discountType = data.dType === 'Fixed (SAR)' ? 'amount' : 'percentage';
-        const discountValue = Number(data.dVal);
-        if (!Number.isFinite(discountValue) || discountValue < 0) {
-            alert('Invalid discount value.');
-            return;
-        }
-        const validFrom = datetimeLocalToYmd(data.startDate);
-        const validTo = datetimeLocalToYmd(data.endDate);
-        if (!validFrom || !validTo) {
-            alert('Valid from and valid until (dates) are required.');
-            return;
-        }
-        const maxU = Number(data.maxUsage);
-        const usageLimit = Number.isFinite(maxU) && maxU > 0 ? maxU : 0;
-        const minOrderAmount = Number(data.minPurchase) || 0;
-        const st = String(data.status || '').toLowerCase();
-        const isActive = st === 'active';
-        const description = String(data.description || '').trim() || undefined;
-
-        setSaving(true);
-        try {
-            if (editingCode) {
-                await marketingUpdatePromoCode(editingCode.id, {
-                    code,
-                    discountType,
-                    discountValue,
-                    validFrom,
-                    validTo,
-                    usageLimit: usageLimit || undefined,
-                    minOrderAmount,
-                    description,
-                    isActive,
-                });
-            } else {
-                await marketingCreatePromoCode({
-                    ...(marketingWorkshopId ? { workshopId: String(marketingWorkshopId) } : {}),
-                    code,
-                    discountType,
-                    discountValue,
-                    validFrom,
-                    validTo,
-                    usageLimit: usageLimit || undefined,
-                    minOrderAmount,
-                    description,
-                    isActive,
-                });
-            }
-            await loadList();
-            closeModal();
-        } catch (err) {
-            alert(err?.message || 'Save failed');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const openEdit = (c) => {
-        setEditingCode(c);
-        setNewCode(c.code);
-        if (setShowAdd) setShowAdd(true);
-    };
-
-    const handleDelete = async (id) => {
-        if (!window.confirm('Are you sure you want to delete this promo code?')) return;
-        try {
-            await marketingDeletePromoCode(id);
-            await loadList();
-        } catch (e) {
-            alert(e?.message || 'Delete failed');
-        }
-    };
-
-    const handleAutoServerCode = async () => {
-        const wid = resolveWorkshopIdForAuto();
-        if (!wid) {
-            alert('Pick a workshop in the header scope (or create a workshop) to generate a code.');
-            return;
-        }
-        try {
-            const res = await marketingGeneratePromoAutoCode({ workshopId: wid });
-            const c = res?.code ?? res?.data?.code;
-            if (c) setNewCode(String(c));
-        } catch (e) {
-            alert(e?.message || 'Could not generate code');
-        }
-    };
-
-    return (
-        <div className="promo-codes-view">
-            {loadError ? <p style={{ color: '#b91c1c', fontWeight: 600, marginBottom: 12 }}>{loadError}</p> : null}
-            {listLoading ? (
-                <MarketingCardGridSkeleton cards={6} />
-            ) : (
-            <div className="marketing-grid">
-                {promoCodes.map((c) => (
-                    <div key={c.id} className="marketing-card">
-                        <div className="marketing-card-header">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <div style={{ background: '#F9FAFB', padding: '8px 12px', borderRadius: '10px', fontSize: '1.125rem', fontWeight: 900, fontFamily: 'monospace', border: '1px dashed #D1D5DB' }}>
-                                    {c.code}
-                                </div>
-                                <button type="button" className="icon-btn-mini" onClick={() => handleCopy(c.code)} title="Copy Code">
-                                    <Copy size={14} />
-                                </button>
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <span className={badgeClass(c.status)}>{c.status}</span>
-                                <button type="button" className="icon-btn-mini edit-btn" title="Edit Code" onClick={() => openEdit(c)}>
-                                    <Pencil size={14} />
-                                </button>
-                                <button type="button" className="icon-btn-mini delete-btn" title="Delete Code" onClick={() => handleDelete(c.id)}>
-                                    <Trash2 size={14} />
-                                </button>
-                            </div>
-                        </div>
-                        <p style={{ fontSize: '13px', fontWeight: 600, marginTop: '12px' }}>{c.promo}</p>
-                        <div className="marketing-card-stats">
-                            <div className="m-stat-item">
-                                <span className="m-stat-label">Value / Min Order</span>
-                                <span className="m-stat-val">{c.val} <span style={{ fontSize: '10px', color: '#6C757D' }}>({c.minPurchase || c.min || 0}+)</span></span>
-                            </div>
-                            <div className="m-stat-item">
-                                <span className="m-stat-label">Usage Rate</span>
-                                <span className="m-stat-val">{c.usage}</span>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-            )}
-
-            <AnimatePresence>
-                {isModalOpen && (
-                    <Modal
-                        title={editingCode ? "Edit Promo Code" : "Generate Promo Code"}
-                        onClose={closeModal}
-                        footer={
-                            <>
-                                <button type="button" className="btn-secondary" onClick={closeModal}>Cancel</button>
-                                <button type="button" className="btn-submit" disabled={saving} onClick={() => document.getElementById('promo-code-form').requestSubmit()}>
-                                    {saving ? 'Saving…' : editingCode ? "Update Code" : "Create Code"}
-                                </button>
-                            </>
-                        }
-                    >
-                        <form id="promo-code-form" key={editingCode?.id || 'new'} onSubmit={handleSave}>
-                            <div className="form-group">
-                                <label className="form-label">Promo Code *</label>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <input
-                                        type="text"
-                                        className="form-input-field"
-                                        placeholder="SUMMER20"
-                                        value={newCode}
-                                        onChange={(e) => setNewCode(e.target.value)}
-                                        style={{ flex: 1, fontFamily: 'monospace', fontWeight: 700 }}
-                                    />
-                                    <button type="button" className="btn-secondary" style={{ whiteSpace: 'nowrap' }} onClick={() => setNewCode(generateCode())}>
-                                        Random
-                                    </button>
-                                    <button type="button" className="btn-secondary" style={{ whiteSpace: 'nowrap' }} onClick={handleAutoServerCode}>
-                                        Server
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Description (optional)</label>
-                                <input type="text" className="form-input-field" name="description" placeholder="Internal label" defaultValue={editingCode?.description || editingCode?.promo || ''} />
-                            </div>
-                            <div className="form-grid">
-                                <div className="form-group">
-                                    <label className="form-label">Discount Type</label>
-                                    <select className="form-input-field" name="dType" defaultValue={editingCode?.dType || 'Percentage (%)'}>
-                                        <option>Percentage (%)</option>
-                                        <option>Fixed (SAR)</option>
-                                    </select>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Discount Value</label>
-                                    <input
-                                        type="number"
-                                        name="dVal"
-                                        className="form-input-field"
-                                        placeholder="0"
-                                        defaultValue={editingCode?.dVal ?? ''}
-                                    />
-                                </div>
-                            </div>
-                            <div className="form-grid">
-                                <div className="form-group">
-                                    <label className="form-label">Min. Purchase (SAR)</label>
-                                    <input
-                                        type="number"
-                                        name="minPurchase"
-                                        className="form-input-field"
-                                        defaultValue={editingCode?.minPurchase ?? 0}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Max Usage (0=unlimited)</label>
-                                    <input
-                                        type="number"
-                                        name="maxUsage"
-                                        className="form-input-field"
-                                        defaultValue={editingCode?.maxUsage ?? 0}
-                                    />
-                                </div>
-                            </div>
-                            <div className="form-grid">
-                                <div className="form-group">
-                                    <label className="form-label">Valid From</label>
-                                    <input type="datetime-local" name="startDate" className="form-input-field" defaultValue={editingCode?.startDate || ''} />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Valid Until</label>
-                                    <input type="datetime-local" name="endDate" className="form-input-field" defaultValue={editingCode?.endDate || ''} />
-                                </div>
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Status</label>
-                                <select
-                                    className="form-input-field"
-                                    name="status"
-                                    defaultValue={
-                                        editingCode?.status === 'Expired'
-                                            ? 'expired'
-                                            : editingCode?.status === 'Active'
-                                              ? 'active'
-                                              : 'inactive'
-                                    }
-                                >
-                                    <option value="active">Active</option>
-                                    <option value="inactive">Inactive</option>
-                                    <option value="expired">Expired (inactive)</option>
-                                </select>
-                            </div>
-                        </form>
-                    </Modal>
-                )}
-            </AnimatePresence>
-        </div>
-    );
+<ChevronDown size={14} strokeWidth={2} className="mk-code-select-icon" />
+</div>
+);
 };
+
+const Toggle = ({ checked, onChange, label }) => {
+return (
+<button
+type="button"
+onClick={() => onChange(!checked)}
+className="mk-code-toggle-btn"
+>
+<span className={checked ? 'mk-code-toggle active' : 'mk-code-toggle'}>
+<span />
+</span>
+
+{label}
+</button>
+);
+};
+
+const GenerateCodeModal = ({
+open,
+onClose,
+onSubmit,
+form,
+setForm,
+}) => {
+if (!open) return null;
+
+const update = (field, value) => {
+setForm((prev) => ({
+...prev,
+[field]: value,
+}));
+};
+
+const handleSubmit = (e) => {
+e.preventDefault();
+
+if (!form.code.trim()) {
+alert('Promo code is required.');
+return;
+}
+
+onSubmit();
+};
+
+return (
+<div className="mk-code-modal-overlay">
+<div className="mk-code-modal">
+<div className="mk-code-modal-header">
+<h2>Generate Promo Code</h2>
+
+<button type="button" onClick={onClose} className="mk-code-close-btn">
+<X size={17} strokeWidth={2} />
+</button>
+</div>
+
+<form onSubmit={handleSubmit} className="mk-code-modal-form">
+<div className="mk-code-form-group">
+<label className="mk-code-label">Promo Code *</label>
+
+<div className="mk-code-row">
+<input
+autoFocus
+value={form.code}
+onChange={(e) => update('code', e.target.value)}
+placeholder="e.g. RAMADAN50"
+className="mk-code-input mk-code-focus-input mk-code-flex-input"
+/>
+
+<button
+type="button"
+onClick={() => update('code', randomCode())}
+className="mk-code-auto-btn"
+>
+Auto
+</button>
+</div>
+</div>
+
+<div className="mk-code-form-group">
+<label className="mk-code-label">Link to Promotion (optional)</label>
+
+<SelectField
+value={form.promotion}
+onChange={(value) => update('promotion', value)}
+options={[
+{ label: 'Select promotion...', value: '' },
+]}
+/>
+</div>
+
+<div className="mk-code-two-col">
+<div className="mk-code-form-group">
+<label className="mk-code-label">Discount Type</label>
+
+<SelectField
+value={form.discountType}
+onChange={(value) => update('discountType', value)}
+options={discountTypeOptions}
+/>
+</div>
+
+<div className="mk-code-form-group">
+<label className="mk-code-label">Discount Value</label>
+
+<input
+value={form.discountValue}
+onChange={(e) => update('discountValue', e.target.value)}
+className="mk-code-input"
+/>
+</div>
+</div>
+
+<div className="mk-code-two-col">
+<div className="mk-code-form-group">
+<label className="mk-code-label">Min. Purchase (SAR)</label>
+
+<input
+type="number"
+value={form.minPurchase}
+onChange={(e) => update('minPurchase', e.target.value)}
+className="mk-code-input"
+/>
+</div>
+
+<div className="mk-code-form-group">
+<label className="mk-code-label">Max Usage (0=unlimited)</label>
+
+<input
+type="number"
+value={form.maxUsage}
+onChange={(e) => update('maxUsage', e.target.value)}
+className="mk-code-input"
+/>
+</div>
+</div>
+
+<div className="mk-code-two-col">
+<div className="mk-code-form-group">
+<label className="mk-code-label">Valid From</label>
+
+<input
+type="datetime-local"
+value={form.validFrom}
+onChange={(e) => update('validFrom', e.target.value)}
+className="mk-code-input"
+/>
+</div>
+
+<div className="mk-code-form-group">
+<label className="mk-code-label">Valid Until</label>
+
+<input
+type="datetime-local"
+value={form.validUntil}
+onChange={(e) => update('validUntil', e.target.value)}
+className="mk-code-input"
+/>
+</div>
+</div>
+
+<div className="mk-code-form-group">
+<label className="mk-code-label">Status</label>
+
+<SelectField
+value={form.status}
+onChange={(value) => update('status', value)}
+options={statusOptions}
+/>
+</div>
+
+<div className="mk-code-form-group">
+<Toggle
+checked={form.showSavings}
+onChange={(value) => update('showSavings', value)}
+label="Show code savings on invoice"
+/>
+</div>
+
+<div className="mk-code-form-group">
+<label className="mk-code-label">Notes</label>
+
+<textarea
+value={form.notes}
+onChange={(e) => update('notes', e.target.value)}
+placeholder="Internal notes..."
+className="mk-code-textarea"
+/>
+</div>
+
+<div className="mk-code-approval-note">
+<Hourglass size={14} strokeWidth={2} />
+<span>
+This code will be sent to <b>Super Admin for approval</b> before activation.
+</span>
+</div>
+
+<div className="mk-code-modal-footer">
+<button type="button" onClick={onClose} className="mk-code-cancel-btn">
+Cancel
+</button>
+
+<button type="submit" className="mk-code-submit-btn">
+Submit for Approval
+</button>
+</div>
+</form>
+</div>
+</div>
+);
+};
+
+export const PromoCodes = () => {
+const [codes, setCodes] = useState(initialCodes);
+const [search, setSearch] = useState('');
+const [showModal, setShowModal] = useState(false);
+
+const [form, setForm] = useState({
+code: '',
+promotion: '',
+discountType: 'Percentage (%)',
+discountValue: '',
+minPurchase: '0',
+maxUsage: '0',
+validFrom: '',
+validUntil: '',
+status: 'Active',
+showSavings: true,
+notes: '',
+});
+
+const filteredCodes = useMemo(() => {
+const q = search.trim().toLowerCase();
+
+return codes.filter((item) => {
+if (!q) return true;
+
+return (
+item.code.toLowerCase().includes(q) ||
+item.promotion.toLowerCase().includes(q)
+);
+});
+}, [codes, search]);
+
+const resetForm = () => {
+setForm({
+code: '',
+promotion: '',
+discountType: 'Percentage (%)',
+discountValue: '',
+minPurchase: '0',
+maxUsage: '0',
+validFrom: '',
+validUntil: '',
+status: 'Active',
+showSavings: true,
+notes: '',
+});
+};
+
+const openModal = () => {
+resetForm();
+setShowModal(true);
+};
+
+const closeModal = () => {
+setShowModal(false);
+resetForm();
+};
+
+const handleSubmit = () => {
+setCodes((prev) => [
+{
+id: Date.now(),
+code: form.code.trim(),
+promotion: form.promotion.trim(),
+discountType: form.discountType,
+discountValue: form.discountValue,
+minPurchase: form.minPurchase,
+maxUsage: form.maxUsage,
+validFrom: form.validFrom,
+validUntil: form.validUntil,
+status: form.status,
+showSavings: form.showSavings,
+notes: form.notes,
+},
+...prev,
+]);
+
+closeModal();
+};
+
+const handleCopy = async (value) => {
+try {
+await navigator.clipboard.writeText(value);
+alert('Code copied');
+} catch {
+alert('Could not copy code');
+}
+};
+
+return (
+<div className="mk-page mk-code-page">
+<div className="mk-code-header">
+<div>
+<h1 className="mk-code-title">Promo Codes</h1>
+<p className="mk-code-subtitle">
+Generate and validate promo codes — codes appear on POS and invoices
+</p>
+</div>
+
+<button type="button" onClick={openModal} className="mk-code-new-btn">
+<Plus size={15} strokeWidth={2.5} />
+Generate Code
+</button>
+</div>
+
+<div className="mk-code-filters">
+<label className="mk-code-search">
+<Search size={13} strokeWidth={2} />
+
+<input
+value={search}
+onChange={(e) => setSearch(e.target.value)}
+placeholder="Search by code or promotion..."
+/>
+</label>
+</div>
+
+<div className="mk-code-content-area">
+{filteredCodes.length === 0 ? (
+<div className="mk-code-empty-state">
+<Tag size={41} strokeWidth={1.8} />
+<div>No promo codes yet</div>
+</div>
+) : (
+<div className="mk-code-table-wrap">
+<table className="mk-code-table">
+<thead>
+<tr>
+<th>Code</th>
+<th>Promotion</th>
+<th>Type</th>
+<th>Value</th>
+<th>Status</th>
+<th>Actions</th>
+</tr>
+</thead>
+
+<tbody>
+{filteredCodes.map((item) => (
+<tr key={item.id}>
+<td className="mk-code-td-strong">{item.code}</td>
+<td>{item.promotion || '-'}</td>
+<td>{item.discountType}</td>
+<td>{item.discountValue || '-'}</td>
+<td>
+<span className="mk-code-status-badge">
+{item.status}
+</span>
+</td>
+<td>
+<button
+type="button"
+onClick={() => handleCopy(item.code)}
+className="mk-code-copy-btn"
+>
+<Copy size={13} strokeWidth={2} />
+Copy
+</button>
+</td>
+</tr>
+))}
+</tbody>
+</table>
+</div>
+)}
+</div>
+
+<GenerateCodeModal
+open={showModal}
+onClose={closeModal}
+onSubmit={handleSubmit}
+form={form}
+setForm={setForm}
+/>
+</div>
+);
+};
+
+export default PromoCodes;
