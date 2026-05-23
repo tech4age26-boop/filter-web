@@ -19,6 +19,7 @@ import WorkshopPromoCodes from './workshop/WorkshopPromoCodes';
 import WorkshopCorporateManagement from './workshop/WorkshopCorporateManagement';
 import WorkshopBranches from './workshop/WorkshopBranches';
 import WorkshopCommissions from './workshop/WorkshopCommissions';
+import WorkshopMyPettyCash from './workshop/WorkshopMyPettyCash';
 import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
 import WorkshopAffiliatedSuppliers from './workshop/WorkshopAffiliatedSuppliers';
@@ -65,11 +66,12 @@ export default function WorkshopLayout() {
                 'cash-bank': 'acc-cash',
                 'transactions': 'acc-transactions',
                 'journal-entries': 'acc-journal',
-                'purchases': 'acc-purchases',
                 'expenses': 'acc-expenses',
                 'receipts': 'acc-receipts',
                 'payments': 'acc-payments',
                 'advances': 'acc-advances',
+                'payroll': 'acc-payroll',
+                'approvals': 'acc-approvals',
                 'ledger': 'acc-ledger',
             };
             return mapping[sub] || 'acc-cash';
@@ -90,11 +92,12 @@ export default function WorkshopLayout() {
                 'acc-cash': 'cash-bank',
                 'acc-transactions': 'transactions',
                 'acc-journal': 'journal-entries',
-                'acc-purchases': 'purchases',
                 'acc-expenses': 'expenses',
                 'acc-receipts': 'receipts',
                 'acc-payments': 'payments',
                 'acc-advances': 'advances',
+                'acc-payroll': 'payroll',
+                'acc-approvals': 'approvals',
                 'acc-ledger': 'ledger',
             };
             navigate(`/workshop/accounting/${reverseMapping[tabId]}`);
@@ -254,11 +257,12 @@ export default function WorkshopLayout() {
             case 'acc-referral':
             case 'acc-transactions':  
             case 'acc-journal':       
-            case 'acc-purchases':     
             case 'acc-expenses':      
             case 'acc-receipts':      
             case 'acc-payments':      
             case 'acc-advances':      
+            case 'acc-payroll':       
+            case 'acc-approvals':     
             case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'dashboard':         return (
                 <WorkshopDashboard
@@ -315,6 +319,7 @@ export default function WorkshopLayout() {
             case 'corporate-management': return <WorkshopCorporateManagement selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'branches':    return <WorkshopBranches selectedBranchId={selectedBranch} />;
             case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'my-petty-cash': return <WorkshopMyPettyCash />;
             case 'inventory': return (
                 <WorkshopInventory
                     selectedBranchId={selectedBranch}

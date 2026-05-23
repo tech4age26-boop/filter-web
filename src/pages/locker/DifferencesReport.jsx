@@ -30,10 +30,13 @@ export default function DifferencesReport() {
         load();
     }, [load]);
 
-    const short = Number(data?.totalShort ?? 0);
-    const over = Number(data?.totalOver ?? 0);
-    const net = Number(data?.netVariance ?? over - short);
-    const recent = data?.recentVariances || data?.items || [];
+    const summary = data?.differencesSummary || {};
+    const short = Number(data?.totalShort ?? summary.totalShort ?? 0);
+    const over = Number(data?.totalOver ?? summary.totalOver ?? 0);
+    const net = Number(
+        data?.netVariance ?? summary.netDifference ?? summary.netVariance ?? over - short,
+    );
+    const recent = data?.recentVariances || data?.items || data?.variances || [];
 
     return (
         <div>
@@ -105,7 +108,12 @@ export default function DifferencesReport() {
                         ) : (
                             recent.map((a, idx) => (
                                 <tr key={a.id || idx}>
-                                    <td>{a.collectionId || a.referenceCode || a.id}</td>
+                                    <td>
+                                        {a.referenceCode ||
+                                            a.requestReference ||
+                                            a.collectionId ||
+                                            a.id}
+                                    </td>
                                     <td>{a.branchName || a.branch || '—'}</td>
                                     <td>
                                         <span

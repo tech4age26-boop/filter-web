@@ -12,6 +12,8 @@ import {
   updateWorkshopCashBankAccount,
   listWorkshopCashBankPosTerminals,
   internalTransferWorkshopCashBank,
+  resetCashFlowV3,
+  setBranchDefaultAccounts,
 } from '../../services/workshopStaffApi';
 import {
   listCashBankAccounts as listAcctCashBank,
@@ -31,6 +33,12 @@ import {
   listJournalEntries as listAcctJournalEntries,
   getJournalEntry as getAcctJournalEntry,
 } from '../../services/workshopAccountingApi';
+import WorkshopApprovalLimits from './accounting/WorkshopApprovalLimits';
+import WorkshopReceiptsLog from './accounting/WorkshopReceiptsLog';
+import WorkshopPaymentsLog from './accounting/WorkshopPaymentsLog';
+import WorkshopExpensesLog from './accounting/WorkshopExpensesLog';
+import WorkshopPayroll from './accounting/WorkshopPayroll';
+import WorkshopLedgerView from './accounting/WorkshopLedgerView';
 import '../../styles/admin/AccountingPage.css';
 
 const CASH_BANK_TABS = ['All Accounts', 'Cash', 'Bank', 'Petty Cash'];
@@ -56,6 +64,12 @@ function normalizeWorkshopCashBankRow(raw) {
   const posLinkLabel = linked.length
     ? linked.map((t) => `${t.branchName || '—'}: ${t.label || t.terminalCode || ''}`).join(' · ')
     : 'Shared';
+  const kind = String(raw.kind || 'OPERATING');
+  const isSystem = kind !== 'OPERATING';
+  let kindLabel = 'Operating';
+  if (kind === 'SYSTEM_CASHIER_TILL') kindLabel = 'Cashier Till (system)';
+  else if (kind === 'SYSTEM_LOCKER_VAULT') kindLabel = 'Locker Vault (system)';
+  else if (kind === 'SYSTEM_PETTY_CASH_WALLET') kindLabel = 'Petty Cash Wallet (system)';
   return {
     id: String(raw.id),
     name: raw.name || '',
@@ -63,6 +77,9 @@ function normalizeWorkshopCashBankRow(raw) {
     apiType: raw.type,
     branch: raw.branch?.name ?? '—',
     branchId: raw.branchId ? String(raw.branchId) : '',
+    kind,
+    kindLabel,
+    isSystem,
     coaLink,
     posLinkLabel,
     posTerminalId,
@@ -1851,6 +1868,10 @@ function CashBankView({ branches = [] }) {
     const [xferError, setXferError] = useState('');
     const [xferSubmitting, setXferSubmitting] = useState(false);
     const [editPosInitial, setEditPosInitial] = useState('');
+    const [migratingV3, setMigratingV3] = useState(false);
+    const [migrationMsg, setMigrationMsg] = useState('');
+    const [branchDefaults, setBranchDefaults] = useState({});
+    const [branchDefaultsMsg, setBranchDefaultsMsg] = useState('');
 
     const loadAccounts = useCallback(async () => {
         setAccountsLoading(true);
@@ -2138,7 +2159,32 @@ function CashBankView({ branches = [] }) {
                     <RefreshCw size={16} style={{ marginRight: 6, opacity: accountsLoading ? 0.5 : 1 }} />
                     Refresh
                 </button>
+                <button
+                    type="button"
+                    className="btn-portal-outline"
+                    disabled={migratingV3}
+                    onClick={async () => {
+                        setMigrationMsg('');
+                        setMigratingV3(true);
+                        try {
+                            const res = await resetCashFlowV3();
+                            setMigrationMsg(res?.message || 'Cash flow migration completed.');
+                            await loadAccounts();
+                        } catch (e) {
+                            setMigrationMsg(e?.message || 'Migration failed.');
+                        } finally {
+                            setMigratingV3(false);
+                        }
+                    }}
+                    title="Provision system registers (Locker Vault, Cashier Tills, Petty Cash Wallets) and sync balances with the GL."
+                >
+                    <Zap size={16} style={{ marginRight: 6 }} />
+                    {migratingV3 ? 'Migrating…' : 'Run cash-flow migration'}
+                </button>
             </div>
+            {migrationMsg ? (
+                <p className="form-help-text" style={{ color: '#0E7C66', margin: '6px 0 0' }}>{migrationMsg}</p>
+            ) : null}
 
             <section
                 className="cash-bank-internal-xfer"
@@ -2234,11 +2280,101 @@ function CashBankView({ branches = [] }) {
                 </div>
             </section>
 
+            {branches.length > 0 ? (
+                <section
+                    className="cash-bank-branch-defaults"
+                    style={{
+                        marginBottom: 20,
+                        padding: '16px 18px',
+                        borderRadius: 12,
+                        border: '1px solid rgba(0,0,0,0.08)',
+                        background: 'var(--accounting-card-bg, #fafafa)',
+                    }}
+                >
+                    <h3 className="cash-bank-title" style={{ fontSize: '1.05rem', margin: '0 0 8px' }}>
+                        Branch default operating registers
+                    </h3>
+                    <p className="form-help-text" style={{ marginBottom: 12 }}>
+                        Pin the operating cash and bank register used at each branch for POS card sales, locker bank deposits, and other direct-to-operating postings. Leave blank to use the legacy fallback.
+                    </p>
+                    {branchDefaultsMsg ? (
+                        <p className="form-help-text" style={{ color: '#0E7C66', margin: '0 0 8px' }}>{branchDefaultsMsg}</p>
+                    ) : null}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 12, alignItems: 'end' }}>
+                        {branches.map((b) => {
+                            const bid = String(b.id);
+                            const dCash = branchDefaults[bid]?.defaultCashAccountId ?? '';
+                            const dBank = branchDefaults[bid]?.defaultBankAccountId ?? '';
+                            return (
+                                <React.Fragment key={bid}>
+                                    <div className="form-group">
+                                        <label className="form-label" style={{ fontSize: '0.85rem' }}>{b.name}</label>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Default cash</label>
+                                        <select
+                                            className="form-input-field"
+                                            value={dCash}
+                                            onChange={(e) => setBranchDefaults((cur) => ({
+                                                ...cur,
+                                                [bid]: { ...(cur[bid] || {}), defaultCashAccountId: e.target.value },
+                                            }))}
+                                        >
+                                            <option value="">— None (use fallback) —</option>
+                                            {accounts.filter((a) => a.apiType === 'CASH' && a.kind === 'OPERATING' && (!a.branchId || String(a.branchId) === bid)).map((a) => (
+                                                <option key={a.id} value={a.id}>{a.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Default bank</label>
+                                        <select
+                                            className="form-input-field"
+                                            value={dBank}
+                                            onChange={(e) => setBranchDefaults((cur) => ({
+                                                ...cur,
+                                                [bid]: { ...(cur[bid] || {}), defaultBankAccountId: e.target.value },
+                                            }))}
+                                        >
+                                            <option value="">— None (use fallback) —</option>
+                                            {accounts.filter((a) => a.apiType === 'BANK' && a.kind === 'OPERATING' && (!a.branchId || String(a.branchId) === bid)).map((a) => (
+                                                <option key={a.id} value={a.id}>{a.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <button
+                                            type="button"
+                                            className="btn-portal-outline"
+                                            onClick={async () => {
+                                                setBranchDefaultsMsg('');
+                                                try {
+                                                    const res = await setBranchDefaultAccounts(bid, {
+                                                        defaultCashAccountId: dCash || null,
+                                                        defaultBankAccountId: dBank || null,
+                                                    });
+                                                    setBranchDefaultsMsg(`Saved defaults for ${res?.branchName || b.name}.`);
+                                                } catch (e) {
+                                                    setBranchDefaultsMsg(e?.message || 'Save failed.');
+                                                }
+                                            }}
+                                        >
+                                            Save
+                                        </button>
+                                    </div>
+                                </React.Fragment>
+                            );
+                        })}
+                    </div>
+                </section>
+            ) : null}
+
             <section className="premium-table cash-bank-table">
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
                             <th className="table-th">Account</th>
+                            <th className="table-th">Kind</th>
                             <th className="table-th">Type</th>
                             <th className="table-th">Branch</th>
                             <th className="table-th">POS / SoftPOS</th>
@@ -2252,16 +2388,19 @@ function CashBankView({ branches = [] }) {
                     <tbody>
                         {accountsLoading ? (
                             <tr>
-                                <td colSpan={9} className="table-cell table-empty">Loading accounts…</td>
+                                <td colSpan={10} className="table-cell table-empty">Loading accounts…</td>
                             </tr>
                         ) : visibleAccounts.length === 0 ? (
                             <tr>
-                                <td colSpan={9} className="table-cell table-empty">No accounts found</td>
+                                <td colSpan={10} className="table-cell table-empty">No accounts found</td>
                             </tr>
                         ) : (
                             visibleAccounts.map((a) => (
                                 <tr key={a.id}>
                                     <td className="table-cell cell-main-text">{a.name}</td>
+                                    <td className="table-cell">
+                                        <span className={`status-badge ${a.isSystem ? 'status-pending' : 'status-completed'}`}>{a.kindLabel}</span>
+                                    </td>
                                     <td className="table-cell">{a.type}</td>
                                     <td className="table-cell">{a.branch}</td>
                                     <td className="table-cell">{a.posLinkLabel}</td>
@@ -2269,7 +2408,13 @@ function CashBankView({ branches = [] }) {
                                     <td className="table-cell">SAR {formatSarAmount(a.openingBalance)}</td>
                                     <td className="table-cell">SAR {formatSarAmount(a.currentBalance)}</td>
                                     <td className="table-cell"><span className="status-badge status-completed">{a.status}</span></td>
-                                    <td className="table-cell"><button type="button" className="btn-edit-zone" onClick={() => openEdit(a)}>Edit</button></td>
+                                    <td className="table-cell">
+                                        {a.isSystem ? (
+                                            <span className="form-help-text" title="System registers cannot be edited from this UI — their balance is driven by GL.">System</span>
+                                        ) : (
+                                            <button type="button" className="btn-edit-zone" onClick={() => openEdit(a)}>Edit</button>
+                                        )}
+                                    </td>
                                 </tr>
                             ))
                         )}
@@ -3783,6 +3928,8 @@ export default function WorkshopAccountingPage({ activeTab, branches = [] }) {
             'receipts': 'receipts',
             'payments': 'payments',
             'advances': 'advances',
+            'payroll': 'payroll',
+            'approvals': 'approvals',
             'ledger': 'ledger'
         };
         return mapping[raw] || raw;
@@ -3801,14 +3948,15 @@ export default function WorkshopAccountingPage({ activeTab, branches = [] }) {
         <div className="accounting-page module-container">
             {activeSub === 'chart-of-accounts' && <ChartOfAccountsView />}
             {activeSub === 'cash-bank' && <CashBankView branches={branches} />}
-            {activeSub === 'payments' && <PaymentsView />}
+            {activeSub === 'payments' && <WorkshopPaymentsLog branches={branches} />}
             {activeSub === 'transactions' && <TransactionEntryView branches={branches} />}
             {activeSub === 'journal-entries' && <GeneralJournalView />}
-            {activeSub === 'purchases' && <PurchasesView taxes={taxes} />}
-            {activeSub === 'expenses' && <ExpensesView />}
-            {activeSub === 'receipts' && <ReceiptsView />}
+            {activeSub === 'expenses' && <WorkshopExpensesLog branches={branches} />}
+            {activeSub === 'receipts' && <WorkshopReceiptsLog branches={branches} />}
             {activeSub === 'advances' && <EmployeeAdvancesView />}
-            {activeSub === 'ledger' && <LedgerView />}
+            {activeSub === 'payroll' && <WorkshopPayroll />}
+            {activeSub === 'approvals' && <WorkshopApprovalLimits />}
+            {activeSub === 'ledger' && <WorkshopLedgerView />}
         </div>
     );
 }

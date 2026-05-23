@@ -28,7 +28,8 @@ const PORTAL_USER_TYPES = {
     'workshop': 'workshop_owner',
     'pos': 'cashier_user',
     'technician': 'technician_user',
-    'locker': 'admin',
+    // Locker users are workshop_user rows with `lockerPortalRole=supervisor|collector`.
+    'locker': 'workshop_user',
     'supplier': 'supplier_user',
     'marketing': 'marketing_user',
     'referral-management': 'referral_user',
@@ -58,6 +59,16 @@ const PortalLoginPage = () => {
         if (portal === 'technician') {
             if (normalizedType === normalizeUserType(PORTAL_USER_TYPES.technician)) return true;
             if (normalizedType === 'workshop_user' && authUser?.technician) return true;
+            return false;
+        }
+        if (portal === 'locker') {
+            // Locker portal accepts any workshop user whose lockerPortalRole is set
+            // (collector or supervisor). Workshop owners are also welcome.
+            const role = authUser?.lockerPortalRole;
+            if (normalizedType === 'workshop_owner') return true;
+            if (normalizedType === 'workshop_user' && (role === 'supervisor' || role === 'collector')) {
+                return true;
+            }
             return false;
         }
         return normalizedType === normalizeUserType(PORTAL_USER_TYPES[portal]);
@@ -120,7 +131,8 @@ const PortalLoginPage = () => {
                 data = await corporateLogin(email, password);
             } else if (portalId === 'pos') {
                 data = await cashierLogin(email, password);
-            } else if (portalId === 'workshop') {
+            } else if (portalId === 'workshop' || portalId === 'locker') {
+                // Locker users are workshop_user rows; reuse the workshop login endpoint.
                 data = await workshopLogin(email, password);
             } else if (portalId === 'technician') {
                 data = await technicianLogin(email, password);
@@ -138,7 +150,17 @@ const PortalLoginPage = () => {
                 if (portalId === 'workshop' && !effectiveUserType) {
                     effectiveUserType = 'workshop_owner';
                 }
-                
+
+                if (portalId === 'locker') {
+                    const role = userData.lockerPortalRole;
+                    const isOwner = effectiveUserType === 'workshop_owner';
+                    if (!isOwner && role !== 'supervisor' && role !== 'collector') {
+                        throw new Error(
+                            'This account does not have locker portal access. Ask your workshop admin to create a locker user.',
+                        );
+                    }
+                }
+
                 const workshopMeta =
                     data.workshop ||
                     userData.workshop ||

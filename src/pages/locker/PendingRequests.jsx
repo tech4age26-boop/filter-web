@@ -9,6 +9,21 @@ const fmtSar = (n) =>
         maximumFractionDigits: 2,
     })}`;
 
+function rowCashierName(row) {
+    return (
+        row?.cashierName ||
+        row?.cashier?.name ||
+        row?.cashierUser?.name ||
+        '—'
+    );
+}
+
+function rowRequestStatus(row) {
+    const raw = row?.status ?? row?.requestStatus ?? '';
+    if (!raw) return '—';
+    return String(raw).replace(/_/g, ' ');
+}
+
 export default function PendingRequests({ onTabChange }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -89,7 +104,7 @@ export default function PendingRequests({ onTabChange }) {
                                         </strong>
                                     </td>
                                     <td>{p.branchName}</td>
-                                    <td>{p.cashierName}</td>
+                                    <td>{rowCashierName(p)}</td>
                                     <td>{p.assignedOfficerName || '—'}</td>
                                     <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
                                         {p.createdAt ? new Date(p.createdAt).toLocaleString() : '—'}
@@ -100,10 +115,12 @@ export default function PendingRequests({ onTabChange }) {
                                     <td>
                                         <span
                                             className={`ws-badge ${
-                                                p.status === 'assigned' ? 'ws-badge--blue' : 'ws-badge--yellow'
+                                                (p.status ?? p.requestStatus) === 'assigned'
+                                                    ? 'ws-badge--blue'
+                                                    : 'ws-badge--yellow'
                                             }`}
                                         >
-                                            {p.status}
+                                            {rowRequestStatus(p)}
                                         </span>
                                     </td>
                                     <td>
