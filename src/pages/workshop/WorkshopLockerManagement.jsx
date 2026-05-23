@@ -8,11 +8,11 @@ import {
     CheckCircle,
     RefreshCw,
     ExternalLink,
-    Users,
     Inbox,
     Send,
     Coins,
     Activity,
+    Info,
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
@@ -96,15 +96,6 @@ export default function WorkshopLockerManagement() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [data, setData] = useState(null);
-    const [createUserOpen, setCreateUserOpen] = useState(false);
-    const [createUserForm, setCreateUserForm] = useState({
-        name: '',
-        email: '',
-        password: '',
-        mobile: '',
-        role: 'collector',
-    });
-    const [createUserBusy, setCreateUserBusy] = useState(false);
 
     const reload = useCallback(async () => {
         setLoading(true);
@@ -138,46 +129,6 @@ export default function WorkshopLockerManagement() {
         [data],
     );
 
-    const submitCreateUser = async (e) => {
-        e?.preventDefault?.();
-        const name = createUserForm.name.trim();
-        const email = createUserForm.email.trim();
-        const password = createUserForm.password.trim();
-        if (!name || !email || !password) {
-            alert('Name, email and password are required');
-            return;
-        }
-        setCreateUserBusy(true);
-        try {
-            const res = await apiFetch('/workshop-staff/locker-portal-users', {
-                method: 'POST',
-                body: JSON.stringify({
-                    name,
-                    email,
-                    password,
-                    mobile: createUserForm.mobile.trim() || undefined,
-                    lockerPortalRole: createUserForm.role,
-                }),
-            });
-            if (res?.success === false) {
-                throw new Error(res?.message || 'Failed to create locker user');
-            }
-            setCreateUserForm({
-                name: '',
-                email: '',
-                password: '',
-                mobile: '',
-                role: 'collector',
-            });
-            setCreateUserOpen(false);
-            await reload();
-        } catch (e2) {
-            alert(e2?.message || 'Failed to create locker user');
-        } finally {
-            setCreateUserBusy(false);
-        }
-    };
-
     return (
         <div className="wlk-page">
             <div className="wlk-topbar">
@@ -206,90 +157,21 @@ export default function WorkshopLockerManagement() {
                     >
                         <ExternalLink size={16} /> Open Locker Portal
                     </a>
-                    <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={() => setCreateUserOpen((s) => !s)}
-                    >
-                        <UserCheck size={16} /> {createUserOpen ? 'Close' : 'Add Locker User'}
-                    </button>
                 </div>
             </div>
 
             {error ? <div className="wlk-error">{error}</div> : null}
 
-            {createUserOpen ? (
-                <form className="wlk-create-user" onSubmit={submitCreateUser}>
-                    <div className="wlk-grid wlk-grid--form">
-                        <label>
-                            <span>Name</span>
-                            <input
-                                value={createUserForm.name}
-                                onChange={(e) =>
-                                    setCreateUserForm((f) => ({ ...f, name: e.target.value }))
-                                }
-                                placeholder="Full name"
-                                required
-                            />
-                        </label>
-                        <label>
-                            <span>Email</span>
-                            <input
-                                value={createUserForm.email}
-                                onChange={(e) =>
-                                    setCreateUserForm((f) => ({ ...f, email: e.target.value }))
-                                }
-                                type="email"
-                                placeholder="locker.user@example.com"
-                                required
-                            />
-                        </label>
-                        <label>
-                            <span>Password</span>
-                            <input
-                                value={createUserForm.password}
-                                onChange={(e) =>
-                                    setCreateUserForm((f) => ({ ...f, password: e.target.value }))
-                                }
-                                type="password"
-                                placeholder="Initial password"
-                                required
-                            />
-                        </label>
-                        <label>
-                            <span>Mobile</span>
-                            <input
-                                value={createUserForm.mobile}
-                                onChange={(e) =>
-                                    setCreateUserForm((f) => ({ ...f, mobile: e.target.value }))
-                                }
-                                placeholder="+966..."
-                            />
-                        </label>
-                        <label>
-                            <span>Role</span>
-                            <select
-                                value={createUserForm.role}
-                                onChange={(e) =>
-                                    setCreateUserForm((f) => ({ ...f, role: e.target.value }))
-                                }
-                            >
-                                <option value="supervisor">Supervisor</option>
-                                <option value="collector">Collector</option>
-                            </select>
-                        </label>
-                    </div>
-                    <div className="wlk-create-user-footer">
-                        <button
-                            type="submit"
-                            className="btn-primary"
-                            disabled={createUserBusy}
-                        >
-                            {createUserBusy ? 'Creating…' : 'Create Locker User'}
-                        </button>
-                    </div>
-                </form>
-            ) : null}
+            <div className="wlk-info">
+                <Info size={16} />
+                <span>
+                    Locker supervisors and collectors are created from the{' '}
+                    <strong>Employees</strong> page (set role to{' '}
+                    <code>locker_supervisor</code> or <code>locker_collector</code>). They
+                    appear here automatically and sign in at{' '}
+                    <code>/locker/login</code>.
+                </span>
+            </div>
 
             <div className="wlk-grid wlk-grid--kpi">
                 <StatCard

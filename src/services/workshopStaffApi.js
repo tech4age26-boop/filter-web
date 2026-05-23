@@ -253,6 +253,7 @@ const PORTAL_PATCH_TECH_KEYS = ['workshopDuty', 'oncallAvailable', 'technicianTy
 export function buildPortalStaffPatchPayload(body, staffRole) {
     if (!body || typeof body !== 'object') return body;
     const roleKey = String(staffRole ?? '').toLowerCase().replace(/\s+/g, '_');
+    const isLockerRole = roleKey === 'locker_supervisor' || roleKey === 'locker_collector';
     const patch = { ...body };
     delete patch.role;
     delete patch.staffRole;
@@ -263,10 +264,17 @@ export function buildPortalStaffPatchPayload(body, staffRole) {
     if (roleKey !== 'team_leader') {
         stripPortalDepartmentFields(patch);
     }
+    if (isLockerRole) {
+        // Locker users are workshop-wide — never patch a branch on them, the
+        // backend will reject it with 400.
+        delete patch.branchId;
+        delete patch.branch_id;
+        delete patch.branch;
+    }
     if (patch.password) {
         patch.newPassword = patch.password;
     }
-    if (patch.branchId != null && patch.branch === undefined) {
+    if (!isLockerRole && patch.branchId != null && patch.branch === undefined) {
         patch.branch = patch.branchId;
     }
     return patch;
@@ -280,10 +288,13 @@ export function buildPortalStaffPatchPayload(body, staffRole) {
 export const createWorkshopPortalStaff = async (body) => {
     const staffRole = body?.staffRole ?? body?.staff_role;
     if (!staffRole) {
-        throw new Error('staffRole is required (manager, supervisor, or team_leader).');
+        throw new Error(
+            'staffRole is required (manager, supervisor, team_leader, locker_supervisor, or locker_collector).',
+        );
     }
     const roleKey = String(staffRole).toLowerCase();
     const aliasSlug = PORTAL_STAFF_ROLE_ALIASES[roleKey];
+    const isLockerRole = roleKey === 'locker_supervisor' || roleKey === 'locker_collector';
 
     if (roleKey === 'team_leader') {
         const dept = body?.departmentId ?? body?.department_id;
@@ -292,8 +303,21 @@ export const createWorkshopPortalStaff = async (body) => {
         }
     }
 
-    const portalPayload =
-        roleKey === 'manager' || roleKey === 'supervisor' ? stripPortalDepartmentFields(body) : { ...body };
+    // Locker users are workshop-wide — strip branch + dept fields so the BE
+    // doesn't try to validate them. Manager / supervisor (workshop portal)
+    // already strip dept fields; team_leader keeps them.
+    let portalPayload;
+    if (isLockerRole) {
+        portalPayload = stripPortalDepartmentFields(body);
+        // Locker users are not tied to a branch; remove any stale branch keys.
+        delete portalPayload.branchId;
+        delete portalPayload.branch_id;
+        delete portalPayload.branch;
+    } else if (roleKey === 'manager' || roleKey === 'supervisor') {
+        portalPayload = stripPortalDepartmentFields(body);
+    } else {
+        portalPayload = { ...body };
+    }
 
     const { staffRole: _sr, staff_role: _sr2, role: _r, ...restForAlias } = portalPayload;
     const aliasBody =
@@ -307,7 +331,8 @@ export const createWorkshopPortalStaff = async (body) => {
             body: JSON.stringify(portalPayload),
         });
     } catch (primaryErr) {
-        if (!aliasSlug) throw primaryErr;
+        // Locker roles have no `/workshop-staff/{role}/create` alias.
+        if (!aliasSlug || isLockerRole) throw primaryErr;
         try {
             return await apiFetch(`/workshop-staff/${aliasSlug}/create`, {
                 method: 'POST',
@@ -435,6 +460,17 @@ export const internalTransferWorkshopCashBank = (body) =>
         method: 'POST',
         body: JSON.stringify(body ?? {}),
     });
+
+/** Set or clear a branch's default cash/bank operating register. */
+export const setBranchDefaultAccounts = (branchId, body) =>
+    apiFetch(`/workshop-staff/branches/${encodeURIComponent(String(branchId))}/default-accounts`, {
+        method: 'PATCH',
+        body: JSON.stringify(body ?? {}),
+    });
+
+/** Phase 2 migration: provision system registers + sync balances with GL. */
+export const resetCashFlowV3 = () =>
+    apiFetch('/workshop-staff/accounting/reset-cash-flow-v3', { method: 'POST' });
 
 /** Normalize GET /workshop-staff/branches payloads (top-level or nested). */
 export function unwrapWorkshopBranchesResponse(res) {

@@ -140,7 +140,15 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-            <Route path="/locker/*" element={<LockerLayout />} />
+            <Route path="/locker/login" element={<PortalLoginPage />} />
+            <Route
+              path="/locker/*"
+              element={
+                <ProtectedRoute requiredType="locker_user" redirectTo="/locker/login">
+                  <LockerLayout />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/supplier/*"
               element={

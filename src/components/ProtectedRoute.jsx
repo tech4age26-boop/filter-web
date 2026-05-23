@@ -50,6 +50,16 @@ const ProtectedRoute = ({ children, requiredType, redirectTo = "/" }) => {
             return false;
         }
 
+        if (normalizedRequiredType === 'locker_user') {
+            // Locker portal: workshop_user with lockerPortalRole, or workshop_owner.
+            if (normalizedUserType === 'workshop_owner') return true;
+            if (normalizedUserType === 'workshop_user') {
+                const role = String(user?.lockerPortalRole || '').toLowerCase();
+                return role === 'supervisor' || role === 'collector';
+            }
+            return false;
+        }
+
         return normalizedUserType === normalizedRequiredType;
     };
 

@@ -21,7 +21,13 @@ export default function CollectionsHistory() {
             const res = await apiFetch(
                 `/locker/financial/history${qs({ page: 1, limit: 100 })}`,
             );
-            setRows(res?.items || res?.rows || []);
+            const list =
+                res?.items ||
+                res?.auditLogs ||
+                res?.rows ||
+                res?.data?.items ||
+                [];
+            setRows(Array.isArray(list) ? list : []);
         } catch (e) {
             setError(e?.message || 'Failed to load history');
         } finally {
@@ -83,14 +89,14 @@ export default function CollectionsHistory() {
                                         </strong>
                                     </td>
                                     <td>{c.branchName || '—'}</td>
-                                    <td>{c.cashierName || '—'}</td>
+                                    <td>{c.cashierName || c.cashier?.name || '—'}</td>
                                     <td>{c.officerName || '—'}</td>
                                     <td style={{ fontSize: '0.8rem' }}>
                                         {c.collectedAt ? new Date(c.collectedAt).toLocaleString() : '—'}
                                     </td>
                                     <td>{fmtSar(c.expectedAmount)}</td>
                                     <td>
-                                        <strong>{fmtSar(c.receivedAmount)}</strong>
+                                        <strong>{fmtSar(c.receivedAmount ?? c.receivedFund)}</strong>
                                     </td>
                                     <td
                                         style={{

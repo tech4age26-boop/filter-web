@@ -28,7 +28,14 @@ import { getMyDepartments, getBranchDepartments } from '../../services/workshopC
 
 const isTechnicianRole = (r) => r === 'technician';
 
-const isPortalStaffRole = (r) => r === 'manager' || r === 'supervisor' || r === 'team_leader';
+const isPortalStaffRole = (r) =>
+    r === 'manager' ||
+    r === 'supervisor' ||
+    r === 'team_leader' ||
+    r === 'locker_supervisor' ||
+    r === 'locker_collector';
+
+const isLockerPortalRole = (r) => r === 'locker_supervisor' || r === 'locker_collector';
 
 /** Manager / supervisor / team leader rows (recordType portal_user or legacy role-only lists). */
 function isPortalEmployeeRow(emp) {
@@ -449,10 +456,14 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
         if (!form.full_name?.trim() || !form.mobile?.trim()) return;
         const asTechnician = form.is_technician || isTechnicianRole(form.role);
         const isPortal = isPortalStaffRole(form.role);
+        const isLocker = isLockerPortalRole(form.role);
         // Cashiers, generic staff rows, and portal staff need a branch on an approved portal.
+        // Locker users are workshop-wide and don't need a branch.
         const isCashierCreate = !editing && !asTechnician && (form.role === 'cashier' || form.role === 'staff');
-        const isPortalCreate = !editing && !asTechnician && isPortal;
-        const isNonTechEdit = editing && editing._source !== 'technician';
+        const isPortalCreate = !editing && !asTechnician && isPortal && !isLocker;
+        const editingLocker =
+            editing && isLockerPortalRole(String(editing.role || '').toLowerCase().replace(/\s+/g, '_'));
+        const isNonTechEdit = editing && editing._source !== 'technician' && !editingLocker;
         if ((isCashierCreate || isPortalCreate || isNonTechEdit) && !form.branchId) {
             alert('Assign a super-admin–approved branch (required for cashiers, staff, and portal roles).');
             return;
@@ -730,16 +741,27 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                     <div className="ws-field">
                                         {(() => {
                                             const asTechnician = form.is_technician || isTechnicianRole(form.role);
+                                            const isLocker = isLockerPortalRole(form.role);
                                             const nonTechEdit = editing && editing._source !== 'technician';
-                                            const branchRequired = !asTechnician || nonTechEdit;
+                                            const branchRequired = !asTechnician && !isLocker && (!editing || nonTechEdit);
                                             return (
                                                 <label>
-                                                    Branch {branchRequired ? '*' : <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>(optional for technicians)</span>}
+                                                    Branch{' '}
+                                                    {isLocker ? (
+                                                        <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>
+                                                            (not used — locker users are workshop-wide)
+                                                        </span>
+                                                    ) : branchRequired ? (
+                                                        '*'
+                                                    ) : (
+                                                        <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>(optional for technicians)</span>
+                                                    )}
                                                 </label>
                                             );
                                         })()}
                                         <select
                                             value={form.branchId}
+                                            disabled={isLockerPortalRole(form.role)}
                                             onChange={(e) => {
                                                 const v = e.target.value;
                                                 setForm((f) => ({
@@ -749,7 +771,9 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                                 }));
                                             }}
                                         >
-                                            <option value="">Select Branch</option>
+                                            <option value="">
+                                                {isLockerPortalRole(form.role) ? '— Not applicable —' : 'Select Branch'}
+                                            </option>
                                             {branchSelectOptions.map((b) => (
                                                 <option key={b.id} value={String(b.id)}>
                                                     {b.name}
@@ -770,6 +794,7 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                                     ...f,
                                                     role: v,
                                                     ...(v !== 'team_leader' ? { teamLeaderDepartmentId: '' } : {}),
+                                                    ...(isLockerPortalRole(v) ? { branchId: '' } : {}),
                                                 }));
                                             }}
                                         >

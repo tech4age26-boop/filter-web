@@ -9,6 +9,9 @@ const fmtSar = (n) =>
         maximumFractionDigits: 2,
     })}`;
 
+const rowCashierName = (row) =>
+    row?.cashierName || row?.cashier?.name || row?.cashierUser?.name || '—';
+
 export default function RecordCollection() {
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -126,7 +129,7 @@ export default function RecordCollection() {
                             <option value="">Select request…</option>
                             {requests.map((r) => (
                                 <option key={r.id} value={r.id}>
-                                    {r.referenceCode} — {r.branchName} — {r.cashierName} —{' '}
+                                    {r.referenceCode} — {r.branchName} — {rowCashierName(r)} —{' '}
                                     {fmtSar(r.expectedAmount)}
                                 </option>
                             ))}
