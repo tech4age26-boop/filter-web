@@ -1,96 +1,33 @@
 import { apiFetch } from './api';
 
-// entityType (GET /super-admin/approvals/pending — same values in Swagger):
-//   workshop_registration | branch_creation | cashier_registration | technician_registration
-//   | workshop_portal_staff_registration | supplier_registration | corporate_registration
-//   | corporate_price_quotation (approve/reject via POST …/corporate-price-quotations/:id/… — see ApprovalsPage)
-//   | corporate_walk_in_booking (cashier walk-in corporate quote; PATCH …/approvals/corporate_walk_in_booking/:id/approve|reject)
-// status: pending | approved | rejected
-//
-// Pending list (high level):
-//   - workshop_registration: workshops with status pending (public signup); approve links the signup user to
-//     workshop_admin (role created if needed; permissions copied from manager when possible). They still use
-//     POST /auth/workshop/login — same workshop JWT portal as owners; there is no separate “branch login”.
-//   - branch_creation: workshop-created branches until super-admin approve (branch is scope for POS/staff, not a login).
-//   - cashier_registration: pending cashier_user rows (requestId = users.id).
-//   - technician_registration: pending workshop_user + technician employee (requestId = users.id).
-//   - workshop_portal_staff_registration: manager | supervisor | team_leader portal staff (requestId = users.id).
-//   - supplier_registration | corporate_registration: registration queues as documented on the API.
-// Approve/reject: PATCH /super-admin/approvals/:entityType/:id/approve|reject
-//
-// Backend returns each list item enriched:
-//   { requestId, entityType, status, title, submittedBy, reviewer, submittedAt, reviewedAt, meta: {...} }
-// IDs are BigInt-safe — keep them as strings; never parseInt.
+const qs = (params = {}) => {
+    const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '');
+    if (entries.length === 0) return '';
+    const search = new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
+    return `?${search}`;
+};
 
-function buildQs(params = {}) {
-    const qs = new URLSearchParams();
-    Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') qs.set(k, v);
-    });
-    const s = qs.toString();
-    return s ? `?${s}` : '';
-}
+/** Super-admin approval queue (workshop signup, registrations, etc.). */
+export const list = (params = {}) =>
+    apiFetch(`/super-admin/approvals${qs(params)}`);
 
-/**
- * Unified list. Pass `{ status, entityType }` in any combination.
- * - Omit `status` to fetch the "all" bucket.
- * - When a known status is given, the dedicated bucket endpoint is used
- *   (`/pending`, `/approved`, `/rejected`) — server enrich is identical.
- */
-export function list({ status, entityType } = {}) {
-    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
-        return apiFetch(`/super-admin/approvals/${status}${buildQs({ entityType })}`);
-    }
-    return apiFetch(`/super-admin/approvals${buildQs({ entityType, status })}`);
-}
+export const details = (entityType, id) =>
+    apiFetch(`/super-admin/approvals/${encodeURIComponent(String(entityType))}/${encodeURIComponent(String(id))}`);
 
-/** Full joined object for a single request (entity row + meta + linked user + history). */
-export function details(entityType, id) {
-    return apiFetch(`/super-admin/approvals/${entityType}/${encodeURIComponent(id)}`);
-}
+export const approve = (entityType, id, body = {}) =>
+    apiFetch(
+        `/super-admin/approvals/${encodeURIComponent(String(entityType))}/${encodeURIComponent(String(id))}/approve`,
+        {
+            method: 'PATCH',
+            body: JSON.stringify(body ?? {}),
+        },
+    );
 
-/**
- * Approve a request.
- * Pass a string `remarks` or an object `{ remarks?, selectedStoreIds? }` (corporate_registration).
- */
-export function approve(entityType, id, remarksOrPayload = {}) {
-    let payload = remarksOrPayload;
-    if (typeof remarksOrPayload === 'string') {
-        const t = remarksOrPayload.trim();
-        payload = t ? { remarks: t } : {};
-    }
-    const body = {};
-    if (payload.remarks?.trim?.()) body.remarks = payload.remarks.trim();
-    if (
-        entityType === 'corporate_registration' &&
-        Array.isArray(payload.selectedStoreIds) &&
-        payload.selectedStoreIds.length > 0
-    ) {
-        body.selectedStoreIds = payload.selectedStoreIds.map(String);
-    }
-    return apiFetch(`/super-admin/approvals/${entityType}/${encodeURIComponent(id)}/approve`, {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-    });
-}
-
-/** Reject a request. `reason` should be provided (UI marks it required). */
-export function reject(entityType, id, reason) {
-    const body = reason && reason.trim() ? { reason: reason.trim() } : {};
-    return apiFetch(`/super-admin/approvals/${entityType}/${encodeURIComponent(id)}/reject`, {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-    });
-}
-
-/* ---------------------------------------------------------------------------
- * Backwards-compatible aliases. Older imports keep working.
- * ------------------------------------------------------------------------- */
-export const getApprovals = ({ entityType, status } = {}) => list({ entityType, status });
-export const getPendingApprovals = ({ entityType } = {}) => list({ status: 'pending', entityType });
-export const getApprovedApprovals = ({ entityType } = {}) => list({ status: 'approved', entityType });
-export const getRejectedApprovals = ({ entityType } = {}) => list({ status: 'rejected', entityType });
-export const getApprovalDetails = (entityType, id) => details(entityType, id);
-export const approveRequest = (entityType, id, body = {}) =>
-    approve(entityType, id, body);
-export const rejectRequest = (entityType, id, body = {}) => reject(entityType, id, body?.reason);
+export const reject = (entityType, id, reason) =>
+    apiFetch(
+        `/super-admin/approvals/${encodeURIComponent(String(entityType))}/${encodeURIComponent(String(id))}/reject`,
+        {
+            method: 'PATCH',
+            body: JSON.stringify({ reason: reason ?? '' }),
+        },
+    );

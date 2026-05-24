@@ -2,7 +2,7 @@ import {
     LayoutDashboard, Users, Layers, Package, ShoppingCart, ClipboardCheck,
     Truck, BarChart3, Building2, CheckCircle, CheckCircle2, PlayCircle,
     Store, Shield, Globe, Landmark, Banknote, Monitor, TicketPercent, Briefcase,
-    Archive
+    Archive, Lock, Wallet
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
@@ -18,9 +18,11 @@ export const NAV_ITEMS = [
     { id: 'non-affiliated-suppliers', label: 'Non-Affiliated Suppliers',      icon: Truck },
     { id: 'reports',     label: 'Reports & Analytics',  icon: BarChart3 },
     { id: 'pos-monitoring', label: 'POS Monitoring', icon: Monitor },
+    { id: 'locker-management', label: 'Locker Management', icon: Lock },
     { id: 'promo-codes', label: 'Promo Codes', icon: TicketPercent },
     { id: 'corporate-management', label: 'Corporate Management', icon: Briefcase },
     { id: 'commissions', label: 'Commissions',          icon: Banknote },
+    { id: 'my-petty-cash', label: 'My Petty Cash',       icon: Wallet },
     { 
         id: 'accounting',  
         label: 'Accounting',           
@@ -30,11 +32,12 @@ export const NAV_ITEMS = [
             { id: 'acc-cash', label: 'Cash & Bank' },
             { id: 'acc-transactions', label: 'Transactions' },
             { id: 'acc-journal', label: 'Journal Entries' },
-            { id: 'acc-purchases', label: 'Purchases' },
             { id: 'acc-expenses', label: 'Expenses' },
             { id: 'acc-receipts', label: 'Receipts' },
             { id: 'acc-payments', label: 'Payments' },
             { id: 'acc-advances', label: 'Advances' },
+            { id: 'acc-payroll', label: 'Payroll Run' },
+            { id: 'acc-approvals', label: 'Approval Limits' },
             { id: 'acc-ledger', label: 'Ledger' },
         ]
     },
@@ -149,6 +152,10 @@ export const ROLE_OPTIONS = [
     'supervisor',
     'manager',
     'team_leader',
+    // Locker portal users — workshop-wide (no branch), auto-approved, sign in
+    // via /locker/login. Created from the same Employees form.
+    'locker_supervisor',
+    'locker_collector',
 ];
 
 // commissionType is a free-form string on the BE, but the FE sends a fixed

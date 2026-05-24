@@ -65,6 +65,26 @@ export async function workshopLogout(token) {
     }
 }
 
+/**
+ * POST /auth/locker/logout — workshop JWT for locker supervisor / collector (or workshop owner).
+ * Tokens remain stateless; callers must clear localStorage / auth context after success.
+ */
+export async function lockerLogout(token) {
+    const res = await fetch(`${BASE_URL}/auth/locker/logout`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            accept: '*/*',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({}),
+    });
+    if (!res.ok && res.status !== 401) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `Locker logout failed: ${res.status}`);
+    }
+}
+
 export async function cashierLogin(email, password) {
     const res = await fetch(`${BASE_URL}/auth/cashier/login`, {
         method: 'POST',

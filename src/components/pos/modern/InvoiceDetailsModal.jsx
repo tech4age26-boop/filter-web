@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Printer } from 'lucide-react';
 import CashierTaxInvoiceView from './CashierTaxInvoiceView';
 import './CashierTaxInvoiceView.css';
@@ -6,6 +7,10 @@ import './CashierTaxInvoiceView.css';
 /**
  * Modal wrapper for the bilingual simplified tax invoice (Flutter CashierInvoicePreview).
  * @param {'pos'|'corporate'} footerVariant — corporate shows Print + Cancel only.
+ *
+ * Portals to document.body so the `@media print` rules that hide every other
+ * element work even when this modal is opened from inside another modal —
+ * otherwise the parent modal's stacking/overflow swallows the print canvas.
  */
 export default function InvoiceDetailsModal({
   invoice,
@@ -28,7 +33,7 @@ export default function InvoiceDetailsModal({
 
   const isCorporate = footerVariant === 'corporate';
 
-  return (
+  const modal = (
     <div className="modal-overlay-modern invoice-modal-root" onClick={onClose}>
       <div
         className="invoice-modal-card"
@@ -127,18 +132,55 @@ export default function InvoiceDetailsModal({
           color: #23262d;
         }
         @media print {
-          .invoice-modal-root {
-            position: absolute !important;
-            inset: 0 !important;
+          @page {
+            size: A4;
+            margin: 10mm;
+          }
+          /* Force backgrounds, badges and yellow column header to print —
+             browsers strip background colors by default in print mode. */
+          .invoice-modal-root,
+          .invoice-modal-root * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
+          /* Hide every direct body child EXCEPT this portaled invoice modal.
+             Using display:none (not visibility) removes them from the layout
+             so the invoice starts at the top of page 1 — no leading blank
+             page from empty space the rest of the app would have occupied. */
+          body > *:not(.invoice-modal-root) {
+            display: none !important;
+          }
+          html, body {
+            background: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          /* ModernPOS.css globally hides .modal-overlay-modern in print — undo it here. */
+          .invoice-modal-root,
+          .modal-overlay-modern.invoice-modal-root {
+            display: block !important;
+            position: static !important;
+            inset: auto !important;
             padding: 0 !important;
             background: #fff !important;
+            overflow: visible !important;
+            width: auto !important;
+            height: auto !important;
           }
           .invoice-modal-card {
+            position: static !important;
             max-width: none !important;
             max-height: none !important;
+            width: 100% !important;
+            margin: 0 !important;
             border: none !important;
             box-shadow: none !important;
             border-radius: 0 !important;
+            overflow: visible !important;
+            display: block !important;
+            page-break-before: avoid !important;
+            break-before: avoid !important;
           }
           .invoice-modal-close-fab,
           .invoice-actions {
@@ -146,10 +188,25 @@ export default function InvoiceDetailsModal({
           }
           .invoice-scroll {
             overflow: visible !important;
+            max-height: none !important;
             padding: 0 !important;
+          }
+          /* Keep goods table within page width so the right border of the
+             last column ("Total With VAT") isn't clipped. */
+          .cti-goods-table {
+            min-width: 0 !important;
+            width: 100% !important;
+            table-layout: fixed !important;
+          }
+          .cti-goods-wrap {
+            overflow: visible !important;
           }
         }
       `}</style>
     </div>
   );
+
+  return typeof document !== 'undefined' && document.body
+    ? createPortal(modal, document.body)
+    : modal;
 }

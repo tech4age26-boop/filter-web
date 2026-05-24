@@ -3,38 +3,76 @@ import { Car, Plus, Pencil, Trash2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
+import { formatPlateLettersFirst } from '../../utils/formatPlate';
 
 const EMPTY_FORM = { plateNo: '', make: '', model: '', year: '', color: '', odometer: '' };
+
+function displayPlate(v) {
+    const raw = v?.plateDisplay || v?.plateNumber || v?.plateNo || '';
+    return formatPlateLettersFirst(raw) || raw;
+}
+
+function mapVehicleRow(v) {
+    const plate = displayPlate(v);
+    return {
+        id: v.id,
+        plateNo: plate,
+        plateDisplay: plate,
+        make: v.make || '',
+        model: v.model || '',
+        year: v.year,
+        color: v.color || '',
+        odometer: v.odometer ?? 0,
+    };
+}
 
 export default function CorporateVehicles({ vehicles, setVehicles }) {
     const [modalOpen, setModalOpen] = useState(false);
     const [editVehicle, setEditVehicle] = useState(null);
     const [form, setForm] = useState(EMPTY_FORM);
     const [saving, setSaving] = useState(false);
+    const [formError, setFormError] = useState('');
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-    const openAdd = () => { setEditVehicle(null); setForm(EMPTY_FORM); setModalOpen(true); };
+    const openAdd = () => { setEditVehicle(null); setForm(EMPTY_FORM); setFormError(''); setModalOpen(true); };
     const openEdit = (v) => {
         setEditVehicle(v);
-        setForm({ plateNo: v.plateNo || '', make: v.make || '', model: v.model || '', year: v.year || '', color: v.color || '', odometer: v.odometer || '' });
+        setForm({
+            plateNo: displayPlate(v),
+            make: v.make || '',
+            model: v.model || '',
+            year: v.year || '',
+            color: v.color || '',
+            odometer: v.odometer || '',
+        });
+        setFormError('');
         setModalOpen(true);
     };
 
     const handleSave = async () => {
         if (!form.plateNo) return;
         setSaving(true);
+        setFormError('');
         try {
-            const payload = { plateNo: form.plateNo, make: form.make, model: form.model, year: Number(form.year) || undefined, color: form.color, odometer: Number(form.odometer) || undefined };
+            const payload = {
+                plateNo: form.plateNo,
+                make: form.make,
+                model: form.model,
+                year: Number(form.year) || undefined,
+                color: form.color,
+                odometer: Number(form.odometer) || undefined,
+            };
             if (editVehicle) {
-                await apiFetch(`/corporate/vehicles/${editVehicle.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-                setVehicles(prev => prev.map(v => v.id === editVehicle.id ? { ...v, ...payload } : v));
+                const data = await apiFetch(`/corporate/vehicles/${editVehicle.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+                const row = mapVehicleRow(data);
+                setVehicles(prev => prev.map(v => (String(v.id) === String(editVehicle.id) ? row : v)));
             } else {
                 const data = await apiFetch('/corporate/vehicles', { method: 'POST', body: JSON.stringify(payload) });
-                setVehicles(prev => [...prev, { id: data.id, plateNo: data.plateNo, make: data.make, model: data.model, year: data.year, color: data.color, odometer: data.odometer }]);
+                setVehicles(prev => [...prev, mapVehicleRow(data)]);
             }
             setModalOpen(false); setEditVehicle(null); setForm(EMPTY_FORM);
-        } catch {
-            // keep modal open on error
+        } catch (err) {
+            setFormError(err?.message || 'Could not save vehicle');
         } finally {
             setSaving(false);
         }
@@ -44,8 +82,10 @@ export default function CorporateVehicles({ vehicles, setVehicles }) {
         if (!window.confirm('Delete this vehicle?')) return;
         try {
             await apiFetch(`/corporate/vehicles/${id}`, { method: 'DELETE' });
-            setVehicles(prev => prev.filter(v => v.id !== id));
-        } catch {}
+            setVehicles(prev => prev.filter(v => String(v.id) !== String(id)));
+        } catch (err) {
+            alert(err?.message || 'Could not delete vehicle');
+        }
     };
 
     const list = vehicles || [];
@@ -68,7 +108,7 @@ export default function CorporateVehicles({ vehicles, setVehicles }) {
                             <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
                                 <div style={{width:40,height:40,borderRadius:12,background:'var(--color-bg-muted)',display:'flex',alignItems:'center',justifyContent:'center'}}><Car size={20} style={{color:'var(--color-text-muted)'}}/></div>
                                 <div style={{flex:1}}>
-                                    <p style={{fontWeight:700,fontSize:'0.9375rem',color:'var(--color-text-dark)',margin:0}}>{v.plateNo}</p>
+                                    <p style={{fontWeight:700,fontSize:'0.9375rem',color:'var(--color-text-dark)',margin:0}}>{displayPlate(v)}</p>
                                     <p style={{fontSize:'0.75rem',color:'var(--color-text-muted)',margin:'2px 0 0 0'}}>{v.make} {v.model} · {v.year}</p>
                                 </div>
                             </div>
@@ -91,6 +131,11 @@ export default function CorporateVehicles({ vehicles, setVehicles }) {
                         <button className="btn-portal" disabled={!form.plateNo || saving} onClick={handleSave}>{saving ? 'Saving…' : editVehicle ? 'Update Vehicle' : 'Add Vehicle'}</button>
                     </div>
                 } width="420px">
+                    {formError ? (
+                        <div style={{padding:'10px 12px', borderRadius:10, background:'#FEF2F2', color:'#B91C1C', fontSize:'0.8125rem', border:'1px solid #FECACA', marginBottom:12}}>
+                            {formError}
+                        </div>
+                    ) : null}
                     <div className="ws-form-grid">
                         <div className="ws-field"><label>Plate Number *</label><input value={form.plateNo} onChange={e=>set('plateNo',e.target.value)} placeholder="ABC 1234"/></div>
                         <div className="ws-field"><label>Make</label><input value={form.make} onChange={e=>set('make',e.target.value)} placeholder="Toyota"/></div>

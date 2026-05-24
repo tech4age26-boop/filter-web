@@ -7,6 +7,12 @@ import MasterCatalog from '../../components/admin/MasterCatalog';
 import StockMovementsSuperAdmin from '../../components/admin/StockMovementsSuperAdmin';
 import '../../styles/admin/InventoryPage.css';
 import { getProducts, getServices, createProduct, createService, updateProduct, updateService } from '../../services/superAdminApi';
+import {
+    findFirstNegativeMoneyField,
+    NON_NEGATIVE_MONEY_INPUT_ATTRS,
+    parseNonNegativeNumberOr,
+    sanitizeNonNegativeMoneyInput,
+} from '../../utils/nonNegativeMoney';
 
 const SUB_TABS = [
     { path: 'master-catalog', label: 'Master Catalog' },
@@ -140,6 +146,17 @@ export default function InventoryPage() {
         setEditOpen(true);
     };
     const handleSaveNew = async () => {
+        const priceErr = findFirstNegativeMoneyField([
+            { label: 'Purchase price', value: newProduct.purchasePrice },
+            { label: 'Sale price', value: newProduct.salePrice },
+            { label: 'Corporate base price', value: newProduct.corporatePricing?.base },
+            { label: 'Corporate lower limit', value: newProduct.corporatePricing?.lower },
+            { label: 'Corporate upper limit', value: newProduct.corporatePricing?.upper },
+        ]);
+        if (priceErr) {
+            alert(`${priceErr} cannot be negative.`);
+            return;
+        }
         setSaving(true);
         try {
             if (newProduct.type === 'service') {
@@ -150,10 +167,10 @@ export default function InventoryPage() {
                     sku: newProduct.sku || undefined,
                     description: newProduct.description || undefined,
                     unitOfMeasurement: newProduct.primaryUnit,
-                    sellingPrice: parseFloat(newProduct.salePrice) || 0,
+                    sellingPrice: parseNonNegativeNumberOr(newProduct.salePrice, 0),
                     isPriceEditable: newProduct.priceEditable,
-                    minPriceCorporate: parseFloat(newProduct.corporatePricing.lower) || 0,
-                    maxPriceCorporate: parseFloat(newProduct.corporatePricing.upper) || 0,
+                    minPriceCorporate: parseNonNegativeNumberOr(newProduct.corporatePricing.lower, 0),
+                    maxPriceCorporate: parseNonNegativeNumberOr(newProduct.corporatePricing.upper, 0),
                 });
             } else {
                 await createProduct({
@@ -164,11 +181,11 @@ export default function InventoryPage() {
                     brandName: undefined,
                     description: newProduct.description || undefined,
                     unit: newProduct.primaryUnit,
-                    purchasePrice: parseFloat(newProduct.purchasePrice) || 0,
-                    salePrice: parseFloat(newProduct.salePrice) || 0,
+                    purchasePrice: parseNonNegativeNumberOr(newProduct.purchasePrice, 0),
+                    salePrice: parseNonNegativeNumberOr(newProduct.salePrice, 0),
                     allowDecimalQty: false,
-                    minPriceCorporate: parseFloat(newProduct.corporatePricing.lower) || 0,
-                    maxPriceCorporate: parseFloat(newProduct.corporatePricing.upper) || 0,
+                    minPriceCorporate: parseNonNegativeNumberOr(newProduct.corporatePricing.lower, 0),
+                    maxPriceCorporate: parseNonNegativeNumberOr(newProduct.corporatePricing.upper, 0),
                 });
             }
             await reloadProducts();
@@ -182,11 +199,18 @@ export default function InventoryPage() {
     };
     const handleSaveEdit = async () => {
         if (!editingProduct) return;
+        const priceErr = findFirstNegativeMoneyField([
+            { label: 'Sale price', value: editingProduct.price },
+        ]);
+        if (priceErr) {
+            alert(`${priceErr} cannot be negative.`);
+            return;
+        }
         setSaving(true);
         try {
             const body = {
                 name: editingProduct.name,
-                salePrice: parseFloat(editingProduct.price) || 0,
+                salePrice: parseNonNegativeNumberOr(editingProduct.price, 0),
                 isActive: editingProduct.status === 'active',
             };
             if (editingProduct.type === 'service') {
@@ -567,19 +591,29 @@ export default function InventoryPage() {
                                             <div className="form-group">
                                                 <label className="form-label">Purchase Price excl. VAT</label>
                                                 <input
-                                                    type="number"
+                                                    {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                                     className="form-input-field"
                                                     value={newProduct.purchasePrice}
-                                                    onChange={(e) => setNewProduct({ ...newProduct, purchasePrice: e.target.value })}
+                                                    onChange={(e) =>
+                                                        setNewProduct({
+                                                            ...newProduct,
+                                                            purchasePrice: sanitizeNonNegativeMoneyInput(e.target.value),
+                                                        })
+                                                    }
                                                 />
                                             </div>
                                             <div className="form-group">
                                                 <label className="form-label">Sale Price incl. 15% VAT</label>
                                                 <input
-                                                    type="number"
+                                                    {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                                     className="form-input-field"
                                                     value={newProduct.salePrice}
-                                                    onChange={(e) => setNewProduct({ ...newProduct, salePrice: e.target.value })}
+                                                    onChange={(e) =>
+                                                        setNewProduct({
+                                                            ...newProduct,
+                                                            salePrice: sanitizeNonNegativeMoneyInput(e.target.value),
+                                                        })
+                                                    }
                                                 />
                                             </div>
                                         </div>
@@ -606,28 +640,52 @@ export default function InventoryPage() {
                                             <div className="form-group">
                                                 <label className="form-label">Base Price</label>
                                                 <input
-                                                    type="number"
+                                                    {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                                     className="form-input-field"
                                                     value={newProduct.corporatePricing.base}
-                                                    onChange={(e) => setNewProduct({ ...newProduct, corporatePricing: { ...newProduct.corporatePricing, base: e.target.value } })}
+                                                    onChange={(e) =>
+                                                        setNewProduct({
+                                                            ...newProduct,
+                                                            corporatePricing: {
+                                                                ...newProduct.corporatePricing,
+                                                                base: sanitizeNonNegativeMoneyInput(e.target.value),
+                                                            },
+                                                        })
+                                                    }
                                                 />
                                             </div>
                                             <div className="form-group">
                                                 <label className="form-label">Lower Limit</label>
                                                 <input
-                                                    type="number"
+                                                    {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                                     className="form-input-field"
                                                     value={newProduct.corporatePricing.lower}
-                                                    onChange={(e) => setNewProduct({ ...newProduct, corporatePricing: { ...newProduct.corporatePricing, lower: e.target.value } })}
+                                                    onChange={(e) =>
+                                                        setNewProduct({
+                                                            ...newProduct,
+                                                            corporatePricing: {
+                                                                ...newProduct.corporatePricing,
+                                                                lower: sanitizeNonNegativeMoneyInput(e.target.value),
+                                                            },
+                                                        })
+                                                    }
                                                 />
                                             </div>
                                             <div className="form-group">
                                                 <label className="form-label">Upper Limit</label>
                                                 <input
-                                                    type="number"
+                                                    {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                                     className="form-input-field"
                                                     value={newProduct.corporatePricing.upper}
-                                                    onChange={(e) => setNewProduct({ ...newProduct, corporatePricing: { ...newProduct.corporatePricing, upper: e.target.value } })}
+                                                    onChange={(e) =>
+                                                        setNewProduct({
+                                                            ...newProduct,
+                                                            corporatePricing: {
+                                                                ...newProduct.corporatePricing,
+                                                                upper: sanitizeNonNegativeMoneyInput(e.target.value),
+                                                            },
+                                                        })
+                                                    }
                                                 />
                                             </div>
                                         </div>
@@ -754,10 +812,15 @@ export default function InventoryPage() {
                                 <div className="form-group">
                                     <label className="form-label">Sale Price (SAR)</label>
                                     <input
-                                        type="text"
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         className="form-input-field"
                                         value={editingProduct.price}
-                                        onChange={(e) => setEditingProduct((p) => ({ ...p, price: e.target.value }))}
+                                        onChange={(e) =>
+                                            setEditingProduct((p) => ({
+                                                ...p,
+                                                price: sanitizeNonNegativeMoneyInput(e.target.value),
+                                            }))
+                                        }
                                     />
                                 </div>
                                 <div className="form-group">

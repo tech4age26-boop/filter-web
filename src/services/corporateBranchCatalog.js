@@ -18,7 +18,8 @@ function bookingCatalogLineToRaw(row, fallbackItemType) {
     const itemType = String(row?.itemType ?? fallbackItemType ?? 'product').toLowerCase() === 'service' ? 'service' : 'product';
     const id = row?.id != null ? String(row.id) : '';
     const departmentId = row?.departmentId != null ? String(row.departmentId) : '';
-    const price = Number(row?.price ?? 0);
+    const price = Number(row?.unitPrice ?? row?.price ?? 0);
+    const standardPrice = Number(row?.standardPrice ?? row?.salePrice ?? 0);
     return {
         ...row,
         itemType,
@@ -31,6 +32,8 @@ function bookingCatalogLineToRaw(row, fallbackItemType) {
         departmentId,
         departmentName: row?.departmentName ?? row?.department_name,
         salePrice: Number.isFinite(price) ? price : 0,
+        standardPrice: Number.isFinite(standardPrice) ? standardPrice : 0,
+        isCorporateQuotedPrice: row?.isCorporateQuotedPrice === true,
     };
 }
 

@@ -19,6 +19,7 @@ import MonthlyBilling from './corporate/MonthlyBilling';
 import CorporateWallet from './corporate/CorporateWallet';
 import CorporateReports from './corporate/CorporateReports';
 import { apiFetch, BASE_URL } from '../services/api';
+import { formatPlateLettersFirst } from '../utils/formatPlate';
 import { fetchCorporateBranchCatalogPickerRows } from '../services/corporateBranchCatalog';
 import { fetchCorporateBranches } from '../services/corporateBookingsApi';
 import './workshop/Workshop.css';
@@ -119,7 +120,17 @@ export default function CorporateLayout() {
 
     useEffect(() => {
         apiFetch('/corporate/vehicles')
-            .then(data => { if (data.success) setVehicles(data.vehicles); })
+            .then((data) => {
+                if (!data.success || !Array.isArray(data.vehicles)) return;
+                setVehicles(
+                    data.vehicles.map((v) => {
+                        const plate =
+                            formatPlateLettersFirst(v.plateDisplay || v.plateNumber || v.plateNo) ||
+                            v.plateNo;
+                        return { ...v, plateNo: plate, plateDisplay: plate };
+                    }),
+                );
+            })
             .catch(() => {});
         apiFetch('/corporate/profile')
             .then(data => {

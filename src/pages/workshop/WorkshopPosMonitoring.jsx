@@ -1,17 +1,33 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { LogOut, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs, branchScopeParams } from '../../services/workshopStaffApi';
+import ForceCashierLogoutModal from '../../components/workshop/ForceCashierLogoutModal';
+import ClosingReportDetailModal from '../../components/workshop/ClosingReportDetailModal';
+import PosMonitoringKpiProofModal from '../../components/workshop/PosMonitoringKpiProofModal';
 
 const toNumber = (value) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const formatShiftOpenedAt = (counter) => {
+    const epoch = counter?.openedAtEpochMs ?? counter?.opened_at_epoch_ms;
+    if (epoch != null && Number.isFinite(Number(epoch))) {
+        return new Date(Number(epoch)).toLocaleString();
+    }
+    const raw = counter?.openedAt ?? counter?.opened_at ?? counter?.startTime ?? counter?.start_time;
+    if (raw) return String(raw);
+    return '—';
+};
+
 export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branches = [] }) {
     const [data, setData] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
+    const [forceLogoutCounter, setForceLogoutCounter] = useState(null);
+    const [selectedClosingReport, setSelectedClosingReport] = useState(null);
+    const [kpiProofModalId, setKpiProofModalId] = useState(null);
 
     const loadPosMonitoring = useCallback(async () => {
         setIsLoading(true);
@@ -59,6 +75,16 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
 
     const isAllBranches = !selectedBranchId || selectedBranchId === 'all';
 
+    const liveCountersKpi = isAllBranches ? toNumber(data?.liveCountersCount) : liveCountersScoped.length;
+    const openOrdersKpi = toNumber(data?.openOrdersCount);
+    const todaySalesKpi = toNumber(data?.todaySales);
+
+    const kpiCards = [
+        { id: 'live_counters', label: 'Live Counters', value: String(liveCountersKpi), icon: 'POS', iconClass: 'ws-kpi-icon--blue' },
+        { id: 'open_orders', label: 'Open Orders', value: String(openOrdersKpi), icon: 'ORD', iconClass: 'ws-kpi-icon--orange' },
+        { id: 'today_sales', label: 'Today Sales', value: `SAR ${todaySalesKpi.toLocaleString()}`, icon: 'SAR', iconClass: 'ws-kpi-icon--green' },
+    ];
+
     return (
         <div>
             <div className="ws-page-header">
@@ -80,18 +106,23 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
             )}
 
             <div className="ws-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-                <div className="ws-kpi-card">
-                    <div><p className="ws-kpi-label">Live Counters</p><p className="ws-kpi-value">{isAllBranches ? toNumber(data?.liveCountersCount) : liveCountersScoped.length}</p></div>
-                    <div className="ws-kpi-icon ws-kpi-icon--blue">POS</div>
-                </div>
-                <div className="ws-kpi-card">
-                    <div><p className="ws-kpi-label">Open Orders</p><p className="ws-kpi-value">{isAllBranches ? toNumber(data?.openOrdersCount) : liveCountersScoped.reduce((s, c) => s + toNumber(c.shiftOpenOrders), 0)}</p></div>
-                    <div className="ws-kpi-icon ws-kpi-icon--orange">ORD</div>
-                </div>
-                <div className="ws-kpi-card">
-                    <div><p className="ws-kpi-label">Today Sales</p><p className="ws-kpi-value">SAR {(isAllBranches ? toNumber(data?.todaySales) : liveCountersScoped.reduce((s, c) => s + toNumber(c.shiftSales), 0)).toLocaleString()}</p></div>
-                    <div className="ws-kpi-icon ws-kpi-icon--green">SAR</div>
-                </div>
+                {kpiCards.map((k) => (
+                    <button
+                        key={k.id}
+                        type="button"
+                        className="ws-kpi-card ws-kpi-card--clickable"
+                        onClick={() => setKpiProofModalId(k.id)}
+                        aria-label={`${k.label}: view breakdown`}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+                    >
+                        <div>
+                            <p className="ws-kpi-label">{k.label}</p>
+                            <p className="ws-kpi-value">{k.value}</p>
+                            <p className="ws-kpi-proof-hint">Click for breakdown</p>
+                        </div>
+                        <div className={`ws-kpi-icon ${k.iconClass}`}>{k.icon}</div>
+                    </button>
+                ))}
             </div>
 
             <div className="ws-section" style={{ marginTop: 16 }}>
@@ -102,23 +133,39 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                             <tr>
                                 <th>Cashier</th>
                                 <th>Branch</th>
+                                <th>Opened At</th>
                                 <th>Status</th>
                                 <th>Shift Sales</th>
                                 <th>Open Orders</th>
                                 <th>Elapsed</th>
+                                <th style={{ width: 140 }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {liveCountersScoped.length === 0 ? (
-                                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>No live counters</td></tr>
+                                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>No live counters</td></tr>
                             ) : liveCountersScoped.map((counter) => (
                                 <tr key={counter.posSessionId}>
                                     <td>{counter.cashierName || '—'}</td>
                                     <td>{counter.branchName || '—'}</td>
+                                    <td style={{ whiteSpace: 'nowrap' }}>{formatShiftOpenedAt(counter)}</td>
                                     <td><span className={`ws-badge ${String(counter.shiftStatus).toUpperCase() === 'OPEN' ? 'ws-badge--green' : 'ws-badge--gray'}`}>{counter.shiftStatus || '—'}</span></td>
                                     <td>SAR {toNumber(counter.shiftSales).toLocaleString()}</td>
                                     <td>{toNumber(counter.shiftOpenOrders)}</td>
                                     <td>{counter.shiftElapsedTime || '—'}</td>
+                                    <td>
+                                        <button
+                                            type="button"
+                                            className="btn-portal"
+                                            style={{ padding: '6px 10px', fontSize: '0.75rem' }}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setForceLogoutCounter(counter);
+                                            }}
+                                        >
+                                            <LogOut size={12} /> Force logout
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -127,7 +174,10 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
             </div>
 
             <div className="ws-section" style={{ marginTop: 16 }}>
-                <p style={{ padding: '16px 16px 0', fontWeight: 700, margin: 0 }}>Recent Closing Reports</p>
+                <p style={{ padding: '16px 16px 0', fontWeight: 700, margin: 0 }}>
+                    Recent Closing Reports
+                    <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', fontSize: '0.8rem', marginLeft: 8 }}>Click a row for full details</span>
+                </p>
                 <div style={{ overflowX: 'auto', padding: 16 }}>
                     <table className="ws-table">
                         <thead>
@@ -145,7 +195,13 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                             {closingReportsScoped.length === 0 ? (
                                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>No closing reports</td></tr>
                             ) : closingReportsScoped.map((report) => (
-                                <tr key={report.posSessionId}>
+                                <tr
+                                    key={report.posSessionId ?? report.closingId}
+                                    onClick={() => setSelectedClosingReport(report)}
+                                    style={{ cursor: 'pointer' }}
+                                    className="ws-table-row--clickable"
+                                    title="View closing details"
+                                >
                                     <td>{report.cashierName || '—'}</td>
                                     <td>{report.branchName || '—'}</td>
                                     <td><span className={`ws-badge ${String(report.shiftStatus).toUpperCase() === 'CLOSED' ? 'ws-badge--blue' : 'ws-badge--gray'}`}>{report.shiftStatus || '—'}</span></td>
@@ -159,6 +215,34 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                     </table>
                 </div>
             </div>
+
+            {forceLogoutCounter && (
+                <ForceCashierLogoutModal
+                    counter={forceLogoutCounter}
+                    onClose={() => setForceLogoutCounter(null)}
+                    onCompleted={() => {
+                        setForceLogoutCounter(null);
+                        loadPosMonitoring();
+                    }}
+                />
+            )}
+
+            {selectedClosingReport && (
+                <ClosingReportDetailModal
+                    report={selectedClosingReport}
+                    onClose={() => setSelectedClosingReport(null)}
+                />
+            )}
+
+            {kpiProofModalId && (
+                <PosMonitoringKpiProofModal
+                    kpiId={kpiProofModalId}
+                    data={data}
+                    liveCounters={liveCountersScoped}
+                    branchLabel={branchLabel}
+                    onClose={() => setKpiProofModalId(null)}
+                />
+            )}
         </div>
     );
 }
