@@ -1,17 +1,78 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Percent, Gift, Users, TrendingUp, LineChart } from 'lucide-react';
-import { StatCardMini } from './MarketingUtils';
+import { Wallet, Megaphone, DollarSign, TrendingUp } from 'lucide-react';
 import { MarketingDashboardSkeleton } from './MarketingShimmer';
 import { marketingGetDashboard } from '../../services/superAdminMarketingApi';
 
 function formatSar(n, currency = 'SAR') {
     const v = Number(n);
-    if (!Number.isFinite(v)) return '—';
-    if (v >= 1_000_000) return `${currency} ${(v / 1_000_000).toFixed(1)}M`;
-    if (v >= 1_000) return `${currency} ${Math.round(v / 1_000)}K`;
-    return `${currency} ${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    if (!Number.isFinite(v)) return `0 ${currency}`;
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M ${currency}`;
+    if (v >= 1_000) return `${Math.round(v / 1_000)}K ${currency}`;
+    return `${v.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${currency}`;
 }
+
+const StatCard = ({ title, value, icon: Icon, iconBg, iconColor }) => {
+    return (
+        <div
+            style={{
+                height: 80,
+                background: '#FFFFFF',
+                border: '1px solid #E5E7EB',
+                borderRadius: 10,
+                padding: '0 18px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                boxSizing: 'border-box',
+            }}
+        >
+            <div
+                style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: iconBg,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                }}
+            >
+                <Icon size={18} color={iconColor} strokeWidth={2} />
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+                <div
+                    style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        color: '#64748B',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1.8px',
+                        marginBottom: 8,
+                        lineHeight: 1,
+                        whiteSpace: 'nowrap',
+                    }}
+                >
+                    {title}
+                </div>
+
+                <div
+                    style={{
+                        fontSize: 19,
+                        fontWeight: 900,
+                        color: '#0F172A',
+                        lineHeight: 1,
+                        whiteSpace: 'nowrap',
+                    }}
+                >
+                    {value}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 export const MarketingDashboard = () => {
     const ctx = useOutletContext() || {};
@@ -24,11 +85,13 @@ export const MarketingDashboard = () => {
     const load = useCallback(async () => {
         setLoading(true);
         setError('');
+
         try {
             const res = await marketingGetDashboard({
                 ...(marketingWorkshopId ? { workshopId: marketingWorkshopId } : {}),
                 activePromotionsLimit: 8,
             });
+
             setDash(res?.success === false ? null : res);
         } catch (e) {
             setDash(null);
@@ -43,108 +106,309 @@ export const MarketingDashboard = () => {
     }, [load]);
 
     const cards = dash?.cards;
-    const activeList = Array.isArray(dash?.activePromotions) ? dash.activePromotions : [];
-    const growth = cards?.revenue?.growthPercent;
-    const trend =
-        growth != null && Number.isFinite(Number(growth))
-            ? `${Number(growth) >= 0 ? '+' : ''}${Number(growth).toFixed(1)}%`
-            : undefined;
+    const currency = cards?.revenue?.currencyCode || 'SAR';
+
+    const topCampaigns = Array.isArray(dash?.topCampaigns) ? dash.topCampaigns : [];
+    const pendingRequests = dash?.pendingRequests ?? 0;
+
+    const walletBalance = formatSar(cards?.walletBalance ?? 0, currency);
+    const activeCampaigns = cards?.activeCampaigns ?? cards?.promotions ?? 0;
+    const totalSpent = formatSar(cards?.totalSpent ?? 0, currency);
+    const revenueGenerated = formatSar(cards?.revenue?.currentMonth ?? 0, currency);
+
+    const roiPercent = cards?.roi ?? 0;
+    const roiCampaignCount = cards?.roiCampaignCount ?? activeCampaigns ?? 0;
+    const roiExpenseCount = cards?.roiExpenseCount ?? 0;
 
     if (loading) {
         return (
-            <div className="marketing-dashboard">
+            <div
+                className="marketing-dashboard-page"
+                style={{
+                    background: '#F3F4F6',
+                    minHeight: 'calc(100vh - 50px)',
+                    padding: '24px',
+                    boxSizing: 'border-box',
+                }}
+            >
                 {error ? (
-                    <p style={{ color: '#b91c1c', fontWeight: 600, marginBottom: 16 }}>{error}</p>
+                    <p style={{ color: '#B91C1C', fontWeight: 700, marginBottom: 16 }}>
+                        {error}
+                    </p>
                 ) : null}
+
                 <MarketingDashboardSkeleton />
             </div>
         );
     }
 
     return (
-        <div className="marketing-dashboard">
+        <div
+            className="marketing-dashboard-page"
+            style={{
+                background: '#F3F4F6',
+                minHeight: 'calc(100vh - 50px)',
+                padding: '24px',
+                boxSizing: 'border-box',
+            }}
+        >
             {error ? (
-                <p style={{ color: '#b91c1c', fontWeight: 600, marginBottom: 16 }}>{error}</p>
+                <p style={{ color: '#B91C1C', fontWeight: 700, marginBottom: 16 }}>
+                    {error}
+                </p>
             ) : null}
-            <div className="dashboard-stats-row" style={{ marginBottom: '32px' }}>
-                <StatCardMini
-                    title="Active Promotions"
-                    value={cards?.promotions ?? 0}
-                    icon={Percent}
+
+            <div
+                className="marketing-stat-grid"
+                style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                    gap: 16,
+                    marginBottom: 20,
+                }}
+            >
+                <StatCard
+                    title="Wallet Balance"
+                    value={walletBalance}
+                    icon={Wallet}
+                    iconBg="#FFFBEB"
+                    iconColor="#D97706"
                 />
-                <StatCardMini
-                    title="Active Promo Codes (incl. table)"
-                    value={cards?.promoCodes ?? 0}
-                    icon={Gift}
+
+                <StatCard
+                    title="Active Campaigns"
+                    value={activeCampaigns}
+                    icon={Megaphone}
+                    iconBg="#EFF6FF"
+                    iconColor="#2563EB"
                 />
-                <StatCardMini
-                    title="Total Referrers"
-                    value={cards?.referrers?.total ?? 0}
-                    icon={Users}
-                    trend={
-                        cards?.referrers?.addedThisMonth != null
-                            ? `+${cards.referrers.addedThisMonth}`
-                            : undefined
-                    }
+
+                <StatCard
+                    title="Total Spent"
+                    value={totalSpent}
+                    icon={DollarSign}
+                    iconBg="#FEF2F2"
+                    iconColor="#EF4444"
                 />
-                <StatCardMini
-                    title="Revenue (this month)"
-                    value={formatSar(cards?.revenue?.currentMonth ?? 0, cards?.revenue?.currencyCode || 'SAR')}
+
+                <StatCard
+                    title="Revenue Generated"
+                    value={revenueGenerated}
                     icon={TrendingUp}
-                    trend={trend}
+                    iconBg="#ECFDF5"
+                    iconColor="#10B981"
                 />
             </div>
 
-            <div className="marketing-dashboard-grid">
-                <div className="marketing-card">
-                    <div className="marketing-card-header">
-                        <h4 className="marketing-card-title">New Customers Growth</h4>
+            <div
+                style={{
+                    background: '#111827',
+                    borderRadius: 10,
+                    minHeight: 116,
+                    padding: '20px 18px',
+                    marginBottom: 20,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    boxSizing: 'border-box',
+                }}
+            >
+                <div>
+                    <div
+                        style={{
+                            fontSize: 10,
+                            fontWeight: 900,
+                            color: '#FACC15',
+                            textTransform: 'uppercase',
+                            letterSpacing: '1.8px',
+                            marginBottom: 14,
+                        }}
+                    >
+                        Overall ROI
                     </div>
-                    <div className="chart-placeholder">
-                        <LineChart size={48} color="var(--color-primary)" style={{ opacity: 0.2, marginBottom: '12px' }} />
-                        <div style={{ color: '#6B7280', fontSize: '13px' }}>Customer Acquisition Analytics</div>
+
+                    <div
+                        style={{
+                            fontSize: 30,
+                            fontWeight: 900,
+                            color: '#FFFFFF',
+                            lineHeight: 1,
+                            marginBottom: 12,
+                        }}
+                    >
+                        {Number.isFinite(Number(roiPercent))
+                            ? `${Number(roiPercent).toFixed(0)}%`
+                            : '0%'}
+                    </div>
+
+                    <div
+                        style={{
+                            fontSize: 12,
+                            color: '#CBD5E1',
+                            letterSpacing: '0.2px',
+                        }}
+                    >
+                        Based on {roiCampaignCount} campaign
+                        {roiCampaignCount !== 1 ? 's' : ''} · {roiExpenseCount} expense{' '}
+                        {roiExpenseCount !== 1 ? 'entries' : 'entry'}
                     </div>
                 </div>
-                <div className="marketing-card">
-                    <div className="marketing-card-header">
-                        <h4 className="marketing-card-title">Active promo codes (usage)</h4>
-                        <button type="button" className="panel-link" onClick={load} disabled={loading}>
-                            Refresh
-                        </button>
+
+                <div style={{ textAlign: 'right' }}>
+                    <div
+                        style={{
+                            fontSize: 11,
+                            color: '#94A3B8',
+                            marginBottom: 12,
+                        }}
+                    >
+                        Pending Requests
                     </div>
-                    <div className="active-promos-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {activeList.map((p) => {
-                            const lim = p.redemptions?.limit == null ? '∞' : p.redemptions.limit;
-                            const used = p.redemptions?.used ?? 0;
+
+                    <div
+                        style={{
+                            fontSize: 28,
+                            fontWeight: 900,
+                            color: '#FACC15',
+                            lineHeight: 1,
+                        }}
+                    >
+                        {pendingRequests}
+                    </div>
+                </div>
+            </div>
+
+            <div
+                style={{
+                    width: '100%',
+                    maxWidth: 538,
+                    minHeight: 116,
+                    background: '#FFFFFF',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: 10,
+                    padding: '18px 16px 22px',
+                    boxSizing: 'border-box',
+                }}
+            >
+                <div
+                    style={{
+                        fontSize: 14,
+                        fontWeight: 800,
+                        color: '#111827',
+                        marginBottom: 22,
+                    }}
+                >
+                    Top Campaigns
+                </div>
+
+                {topCampaigns.length === 0 ? (
+                    <div
+                        style={{
+                            color: '#9CA3AF',
+                            fontSize: 12,
+                            padding: '4px 0',
+                        }}
+                    >
+                        No campaigns found
+                    </div>
+                ) : (
+                    <div
+                        style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 14,
+                        }}
+                    >
+                        {topCampaigns.map((c, i) => {
+                            const campaignName = c.name ?? c.title ?? '—';
+                            const platform = c.platform ?? c.type ?? 'Meta';
+                            const status = c.status ?? 'Active';
+
                             return (
                                 <div
-                                    key={p.id}
-                                    className="recent-order-item"
-                                    style={{ padding: '12px', border: '1px solid #F3F4F6', borderRadius: '12px' }}
+                                    key={c.id ?? i}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: 20,
+                                    }}
                                 >
-                                    <div className="flex justify-between items-center" style={{ width: '100%' }}>
-                                        <div>
-                                            <div style={{ fontWeight: 800 }}>{p.title}</div>
-                                            <div style={{ fontSize: '11px', color: '#6C757D' }}>{p.typeLabel}</div>
+                                    <div style={{ minWidth: 0 }}>
+                                        <div
+                                            style={{
+                                                fontSize: 13,
+                                                fontWeight: 800,
+                                                color: '#111827',
+                                                lineHeight: 1.2,
+                                                marginBottom: 4,
+                                            }}
+                                        >
+                                            {campaignName}
                                         </div>
-                                        <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontWeight: 700, fontSize: '13px' }}>
-                                                {used} / {lim}
-                                            </div>
-                                            <div style={{ fontSize: '10px', color: '#6C757D' }}>usage</div>
+
+                                        <div
+                                            style={{
+                                                fontSize: 11,
+                                                color: '#2563EB',
+                                                lineHeight: 1.2,
+                                            }}
+                                        >
+                                            {platform} · {status}
+                                        </div>
+                                    </div>
+
+                                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                        <div
+                                            style={{
+                                                fontSize: 13,
+                                                fontWeight: 800,
+                                                color: '#10B981',
+                                                marginBottom: 4,
+                                            }}
+                                        >
+                                            {formatSar(c.revenue ?? 0, currency)}
+                                        </div>
+
+                                        <div
+                                            style={{
+                                                fontSize: 10,
+                                                color: '#9CA3AF',
+                                            }}
+                                        >
+                                            Revenue
                                         </div>
                                     </div>
                                 </div>
                             );
                         })}
-                        {activeList.length === 0 && (
-                            <div style={{ textAlign: 'center', padding: '24px', color: '#9CA3AF', fontSize: '13px' }}>
-                                No active promo codes in range
-                            </div>
-                        )}
                     </div>
-                </div>
+                )}
             </div>
+
+            <style>
+                {`
+                    .marketing-dashboard-page {
+                        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                    }
+
+                    @media (max-width: 1100px) {
+                        .marketing-stat-grid {
+                            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                        }
+                    }
+
+                    @media (max-width: 640px) {
+                        .marketing-dashboard-page {
+                            padding: 16px !important;
+                        }
+
+                        .marketing-stat-grid {
+                            grid-template-columns: 1fr !important;
+                        }
+                    }
+                `}
+            </style>
         </div>
     );
 };

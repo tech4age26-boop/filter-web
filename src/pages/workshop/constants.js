@@ -2,45 +2,59 @@ import {
     LayoutDashboard, Users, Layers, Package, ShoppingCart, ClipboardCheck,
     Truck, BarChart3, Building2, CheckCircle, CheckCircle2, PlayCircle,
     Store, Shield, Globe, Landmark, Banknote, Monitor, TicketPercent, Briefcase,
-    Archive
+    Archive, Lock, Wallet
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
-    { id: 'dashboard',                label: 'Dashboard',                         icon: LayoutDashboard, permission: 'workshop.dashboard.view' },
-    { id: 'employees',                label: 'Employees',                         icon: Users,           permission: 'workshop.employees.view' },
-    { id: 'departments',              label: 'View Invertory and departments',    icon: Layers,          permission: 'workshop.departments.view' },
-    { id: 'catalog-new',              label: 'Master Catelog',                    icon: Package,         permission: 'workshop.catalog.view' },
-    { id: 'inventory',                label: 'Manage Inventory',                  icon: Archive,         permission: 'workshop.inventory.view' },
-    { id: 'purchases',                label: 'Purchase Invoices',                 icon: ShoppingCart,    permission: 'workshop.purchases.view' },
-    { id: 'approvals',                label: 'Approvals Queue',                   icon: ClipboardCheck,  permission: 'workshop.approvals.view', badge: true },
-    { id: 'suppliers',                label: 'Suppliers & Purchases',             icon: Truck,           permission: 'workshop.suppliers.view' },
-    { id: 'affiliated-suppliers',     label: 'Filter Affiliated Suppliers',       icon: Truck,           permission: 'workshop.affiliated-suppliers.view' },
-    { id: 'non-affiliated-suppliers', label: 'Non-Affiliated Suppliers',          icon: Truck,           permission: 'workshop.non-affiliated-suppliers.view' },
-    { id: 'reports',                  label: 'Reports & Analytics',               icon: BarChart3,       permission: 'workshop.reports.view' },
-    { id: 'pos-monitoring',           label: 'POS Monitoring',                    icon: Monitor,         permission: 'workshop.pos-monitoring.view' },
-    { id: 'promo-codes',              label: 'Promo Codes',                       icon: TicketPercent,   permission: 'workshop.promo-codes.view' },
-    { id: 'corporate-management',     label: 'Corporate Management',              icon: Briefcase,       permission: 'workshop.corporate-management.view' },
-    { id: 'commissions',              label: 'Commissions',                       icon: Banknote,        permission: 'workshop.commissions.view' },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'workshop.dashboard.view' },
+    { id: 'employees', label: 'Employees', icon: Users, permission: 'workshop.employees.view' },
+    { id: 'departments', label: 'View Inventory and Departments', icon: Layers, permission: 'workshop.departments.view' },
+    { id: 'catalog-new', label: 'Master Catalog', icon: Package, permission: 'workshop.catalog.view' },
+    { id: 'inventory', label: 'Manage Inventory', icon: Archive, permission: 'workshop.inventory.view' },
+    { id: 'purchases', label: 'Purchase Invoices', icon: ShoppingCart, permission: 'workshop.purchases.view' },
+    { id: 'approvals', label: 'Approvals Queue', icon: ClipboardCheck, permission: 'workshop.approvals.view', badge: true },
+    { id: 'suppliers', label: 'Suppliers & Purchases', icon: Truck, permission: 'workshop.suppliers.view' },
+    { id: 'affiliated-suppliers', label: 'Filter Affiliated Suppliers', icon: Truck, permission: 'workshop.affiliated-suppliers.view' },
+    { id: 'non-affiliated-suppliers', label: 'Non-Affiliated Suppliers', icon: Truck, permission: 'workshop.non-affiliated-suppliers.view' },
+    { id: 'reports', label: 'Reports & Analytics', icon: BarChart3, permission: 'workshop.reports.view' },
+    { id: 'pos-monitoring', label: 'POS Monitoring', icon: Monitor, permission: 'workshop.pos-monitoring.view' },
+
+    // Added from main branch
+    { id: 'locker-management', label: 'Locker Management', icon: Lock, permission: 'workshop.locker-management.view' },
+    { id: 'my-petty-cash', label: 'My Petty Cash', icon: Wallet, permission: 'workshop.my-petty-cash.view' },
+
+    { id: 'promo-codes', label: 'Promo Codes', icon: TicketPercent, permission: 'workshop.promo-codes.view' },
+    { id: 'corporate-management', label: 'Corporate Management', icon: Briefcase, permission: 'workshop.corporate-management.view' },
+    { id: 'commissions', label: 'Commissions', icon: Banknote, permission: 'workshop.commissions.view' },
+
     {
         id: 'accounting',
         label: 'Accounting',
         icon: Landmark,
-        // Parent has no own permission — visible if ANY sub-item is allowed.
+
+        // Parent visible if any child permission exists
         subItems: [
-            { id: 'acc-chart',        label: 'Chart of Accounts', permission: 'workshop.accounting.chart-of-accounts.view' },
-            { id: 'acc-cash',         label: 'Cash & Bank',       permission: 'workshop.accounting.cash-bank.view' },
-            { id: 'acc-transactions', label: 'Transactions',      permission: 'workshop.accounting.transactions.view' },
-            { id: 'acc-journal',      label: 'Journal Entries',   permission: 'workshop.accounting.journal-entries.view' },
-            { id: 'acc-purchases',    label: 'Purchases',         permission: 'workshop.accounting.purchases.view' },
-            { id: 'acc-expenses',     label: 'Expenses',          permission: 'workshop.accounting.expenses.view' },
-            { id: 'acc-receipts',     label: 'Receipts',          permission: 'workshop.accounting.receipts.view' },
-            { id: 'acc-payments',     label: 'Payments',          permission: 'workshop.accounting.payments.view' },
-            { id: 'acc-advances',     label: 'Advances',          permission: 'workshop.accounting.advances.view' },
-            { id: 'acc-ledger',       label: 'Ledger',            permission: 'workshop.accounting.ledger.view' },
+            { id: 'acc-chart', label: 'Chart of Accounts', permission: 'workshop.accounting.chart-of-accounts.view' },
+            { id: 'acc-cash', label: 'Cash & Bank', permission: 'workshop.accounting.cash-bank.view' },
+            { id: 'acc-transactions', label: 'Transactions', permission: 'workshop.accounting.transactions.view' },
+            { id: 'acc-journal', label: 'Journal Entries', permission: 'workshop.accounting.journal-entries.view' },
+            { id: 'acc-purchases', label: 'Purchases', permission: 'workshop.accounting.purchases.view' },
+            { id: 'acc-expenses', label: 'Expenses', permission: 'workshop.accounting.expenses.view' },
+            { id: 'acc-receipts', label: 'Receipts', permission: 'workshop.accounting.receipts.view' },
+            { id: 'acc-payments', label: 'Payments', permission: 'workshop.accounting.payments.view' },
+            { id: 'acc-advances', label: 'Advances', permission: 'workshop.accounting.advances.view' },
+
+            // Added from main branch
+            { id: 'acc-payroll', label: 'Payroll Run', permission: 'workshop.accounting.payroll.view' },
+            { id: 'acc-approvals', label: 'Approval Limits', permission: 'workshop.accounting.approval-limits.view' },
+
+            { id: 'acc-ledger', label: 'Ledger', permission: 'workshop.accounting.ledger.view' },
         ],
     },
-    { id: 'branches',    label: 'Branches & Access',    icon: Building2, permission: 'workshop.branches.view' },
+
+    { id: 'branches', label: 'Branches & Access', icon: Building2, permission: 'workshop.branches.view' },
 ];
+
 
 export const MOCK_BRANCHES = ['Petromin Services', 'Main Branch — Riyadh', 'North Branch — Jeddah', 'East Branch — Dammam'];
 export const MOCK_BRANCHES_FULL = [
@@ -150,6 +164,10 @@ export const ROLE_OPTIONS = [
     'supervisor',
     'manager',
     'team_leader',
+    // Locker portal users — workshop-wide (no branch), auto-approved, sign in
+    // via /locker/login. Created from the same Employees form.
+    'locker_supervisor',
+    'locker_collector',
 ];
 
 // commissionType is a free-form string on the BE, but the FE sends a fixed

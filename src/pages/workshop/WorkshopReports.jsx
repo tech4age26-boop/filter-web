@@ -201,6 +201,9 @@ function isMoneyDetailColumnKey(k) {
         n === 'departmentlinetotal' ||
         n === 'invoicetotalamount' ||
         n === 'invoice_amount' ||
+        n === 'invoiceamount' ||
+        n === 'jobtotal' ||
+        n === 'job_total' ||
         n === 'line_total' ||
         n === 'linetotal' ||
         n === 'commission' ||
@@ -208,6 +211,38 @@ function isMoneyDetailColumnKey(k) {
         n === 'revenue_sar' ||
         n === 'revenuesar'
     );
+}
+
+/** Sum numeric money columns for the details modal footer row. */
+function sumDetailMoneyColumns(rows, columns) {
+    const totals = {};
+    for (const k of columns) {
+        if (!isMoneyDetailColumnKey(k)) continue;
+        const n = String(k || '')
+            .toLowerCase()
+            .replace(/-/g, '_');
+        const dedupeInvoice =
+            n === 'invoiceamount' ||
+            n === 'invoice_amount' ||
+            n === 'invoicetotalamount';
+        const seenInvoiceKeys = dedupeInvoice ? new Set() : null;
+        totals[k] = rows.reduce((s, row) => {
+            if (seenInvoiceKeys) {
+                const invKey =
+                    row?.invoiceNo ??
+                    row?.invoice_no ??
+                    row?.invoiceId ??
+                    row?.invoice_id;
+                if (invKey != null && invKey !== '') {
+                    const key = String(invKey);
+                    if (seenInvoiceKeys.has(key)) return s;
+                    seenInvoiceKeys.add(key);
+                }
+            }
+            return s + toNumber(row?.[k]);
+        }, 0);
+    }
+    return totals;
 }
 
 /** Second line under line-item name in report detail modals (unit, discount, VAT, line). */
@@ -1002,6 +1037,12 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         const stockValueCost = toNumber(r.stock_value_cost ?? inv.stockValueCost);
         const potentialProfit = toNumber(r.potential_profit ?? inv.potentialProfit);
         const activeSkus = toNumber(r.active_skus ?? inv.activeSkus);
+        const skusSoldInPeriod = toNumber(
+            r.skus_sold_in_period ?? inv.skusSoldInPeriod ?? 0,
+        );
+        const skusNotSoldInPeriod = toNumber(
+            r.skus_not_sold_in_period ?? inv.skusNotSoldInPeriod ?? 0,
+        );
 
         const dailyRaw = parseArr(r.daily_revenue).length ? r.daily_revenue : fo.dailyRevenue;
         const dailyRevenue = parseArr(dailyRaw).map((e) => ({
@@ -1032,6 +1073,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             stockValueCost,
             potentialProfit,
             activeSkus,
+            skusSoldInPeriod,
+            skusNotSoldInPeriod,
             dailyRevenue,
             byTechnician,
             byCustomer: parseArr(summaryData.by_customer).length ? summaryData.by_customer : parseArr(r.by_customer),
@@ -1051,8 +1094,20 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             return [
                 { id: 'revenue', label: 'Total Revenue', value: formatCurrency(0), color: 'text-green' },
                 { id: 'revenue_change', label: 'Revenue Change', value: '0.0%', sub: 'vs previous period', color: 'text-blue' },
-                { id: 'stock_value', label: 'Stock Value (Cost)', value: formatCurrency(0), sub: 'At period end (est.)', color: 'text-orange' },
-                { id: 'potential_profit', label: 'Potential Profit', value: formatCurrency(0), sub: '0 SKUs with stock', color: 'text-purple' },
+                {
+                    id: 'stock_value',
+                    label: 'Stock Value (Cost)',
+                    value: formatCurrency(0),
+                    sub: 'All on-hand stock · not period sales',
+                    color: 'text-orange',
+                },
+                {
+                    id: 'potential_profit',
+                    label: 'Potential Profit',
+                    value: formatCurrency(0),
+                    sub: '0 SKUs on hand',
+                    color: 'text-purple',
+                },
             ];
         }
         const sign = norm.revenueChangePercent > 0 ? '+' : '';
@@ -1069,14 +1124,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 id: 'stock_value',
                 label: 'Stock Value (Cost)',
                 value: formatCurrency(norm.stockValueCost),
-                sub: 'At period end (est.)',
+                sub: `All on-hand · ${norm.activeSkus} SKUs (${norm.skusNotSoldInPeriod} unsold in period)`,
                 color: 'text-orange',
             },
             {
                 id: 'potential_profit',
                 label: 'Potential Profit',
                 value: formatCurrency(norm.potentialProfit),
-                sub: `${norm.activeSkus} SKUs with stock`,
+                sub: `${norm.activeSkus} SKUs on hand · ${norm.skusSoldInPeriod} sold in period`,
                 color: 'text-purple',
             },
         ];
@@ -1168,8 +1223,16 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             const inv = proof.inventory_valuation ?? proof.inventoryValuation ?? {};
             const lines = parseArr(inv.lines);
             const showProfit = kpiProofModalId === 'potential_profit';
+            const skusOnHand = inv.active_skus ?? 0;
+            const skusSold = inv.skus_sold_in_period ?? 0;
+            const skusUnsold = inv.skus_not_sold_in_period ?? 0;
             return (
                 <>
+                    <p className="ws-kpi-proof-note" style={{ marginBottom: 8 }}>
+                        <strong>Not period sales.</strong> This is estimated inventory on hand at
+                        period end for all active branch products with qty &gt; 0—including SKUs
+                        with no invoice lines in the selected range.
+                    </p>
                     <p className="ws-kpi-proof-methodology">{inv.methodology}</p>
                     <p className="ws-kpi-proof-methodology">
                         {inv.unwind_formula}
@@ -1182,7 +1245,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     </p>
                     <KpiProofSummaryGrid
                         items={[
-                            { label: 'SKUs with stock', value: String(inv.active_skus ?? 0) },
+                            { label: 'SKUs on hand', value: String(skusOnHand) },
+                            { label: 'Sold in period', value: String(skusSold) },
+                            { label: 'On hand, not sold in period', value: String(skusUnsold) },
                             {
                                 label: 'Stock value total',
                                 value: formatCurrency(inv.stock_value_total),
@@ -1195,8 +1260,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     />
                     <KpiProofTable
                         headers={[
+                            'SKU',
                             'Product',
                             'Branch',
+                            'Sold in period',
                             'On hand now',
                             'Unwind after period',
                             'Qty @ period end',
@@ -1206,8 +1273,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             'Line profit',
                         ]}
                         rows={lines.map((row) => [
+                            row.sku ?? '—',
                             row.product_name ?? '—',
                             row.branch_name ?? '—',
+                            row.sold_in_period ? 'Yes' : 'No',
                             row.qty_on_hand_now,
                             row.unwind_after_period_end,
                             row.qty_at_period_end,
@@ -1216,7 +1285,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             formatCurrency(row.stock_value),
                             formatCurrency(row.line_potential_profit),
                         ])}
-                        emptyMessage="No branch inventory with stock at period end."
+                        emptyMessage="No catalog products with on-hand qty at period end."
                     />
                 </>
             );
@@ -2432,6 +2501,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     'issued_at',
                                 ]);
                                 const columns = Object.keys(detailRows[0] || {}).filter((k) => !hiddenCols.has(k));
+                                const moneyTotals = sumDetailMoneyColumns(detailRows, columns);
+                                const hasMoneyTotals = Object.keys(moneyTotals).length > 0;
                                 return (
                             <>
                                 <div
@@ -2521,6 +2592,27 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 </tr>
                                             ))}
                                         </tbody>
+                                        {hasMoneyTotals ? (
+                                            <tfoot>
+                                                <tr
+                                                    style={{
+                                                        fontWeight: 700,
+                                                        background: '#F1F5F9',
+                                                        borderTop: '2px solid #E2E8F0',
+                                                    }}
+                                                >
+                                                    {columns.map((k, colIdx) => (
+                                                        <td key={k} style={{ padding: '10px' }}>
+                                                            {colIdx === 0
+                                                                ? 'Total'
+                                                                : isMoneyDetailColumnKey(k)
+                                                                  ? formatCurrency(moneyTotals[k])
+                                                                  : ''}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            </tfoot>
+                                        ) : null}
                                     </table>
                                 </div>
                             </>

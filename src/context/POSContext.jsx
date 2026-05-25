@@ -5,6 +5,21 @@ import { useAuth } from './AuthContext';
 
 const POSContext = createContext(null);
 
+/** Oldest order id first (matches backend GET /cashier/orders FIFO). */
+function sortCashierOrdersOldestFirst(list) {
+    return [...list].sort((a, b) => {
+        try {
+            const ai = BigInt(String(a?.id ?? '0'));
+            const bi = BigInt(String(b?.id ?? '0'));
+            if (ai < bi) return -1;
+            if (ai > bi) return 1;
+            return 0;
+        } catch {
+            return String(a?.id ?? '').localeCompare(String(b?.id ?? ''));
+        }
+    });
+}
+
 export const POSProvider = ({ children }) => {
     const { token, user } = useAuth();
     const [socket, setSocket] = useState(null);
@@ -22,7 +37,7 @@ export const POSProvider = ({ children }) => {
             const d = await apiFetch(
                 `/cashier/orders?limit=100&utcOffsetMinutes=${clientUtcOffsetMinutes()}`,
             );
-            setOrders(d.orders || d.data || []);
+            setOrders(sortCashierOrdersOldestFirst(d.orders || d.data || []));
         } catch (err) {
             console.error('Failed to fetch orders:', err);
         }

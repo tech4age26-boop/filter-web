@@ -26,18 +26,25 @@ import ReportingPage from './pages/admin/ReportingPage';
 import PortalLoginPage from './pages/PortalLoginPage';
 import PortalSignupPage from './pages/PortalSignupPage';
 import PortalHubPage from './pages/PortalHubPage';
-// SalesReports and SalesOrders moved to SalesPage.jsx
 
 import MarketingLayout from './pages/MarketingLayout';
 import { MarketingDashboard } from './pages/marketing/MarketingDashboard';
+import CampaignRequests from './pages/marketing/CampaignRequests';
 import { Promotions } from './pages/marketing/Promotions';
 import { PromoCodes } from './pages/marketing/PromoCodes';
 import { ReferralPersons } from './pages/marketing/ReferralPersons';
 import { ReferralManagement } from './pages/marketing/ReferralManagement';
 import { LoyaltyPrograms } from './pages/marketing/LoyaltyPrograms';
+import AnalyticsROI from './pages/marketing/AnalyticsROI';
 import { CustomerInsights } from './pages/marketing/CustomerInsights';
 import ReferralRules from './pages/marketing/ReferralRules';
 import { MarketingProvider } from './pages/marketing/MarketingUtils';
+import CampaignReports from './pages/marketing/CampaignReports';
+import AdPlatforms from './pages/marketing/AdPlatforms';
+import BudgetOptimizer from './pages/marketing/BudgetOptimizer';
+import InfluencerReferrers from './pages/marketing/InfluencerReferrers';
+import ReferrerManagement from './pages/marketing/ReferrerManagement';
+import MarketingPromotions from './pages/marketing/MarketingPromotions';
 
 import WorkshopLayout from './pages/WorkshopLayout';
 import SupplierLayout from './pages/SupplierLayout';
@@ -75,14 +82,17 @@ function App() {
         <Router>
           <Routes>
             <Route path="/" element={<PortalHubPage />} />
+
             <Route path="/verify/wpi/:id" element={<PublicWpiVerifyPage />} />
             <Route path="/verify/sinv/:id" element={<PublicSinvVerifyPage />} />
             <Route path="/verify/ssp/:id" element={<PublicSspVerifyPage />} />
+
             <Route path="/admin/login" element={<SignInPage />} />
             <Route path="/:portalId/login" element={<PortalLoginPage />} />
             <Route path="/:portalId/signup" element={<PortalSignupPage />} />
-            <Route 
-              path="/admin" 
+
+            <Route
+              path="/admin"
               element={
                 <ProtectedRoute requiredType="admin" redirectTo="/admin/login">
                   <AdminLayout />
@@ -94,6 +104,7 @@ function App() {
               <Route path="approvals" element={<ApprovalsPage />} />
               <Route path="zone-management" element={<ZoneManagementPage />} />
               <Route path="tier-management" element={<TierManagementPage />} />
+
               <Route path="marketing" element={<MarketingPortalPage />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<MarketingDashboard />} />
@@ -101,26 +112,52 @@ function App() {
                 <Route path="promo-codes" element={<PromoCodes />} />
                 <Route path="referral-management" element={<ReferralManagement />} />
                 <Route path="referral-types-rules" element={<ReferralRules />} />
+                <Route path="analytics-roi" element={<AnalyticsROI />} />
                 <Route path="loyalty-programs" element={<LoyaltyPrograms />} />
                 <Route path="customer-insights" element={<CustomerInsights />} />
+                <Route path="campaign-reports" element={<CampaignReports />} />
               </Route>
 
               <Route path="tax-codes" element={<TaxCodePage />} />
               <Route path="permissions" element={<PermissionsPage />} />
-              <Route path="inventory" element={<Navigate to="/admin/inventory/master-catalog" replace />} />
-              <Route path="inventory/products-services" element={<Navigate to="/admin/inventory/master-catalog" replace />} />
-              <Route path="inventory/categories" element={<Navigate to="/admin/inventory/master-catalog" replace />} />
+
+              <Route
+                path="inventory"
+                element={<Navigate to="/admin/inventory/master-catalog" replace />}
+              />
+              <Route
+                path="inventory/products-services"
+                element={<Navigate to="/admin/inventory/master-catalog" replace />}
+              />
+              <Route
+                path="inventory/categories"
+                element={<Navigate to="/admin/inventory/master-catalog" replace />}
+              />
               <Route path="inventory/:subTab" element={<InventoryPage />} />
-              <Route path="customers" element={<Navigate to="/admin/customers/all-customers" replace />} />
+
+              <Route
+                path="customers"
+                element={<Navigate to="/admin/customers/all-customers" replace />}
+              />
               <Route path="customers/:subTab" element={<CustomersPage />} />
+
               <Route path="suppliers" element={<SuppliersPage />} />
               <Route path="employees" element={<EmployeesPage />} />
               <Route path="branches" element={<BranchesPage />} />
               <Route path="workshop" element={<WorkshopManagementPage />} />
-              <Route path="sales" element={<Navigate to="/admin/sales/workshop-sales" replace />} />
+
+              <Route
+                path="sales"
+                element={<Navigate to="/admin/sales/workshop-sales" replace />}
+              />
               <Route path="sales/:subTab" element={<SalesPage />} />
-              <Route path="accounting" element={<Navigate to="/admin/accounting/cash-bank" replace />} />
+
+              <Route
+                path="accounting"
+                element={<Navigate to="/admin/accounting/cash-bank" replace />}
+              />
               <Route path="accounting/:subTab" element={<AccountingPage />} />
+
               <Route path="softpos-settlement" element={<SoftPosSettlement />} />
               <Route path="fleet-management" element={<FleetManagementPage />} />
               <Route path="warehouse-portal" element={<WarehousePortalPage />} />
@@ -131,23 +168,40 @@ function App() {
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<MarketingDashboard />} />
               <Route path="promotions" element={<Promotions />} />
+              <Route path="campaign-requests" element={<CampaignRequests />} />
               <Route path="promo-codes" element={<PromoCodes />} />
               <Route path="referral-management" element={<ReferralManagement />} />
               <Route path="referral-types-rules" element={<ReferralRules />} />
+              <Route path="analytics-roi" element={<AnalyticsROI />} />
               <Route path="loyalty-programs" element={<LoyaltyPrograms />} />
               <Route path="customer-insights" element={<CustomerInsights />} />
+              <Route path="campaign-reports" element={<CampaignReports />} />
+              <Route path="ad-platforms" element={<AdPlatforms />} />
+              <Route path="budget-optimizer" element={<BudgetOptimizer />} />
+              <Route path="influencer-referrers" element={<InfluencerReferrers />} />
+              <Route path="referrer-management" element={<ReferrerManagement />} />
+              <Route path="marketing-promotions" element={<MarketingPromotions />} />
             </Route>
 
             <Route path="/pos/*" element={<POSLayout />} />
-            <Route 
-              path="/workshop/*" 
+
+            <Route
+              path="/workshop/*"
               element={
                 <ProtectedRoute requiredType="workshop_user" redirectTo="/workshop/login">
                   <WorkshopLayout />
                 </ProtectedRoute>
-              } 
+              }
             />
-            <Route path="/locker/*" element={<LockerLayout />} />
+            <Route path="/locker/login" element={<PortalLoginPage />} />
+            <Route
+              path="/locker/*"
+              element={
+                <ProtectedRoute requiredType="locker_user" redirectTo="/locker/login">
+                  <LockerLayout />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/supplier/*"
               element={
@@ -156,16 +210,20 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route 
-              path="/corporate/*" 
+
+            <Route
+              path="/corporate/*"
               element={
                 <ProtectedRoute requiredType="corporate_user" redirectTo="/corporate/login">
                   <CorporateLayout />
                 </ProtectedRoute>
-              } 
+              }
             />
+
             <Route path="/referral-management/*" element={<ReferralLayout />} />
+
             <Route path="/technician/login" element={<PortalLoginPage />} />
+
             <Route
               path="/technician/*"
               element={
@@ -193,6 +251,5 @@ function App() {
     </AuthProvider>
   );
 }
-
 
 export default App;

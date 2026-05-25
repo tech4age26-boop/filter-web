@@ -32,7 +32,7 @@ export default function ActiveOrdersManager() {
                 `/cashier/orders?status=active&limit=50&offset=0&utcOffsetMinutes=${clientUtcOffsetMinutes()}`,
             );
             const raw = d.orders || d.data || [];
-            setOrders(raw.map(o => ({
+            const mapped = raw.map(o => ({
                 id: o.id,
                 orderNumber: o.orderNumber || o.order_number || o.id?.slice?.(-6) || o.id,
                 customerName: o.customerName || o.customer?.name || o.guestName || 'Walk-in',
@@ -42,7 +42,19 @@ export default function ActiveOrdersManager() {
                 vatAmount: parseFloat(o.vatAmount ?? o.vat ?? 0) || 0,
                 jobs: o.jobs || [],
                 createdAt: o.createdAt,
-            })));
+            }));
+            mapped.sort((a, b) => {
+                try {
+                    const ai = BigInt(String(a.id ?? '0'));
+                    const bi = BigInt(String(b.id ?? '0'));
+                    if (ai < bi) return -1;
+                    if (ai > bi) return 1;
+                    return 0;
+                } catch {
+                    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+                }
+            });
+            setOrders(mapped);
         } catch {
             setOrders([]);
         } finally {

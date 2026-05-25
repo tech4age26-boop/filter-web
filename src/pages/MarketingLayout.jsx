@@ -3,9 +3,24 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import UserProfileMenu from '../components/UserProfileMenu';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    LayoutDashboard, Megaphone, Ticket, Users, FileText, Gift, LineChart,
-    Bell, Search, ChevronDown, ChevronRight, Globe, Plus, Menu, X, Shield
+    LayoutDashboard,
+    Megaphone,
+    Ticket,
+    Users,
+    FileText,
+    Gift,
+    LineChart,
+    Menu,
+    X,
+    Shield,
+    Wallet,
+    LogOut,
+    Star,
+    Eye,
+    Tags,
+    Trophy,
 } from 'lucide-react';
+
 import '../styles/AdminLayout.css';
 import './marketing/Marketing.css';
 import { useMarketingState } from './marketing/MarketingUtils';
@@ -21,129 +36,91 @@ function normalizeWorkshopsPayload(payload) {
     return [];
 }
 
-const TRANSLATIONS = {
-    en: {
-        section: { MARKETING: 'MARKETING & CARE', INSIGHTS: 'INSIGHTS & ANALYTICS' },
-        nav: {
-            dashboard: 'Dashboard',
-            promotions: 'Promotions',
-            'promo-codes': 'Promo Codes',
-            'referral-management': 'Referral Management',
-            'referral-types-rules': 'Referral Types + Rules',
-            'loyalty-programs': 'Loyalty Programs',
-            'customer-insights': 'Customer Insights',
-        },
-        logoDesc: 'MARKETING & CARE UNIT',
-        pageSubtitle: 'Engagement and retention control.',
-        searchPlaceholder: 'Search marketing data...',
-        userName: 'MARKETING ADMIN',
-        userRole: 'PORTAL MANAGER',
-    },
-    ar: {
-        section: { MARKETING: 'التسويق والعناية', INSIGHTS: 'الرؤى والتحليلات' },
-        nav: {
-            dashboard: 'لوحة التحكم',
-            promotions: 'العروض الترويجية',
-            'promo-codes': 'أكواد الخصم',
-            'referral-management': 'إدارة الإحالة',
-            'referral-types-rules': 'أنواع الإحالة + القواعد',
-            'loyalty-programs': 'برامج الولاء',
-            'customer-insights': 'رؤى العملاء',
-        },
-        logoDesc: 'وحدة التسويق والعناية',
-        pageSubtitle: 'التحكم في المشاركة والاحتفاظ.',
-        searchPlaceholder: 'البحث في بيانات التسويق...',
-        userName: 'مدير التسويق',
-        userRole: 'مدير البوابة',
-    },
+const PAGE_TITLES = {
+    dashboard: 'Dashboard',
+    promotions: 'Campaigns',
+    'campaign-requests': 'Campaign Requests',
+    'referral-management': 'Marketing Wallet',
+    'referral-types-rules': 'Expenses',
+    'analytics-roi': 'Analytics & ROI',
+    'loyalty-programs': 'Loyalty Programs',
+    'campaign-reports': 'Campaign Reports',
+    'ad-platforms': 'Ad Platforms',
+    'budget-optimizer': 'Budget Optimizer',
+    'influencer-referrers': 'Influencer / Referrers',
+    'customer-insights': 'Customer Insight',
+    'referrer-management': 'Referrer Management',
+    'marketing-promotions': 'Promotions',
 };
+function getPageTitle(pathname) {
+    const parts = pathname.split('/').filter(Boolean);
+    const last = parts[parts.length - 1] || 'dashboard';
+    return PAGE_TITLES[last] || 'Dashboard';
+}
 
 const NAV_CONFIG = [
     {
-        section: 'MARKETING',
+        section: null,
         items: [
             { label: 'Dashboard', path: 'dashboard', icon: LayoutDashboard },
-            { label: 'Promotions', path: 'promotions', icon: Megaphone },
-            { label: 'Promo Codes', path: 'promo-codes', icon: Ticket },
-            { label: 'Referral Management', path: 'referral-management', icon: Users },
-            { label: 'Referral Types + Rules', path: 'referral-types-rules', icon: Shield },
-            { label: 'Loyalty Programs', path: 'loyalty-programs', icon: Gift },
         ],
     },
     {
-        section: 'INSIGHTS',
+        section: 'CAMPAIGNS',
         items: [
-            { label: 'Customer Insights', path: 'customer-insights', icon: LineChart },
+            { label: 'Campaigns', path: 'promotions', icon: Megaphone },
+           { label: 'Campaign Requests', path: 'campaign-requests', icon: Ticket },
+        ],
+    },
+    {
+        section: 'FINANCE',
+        items: [
+            { label: 'Marketing Wallet', path: 'referral-management', icon: Wallet },
+            { label: 'Expenses', path: 'referral-types-rules', icon: FileText },
+        ],
+    },
+    {
+        section: 'ANALYTICS',
+        items: [
+           { label: 'Analytics & ROI', path: 'analytics-roi', icon: LineChart },
+            { label: 'Campaign Reports', path: 'campaign-reports', icon: FileText },
+            { label: 'Ad Platforms', path: 'ad-platforms', icon: Shield },
+            { label: 'Budget Optimizer', path: 'budget-optimizer', icon: Gift },
+            { label: 'Influencer / Referrers', path: 'influencer-referrers', icon: Users },
+            { label: 'Referrer Management', path: 'referrer-management', icon: Star },
+            { label: 'Customer Insight', path: 'customer-insights', icon: Eye },
+        ],
+    },
+    {
+        section: 'PROMOTIONS',
+        items: [
+            { label: 'Promotions', path: 'marketing-promotions', icon: Tags },
+            { label: 'Promo Codes', path: 'promo-codes', icon: Gift },
+            { label: 'Loyalty Programs', path: 'loyalty-programs', icon: Trophy },
         ],
     },
 ];
 
-const getNavLabel = (path, locale) => TRANSLATIONS[locale]?.nav[path] ?? TRANSLATIONS.en.nav[path] ?? path;
-
-const SidebarNavItem = ({ item, basePath, locale }) => {
-    const [open, setOpen] = useState(false);
-    const hasSub = item.subItems?.length > 0;
-    const isParentActive = useLocation().pathname.startsWith(basePath + '/' + item.path);
-
+const SidebarNavItem = ({ item, basePath }) => {
     return (
-        <div className="nav-group">
-            {hasSub ? (
-                <>
-                    <div
-                        className={`nav-link ${isParentActive ? 'active' : ''}`}
-                        onClick={() => setOpen(!open)}
-                    >
-                        <div className="flex items-center gap-4">
-                            <item.icon size={20} />
-                            <span className="nav-label">{getNavLabel(item.path, locale)}</span>
-                        </div>
-                        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </div>
-                    <AnimatePresence>
-                        {open && (
-                            <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                className="nav-submenu"
-                            >
-                                {item.subItems.map((sub) => (
-                                    <NavLink
-                                        key={sub.path}
-                                        to={`${basePath}/${item.path}/${sub.path}`}
-                                        className={({ isActive }) => `nav-sub-link ${isActive ? 'active' : ''}`}
-                                    >
-                                        {getNavLabel(sub.path, locale)}
-                                    </NavLink>
-                                ))}
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </>
-            ) : (
-                <NavLink
-                    to={item.isExternal ? `/${item.path}` : `${basePath}/${item.path}`}
-                    className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-                >
-                    <item.icon size={20} />
-                    <span className="nav-label">{getNavLabel(item.path, locale)}</span>
-                </NavLink>
-            )}
+        <div className="mk-sidebar-nav-item">
+            <NavLink
+                to={`${basePath}/${item.path}`}
+                className={({ isActive }) =>
+                    `mk-sidebar-link ${isActive ? 'active' : ''}`
+                }
+            >
+                <item.icon size={12} strokeWidth={2} />
+                <span>{item.label}</span>
+            </NavLink>
         </div>
     );
-};
-
-const getPageTitle = (pathname, locale) => {
-    const segment = pathname.replace(/^\/marketing\/?/, '').split('/');
-    if (!segment[0]) return locale === 'ar' ? TRANSLATIONS.ar.nav.dashboard : 'Dashboard';
-    const last = segment[segment.length - 1];
-    const label = getNavLabel(last, locale);
-    return locale === 'ar' ? label : last.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 };
 
 export default function MarketingLayout() {
     const location = useLocation();
     const navigate = useNavigate();
+
     const [locale, setLocale] = useState(() => localStorage.getItem('marketing-locale') || 'en');
     const [showAddModal, setShowAddModal] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -151,49 +128,53 @@ export default function MarketingLayout() {
     const [workshops, setWorkshops] = useState([]);
     const [marketingWorkshopId, setMarketingWorkshopId] = useState('');
 
+    const {
+        promotions,
+        setPromotions,
+        promoCodes,
+        setPromoCodes,
+        referrers,
+        setReferrers,
+        referralCodes,
+        setReferralCodes,
+        loyaltyTiers,
+        setLoyaltyTiers,
+        loyaltyProgram,
+        setLoyaltyProgram,
+    } = useMarketingState();
+
     useEffect(() => {
         getWorkshops({ limit: '200', offset: '0' })
             .then((data) => setWorkshops(normalizeWorkshopsPayload(data)))
             .catch(() => setWorkshops([]));
     }, []);
 
-    // Close mobile menu on route change
     useEffect(() => {
         setIsMobileMenuOpen(false);
     }, [location.pathname]);
 
-    const handleLogout = () => {
-        localStorage.removeItem('portal-locale');
-        localStorage.removeItem('marketing-locale');
-        navigate('/');
-    };
-
-    // Sync States (centralized hook)
-    const {
-        promotions, setPromotions,
-        promoCodes, setPromoCodes,
-        referrers, setReferrers,
-        referralCodes, setReferralCodes,
-        loyaltyTiers, setLoyaltyTiers,
-        loyaltyProgram, setLoyaltyProgram
-    } = useMarketingState();
-
     useEffect(() => {
-        const dir = locale === 'ar' ? 'rtl' : 'ltr';
-        const lang = locale === 'ar' ? 'ar' : 'en';
-        document.documentElement.dir = dir;
-        document.documentElement.lang = lang;
+        document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
+        document.documentElement.lang = locale === 'ar' ? 'ar' : 'en';
         localStorage.setItem('marketing-locale', locale);
     }, [locale]);
 
-    const pageTitle = getPageTitle(location.pathname, locale);
-    const t = TRANSLATIONS[locale] || TRANSLATIONS.en;
+    const handleLogout = () => {
+        localStorage.removeItem('portal-locale');
+        localStorage.removeItem('marketing-locale');
+        localStorage.removeItem('filter_auth_token');
+        localStorage.removeItem('filter_auth_user');
+        localStorage.removeItem('filter_auth_workshop');
+        navigate('/');
+    };
 
-    const isDashboard = location.pathname.includes('/dashboard');
-    const isInsights = location.pathname.includes('/customer-insights');
+    const pageTitle = getPageTitle(location.pathname);
 
     return (
-        <div className={`admin-layout ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+        <div
+            className={`marketing-layout-root ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}
+            dir={locale === 'ar' ? 'rtl' : 'ltr'}
+        >
             <AnimatePresence>
                 {isMobileMenuOpen && (
                     <motion.div
@@ -206,114 +187,519 @@ export default function MarketingLayout() {
                 )}
             </AnimatePresence>
 
-            <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
-                <div className="sidebar-logo">
-                    <h2 className="logo-main">FILTER <span className="logo-sub">POS</span></h2>
-                    <p className="logo-desc">{t.logoDesc}</p>
+            <aside className={`marketing-yellow-sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
+                <div className="marketing-brand-row">
+                    <div className="marketing-brand-icon">
+                        <Megaphone size={15} strokeWidth={2.2} />
+                    </div>
+
+                    <div className="marketing-brand-text">
+                        <div className="marketing-brand-title">Marketing</div>
+                        <div className="marketing-brand-sub">&amp; Care Portal</div>
+                    </div>
                 </div>
-                <nav className="sidebar-nav">
-                    {NAV_CONFIG.map((sec) => (
-                        <div key={sec.section}>
-                            <div className="sidebar-section-label">{t.section[sec.section]}</div>
+
+                <div className="marketing-wallet-card">
+                    <div className="marketing-wallet-label">WALLET BALANCE</div>
+                    <div className="marketing-wallet-value">
+                        <Wallet size={12} strokeWidth={2} />
+                        <span>0 SAR</span>
+                    </div>
+                </div>
+
+                <nav className="marketing-sidebar-nav">
+                    {NAV_CONFIG.map((sec, index) => (
+                        <div key={sec.section || `main-${index}`} className="marketing-nav-section">
+                            {sec.section ? (
+                                <div className="marketing-section-label">{sec.section}</div>
+                            ) : null}
+
                             {sec.items.map((item) => (
-                                <SidebarNavItem key={item.path} item={item} basePath="/marketing" locale={locale} />
+                                <SidebarNavItem
+                                    key={`${sec.section || 'main'}-${item.path}-${item.label}`}
+                                    item={item}
+                                    basePath="/marketing"
+                                />
                             ))}
                         </div>
                     ))}
                 </nav>
-                <div className="sidebar-footer">
 
-                    <div
-                        className={`user-pill ${isUserMenuOpen ? 'menu-open' : ''}`}
-                        onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                    >
-                        <div className="user-avatar">MA</div>
-                        <div className="user-details">
-                            <p className="user-name">{t.userName}</p>
-                            <p className="user-role">{t.userRole}</p>
+                <div className="marketing-user-row">
+                    <div className="marketing-user-left">
+                        <div className="marketing-user-avatar">A</div>
+
+                        <div className="marketing-user-meta">
+                            <div className="marketing-user-name">abhutto85</div>
+                            <div className="marketing-user-role">super_admin</div>
                         </div>
-                        <ChevronDown className="user-menu-chevron" size={14} />
-
-                        <UserProfileMenu
-                            isOpen={isUserMenuOpen}
-                            onClose={() => setIsUserMenuOpen(false)}
-                            onLogout={handleLogout}
-                            locale={locale}
-                        />
                     </div>
+
+                    <button
+                        type="button"
+                        className="marketing-user-logout"
+                        onClick={handleLogout}
+                        title="Logout"
+                    >
+                        <LogOut size={12} strokeWidth={2} />
+                    </button>
+
+                    <UserProfileMenu
+                        isOpen={isUserMenuOpen}
+                        onClose={() => setIsUserMenuOpen(false)}
+                        onLogout={handleLogout}
+                        locale={locale}
+                    />
                 </div>
             </aside>
-            <main className="main-content">
-                <header className="top-bar">
-                    <div className="header-info">
-                        <div className="flex items-center gap-4">
-                            <button
-                                type="button"
-                                className="mobile-menu-toggle"
-                                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                            >
-                                {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-                            </button>
-                            <div>
-                                <h1 className="page-title">{locale === 'ar' ? pageTitle : pageTitle.toUpperCase()}</h1>
-                                <p className="page-subtitle">{t.pageSubtitle}</p>
-                            </div>
-                        </div>
+
+            <main className="marketing-main-content">
+                <header className="marketing-simple-header">
+                    <div className="marketing-header-left">
+                        <button
+                            type="button"
+                            className="marketing-mobile-toggle"
+                            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                        >
+                            {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+                        </button>
+
+                        <span className="marketing-header-title">{pageTitle}</span>
+                        <span className="marketing-header-subtitle">Marketing &amp; Care Portal</span>
                     </div>
-                    <div className="flex items-center gap-8">
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.65rem', fontWeight: 700, color: '#64748b' }}>
-                            {locale === 'ar' ? 'نطاق الورشة' : 'Workshop scope'}
-                            <select
-                                className="form-input-field"
-                                style={{ minWidth: 180, height: 38, fontWeight: 600, fontSize: '0.8rem' }}
-                                value={marketingWorkshopId}
-                                onChange={(e) => setMarketingWorkshopId(e.target.value)}
-                            >
-                                <option value="">{locale === 'ar' ? 'كل الورش' : 'All workshops'}</option>
-                                {workshops.map((w) => {
-                                    const id = w.id ?? w._id ?? w.workshopId;
-                                    if (id == null) return null;
-                                    return (
-                                        <option key={String(id)} value={String(id)}>
-                                            {w.name || `Workshop ${id}`}
-                                        </option>
-                                    );
-                                })}
-                            </select>
-                        </label>
-                        {!isDashboard && !isInsights && (
-                            <button
-                                className="btn-portal"
-                                onClick={() => setShowAddModal(true)}
-                            >
-                                <Plus size={18} /> {locale === 'ar' ? 'إضافة جديد' : 'ADD NEW'}
-                            </button>
-                        )}
-                        <div className="header-lang-switcher">
-                            <span className="lang-label"><Globe size={16} /></span>
-                            <button type="button" className={`lang-btn ${locale === 'en' ? 'active' : ''}`} onClick={() => setLocale('en')}>EN</button>
-                            <button type="button" className={`lang-btn ${locale === 'ar' ? 'active' : ''}`} onClick={() => setLocale('ar')}>العربية</button>
-                        </div>
-                        <div className="top-bar-divider" />
-                        <div className="notification-icon">
-                            <span className="notification-dot" />
-                            <Bell color="#6C757D" />
-                        </div>
+
+                    <div className="marketing-header-right">
+                        <span className="marketing-header-user">abhutto85</span>
+
+                        <button
+                            type="button"
+                            onClick={handleLogout}
+                            className="marketing-header-logout"
+                        >
+                            <LogOut size={14} strokeWidth={2} />
+                            Logout
+                        </button>
                     </div>
                 </header>
-                <Outlet context={{
-                    showAddModal, setShowAddModal,
-                    promotions, setPromotions,
-                    promoCodes, setPromoCodes,
-                    referrers, setReferrers,
-                    referralCodes, setReferralCodes,
-                    loyaltyTiers, setLoyaltyTiers,
-                    loyaltyProgram, setLoyaltyProgram,
-                    marketingWorkshopId,
-                    setMarketingWorkshopId,
-                    workshops,
-                }} />
+
+                <Outlet
+                    context={{
+                        showAddModal,
+                        setShowAddModal,
+
+                        promotions,
+                        setPromotions,
+
+                        promoCodes,
+                        setPromoCodes,
+
+                        referrers,
+                        setReferrers,
+
+                        referralCodes,
+                        setReferralCodes,
+
+                        loyaltyTiers,
+                        setLoyaltyTiers,
+
+                        loyaltyProgram,
+                        setLoyaltyProgram,
+
+                        marketingWorkshopId,
+                        setMarketingWorkshopId,
+
+                        workshops,
+
+                        locale,
+                        setLocale,
+                    }}
+                />
             </main>
+
+            <style>
+                {`
+                    .marketing-layout-root {
+                        width: 100%;
+                        min-height: 100vh;
+                        display: flex;
+                        background: #f3f4f6;
+                        overflow: hidden;
+                        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                    }
+
+                    .marketing-yellow-sidebar {
+                        width: 225px;
+                        flex: 0 0 225px;
+                        height: 100vh;
+                        background: #f7c600;
+                        color: #111827;
+                        display: flex;
+                        flex-direction: column;
+                        position: sticky;
+                        top: 0;
+                        left: 0;
+                        z-index: 20;
+                        overflow: hidden;
+                        box-sizing: border-box;
+                    }
+
+                    .marketing-brand-row {
+                        height: 52px;
+                        display: flex;
+                        align-items: center;
+                        gap: 9px;
+                        padding: 0 14px;
+                        box-sizing: border-box;
+                        flex-shrink: 0;
+                    }
+
+                    .marketing-brand-icon {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 7px;
+                        background: #111827;
+                        color: #f7c600;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        flex-shrink: 0;
+                    }
+
+                    .marketing-brand-title {
+                        font-size: 13px;
+                        font-weight: 800;
+                        color: #111827;
+                        line-height: 1.05;
+                    }
+
+                    .marketing-brand-sub {
+                        font-size: 9px;
+                        font-weight: 500;
+                        color: #1f2937;
+                        line-height: 1.05;
+                    }
+
+                    .marketing-wallet-card {
+                        margin: 6px 9px 12px;
+                        height: 61px;
+                        border-radius: 7px;
+                        background: rgba(185, 139, 0, 0.18);
+                        padding: 10px 12px;
+                        box-sizing: border-box;
+                        flex-shrink: 0;
+                    }
+
+                    .marketing-wallet-label {
+                        font-size: 8px;
+                        font-weight: 800;
+                        color: #5b4600;
+                        letter-spacing: 1.5px;
+                        line-height: 1;
+                        margin-bottom: 12px;
+                    }
+
+                    .marketing-wallet-value {
+                        display: flex;
+                        align-items: center;
+                        gap: 6px;
+                        color: #111827;
+                        font-size: 11px;
+                        font-weight: 800;
+                        line-height: 1;
+                    }
+
+                    .marketing-wallet-value span {
+                        font-size: 10px;
+                        font-weight: 500;
+                    }
+
+                    .marketing-sidebar-nav {
+                        flex: 1;
+                        min-height: 0;
+                        overflow-y: auto;
+                        overflow-x: hidden;
+                        padding-bottom: 10px;
+                        padding-right: 4px;
+                        box-sizing: border-box;
+                        scrollbar-width: thin;
+                        scrollbar-color: #9ca3af transparent;
+                    }
+
+                    .marketing-sidebar-nav::-webkit-scrollbar {
+                        width: 6px;
+                    }
+
+                    .marketing-sidebar-nav::-webkit-scrollbar-track {
+                        background: transparent;
+                    }
+
+                    .marketing-sidebar-nav::-webkit-scrollbar-thumb {
+                        background: #9ca3af;
+                        border-radius: 30px;
+                    }
+
+                    .marketing-sidebar-nav::-webkit-scrollbar-thumb:hover {
+                        background: #6b7280;
+                    }
+
+                    .marketing-nav-section {
+                        margin-bottom: 11px;
+                    }
+
+                    .marketing-section-label {
+                        padding: 0 14px;
+                        margin-bottom: 5px;
+                        font-size: 7.8px;
+                        font-weight: 900;
+                        letter-spacing: 1.7px;
+                        color: rgba(17, 24, 39, 0.45);
+                    }
+
+                    .mk-sidebar-nav-item {
+                        padding: 0 8px;
+                        box-sizing: border-box;
+                    }
+
+                    .mk-sidebar-link {
+                        height: 31px;
+                        border-radius: 3px;
+                        display: flex;
+                        align-items: center;
+                        gap: 9px;
+                        padding: 0 8px;
+                        color: #111827;
+                        text-decoration: none;
+                        font-size: 12px;
+                        font-weight: 500;
+                        box-sizing: border-box;
+                        white-space: nowrap;
+                    }
+
+                    .mk-sidebar-link:hover,
+                    .mk-sidebar-link.active {
+                        background: rgba(185, 139, 0, 0.30);
+                        color: #111827;
+                    }
+
+                    .mk-sidebar-link.active {
+                        font-weight: 800;
+                    }
+
+                    .mk-sidebar-link svg {
+                        width: 13px;
+                        height: 13px;
+                        flex-shrink: 0;
+                    }
+
+                    .mk-sidebar-link span {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    }
+
+                    .marketing-user-row {
+                        height: 50px;
+                        border-top: 1px solid rgba(17, 24, 39, 0.08);
+                        background: rgba(185, 139, 0, 0.10);
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        padding: 0 12px;
+                        box-sizing: border-box;
+                        flex-shrink: 0;
+                    }
+
+                    .marketing-user-left {
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        min-width: 0;
+                    }
+
+                    .marketing-user-avatar {
+                        width: 22px;
+                        height: 22px;
+                        border-radius: 50%;
+                        background: #111827;
+                        color: #f7c600;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 10px;
+                        font-weight: 800;
+                        flex-shrink: 0;
+                    }
+
+                    .marketing-user-meta {
+                        min-width: 0;
+                    }
+
+                    .marketing-user-name {
+                        font-size: 10px;
+                        font-weight: 800;
+                        color: #111827;
+                        line-height: 1.05;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    }
+
+                    .marketing-user-role {
+                        font-size: 8px;
+                        color: rgba(17, 24, 39, 0.65);
+                        line-height: 1.05;
+                        margin-top: 2px;
+                    }
+
+                    .marketing-user-logout {
+                        border: none;
+                        background: transparent;
+                        color: #111827;
+                        cursor: pointer;
+                        padding: 4px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        flex-shrink: 0;
+                    }
+
+                    .marketing-user-logout:hover {
+                        background: rgba(0, 0, 0, 0.06);
+                        border-radius: 4px;
+                    }
+
+                    .marketing-main-content {
+                        flex: 1;
+                        min-width: 0;
+                        height: 100vh;
+                        overflow-y: auto;
+                        background: #f3f4f6;
+                        padding: 0 !important;
+                        margin: 0 !important;
+                    }
+
+                    .marketing-simple-header {
+                        height: 54px;
+                        background: #ffffff;
+                        border-bottom: 1px solid #e5e7eb;
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        padding: 0 26px;
+                        box-sizing: border-box;
+                        position: sticky;
+                        top: 0;
+                        z-index: 10;
+                    }
+
+                    .marketing-header-left,
+                    .marketing-header-right {
+                        display: flex;
+                        align-items: center;
+                    }
+
+                    .marketing-header-left {
+                        gap: 8px;
+                    }
+
+                    .marketing-header-right {
+                        gap: 14px;
+                    }
+
+                    .marketing-header-title {
+                        font-size: 16px;
+                        font-weight: 800;
+                        color: #111827;
+                        line-height: 1;
+                    }
+
+                    .marketing-header-subtitle {
+                        font-size: 13px;
+                        font-weight: 400;
+                        color: #94a3b8;
+                        line-height: 1;
+                    }
+
+                    .marketing-header-user {
+                        font-size: 14px;
+                        font-weight: 800;
+                        color: #111827;
+                    }
+
+                    .marketing-header-logout {
+                        border: none;
+                        background: transparent;
+                        color: #6b7280;
+                        display: flex;
+                        align-items: center;
+                        gap: 5px;
+                        cursor: pointer;
+                        font-size: 12px;
+                        font-weight: 500;
+                        padding: 0;
+                    }
+
+                    .marketing-mobile-toggle {
+                        display: none;
+                        border: none;
+                        background: transparent;
+                        padding: 0;
+                        margin-right: 8px;
+                        color: #111827;
+                        cursor: pointer;
+                    }
+
+                    .sidebar-overlay {
+                        position: fixed;
+                        inset: 0;
+                        background: rgba(15, 23, 42, 0.35);
+                        z-index: 19;
+                    }
+
+                    .marketing-layout-root .top-bar {
+                        display: none !important;
+                    }
+
+                    .marketing-layout-root .main-content {
+                        padding: 0 !important;
+                        margin: 0 !important;
+                    }
+
+                    @media (max-width: 900px) {
+                        .marketing-layout-root {
+                            display: block;
+                        }
+
+                        .marketing-yellow-sidebar {
+                            position: fixed;
+                            transform: translateX(-100%);
+                            transition: transform 0.25s ease;
+                        }
+
+                        .marketing-yellow-sidebar.open {
+                            transform: translateX(0);
+                        }
+
+                        .marketing-main-content {
+                            width: 100%;
+                            height: 100vh;
+                        }
+
+                        .marketing-mobile-toggle {
+                            display: inline-flex;
+                            align-items: center;
+                            justify-content: center;
+                        }
+
+                        .marketing-simple-header {
+                            padding: 0 16px;
+                        }
+
+                        .marketing-header-subtitle {
+                            display: none;
+                        }
+                    }
+                `}
+            </style>
         </div>
     );
 }

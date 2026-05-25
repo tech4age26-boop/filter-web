@@ -466,6 +466,17 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
             const q = search.trim().toLowerCase();
             list = list.filter(o => (o.orderNumber + ' ' + o.customerName + ' ' + o.plateNumber).toLowerCase().includes(q));
         }
+        list.sort((a, b) => {
+            try {
+                const ai = BigInt(String(a.id ?? '0'));
+                const bi = BigInt(String(b.id ?? '0'));
+                if (ai < bi) return -1;
+                if (ai > bi) return 1;
+                return 0;
+            } catch {
+                return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+            }
+        });
         return list;
     }, [mappedOrders, tab, search]);
 
