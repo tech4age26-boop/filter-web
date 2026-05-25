@@ -3,6 +3,7 @@ import { RefreshCw, Plus, Pencil } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs, branchScopeParams } from '../../services/workshopStaffApi';
 import Modal from '../../components/Modal';
+import { useAuth } from '../../context/AuthContext';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 
 const toNumber = (value) => {
@@ -149,6 +150,9 @@ function PromoCodeFormFields({ form, setForm, codeReadOnly = false, usageCount }
 }
 
 export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches = [] }) {
+    const { hasPermission } = useAuth();
+    const canCreatePromo = hasPermission('workshop.promo-codes.create');
+    const canEditPromo   = hasPermission('workshop.promo-codes.edit');
     const branchLabel = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
         return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
@@ -264,9 +268,11 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                     <button type="button" className="btn-portal" onClick={loadPromoCodes} disabled={isLoading}>
                         <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
                     </button>
-                    <button type="button" className="btn-portal" onClick={openCreate}>
-                        <Plus size={14} /> Create Promo
-                    </button>
+                    {canCreatePromo && (
+                        <button type="button" className="btn-portal" onClick={openCreate}>
+                            <Plus size={14} /> Create Promo
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -340,14 +346,16 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                                             </span>
                                         </td>
                                         <td>
-                                            <button
-                                                type="button"
-                                                className="btn-portal"
-                                                style={{ padding: '6px 10px', fontSize: '0.75rem' }}
-                                                onClick={() => openEdit(promo)}
-                                            >
-                                                <Pencil size={12} /> Edit
-                                            </button>
+                                            {canEditPromo && (
+                                                <button
+                                                    type="button"
+                                                    className="btn-portal"
+                                                    style={{ padding: '6px 10px', fontSize: '0.75rem' }}
+                                                    onClick={() => openEdit(promo)}
+                                                >
+                                                    <Pencil size={12} /> Edit
+                                                </button>
+                                            )}
                                         </td>
                                     </tr>
                                 ))

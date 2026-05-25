@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Modal from '../Modal';
+import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/MasterCatalog.css';
 import productsCsvTemplate from '../../../Products.csv?url';
 import servicesCsvTemplate from '../../../Services.csv?url';
@@ -124,13 +125,13 @@ function buildKpiCards(kpis) {
 }
 
 const MASTER_TABS = [
-    { id: 'master', label: 'Master Catalog', icon: CheckCircle2 },
-    { id: 'dept', label: 'Master Department', icon: LayoutGrid },
-    { id: 'category', label: 'Master Category', icon: Tags },
-    { id: 'requests', label: 'Product Requests', icon: Layers },
-    { id: 'duplication', label: 'Duplication Review', icon: Copy },
-    { id: 'availability', label: 'Supplier Availability', icon: Package },
-    { id: 'services', label: 'Services', icon: Layers },
+    { id: 'master',       label: 'Master Catalog',         icon: CheckCircle2, permission: 'inventory.master-catalog.products.view' },
+    { id: 'dept',         label: 'Master Department',      icon: LayoutGrid,   permission: 'inventory.master-catalog.departments.view' },
+    { id: 'category',     label: 'Master Category',        icon: Tags,         permission: 'inventory.master-catalog.categories.view' },
+    { id: 'requests',     label: 'Product Requests',       icon: Layers,       permission: 'inventory.master-catalog.requests.view' },
+    { id: 'duplication',  label: 'Duplication Review',     icon: Copy,         permission: 'inventory.master-catalog.duplication.view' },
+    { id: 'availability', label: 'Supplier Availability',  icon: Package,      permission: 'inventory.master-catalog.availability.view' },
+    { id: 'services',     label: 'Services',               icon: Layers,       permission: 'inventory.master-catalog.services.view' },
 ];
 
 const parseNumberOr = parseNonNegativeNumberOr;
@@ -289,7 +290,18 @@ function formatVatWarningItem(w) {
 }
 
 export default function MasterCatalog() {
-    const [activeTab, setActiveTab] = useState('master');
+    const { hasPermission } = useAuth();
+    const visibleMasterTabs = MASTER_TABS.filter((t) => hasPermission(t.permission));
+    const [activeTab, setActiveTab] = useState(() => visibleMasterTabs[0]?.id ?? 'master');
+
+    // If the current activeTab is no longer visible (perms changed mid-session), snap to first allowed.
+    useEffect(() => {
+        if (visibleMasterTabs.length === 0) return;
+        if (!visibleMasterTabs.some((t) => t.id === activeTab)) {
+            setActiveTab(visibleMasterTabs[0].id);
+        }
+    }, [visibleMasterTabs, activeTab]);
+
     const [statusFilter, setStatusFilter] = useState('Approved');
     const [searchQuery, setSearchQuery] = useState('');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -1341,7 +1353,12 @@ export default function MasterCatalog() {
                         const createdRaw = p.createdAt ?? p.created_at;
                         const createdLabel = formatCatalogCreatedAt(createdRaw);
                         return (
-                            <div key={p.id} className="mc-product-card" onClick={() => handleEditClick(p)}>
+                            <div
+                                key={p.id}
+                                className="mc-product-card"
+                                onClick={() => { if (hasPermission('inventory.master-catalog.products.edit')) handleEditClick(p); }}
+                                style={{ cursor: hasPermission('inventory.master-catalog.products.edit') ? 'pointer' : 'default' }}
+                            >
                                 <div className="mc-pc-header">
                                     <div className="mc-pc-icon"><Edit3 size={18} /></div>
                                     <span className={`mc-pc-status ${p.isActive === false ? 'rejected' : 'approved'}`}>
@@ -1368,9 +1385,11 @@ export default function MasterCatalog() {
                                     </div>
                                     <div className="mc-pc-footer">
                                         <span className="mc-pc-price">SAR {p.salePrice ?? 0}</span>
-                                        <button className="mc-pc-edit-btn" onClick={(e) => { e.stopPropagation(); handleEditClick(p); }}>
-                                            <Edit3 size={14} />
-                                        </button>
+                                        {hasPermission('inventory.master-catalog.products.edit') && (
+                                            <button className="mc-pc-edit-btn" onClick={(e) => { e.stopPropagation(); handleEditClick(p); }}>
+                                                <Edit3 size={14} />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -1394,7 +1413,9 @@ export default function MasterCatalog() {
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                     </div>
-                    <button className="mc-btn-primary small" onClick={() => setIsAddDeptModalOpen(true)}><Plus size={14} /> Add Department</button>
+                    {hasPermission('inventory.master-catalog.departments.create') && (
+                        <button className="mc-btn-primary small" onClick={() => setIsAddDeptModalOpen(true)}><Plus size={14} /> Add Department</button>
+                    )}
                 </div>
             </div>
 
@@ -1405,8 +1426,12 @@ export default function MasterCatalog() {
                         <h3 className="mc-dept-name">{dept.name}</h3>
                         <p className="mc-dept-meta">Department</p>
                         <div className="mc-dept-actions">
-                            <button className="mc-btn-icon" onClick={() => handleEditDeptClick(dept)}><Edit3 size={14} /></button>
-                            <button className="mc-btn-icon delete" onClick={() => handleDeleteDeptClick(dept.id)}><Trash2 size={14} /></button>
+                            {hasPermission('inventory.master-catalog.departments.edit') && (
+                                <button className="mc-btn-icon" onClick={() => handleEditDeptClick(dept)}><Edit3 size={14} /></button>
+                            )}
+                            {hasPermission('inventory.master-catalog.departments.delete') && (
+                                <button className="mc-btn-icon delete" onClick={() => handleDeleteDeptClick(dept.id)}><Trash2 size={14} /></button>
+                            )}
                         </div>
                     </div>
                 ))}
@@ -1427,7 +1452,9 @@ export default function MasterCatalog() {
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                     </div>
-                    <button className="mc-btn-primary small" onClick={() => setIsAddCatModalOpen(true)}><Plus size={14} /> Add Category</button>
+                    {hasPermission('inventory.master-catalog.categories.create') && (
+                        <button className="mc-btn-primary small" onClick={() => setIsAddCatModalOpen(true)}><Plus size={14} /> Add Category</button>
+                    )}
                 </div>
             </div>
 
@@ -1456,8 +1483,12 @@ export default function MasterCatalog() {
                                 </td>
                                 <td>
                                     <div className="mc-table-actions">
-                                        <button className="mc-btn-icon" onClick={() => handleEditCatClick(cat)}><Edit3 size={14} /></button>
-                                        <button className="mc-btn-icon delete" onClick={() => handleDeleteCatClick(cat.id)}><Trash2 size={14} /></button>
+                                        {hasPermission('inventory.master-catalog.categories.edit') && (
+                                            <button className="mc-btn-icon" onClick={() => handleEditCatClick(cat)}><Edit3 size={14} /></button>
+                                        )}
+                                        {hasPermission('inventory.master-catalog.categories.delete') && (
+                                            <button className="mc-btn-icon delete" onClick={() => handleDeleteCatClick(cat.id)}><Trash2 size={14} /></button>
+                                        )}
                                     </div>
                                 </td>
                             </tr>
@@ -1776,14 +1807,16 @@ export default function MasterCatalog() {
                                                             </span>
                                                         </td>
                                                         <td>
-                                                            <button
-                                                                type="button"
-                                                                className="mc-btn-icon delete"
-                                                                title="Delete this record"
-                                                                onClick={() => handleDeleteDuplicateItem(group.entityType, item)}
-                                                            >
-                                                                <Trash2 size={14} />
-                                                            </button>
+                                                            {hasPermission('inventory.master-catalog.duplication.edit') && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="mc-btn-icon delete"
+                                                                    title="Delete this record"
+                                                                    onClick={() => handleDeleteDuplicateItem(group.entityType, item)}
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            )}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -1961,13 +1994,14 @@ export default function MasterCatalog() {
                                 className="mc-service-card"
                                 role="button"
                                 tabIndex={0}
-                                onClick={() => openEditService(p)}
+                                onClick={() => { if (hasPermission('inventory.master-catalog.services.edit')) openEditService(p); }}
                                 onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
+                                    if ((e.key === 'Enter' || e.key === ' ') && hasPermission('inventory.master-catalog.services.edit')) {
                                         e.preventDefault();
                                         openEditService(p);
                                     }
                                 }}
+                                style={{ cursor: hasPermission('inventory.master-catalog.services.edit') ? 'pointer' : 'default' }}
                             >
                                 <div className="mc-sc-header">
                                     <div className="mc-sc-icon">
@@ -2047,14 +2081,16 @@ export default function MasterCatalog() {
                                             />
                                         </div>
                                     </div>
-                                    <Edit3
-                                        size={14}
-                                        className="mc-sc-edit-icon"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            openEditService(p);
-                                        }}
-                                    />
+                                    {hasPermission('inventory.master-catalog.services.edit') && (
+                                        <Edit3
+                                            size={14}
+                                            className="mc-sc-edit-icon"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                openEditService(p);
+                                            }}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         );
@@ -2074,18 +2110,26 @@ export default function MasterCatalog() {
                 </div>
                 <div className="mc-header-actions">
                     <button type="button" className="mc-btn-ghost"><RefreshCw size={16} /> Sync Depts</button>
-                    <button type="button" className="mc-btn-ghost" onClick={() => setIsBulkProductModalOpen(true)}>
-                        <Upload size={16} /> Bulk upload Product
-                    </button>
-                    <button type="button" className="mc-btn-ghost" onClick={() => setIsBulkServiceModalOpen(true)}>
-                        <Upload size={16} /> Bulk upload Service
-                    </button>
-                    <button type="button" className="mc-btn-primary" onClick={() => setIsAddModalOpen(true)}>
-                        <Plus size={16} /> Add product
-                    </button>
-                    <button type="button" className="mc-btn-primary purple-btn" onClick={() => setIsAddServiceModalOpen(true)}>
-                        <Plus size={16} /> Add service
-                    </button>
+                    {hasPermission('inventory.master-catalog.products.create') && (
+                        <button type="button" className="mc-btn-ghost" onClick={() => setIsBulkProductModalOpen(true)}>
+                            <Upload size={16} /> Bulk upload Product
+                        </button>
+                    )}
+                    {hasPermission('inventory.master-catalog.services.create') && (
+                        <button type="button" className="mc-btn-ghost" onClick={() => setIsBulkServiceModalOpen(true)}>
+                            <Upload size={16} /> Bulk upload Service
+                        </button>
+                    )}
+                    {hasPermission('inventory.master-catalog.products.create') && (
+                        <button type="button" className="mc-btn-primary" onClick={() => setIsAddModalOpen(true)}>
+                            <Plus size={16} /> Add product
+                        </button>
+                    )}
+                    {hasPermission('inventory.master-catalog.services.create') && (
+                        <button type="button" className="mc-btn-primary purple-btn" onClick={() => setIsAddServiceModalOpen(true)}>
+                            <Plus size={16} /> Add service
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -2121,7 +2165,7 @@ export default function MasterCatalog() {
 
             {/* Inner Navigation Tabs */}
             <div className="mc-tabs-container">
-                {MASTER_TABS.map(tab => (
+                {visibleMasterTabs.map(tab => (
                     <button
                         key={tab.id}
                         className={`mc-tab-btn ${activeTab === tab.id ? 'active' : ''}`}
@@ -2131,6 +2175,11 @@ export default function MasterCatalog() {
                         {tab.label}
                     </button>
                 ))}
+                {visibleMasterTabs.length === 0 && (
+                    <div style={{ padding: 20, color: '#94a3b8', fontSize: '0.875rem' }}>
+                        You don't have permission to view any Master Catalog tabs.
+                    </div>
+                )}
             </div>
 
             {/* Banner Notification */}
@@ -2142,14 +2191,14 @@ export default function MasterCatalog() {
                 </div>
             </div>
 
-            {/* Render Active Tab Content */}
-            {activeTab === 'master' && renderMasterCatalog()}
-            {activeTab === 'dept' && renderMasterDepartment()}
-            {activeTab === 'category' && renderMasterCategory()}
-            {activeTab === 'requests' && renderProductRequests()}
-            {activeTab === 'duplication' && renderDuplicationReview()}
-            {activeTab === 'availability' && renderSupplierAvailability()}
-            {activeTab === 'services' && renderServices()}
+            {/* Render Active Tab Content — re-check permission as a defense-in-depth gate */}
+            {activeTab === 'master'       && hasPermission('inventory.master-catalog.products.view')     && renderMasterCatalog()}
+            {activeTab === 'dept'         && hasPermission('inventory.master-catalog.departments.view')  && renderMasterDepartment()}
+            {activeTab === 'category'     && hasPermission('inventory.master-catalog.categories.view')   && renderMasterCategory()}
+            {activeTab === 'requests'     && hasPermission('inventory.master-catalog.requests.view')     && renderProductRequests()}
+            {activeTab === 'duplication'  && hasPermission('inventory.master-catalog.duplication.view')  && renderDuplicationReview()}
+            {activeTab === 'availability' && hasPermission('inventory.master-catalog.availability.view') && renderSupplierAvailability()}
+            {activeTab === 'services'     && hasPermission('inventory.master-catalog.services.view')     && renderServices()}
 
             {/* Add Department Modal */}
             <AnimatePresence>

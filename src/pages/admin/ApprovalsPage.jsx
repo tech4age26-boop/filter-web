@@ -23,6 +23,30 @@ import {
 import Modal from '../../components/Modal';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
+import { useAuth } from '../../context/AuthContext';
+
+/**
+ * Map backend entity-type string (snake_case) → permission code suffix (kebab-case).
+ * Used to build per-type permission keys: `approvals.<suffix>.{view,approve,reject}`
+ */
+const APPROVAL_TYPE_TO_PERMISSION_SUFFIX = {
+    workshop_registration: 'workshop-registration',
+    branch_creation: 'branch-creation',
+    cashier_registration: 'cashier-registration',
+    workshop_portal_staff_registration: 'workshop-portal-staff',
+    technician_registration: 'technician-registration',
+    supplier_registration: 'supplier-registration',
+    corporate_registration: 'corporate-registration',
+    corporate_price_quotation: 'corporate-price-quotation',
+    corporate_walk_in_booking: 'corporate-walk-in-booking',
+    corporate_payment_approval: 'corporate-payment-proof',
+};
+
+function approvalPermission(entityType, action) {
+    const suffix = APPROVAL_TYPE_TO_PERMISSION_SUFFIX[entityType];
+    if (!suffix) return null; // unknown type → no gate (open)
+    return `approvals.${suffix}.${action}`;
+}
 
 const ENTITY_TYPES = [
     { value: '', label: 'All Types' },
@@ -549,12 +573,16 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
                     <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
                     {data?.status === 'pending' && (
                         <>
-                            <button type="button" className="btn-reject" onClick={onReject}>
-                                <X size={16} /> Reject
-                            </button>
-                            <button type="button" className="btn-approve" onClick={onApprove}>
-                                <Check size={16} /> Approve
-                            </button>
+                            {onReject && (
+                                <button type="button" className="btn-reject" onClick={onReject}>
+                                    <X size={16} /> Reject
+                                </button>
+                            )}
+                            {onApprove && (
+                                <button type="button" className="btn-approve" onClick={onApprove}>
+                                    <Check size={16} /> Approve
+                                </button>
+                            )}
                         </>
                     )}
                 </>
@@ -789,6 +817,36 @@ function Toast({ toast }) {
 /* ------------------------------------------------------------------ */
 
 export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
+    const { hasPermission } = useAuth();
+
+    /**
+     * Per-entity-type access helpers.
+     *
+     * Backward compat: if the user has the parent `approvals.view/approve/reject`
+     * permission but NO per-type permissions, we treat them as having all types
+     * (so old roles keep working without re-editing). New roles that grant
+     * specific per-type permissions enable fine-grained gating.
+     */
+    const canViewType = useCallback((entityType) => {
+        const code = approvalPermission(entityType, 'view');
+        return code ? hasPermission(code) : true;
+    }, [hasPermission]);
+    const canApproveType = useCallback((entityType) => {
+        const code = approvalPermission(entityType, 'approve');
+        return code ? hasPermission(code) : hasPermission('approvals.approve');
+    }, [hasPermission]);
+    const canRejectType = useCallback((entityType) => {
+        const code = approvalPermission(entityType, 'reject');
+        return code ? hasPermission(code) : hasPermission('approvals.reject');
+    }, [hasPermission]);
+
+    const visibleEntityTypes = useMemo(
+        () => ENTITY_TYPES.filter(
+            (et) => et.value === '' || canViewType(et.value),
+        ),
+        [canViewType],
+    );
+
     const [currentTab, setCurrentTab] = useState(onlySettings ? 'Settings' : 'Pending');
     const [entityTypeFilter, setEntityTypeFilter] = useState('');
     const [items, setItems] = useState([]);
@@ -995,7 +1053,23 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         }
     };
 
-    const tabs = ['Pending', 'Approved', 'Rejected', 'All'];
+    // Pending is always available when the parent `approvals.view` is granted
+    // (sidebar gate already enforces this). The 3 history tabs require their
+    // own per-tab view permissions — admin can grant any subset.
+    const tabs = [
+        { key: 'Pending',  show: true },
+        { key: 'Approved', show: hasPermission('approvals.approved-history.view') },
+        { key: 'Rejected', show: hasPermission('approvals.rejected-history.view') },
+        { key: 'All',      show: hasPermission('approvals.all-history.view') },
+    ].filter((t) => t.show);
+
+    // If user lands on a hidden tab (perms changed mid-session), snap back to Pending.
+    useEffect(() => {
+        if (currentTab === 'Settings') return;
+        if (!tabs.some((t) => t.key === currentTab)) {
+            setCurrentTab(tabs[0]?.key ?? 'Pending');
+        }
+    }, [tabs, currentTab]);
 
     const content = (
         <>
@@ -1005,12 +1079,12 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 <div className="tabs-container">
                     {tabs.map((tab) => (
                         <button
-                            key={tab}
+                            key={tab.key}
                             type="button"
-                            className={`tab-item ${currentTab === tab ? 'active' : ''}`}
-                            onClick={() => setCurrentTab(tab)}
+                            className={`tab-item ${currentTab === tab.key ? 'active' : ''}`}
+                            onClick={() => setCurrentTab(tab.key)}
                         >
-                            {tab}
+                            {tab.key}
                         </button>
                     ))}
                 </div>
@@ -1023,7 +1097,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                         value={entityTypeFilter}
                         onChange={(e) => setEntityTypeFilter(e.target.value)}
                     >
-                        {ENTITY_TYPES.map((et) => (
+                        {visibleEntityTypes.map((et) => (
                             <option key={et.value} value={et.value}>{et.label}</option>
                         ))}
                     </select>
@@ -1106,8 +1180,10 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
 
             {currentTab !== 'Settings' && !loading && !error && items.length > 0 && (
                 <div className="approval-cards">
-                    {items.map((item) => {
+                    {items.filter((item) => canViewType(item.entityType)).map((item) => {
                         const chips = buildMetaChips(item);
+                        const allowApprove = canApproveType(item.entityType);
+                        const allowReject = canRejectType(item.entityType);
                         return (
                             <div key={item.id} className="approval-card">
                                 <div className="approval-card-header">
@@ -1144,22 +1220,26 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                 <div className="approval-card-actions">
                                     {item.status === 'pending' && (
                                         <>
-                                            <button
-                                                type="button"
-                                                className="btn-approve"
-                                                disabled={actionLoading === item.id}
-                                                onClick={() => setApproveTarget(item)}
-                                            >
-                                                {actionLoading === item.id ? <Loader size={14} className="spin" /> : <Check size={16} />} Approve
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="btn-reject"
-                                                disabled={actionLoading === item.id}
-                                                onClick={() => setRejectTarget(item)}
-                                            >
-                                                {actionLoading === item.id ? <Loader size={14} className="spin" /> : <X size={16} />} Reject
-                                            </button>
+                                            {allowApprove && (
+                                                <button
+                                                    type="button"
+                                                    className="btn-approve"
+                                                    disabled={actionLoading === item.id}
+                                                    onClick={() => setApproveTarget(item)}
+                                                >
+                                                    {actionLoading === item.id ? <Loader size={14} className="spin" /> : <Check size={16} />} Approve
+                                                </button>
+                                            )}
+                                            {allowReject && (
+                                                <button
+                                                    type="button"
+                                                    className="btn-reject"
+                                                    disabled={actionLoading === item.id}
+                                                    onClick={() => setRejectTarget(item)}
+                                                >
+                                                    {actionLoading === item.id ? <Loader size={14} className="spin" /> : <X size={16} />} Reject
+                                                </button>
+                                            )}
                                         </>
                                     )}
                                     <button
@@ -1192,8 +1272,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     id={detailsTarget.id}
                     item={detailsTarget.item}
                     onClose={() => setDetailsTarget(null)}
-                    onApprove={() => setApproveTarget(detailsTarget.item)}
-                    onReject={() => setRejectTarget(detailsTarget.item)}
+                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
+                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
                 />
             )}
 
@@ -1203,6 +1283,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     id={detailsTarget.id}
                     onClose={() => setDetailsTarget(null)}
                     actionDisabled={actionLoading === detailsTarget.id}
+                    canApprove={canApproveType(detailsTarget.entityType)}
+                    canReject={canRejectType(detailsTarget.entityType)}
                     onApprove={(data) => {
                         const idStr = toStringId(
                             data?.requestId ?? data?.id ?? detailsTarget.id,

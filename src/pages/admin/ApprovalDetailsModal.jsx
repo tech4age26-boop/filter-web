@@ -1523,6 +1523,7 @@ function renderBody(entityType, data) {
 
 export default function ApprovalDetailsModal({
     entityType, id, onClose, onApprove, onReject, actionDisabled = false,
+    canApprove = true, canReject = true,
 }) {
     // Modal is mounted fresh per (entityType, id) — start in the loading
     // state and let the effect's promise callbacks transition out. This
@@ -1579,24 +1580,28 @@ export default function ApprovalDetailsModal({
             title={titleSuffix ? `Approval Details — ${titleSuffix}` : 'Approval Details'}
             onClose={onClose}
             width={920}
-            footer={showApproveReject ? (
+            footer={showApproveReject && (canApprove || canReject) ? (
                 <div className="approval-details-actions">
-                    <button
-                        type="button"
-                        className="btn-reject"
-                        disabled={actionDisabled}
-                        onClick={() => onReject?.(data)}
-                    >
-                        <X size={16} /> Reject
-                    </button>
-                    <button
-                        type="button"
-                        className="btn-approve"
-                        disabled={actionDisabled}
-                        onClick={() => onApprove?.(data)}
-                    >
-                        <Check size={16} /> Approve
-                    </button>
+                    {canReject && (
+                        <button
+                            type="button"
+                            className="btn-reject"
+                            disabled={actionDisabled}
+                            onClick={() => onReject?.(data)}
+                        >
+                            <X size={16} /> Reject
+                        </button>
+                    )}
+                    {canApprove && (
+                        <button
+                            type="button"
+                            className="btn-approve"
+                            disabled={actionDisabled}
+                            onClick={() => onApprove?.(data)}
+                        >
+                            <Check size={16} /> Approve
+                        </button>
+                    )}
                 </div>
             ) : null}
         >

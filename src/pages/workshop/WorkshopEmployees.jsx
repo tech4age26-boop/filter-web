@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Users, Wrench, Radio, Plus, Pencil, Trash2, Loader, Eye, EyeOff } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import { useAuth } from '../../context/AuthContext';
 import { ROLE_OPTIONS, COMMISSION_TYPE_OPTIONS, normalizeCommissionType } from './constants';
 import {
     loadWorkshopEmployeesCombined,
@@ -87,6 +88,10 @@ const EMPTY_FORM = {
 };
 
 export default function WorkshopEmployees({ selectedBranchId = 'all', branches: branchesProp = [] }) {
+    const { hasPermission } = useAuth();
+    const canCreate = hasPermission('workshop.employees.create');
+    const canEdit   = hasPermission('workshop.employees.edit');
+    const canDelete = hasPermission('workshop.employees.delete');
     const [employees, setEmployees] = useState([]);
     const [branchList, setBranchList] = useState([]);
     const [workshopDepartments, setWorkshopDepartments] = useState([]);
@@ -152,9 +157,21 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
     const branchSelectOptions = useMemo(() => {
         const asTechnician = form.is_technician || isTechnicianRole(form.role);
         const cashierOrPortalEdit = editing && editing._source !== 'technician';
-        if (asTechnician && !cashierOrPortalEdit) return branchList;
-        return branchesForNonTechnicianSelect;
-    }, [form.is_technician, form.role, branchList, branchesForNonTechnicianSelect, editing]);
+        const base = (asTechnician && !cashierOrPortalEdit)
+            ? branchList
+            : branchesForNonTechnicianSelect;
+
+        // Sidebar branch scope — when a specific branch is selected, narrow the
+        // form's branch dropdown so the admin can only create/edit employees
+        // under that branch. While editing an existing row keep its current
+        // branch visible so the option doesn't disappear.
+        const isAll = !selectedBranchId || selectedBranchId === 'all';
+        if (isAll) return base;
+        return base.filter((b) =>
+            String(b.id) === String(selectedBranchId)
+            || (editing && String(b.id) === String(editing.branchId ?? '')),
+        );
+    }, [form.is_technician, form.role, branchList, branchesForNonTechnicianSelect, editing, selectedBranchId]);
 
     const loadEmployees = useCallback(async () => {
         setListError('');
@@ -262,7 +279,11 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
 
     const openAdd = () => {
         setEditing(null);
-        setForm(EMPTY_FORM);
+        // Pre-fill the branch from the sidebar scope (so the admin doesn't have
+        // to re-pick it). If "All Branches" is selected we leave it blank.
+        const presetBranchId =
+            selectedBranchId && selectedBranchId !== 'all' ? String(selectedBranchId) : '';
+        setForm({ ...EMPTY_FORM, branchId: presetBranchId });
         setShowPassword(false);
         setModalOpen(true);
         ensureDepartmentsLoaded();
@@ -548,9 +569,11 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                         the workshop portal after approval.
                     </p>
                 </div>
-                <button className="btn-portal" onClick={openAdd} disabled={saving}>
-                    <Plus size={15} /> Add New Employee
-                </button>
+                {canCreate && (
+                    <button className="btn-portal" onClick={openAdd} disabled={saving}>
+                        <Plus size={15} /> Add New Employee
+                    </button>
+                )}
             </div>
             {listError && (
                 <div className="ws-section" style={{ marginBottom: 12, padding: 12, color: '#B91C1C', fontSize: '0.875rem' }}>
@@ -641,40 +664,44 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                             </span>
                                         </td>
                                         <td style={{ display: 'flex', gap: 6 }}>
-                                            <button
-                                                type="button"
-                                                onClick={() => openEdit(emp)}
-                                                style={{
-                                                    padding: '5px 10px',
-                                                    background: '#EFF6FF',
-                                                    color: '#2563EB',
-                                                    border: 'none',
-                                                    borderRadius: 6,
-                                                    fontWeight: 700,
-                                                    cursor: 'pointer',
-                                                    fontSize: '0.75rem',
-                                                }}
-                                                disabled={saving}
-                                            >
-                                                <Pencil size={12} />
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleDelete(emp.id, emp._source)}
-                                                style={{
-                                                    padding: '5px 10px',
-                                                    background: '#FEE2E2',
-                                                    color: '#DC2626',
-                                                    border: 'none',
-                                                    borderRadius: 6,
-                                                    fontWeight: 700,
-                                                    cursor: 'pointer',
-                                                    fontSize: '0.75rem',
-                                                }}
-                                                disabled={saving}
-                                            >
-                                                <Trash2 size={12} />
-                                            </button>
+                                            {canEdit && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openEdit(emp)}
+                                                    style={{
+                                                        padding: '5px 10px',
+                                                        background: '#EFF6FF',
+                                                        color: '#2563EB',
+                                                        border: 'none',
+                                                        borderRadius: 6,
+                                                        fontWeight: 700,
+                                                        cursor: 'pointer',
+                                                        fontSize: '0.75rem',
+                                                    }}
+                                                    disabled={saving}
+                                                >
+                                                    <Pencil size={12} />
+                                                </button>
+                                            )}
+                                            {canDelete && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDelete(emp.id, emp._source)}
+                                                    style={{
+                                                        padding: '5px 10px',
+                                                        background: '#FEE2E2',
+                                                        color: '#DC2626',
+                                                        border: 'none',
+                                                        borderRadius: 6,
+                                                        fontWeight: 700,
+                                                        cursor: 'pointer',
+                                                        fontSize: '0.75rem',
+                                                    }}
+                                                    disabled={saving}
+                                                >
+                                                    <Trash2 size={12} />
+                                                </button>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}

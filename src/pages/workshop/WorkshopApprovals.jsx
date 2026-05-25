@@ -6,6 +6,15 @@ import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplie
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { apiFetch } from '../../services/api';
 import { qs, branchScopeParams } from '../../services/workshopStaffApi';
+import { useAuth } from '../../context/AuthContext';
+
+/** Map a row kind → permission-code suffix. */
+function approvalTypeKey(row) {
+    if (isSupplierSalesInvoiceRow(row)) return 'supplier-invoice';
+    if (isTopUpRequest(row)) return 'top-up';
+    if (isExpenseRequest(row)) return 'expense';
+    return null;
+}
 
 /**
  * Map a supplier sales invoice (as returned by GET
@@ -130,6 +139,26 @@ function pettyCashListQuery(queueFilter, branchSelected) {
 }
 
 export default function WorkshopApprovals({ selectedBranchId = 'all', branches = [] }) {
+    const { hasPermission } = useAuth();
+    /** Per-type approval helpers — fall back to parent codes for backward compat. */
+    const canViewType = useCallback((row) => {
+        const k = approvalTypeKey(row);
+        if (!k) return true;
+        return hasPermission(`workshop.approvals.${k}.view`);
+    }, [hasPermission]);
+    const canApproveType = useCallback((row) => {
+        const k = approvalTypeKey(row);
+        if (!k) return hasPermission('workshop.approvals.approve');
+        const specific = hasPermission(`workshop.approvals.${k}.approve`);
+        // Strict if any per-type code is configured; otherwise allow via parent.
+        return specific;
+    }, [hasPermission]);
+    const canRejectType = useCallback((row) => {
+        const k = approvalTypeKey(row);
+        if (!k) return hasPermission('workshop.approvals.reject');
+        return hasPermission(`workshop.approvals.${k}.reject`);
+    }, [hasPermission]);
+
     const scopeBranchName = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return '';
         return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || '';
@@ -263,13 +292,15 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
 
     const filtered = useMemo(() => {
         return approvals.filter((a) => {
+            // Per-type view permission — hide rows the user can't view at all.
+            if (!canViewType(a)) return false;
             if (requestTypeFilter === 'all') return true;
             if (requestTypeFilter === 'topup') return isTopUpRequest(a);
             if (requestTypeFilter === 'expenses') return isExpenseRequest(a);
             if (requestTypeFilter === 'supplier_invoices') return isSupplierSalesInvoiceRow(a);
             return true;
         });
-    }, [approvals, requestTypeFilter]);
+    }, [approvals, requestTypeFilter, canViewType]);
     const typeColors = {
         expense: 'ws-badge--yellow',
         fund_request: 'ws-badge--blue',
@@ -505,9 +536,15 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                         aria-label="Request type"
                     >
                         <option value="all">All types</option>
-                        <option value="topup">Top up</option>
-                        <option value="expenses">Expenses</option>
-                        <option value="supplier_invoices">Supplier invoices</option>
+                        {hasPermission('workshop.approvals.top-up.view') && (
+                            <option value="topup">Top up</option>
+                        )}
+                        {hasPermission('workshop.approvals.expense.view') && (
+                            <option value="expenses">Expenses</option>
+                        )}
+                        {hasPermission('workshop.approvals.supplier-invoice.view') && (
+                            <option value="supplier_invoices">Supplier invoices</option>
+                        )}
                     </select>
                     <button className="btn-portal" onClick={loadApprovals} disabled={isLoading}>
                         <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
@@ -553,9 +590,13 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                                 const isSupplier = isSupplierSalesInvoiceRow(a);
                                 const kindKey = isSupplier ? 'supplier_invoice' : requestKindKey(a);
                                 const pettyPending = !isSupplier && a.status === 'pending';
-                                const canApproveReject =
+                                const rowActionable =
                                     (isSupplier && supplierRowCanAct(a)) ||
                                     (!isSupplier && pettyPending);
+                                const allowApprove = rowActionable && canApproveType(a);
+                                const allowReject  = rowActionable && canRejectType(a);
+                                // Legacy single flag — kept so disabled prop falls back if either is true.
+                                const canApproveReject = allowApprove || allowReject;
                                 return (
                                     <tr key={a.id}>
                                         <td>
@@ -606,51 +647,47 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                                         </td>
                                         <td>
                                             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                {allowApprove && (
                                                 <button
                                                     type="button"
                                                     onClick={() => handleApproveRow(a)}
-                                                    disabled={!canApproveReject || actionLoadingId !== null}
+                                                    disabled={actionLoadingId !== null}
                                                     style={{
                                                         padding: 6,
                                                         borderRadius: 6,
                                                         border: 'none',
                                                         background: '#D1FAE5',
                                                         color: '#059669',
-                                                        cursor:
-                                                            canApproveReject && actionLoadingId === null
-                                                                ? 'pointer'
-                                                                : 'not-allowed',
-                                                        opacity:
-                                                            canApproveReject && actionLoadingId === null ? 1 : 0.45,
+                                                        cursor: actionLoadingId === null ? 'pointer' : 'not-allowed',
+                                                        opacity: actionLoadingId === null ? 1 : 0.45,
                                                     }}
                                                     title={isSupplier ? 'Accept invoice (workshop)' : 'Approve'}
                                                 >
                                                     <CheckCircle size={14} />
                                                 </button>
+                                                )}
+                                                {allowReject && (
                                                 <button
                                                     type="button"
                                                     onClick={() => {
                                                         setRejectDialog(a);
                                                         setRejectReason('');
                                                     }}
-                                                    disabled={!canApproveReject || actionLoadingId !== null}
+                                                    disabled={actionLoadingId !== null}
                                                     style={{
                                                         padding: 6,
                                                         borderRadius: 6,
                                                         border: 'none',
                                                         background: '#FEE2E2',
                                                         color: '#DC2626',
-                                                        cursor:
-                                                            canApproveReject && actionLoadingId === null
-                                                                ? 'pointer'
-                                                                : 'not-allowed',
-                                                        opacity:
-                                                            canApproveReject && actionLoadingId === null ? 1 : 0.45,
+                                                        cursor: actionLoadingId === null ? 'pointer' : 'not-allowed',
+                                                        opacity: actionLoadingId === null ? 1 : 0.45,
                                                     }}
                                                     title={isSupplier ? 'Reject supplier invoice' : 'Reject'}
                                                 >
                                                     <X size={14} />
                                                 </button>
+                                                )}
                                                 <button
                                                     type="button"
                                                     onClick={() => setViewDialog(a)}

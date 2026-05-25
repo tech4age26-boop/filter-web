@@ -7,14 +7,17 @@ import SalesReports from './SalesReports';
 import SalesOrders from './SalesOrders';
 import WorkshopSales from './WorkshopSales';
 import SuppliersWarehouseSales from './SuppliersWarehouseSales';
+import CorporateTransactions from './CorporateTransactions';
+import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/SalesPage.css';
 
 const SUB_TABS = [
-    { path: 'sales-reports', label: 'Sales Reports' },
-    { path: 'sales-orders', label: 'Sales Orders' },
-    { path: 'workshop-sales', label: 'Workshop Sales' },
-    { path: 'suppliers-warehouse-sales', label: 'Suppliers & Warehouse Sales' },
-    { path: 'receipts', label: 'Receipts' },
+    { path: 'sales-reports',              label: 'Sales Reports',                 permission: 'sales.sales-reports.view' },
+    { path: 'sales-orders',                label: 'Sales Orders',                  permission: 'sales.sales-orders.view' },
+    { path: 'workshop-sales',              label: 'Workshop Sales',                permission: 'sales.workshop-sales.view' },
+    { path: 'suppliers-warehouse-sales',   label: 'Suppliers & Warehouse Sales',   permission: 'sales.suppliers-warehouse-sales.view' },
+    { path: 'corporate-transactions',      label: 'Corporate Transactions',        permission: 'sales.corporate-transactions.view' },
+    { path: 'receipts',                    label: 'Receipts',                      permission: 'sales.receipts.view' },
 ];
 
 const EMPTY_INVOICE = {
@@ -43,6 +46,8 @@ const EMPTY_INVOICE = {
 
 export default function SalesPage() {
     const { subTab } = useParams();
+    const { hasPermission } = useAuth();
+    const visibleSubTabs = SUB_TABS.filter((t) => hasPermission(t.permission));
     const activeSub = subTab || 'sales-reports';
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [invoiceData, setInvoiceData] = useState(EMPTY_INVOICE);
@@ -313,7 +318,7 @@ export default function SalesPage() {
     return (
         <div className="sales-page module-container">
             <div className="sales-sub-nav">
-                {SUB_TABS.map((t) => (
+                {visibleSubTabs.map((t) => (
                     <NavLink key={t.path} to={`/admin/sales/${t.path}`} className={({ isActive }) => `sales-sub-tab ${isActive ? 'active' : ''}`}>
                         {t.label}
                     </NavLink>
@@ -323,6 +328,8 @@ export default function SalesPage() {
             {activeSub === 'workshop-sales' && <WorkshopSales />}
 
             {activeSub === 'suppliers-warehouse-sales' && <SuppliersWarehouseSales />}
+
+            {activeSub === 'corporate-transactions' && <CorporateTransactions />}
 
             {activeSub === 'receipts' && (
                 <>

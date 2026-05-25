@@ -5,6 +5,7 @@ import { Mail, Lock, ChevronRight, Loader } from 'lucide-react';
 import '../styles/SignInPage.css';
 import { adminLogin } from '../services/authApi';
 import { useAuth } from '../context/AuthContext';
+import { firstVisibleAdminPath } from '../utils/permissions';
 
 const MOCK_ROUTES = {
     'workshop@filtercars.com': '/workshop',
@@ -36,8 +37,7 @@ const SignInPage = () => {
             const isAdmin = user?.userType === 'admin' || user?.userType === 'platform_admin' || !user?.userType;
             
             if (isAdmin) {
-                const origin = location.state?.from?.pathname || '/admin/dashboard';
-                navigate(origin, { replace: true });
+                navigate(firstVisibleAdminPath(user), { replace: true });
             }
         }
     }, [isAuthenticated, user, navigate, location]);
@@ -100,8 +100,9 @@ const SignInPage = () => {
             
             if (userToken) {
                 login(userData, userToken);
-                const origin = location.state?.from?.pathname || '/admin/dashboard';
-                navigate(origin, { replace: true });
+                // Always land on the first sidebar page the user can view —
+                // ignore any prior URL the user was on before logout / session expiry.
+                navigate(firstVisibleAdminPath(userData), { replace: true });
                 return;
             }
         } catch (err) {

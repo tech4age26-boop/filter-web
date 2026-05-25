@@ -5,6 +5,7 @@ import '../../styles/admin/MarketingPortalPage.css';
 import '../marketing/Marketing.css';
 import { useMarketingState } from '../marketing/MarketingUtils';
 import { getWorkshops } from '../../services/superAdminApi';
+import { useAuth } from '../../context/AuthContext';
 
 function normalizeWorkshopsPayload(payload) {
     if (!payload) return [];
@@ -17,17 +18,19 @@ function normalizeWorkshopsPayload(payload) {
 }
 
 const SUB_TABS = [
-    { id: 'dashboard', label: 'Dashboard', path: 'dashboard' },
-    { id: 'promotions', label: 'Promotions', path: 'promotions' },
-    { id: 'promo-codes', label: 'Promo Codes', path: 'promo-codes' },
-    { id: 'referral-management', label: 'Referral Management', path: 'referral-management' },
-    { id: 'referral-types-rules', label: 'Referral Types + Rules', path: 'referral-types-rules' },
-    { id: 'loyalty-programs', label: 'Loyalty Programs', path: 'loyalty-programs' },
-    { id: 'customer-insights', label: 'Customer Insights', path: 'customer-insights' },
+    { id: 'dashboard',            label: 'Dashboard',            path: 'dashboard',            permission: 'marketing.dashboard.view' },
+    { id: 'promotions',           label: 'Promotions',           path: 'promotions',           permission: 'marketing.promotions.view' },
+    { id: 'promo-codes',          label: 'Promo Codes',          path: 'promo-codes',          permission: 'marketing.promo-codes.view' },
+    { id: 'referral-management',  label: 'Referral Management',  path: 'referral-management',  permission: 'marketing.referral-management.view' },
+    { id: 'referral-types-rules', label: 'Referral Types + Rules', path: 'referral-types-rules', permission: 'marketing.referral-types-rules.view' },
+    { id: 'loyalty-programs',     label: 'Loyalty Programs',     path: 'loyalty-programs',     permission: 'marketing.loyalty-programs.view' },
+    { id: 'customer-insights',    label: 'Customer Insights',    path: 'customer-insights',    permission: 'marketing.customer-insights.view' },
 ];
 
 export default function MarketingPortalPage() {
     const location = useLocation();
+    const { hasPermission } = useAuth();
+    const visibleSubTabs = SUB_TABS.filter((t) => hasPermission(t.permission));
     const [showAddModal, setShowAddModal] = useState(false);
     const [workshops, setWorkshops] = useState([]);
     const [marketingWorkshopId, setMarketingWorkshopId] = useState('');
@@ -47,7 +50,7 @@ export default function MarketingPortalPage() {
         loyaltyProgram, setLoyaltyProgram
     } = useMarketingState();
 
-    const currentTab = SUB_TABS.find(t => location.pathname.endsWith(t.path)) || SUB_TABS[0];
+    const currentTab = SUB_TABS.find(t => location.pathname.endsWith(t.path)) || visibleSubTabs[0] || SUB_TABS[0];
     const activeLabel = currentTab.label;
     const isDashboard = currentTab.id === 'dashboard';
     const isInsights = currentTab.id === 'customer-insights';
@@ -55,7 +58,7 @@ export default function MarketingPortalPage() {
     return (
         <div className="marketing-portal-page module-container">
             <div className="marketing-sub-nav">
-                {SUB_TABS.map((t) => (
+                {visibleSubTabs.map((t) => (
                     <NavLink
                         key={t.id}
                         to={t.path.startsWith('/') ? t.path : `/admin/marketing/${t.path}`}
@@ -65,6 +68,11 @@ export default function MarketingPortalPage() {
                         {t.label}
                     </NavLink>
                 ))}
+                {visibleSubTabs.length === 0 && (
+                    <div style={{ padding: 20, color: '#94a3b8', fontSize: '0.875rem' }}>
+                        You don't have permission to view any Marketing sections.
+                    </div>
+                )}
             </div>
 
             <header className="marketing-page-header">

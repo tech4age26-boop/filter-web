@@ -62,7 +62,14 @@ import ReferrerReports from './pages/referrer-portal/ReferrerReports';
 import ReferrerNotifications from './pages/referrer-portal/ReferrerNotifications';
 import ReferrerSettings from './pages/referrer-portal/ReferrerSettings';
 
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { firstVisibleAdminPath } from './utils/permissions';
+
+/** Index redirect for `/admin` — picks the first sidebar page the user can view. */
+function AdminIndexRedirect() {
+    const { user } = useAuth();
+    return <Navigate to={firstVisibleAdminPath(user)} replace />;
+}
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicWpiVerifyPage from './pages/PublicWpiVerifyPage';
 import PublicSinvVerifyPage from './pages/PublicSinvVerifyPage';
@@ -92,7 +99,7 @@ function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route index element={<AdminIndexRedirect />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="approvals" element={<ApprovalsPage />} />
               <Route path="zone-management" element={<ZoneManagementPage />} />
