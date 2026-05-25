@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import {
     Package, Layers, Tags, Wrench, RefreshCw, ShieldCheck, Search, Plus,
     ChevronLeft, ChevronRight, X, AlertCircle, CheckCircle2, Filter, Gauge, Calendar, Percent,
@@ -36,10 +37,10 @@ function formatCatalogListCreatedAt(iso) {
 }
 
 const TABS = [
-    { id: 'departments', label: 'Departments', Icon: Layers },
-    { id: 'categories',  label: 'Categories',  Icon: Tags },
-    { id: 'products',    label: 'Products',    Icon: Package },
-    { id: 'services',    label: 'Services',    Icon: Wrench },
+    { id: 'departments', label: 'Departments', Icon: Layers,  permission: 'workshop.catalog.departments.view' },
+    { id: 'categories',  label: 'Categories',  Icon: Tags,    permission: 'workshop.catalog.categories.view' },
+    { id: 'products',    label: 'Products',    Icon: Package, permission: 'workshop.catalog.products.view' },
+    { id: 'services',    label: 'Services',    Icon: Wrench,  permission: 'workshop.catalog.services.view' },
 ];
 
 /** Pull an array out of a backend response, trying a few common shapes. */
@@ -384,8 +385,18 @@ function CatalogCard({ row, label, subtitle, meta, selected, disabled, disabledL
 }
 
 export default function WorkshopCatalogNew({ branches: branchesProp = [], selectedBranchId = 'all' }) {
-    const [activeTab, setActiveTab] = useState('departments');
+    const { hasPermission } = useAuth();
+    const visibleTabs = TABS.filter((t) => hasPermission(t.permission));
+    const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.id ?? 'departments');
     const [banner, setBanner] = useState(null);
+
+    // Auto-snap to first visible tab if current becomes hidden.
+    useEffect(() => {
+        if (visibleTabs.length === 0) return;
+        if (!visibleTabs.some((t) => t.id === activeTab)) {
+            setActiveTab(visibleTabs[0].id);
+        }
+    }, [visibleTabs, activeTab]);
 
     const catalogBranchId = useMemo(
         () => (!selectedBranchId || selectedBranchId === 'all' ? undefined : String(selectedBranchId)),
@@ -1237,7 +1248,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
             </div>
 
             <div className="mc-tabs">
-                {TABS.map((tab) => (
+                {visibleTabs.map((tab) => (
                     <button
                         key={tab.id}
                         type="button"
@@ -1248,6 +1259,11 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                         {tab.label}
                     </button>
                 ))}
+                {visibleTabs.length === 0 && (
+                    <div style={{ padding: 20, color: '#94a3b8', fontSize: '0.875rem' }}>
+                        You don't have permission to view any Master Catalog tabs.
+                    </div>
+                )}
             </div>
 
             <ResultBanner banner={banner} onClose={() => setBanner(null)} />

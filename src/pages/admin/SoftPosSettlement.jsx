@@ -27,15 +27,16 @@ import {
     updateSoftPosRule,
     updateSoftPosTerminal,
 } from '../../services/softPosApi';
+import { useAuth } from '../../context/AuthContext';
 
 const SAR = (n) => `SAR ${(Number(n) || 0).toFixed(2)}`;
 
 const TABS = [
-    { key: 'transactions', label: 'Transactions', icon: Receipt },
-    { key: 'terminals', label: 'Terminals', icon: CreditCard },
-    { key: 'batches', label: 'Settlement Batches', icon: ArrowDownToLine },
-    { key: 'rules', label: 'Bank Rules', icon: Settings },
-    { key: 'refunds', label: 'Refunds', icon: RefreshCw },
+    { key: 'transactions', label: 'Transactions',        icon: Receipt,         permission: 'softpos-settlement.transactions.view' },
+    { key: 'terminals',    label: 'Terminals',           icon: CreditCard,      permission: 'softpos-settlement.terminals.view' },
+    { key: 'batches',      label: 'Settlement Batches',  icon: ArrowDownToLine, permission: 'softpos-settlement.batches.view' },
+    { key: 'rules',        label: 'Bank Rules',          icon: Settings,        permission: 'softpos-settlement.rules.view' },
+    { key: 'refunds',      label: 'Refunds',             icon: RefreshCw,       permission: 'softpos-settlement.refunds.view' },
 ];
 
 const card = {
@@ -91,10 +92,20 @@ function pickArr(res, key = 'items') {
 }
 
 export default function SoftPosSettlement() {
-    const [activeTab, setActiveTab] = useState('transactions');
+    const { hasPermission } = useAuth();
+    const visibleTabs = TABS.filter((t) => hasPermission(t.permission));
+    const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.key ?? 'transactions');
     const [stats, setStats] = useState(null);
     const [statsLoading, setStatsLoading] = useState(true);
     const [error, setError] = useState('');
+
+    // Auto-snap to first allowed tab if current becomes hidden.
+    useEffect(() => {
+        if (visibleTabs.length === 0) return;
+        if (!visibleTabs.some((t) => t.key === activeTab)) {
+            setActiveTab(visibleTabs[0].key);
+        }
+    }, [visibleTabs, activeTab]);
 
     useEffect(() => {
         let cancelled = false;
@@ -173,7 +184,7 @@ export default function SoftPosSettlement() {
                     borderBottomColor: '#e5e7eb',
                 }}
             >
-                {TABS.map((t) => {
+                {visibleTabs.map((t) => {
                     const active = t.key === activeTab;
                     const Icon = t.icon;
                     return (
@@ -216,11 +227,16 @@ export default function SoftPosSettlement() {
                 </div>
             )}
 
-            {activeTab === 'transactions' && <TransactionsTab onError={setError} />}
-            {activeTab === 'terminals' && <TerminalsTab onError={setError} />}
-            {activeTab === 'batches' && <BatchesTab onError={setError} />}
-            {activeTab === 'rules' && <RulesTab onError={setError} />}
-            {activeTab === 'refunds' && <RefundsTab onError={setError} />}
+            {activeTab === 'transactions' && hasPermission('softpos-settlement.transactions.view') && <TransactionsTab onError={setError} />}
+            {activeTab === 'terminals'    && hasPermission('softpos-settlement.terminals.view')    && <TerminalsTab onError={setError} />}
+            {activeTab === 'batches'      && hasPermission('softpos-settlement.batches.view')      && <BatchesTab onError={setError} />}
+            {activeTab === 'rules'        && hasPermission('softpos-settlement.rules.view')        && <RulesTab onError={setError} />}
+            {activeTab === 'refunds'      && hasPermission('softpos-settlement.refunds.view')      && <RefundsTab onError={setError} />}
+            {visibleTabs.length === 0 && (
+                <div style={{ padding: 30, textAlign: 'center', color: '#94a3b8' }}>
+                    You don't have permission to view any SoftPOS Settlement sections.
+                </div>
+            )}
         </div>
     );
 }

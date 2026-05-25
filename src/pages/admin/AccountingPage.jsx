@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, NavLink } from 'react-router-dom';
 import { Plus, Shield, X, Wallet, Landmark, Banknote, Settings, Trash2, Calendar, FileText, ArrowLeftRight, Search, Filter, CreditCard, DollarSign, Book, CheckCircle, Eye, Printer, AlertTriangle, ChevronDown, ShoppingCart, Zap, Users, UserPlus, Clock, Activity, Coins, BookOpen, Save, Percent, Calculator } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
@@ -6,26 +6,32 @@ import Modal from '../../components/Modal';
 import AccountDetailModal from '../../components/AccountDetailModal';
 import ReferralCommissionsPage from './ReferralCommissionsPage';
 import RM_Commissions from '../referral-management/RM_Commissions';
+import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/AccountingPage.css';
 
 const SUB_TABS = [
-    { path: 'chart-of-accounts', label: 'Chart of Accounts' },
-    { path: 'cash-bank', label: 'Cash & Bank' },
-    { path: 'commissions', label: 'Commission' },
-    { path: 'referral-commissions-rm', label: 'Referral Commissions' },
-    { path: 'transactions', label: 'Transactions' },
-    { path: 'journal-entries', label: 'Journal Entries' },
-    { path: 'purchases', label: 'Purchases' },
-    { path: 'expenses', label: 'Expenses' },
-    { path: 'receipts', label: 'Receipts' },
-    { path: 'payments', label: 'Payments' },
-    { path: 'advances', label: 'Advances' },
-    { path: 'ledger', label: 'Ledger' },
+    { path: 'chart-of-accounts',         label: 'Chart of Accounts',     permission: 'accounting.chart-of-accounts.view' },
+    { path: 'cash-bank',                 label: 'Cash & Bank',           permission: 'accounting.cash-bank.view' },
+    { path: 'commissions',               label: 'Commission',            permission: 'accounting.commissions.view' },
+    { path: 'referral-commissions-rm',   label: 'Referral Commissions',  permission: 'accounting.referral-commissions-rm.view' },
+    { path: 'transactions',              label: 'Transactions',          permission: 'accounting.transactions.view' },
+    { path: 'journal-entries',           label: 'Journal Entries',       permission: 'accounting.journal-entries.view' },
+    { path: 'purchases',                 label: 'Purchases',             permission: 'accounting.purchases.view' },
+    { path: 'expenses',                  label: 'Expenses',              permission: 'accounting.expenses.view' },
+    { path: 'receipts',                  label: 'Receipts',              permission: 'sales.receipts.view' },
+    { path: 'payments',                  label: 'Payments',              permission: 'accounting.payments.view' },
+    { path: 'advances',                  label: 'Advances',              permission: 'accounting.advances.view' },
+    { path: 'ledger',                    label: 'Ledger',                permission: 'accounting.ledger.view' },
 ];
 
 const CASH_BANK_TABS = ['All Accounts', 'Cash', 'Bank', 'Petty Cash'];
 
-const COA_TABS = ['Chart of Accounts', 'Trial Balance', 'P&L', 'Balance Sheet'];
+const COA_TABS = [
+    { label: 'Chart of Accounts', permission: 'accounting.chart-of-accounts.coa.view' },
+    { label: 'Trial Balance',     permission: 'accounting.chart-of-accounts.trial-balance.view' },
+    { label: 'P&L',               permission: 'accounting.chart-of-accounts.profit-loss.view' },
+    { label: 'Balance Sheet',     permission: 'accounting.chart-of-accounts.balance-sheet.view' },
+];
 const COA_SECTIONS = [
     { key: 'assets', label: 'Assets', labelPlural: 'Assets', balance: 'SAR 0.00', accounts: [{ code: 'AR-EAE767', name: 'Accounts Receivable — Safa Makkah', subtype: 'current asset', normalBal: 'debit', openingBal: 'SAR 0.00', currentBal: 'SAR 0.00', status: 'active', desc: 'Receivable from customer: Safa Makkah' }] },
     { key: 'liabilities', label: 'Liabilitys', labelPlural: 'Liabilitys', balance: 'SAR 0.00', accounts: [] },
@@ -35,7 +41,17 @@ const COA_SECTIONS = [
 ];
 
 function ChartOfAccountsView() {
-    const [coaTab, setCoaTab] = useState('Chart of Accounts');
+    const { hasPermission } = useAuth();
+    const visibleCoaTabs = COA_TABS.filter((t) => hasPermission(t.permission));
+    const [coaTab, setCoaTab] = useState(() => visibleCoaTabs[0]?.label ?? 'Chart of Accounts');
+
+    useEffect(() => {
+        if (visibleCoaTabs.length === 0) return;
+        if (!visibleCoaTabs.some((t) => t.label === coaTab)) {
+            setCoaTab(visibleCoaTabs[0].label);
+        }
+    }, [visibleCoaTabs, coaTab]);
+
     const [newAccountOpen, setNewAccountOpen] = useState(false);
     const [fromDate, setFromDate] = useState('2026-01-01');
     const [toDate, setToDate] = useState('2026-03-08');
@@ -116,11 +132,16 @@ function ChartOfAccountsView() {
                 <p className="coa-subtitle">Filter Car Services — Chart of Accounts & Financial Reports</p>
             </header>
             <div className="coa-tabs">
-                {COA_TABS.map((t) => (
-                    <button key={t} type="button" className={`coa-tab ${coaTab === t ? 'active' : ''}`} onClick={() => setCoaTab(t)}>{t}</button>
+                {visibleCoaTabs.map((t) => (
+                    <button key={t.label} type="button" className={`coa-tab ${coaTab === t.label ? 'active' : ''}`} onClick={() => setCoaTab(t.label)}>{t.label}</button>
                 ))}
+                {visibleCoaTabs.length === 0 && (
+                    <div style={{ padding: 20, color: '#94a3b8', fontSize: '0.875rem' }}>
+                        You don't have permission to view any Chart-of-Accounts reports.
+                    </div>
+                )}
             </div>
-            {coaTab === 'Chart of Accounts' ? (
+            {visibleCoaTabs.length === 0 ? null : coaTab === 'Chart of Accounts' && hasPermission('accounting.chart-of-accounts.coa.view') ? (
                 <>
                     <div className="coa-stats">
                         {COA_SECTIONS.map((s) => (
@@ -176,7 +197,7 @@ function ChartOfAccountsView() {
                         ))}
                     </div>
                 </>
-            ) : coaTab === 'Trial Balance' ? (
+            ) : coaTab === 'Trial Balance' && hasPermission('accounting.chart-of-accounts.trial-balance.view') ? (
                 <div className="trial-balance-report">
                     <div className="coa-report-filters">
                         <div className="form-group">
@@ -237,7 +258,7 @@ function ChartOfAccountsView() {
                         </div>
                     </div>
                 </div>
-            ) : coaTab === 'P&L' ? (
+            ) : coaTab === 'P&L' && hasPermission('accounting.chart-of-accounts.profit-loss.view') ? (
                 <div className="pnl-report">
                     <div className="coa-report-filters">
                         <div className="form-group">
@@ -324,7 +345,7 @@ function ChartOfAccountsView() {
                         </div>
                     </div>
                 </div>
-            ) : coaTab === 'Balance Sheet' ? (
+            ) : coaTab === 'Balance Sheet' && hasPermission('accounting.chart-of-accounts.balance-sheet.view') ? (
                 <div className="balance-sheet-report">
                     <div className="coa-report-filters">
                         <div className="form-group">
@@ -2986,6 +3007,8 @@ function EmployeeAdvancesView() {
 
 export default function AccountingPage() {
     const { subTab } = useParams();
+    const { hasPermission } = useAuth();
+    const visibleSubTabs = SUB_TABS.filter((t) => hasPermission(t.permission));
     const activeSub = subTab || 'cash-bank';
 
     const [taxes, setTaxes] = useState([
@@ -2998,7 +3021,7 @@ export default function AccountingPage() {
     return (
         <div className="accounting-page module-container">
             <div className="accounting-sub-nav">
-                {SUB_TABS.map((t) => (
+                {visibleSubTabs.map((t) => (
                     <NavLink
                         key={t.path}
                         to={`/admin/accounting/${t.path}`}

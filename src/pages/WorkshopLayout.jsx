@@ -40,7 +40,19 @@ import '../styles/admin/ApprovalsPage.css';
 export default function WorkshopLayout() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { logout } = useAuth();
+    const { logout, hasPermission } = useAuth();
+
+    /** Filter sidebar items by the current user's permissions. */
+    const visibleNavItems = NAV_ITEMS
+        .map((item) => {
+            if (item.subItems?.length) {
+                const visibleSubs = item.subItems.filter((s) => !s.permission || hasPermission(s.permission));
+                return visibleSubs.length > 0 ? { ...item, subItems: visibleSubs } : null;
+            }
+            if (item.permission && !hasPermission(item.permission)) return null;
+            return item;
+        })
+        .filter(Boolean);
 
     const handleLogout = async () => {
         const t = localStorage.getItem('filter_auth_token');
@@ -78,6 +90,26 @@ export default function WorkshopLayout() {
 
     const [activeTab, setActiveTab] = useState(getActiveTabFromUrl());
     const [tabState, setTabState] = useState(null);
+
+    /** Resolve first visible tab id (top-level OR sub-item). Used for auto-snap. */
+    const firstVisibleTabId = (() => {
+        const first = visibleNavItems[0];
+        if (!first) return null;
+        if (first.subItems?.length) return first.subItems[0].id;
+        return first.id;
+    })();
+
+    /**
+     * Auto-snap activeTab to the first visible tab if user lacks permission
+     * for the current tab (e.g. legacy URL, role change mid-session).
+     */
+    useEffect(() => {
+        if (!firstVisibleTabId) return;
+        const allVisible = visibleNavItems.flatMap((i) => i.subItems ? i.subItems.map((s) => s.id) : [i.id]);
+        if (!allVisible.includes(activeTab)) {
+            setActiveTab(firstVisibleTabId);
+        }
+    }, [activeTab, firstVisibleTabId, visibleNavItems]);
 
     const handleTabChange = (tabId, state = null) => {
         setActiveTab(tabId);
@@ -355,7 +387,7 @@ export default function WorkshopLayout() {
                 </div>
                 )}
                 <nav className="ws-nav">
-                    {NAV_ITEMS.map((item) => {
+                    {visibleNavItems.map((item) => {
                         const hasSub = item.subItems?.length > 0;
                         const isOpen = openMenus[item.id];
                         const isActiveParent = activeTab === item.id || (hasSub && item.subItems.some(s => s.id === activeTab));

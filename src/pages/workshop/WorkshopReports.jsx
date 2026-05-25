@@ -5,6 +5,19 @@ import Modal from '../../components/Modal';
 import { ShimmerTextBlock, ShimmerTable } from '../../components/supplier/Shimmer';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import { apiFetch } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+
+/** Map each Reports inner tab id → its `*.view` permission code. */
+const REPORTS_TAB_PERMISSION = {
+    recent_orders: 'workshop.reports.orders.view',
+    daily_sales:   'workshop.reports.daily-sales.view',
+    by_technician: 'workshop.reports.by-technician.view',
+    by_customer:   'workshop.reports.by-customer.view',
+    by_product:    'workshop.reports.by-product.view',
+    by_department: 'workshop.reports.by-department.view',
+    by_branch:     'workshop.reports.by-branch.view',
+    by_cashier:    'workshop.reports.by-cashier.view',
+};
 import {
     flattenWorkshopStaffRow,
     getWorkshopReportsAnalytics,
@@ -372,10 +385,27 @@ function KpiProofTable({ headers, rows, emptyMessage }) {
 }
 
 export default function WorkshopReports({ selectedBranchId = 'all', branches = [] }) {
+    const { hasPermission } = useAuth();
+    /** Which Reports inner tabs is the user allowed to view? */
+    const visibleReportTabIds = useMemo(
+        () => Object.entries(REPORTS_TAB_PERMISSION)
+            .filter(([, code]) => hasPermission(code))
+            .map(([id]) => id),
+        [hasPermission],
+    );
+
     const initialRange = useMemo(() => defaultLocalRangeLatest(), []);
     const [rangeFromLocal, setRangeFromLocal] = useState(initialRange.start);
     const [rangeToLocal, setRangeToLocal] = useState(initialRange.end);
-    const [activeTab, setActiveTab] = useState('recent_orders');
+    const [activeTab, setActiveTab] = useState(() => visibleReportTabIds[0] ?? 'recent_orders');
+
+    // Auto-snap to first visible inner tab if current becomes hidden.
+    useEffect(() => {
+        if (visibleReportTabIds.length === 0) return;
+        if (!visibleReportTabIds.includes(activeTab)) {
+            setActiveTab(visibleReportTabIds[0]);
+        }
+    }, [visibleReportTabIds, activeTab]);
     const activeTabRef = useRef(activeTab);
     activeTabRef.current = activeTab;
     const [tabSearch, setTabSearch] = useState(createEmptyTabSearch);
@@ -1206,7 +1236,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         { id: 'by_department', label: 'By Department' },
         { id: 'by_branch', label: 'By Branch' },
         { id: 'by_cashier', label: 'By Cashier' },
-    ];
+    ].filter((t) => visibleReportTabIds.includes(t.id));
 
     const periodLine = useMemo(() => {
         if (!norm?.period?.start_date && !norm?.period?.startDate) return null;

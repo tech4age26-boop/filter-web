@@ -4,6 +4,12 @@ import { Clock, CheckCircle, Users, Wallet, Calendar, AlertCircle } from 'lucide
 import Modal from '../../components/Modal';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import WorkshopCommissionRules from '../../components/commissions/WorkshopCommissionRules';
+import { useAuth } from '../../context/AuthContext';
+
+const COMMISSIONS_TABS = [
+    { key: 'ledger', label: 'Ledger', permission: 'workshop.commissions.ledger.view' },
+    { key: 'rules',  label: 'Rules',  permission: 'workshop.commissions.rules.view' },
+];
 import {
     getWorkshopCommissionsSummary,
     getWorkshopCommissionsPendingByEmployee,
@@ -120,7 +126,15 @@ function applyCommissionDashboardSettled(settled, setters) {
 }
 
 export default function WorkshopCommissions({ selectedBranchId = 'all', branches = [] }) {
-    const [activeTab, setActiveTab] = useState('ledger'); // 'ledger' | 'rules'
+    const { hasPermission } = useAuth();
+    const visibleCommissionTabs = COMMISSIONS_TABS.filter((t) => hasPermission(t.permission));
+    const [activeTab, setActiveTab] = useState(() => visibleCommissionTabs[0]?.key ?? 'ledger');
+    useEffect(() => {
+        if (visibleCommissionTabs.length === 0) return;
+        if (!visibleCommissionTabs.some((t) => t.key === activeTab)) {
+            setActiveTab(visibleCommissionTabs[0].key);
+        }
+    }, [visibleCommissionTabs, activeTab]);
     const [summary, setSummary] = useState({ totalAccrued: 0, totalPaid: 0, pendingEmployeeCount: 0 });
     const [pendingByEmployee, setPendingByEmployee] = useState([]);
     const [commissionRows, setCommissionRows] = useState([]);
@@ -367,10 +381,7 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
                     paddingBottom: 0,
                 }}
             >
-                {[
-                    { key: 'ledger', label: 'Ledger' },
-                    { key: 'rules', label: 'Rules' },
-                ].map((tab) => {
+                {visibleCommissionTabs.map((tab) => {
                     const active = activeTab === tab.key;
                     return (
                         <button

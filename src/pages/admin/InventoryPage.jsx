@@ -5,6 +5,7 @@ import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import MasterCatalog from '../../components/admin/MasterCatalog';
 import StockMovementsSuperAdmin from '../../components/admin/StockMovementsSuperAdmin';
+import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/InventoryPage.css';
 import { getProducts, getServices, createProduct, createService, updateProduct, updateService } from '../../services/superAdminApi';
 import {
@@ -15,9 +16,9 @@ import {
 } from '../../utils/nonNegativeMoney';
 
 const SUB_TABS = [
-    { path: 'master-catalog', label: 'Master Catalog' },
-    { path: 'stock-movements', label: 'Stock Movements' },
-    { path: 'units-of-measure', label: 'Units of Measure' },
+    { path: 'master-catalog',   label: 'Master Catalog',    permission: 'inventory.master-catalog.view' },
+    { path: 'stock-movements',  label: 'Stock Movements',   permission: 'inventory.stock-movements.view' },
+    { path: 'units-of-measure', label: 'Units of Measure',  permission: 'inventory.units-of-measure.view' },
 ];
 
 
@@ -43,6 +44,8 @@ const MOCK_UOM = [
 
 export default function InventoryPage() {
     const { subTab } = useParams();
+    const { hasPermission } = useAuth();
+    const visibleSubTabs = SUB_TABS.filter((t) => hasPermission(t.permission));
     const activeSub = subTab || 'master-catalog';
     const [viewTab, setViewTab] = useState('Products');
     const [products, setProducts] = useState([]);
@@ -255,7 +258,7 @@ export default function InventoryPage() {
     return (
         <div className="inventory-page module-container">
             <div className="inventory-sub-nav">
-                {SUB_TABS.map((t) => (
+                {visibleSubTabs.map((t) => (
                     <NavLink key={t.path} to={`/admin/inventory/${t.path}`} className={({ isActive }) => `inventory-sub-tab ${isActive ? 'active' : ''}`}>
                         {t.label}
                     </NavLink>

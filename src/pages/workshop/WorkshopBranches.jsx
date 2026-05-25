@@ -3,6 +3,12 @@ import { Building2, Key, Plus, MapPin, Phone, Mail, Users, Edit, RefreshCw } fro
 import Modal from '../../components/Modal';
 import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 import { apiFetch } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+
+const BRANCH_TABS = [
+    { id: 'branches', label: 'Branch Portals',     permission: 'workshop.branches.branch-portals.view' },
+    { id: 'access',   label: 'Access Permissions', permission: 'workshop.branches.access-permissions.view' },
+];
 import {
     loadWorkshopEmployeesCombined,
     unwrapWorkshopBranchesResponse,
@@ -137,9 +143,18 @@ function AccessPermissionFormModal({ branches, onClose, onSave }) {
 }
 
 export default function WorkshopBranches({ selectedBranchId = 'all' }) {
+    const { hasPermission } = useAuth();
+    const visibleBranchTabs = BRANCH_TABS.filter((t) => hasPermission(t.permission));
     const [branches, setBranches] = useState([]);
     const [rolePermissions, setRolePermissions] = useState(MOCK_ROLE_PERMISSIONS);
-    const [activeTab, setActiveTab] = useState('branches');
+    const [activeTab, setActiveTab] = useState(() => visibleBranchTabs[0]?.id ?? 'branches');
+
+    useEffect(() => {
+        if (visibleBranchTabs.length === 0) return;
+        if (!visibleBranchTabs.some((t) => t.id === activeTab)) {
+            setActiveTab(visibleBranchTabs[0].id);
+        }
+    }, [visibleBranchTabs, activeTab]);
     const [showBranchForm, setShowBranchForm] = useState(false);
     const [editBranch, setEditBranch] = useState(null);
     const [showAccessForm, setShowAccessForm] = useState(false);
@@ -341,10 +356,14 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                 <div><h2 className="ws-page-title">Branches & Access Control</h2><p className="ws-page-sub">Manage branch portals and grant Branch Admin permissions{selectedBranchId && selectedBranchId !== 'all' ? ` · filtered to one branch` : ''}</p></div>
                 <div style={{ display: 'flex', gap: 10 }}>
                     <button className="btn-portal-outline" onClick={() => { loadBranches(); loadEmployeesCount(); }} disabled={isLoading}><RefreshCw size={15}/>{isLoading ? 'Refreshing...' : 'Refresh'}</button>
-                    <button className="btn-portal-outline" onClick={() => setShowAccessForm(true)}><Key size={15}/> Grant Access</button>
-                    <button className="btn-portal" onClick={() => { setEditBranch(null); setShowBranchForm(true); }} disabled={isSavingBranch}>
-                        <Plus size={15}/> {isSavingBranch ? 'Creating...' : 'New Branch'}
-                    </button>
+                    {hasPermission('workshop.branches.access-permissions.edit') && (
+                        <button className="btn-portal-outline" onClick={() => setShowAccessForm(true)}><Key size={15}/> Grant Access</button>
+                    )}
+                    {hasPermission('workshop.branches.branch-portals.view') && hasPermission('workshop.branches.access-permissions.edit') && (
+                        <button className="btn-portal" onClick={() => { setEditBranch(null); setShowBranchForm(true); }} disabled={isSavingBranch}>
+                            <Plus size={15}/> {isSavingBranch ? 'Creating...' : 'New Branch'}
+                        </button>
+                    )}
                 </div>
             </div>
             {loadError && (
@@ -353,8 +372,15 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                 </div>
             )}
             <div className="ws-branches-tabs">
-                <button className={`ws-branches-tab ${activeTab === 'branches' ? 'active' : ''}`} onClick={() => setActiveTab('branches')}>Branch Portals</button>
-                <button className={`ws-branches-tab ${activeTab === 'access' ? 'active' : ''}`} onClick={() => setActiveTab('access')}>Access Permissions</button>
+                {visibleBranchTabs.map((t) => (
+                    <button
+                        key={t.id}
+                        className={`ws-branches-tab ${activeTab === t.id ? 'active' : ''}`}
+                        onClick={() => setActiveTab(t.id)}
+                    >
+                        {t.label}
+                    </button>
+                ))}
             </div>
 
             {activeTab === 'branches' && (

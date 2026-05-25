@@ -3,6 +3,14 @@ import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+
+const DEPT_PAGE_TABS = [
+    { id: 'departments', label: 'Departments', permission: 'workshop.departments.departments.view' },
+    { id: 'products',    label: 'Products',    permission: 'workshop.departments.products.view' },
+    { id: 'services',    label: 'Services',    permission: 'workshop.departments.services.view' },
+    { id: 'categories',  label: 'Categories',  permission: 'workshop.departments.categories.view' },
+];
 import {
     getMyDepartments,
     getMyCategories,
@@ -34,7 +42,6 @@ import {
     unwrapWorkshopBranchesResponse,
     filterPortalVisibleBranches,
 } from '../../services/workshopStaffApi';
-import { useAuth } from '../../context/AuthContext';
 import {
     MOCK_BRANCHES,
     MOCK_CATEGORIES,
@@ -135,7 +142,20 @@ function summarizeBulkRemoveResult(result) {
 }
 
 export default function WorkshopDepartments({ selectedBranchId = 'all', branches: branchesProp = [] }) {
-    const { workshop } = useAuth();
+    const { workshop, hasPermission } = useAuth();
+
+    // Per-tab visibility (sub-tab gating) — filter tab strip + content rendering
+    const visibleDeptPageTabs = DEPT_PAGE_TABS.filter((t) => hasPermission(t.permission));
+
+    // Per-tab action permissions — used to gate Add/Edit/Delete buttons inside each tab.
+    const canCreateDept     = hasPermission('workshop.departments.departments.create');
+    const canDeleteDept     = hasPermission('workshop.departments.departments.delete');
+    const canCreateProduct  = hasPermission('workshop.departments.products.create');
+    const canDeleteProduct  = hasPermission('workshop.departments.products.delete');
+    const canCreateService  = hasPermission('workshop.departments.services.create');
+    const canDeleteService  = hasPermission('workshop.departments.services.delete');
+    const canCreateCategory = hasPermission('workshop.departments.categories.create');
+    const canDeleteCategory = hasPermission('workshop.departments.categories.delete');
     const isAllBranches = !selectedBranchId || selectedBranchId === 'all';
     const branchScope = isAllBranches ? null : String(selectedBranchId);
     const selectedBranchName = (Array.isArray(branchesProp) ? branchesProp : []).find(
@@ -144,7 +164,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     const [departments, setDepartments] = useState([]);
     const [products, setProducts] = useState([]);
     const [productCategories, setProductCategories] = useState(MOCK_CATEGORIES);
-    const [activeTab, setActiveTab] = useState('products');
+    const [activeTab, setActiveTab] = useState(() => visibleDeptPageTabs.find((t) => t.id === 'products')?.id || visibleDeptPageTabs[0]?.id || 'products');
+
+    // Auto-snap activeTab if current becomes hidden (perms changed mid-session).
+    useEffect(() => {
+        if (visibleDeptPageTabs.length === 0) return;
+        if (!visibleDeptPageTabs.some((t) => t.id === activeTab)) {
+            setActiveTab(visibleDeptPageTabs[0].id);
+        }
+    }, [visibleDeptPageTabs, activeTab]);
     const [filterDept, setFilterDept] = useState('all');
     const [lowStockOnly, setLowStockOnly] = useState(false);
     const [showDeptForm, setShowDeptForm] = useState(false);
@@ -1031,27 +1059,40 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             )}
 
             <div style={{display:'flex',gap:8,marginBottom:20,borderBottom:'1px solid var(--color-border)'}}>
-                <button onClick={() => setActiveTab('departments')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='departments' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='departments' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
-                    Departments ({departments.length})
-                </button>
-                <button onClick={() => setActiveTab('products')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='products' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='products' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
-                    Products ({productItems.length})
-                    {criticalCount > 0 && <span className="ws-nav-badge" style={{marginLeft:4}}>{criticalCount}</span>}
-                </button>
-                <button onClick={() => setActiveTab('services')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='services' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='services' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
-                    Services ({serviceItems.length})
-                </button>
-                <button onClick={() => setActiveTab('categories')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='categories' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='categories' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
-                    Categories ({categories.length})
-                </button>
+                {hasPermission('workshop.departments.departments.view') && (
+                    <button onClick={() => setActiveTab('departments')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='departments' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='departments' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
+                        Departments ({departments.length})
+                    </button>
+                )}
+                {hasPermission('workshop.departments.products.view') && (
+                    <button onClick={() => setActiveTab('products')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='products' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='products' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
+                        Products ({productItems.length})
+                        {criticalCount > 0 && <span className="ws-nav-badge" style={{marginLeft:4}}>{criticalCount}</span>}
+                    </button>
+                )}
+                {hasPermission('workshop.departments.services.view') && (
+                    <button onClick={() => setActiveTab('services')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='services' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='services' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
+                        Services ({serviceItems.length})
+                    </button>
+                )}
+                {hasPermission('workshop.departments.categories.view') && (
+                    <button onClick={() => setActiveTab('categories')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='categories' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='categories' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
+                        Categories ({categories.length})
+                    </button>
+                )}
             </div>
 
-            {activeTab === 'departments' && (
+            {activeTab === 'departments' && hasPermission('workshop.departments.departments.view') && (
                 <div>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16, gap: 10}}>
                         <button className="btn-portal" onClick={loadDepartments} disabled={isDeptLoading}>
                             <RefreshCw size={14} /> {isDeptLoading ? 'Refreshing...' : 'Refresh'}
                         </button>
+                        {canCreateDept && (
+                            <button className="btn-portal" onClick={() => setShowDeptForm(true)}>
+                                <Plus size={14}/> Request Department
+                            </button>
+                        )}
                     </div>
                     {deptError && (
                         <div style={{ marginBottom: 16, color: '#B91C1C', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: 12, fontSize: '0.875rem' }}>
@@ -1080,13 +1121,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                             <td><span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? 'active' : 'inactive'}</span></td>
                                             {branchScope && (
                                                 <td>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => removeDeptFromBranch(masterId)}
-                                                        style={{ padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
-                                                    >
-                                                        Remove from this branch
-                                                    </button>
+                                                    {canDeleteDept && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeDeptFromBranch(masterId)}
+                                                            style={{ padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                        >
+                                                            Remove from this branch
+                                                        </button>
+                                                    )}
                                                 </td>
                                             )}
                                         </tr>
@@ -1098,7 +1141,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 </div>
             )}
 
-            {activeTab === 'products' && (
+            {activeTab === 'products' && hasPermission('workshop.departments.products.view') && (
                 <div>
                     {productsError && (
                         <div style={{ marginBottom: 16, color: '#B91C1C', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: 12, fontSize: '0.875rem' }}>
@@ -1120,15 +1163,19 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 <button className="btn-portal" onClick={loadProducts} disabled={isProductsLoading}>
                                     <RefreshCw size={14}/> {isProductsLoading ? 'Refreshing...' : 'Refresh'}
                                 </button>
-                                <button
-                                    className="btn-portal"
-                                    onClick={() => removeSelectedFromBranch(false)}
-                                    disabled={isBulkRemoving || selectedProductIds.length === 0}
-                                    style={{ background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA' }}
-                                >
-                                    Remove Selected ({selectedProductIds.length})
-                                </button>
-                                <button className="btn-portal" onClick={() => openAddProd('product')}><Plus size={14}/> Request Product</button>
+                                {canDeleteProduct && (
+                                    <button
+                                        className="btn-portal"
+                                        onClick={() => removeSelectedFromBranch(false)}
+                                        disabled={isBulkRemoving || selectedProductIds.length === 0}
+                                        style={{ background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA' }}
+                                    >
+                                        Remove Selected ({selectedProductIds.length})
+                                    </button>
+                                )}
+                                {canCreateProduct && (
+                                    <button className="btn-portal" onClick={() => openAddProd('product')}><Plus size={14}/> Request Product</button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1194,13 +1241,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                             <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(p)}</td>
                                             <td>
                                                 <span className={`ws-badge ${isCritical?'ws-badge--red':'ws-badge--green'}`}>{isCritical ? '⚠ Critical' : 'OK'}</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => removeProductFromBranch(p.sourceId, false)}
-                                                    style={{ marginLeft: 8, padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
-                                                >
-                                                    {branchScope ? 'Remove' : 'Remove from workshop'}
-                                                </button>
+                                                {canDeleteProduct && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeProductFromBranch(p.sourceId, false)}
+                                                        style={{ marginLeft: 8, padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                    >
+                                                        {branchScope ? 'Remove' : 'Remove from workshop'}
+                                                    </button>
+                                                )}
                                             </td>
                                         </tr>
                                     );
@@ -1211,7 +1260,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 </div>
             )}
 
-            {activeTab === 'services' && (
+            {activeTab === 'services' && hasPermission('workshop.departments.services.view') && (
                 <div>
                     {productsError && (
                         <div style={{ marginBottom: 16, color: '#B91C1C', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: 12, fontSize: '0.875rem' }}>
@@ -1230,14 +1279,19 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 <button className="btn-portal" onClick={loadProducts} disabled={isProductsLoading}>
                                     <RefreshCw size={14}/> {isProductsLoading ? 'Refreshing...' : 'Refresh'}
                                 </button>
-                                <button
-                                    className="btn-portal"
-                                    onClick={() => removeSelectedFromBranch(true)}
-                                    disabled={isBulkRemoving || selectedServiceIds.length === 0}
-                                    style={{ background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA' }}
-                                >
-                                    Remove Selected ({selectedServiceIds.length})
-                                </button>
+                                {canDeleteService && (
+                                    <button
+                                        className="btn-portal"
+                                        onClick={() => removeSelectedFromBranch(true)}
+                                        disabled={isBulkRemoving || selectedServiceIds.length === 0}
+                                        style={{ background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA' }}
+                                    >
+                                        Remove Selected ({selectedServiceIds.length})
+                                    </button>
+                                )}
+                                {canCreateService && (
+                                    <button className="btn-portal" onClick={() => openAddProd('service')}><Plus size={14}/> Request Service</button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1272,13 +1326,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                             <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(s)}</td>
                                             <td>
                                                 <span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? 'active' : 'inactive'}</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => removeProductFromBranch(s.sourceId, true)}
-                                                    style={{ marginLeft: 8, padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
-                                                >
-                                                    {branchScope ? 'Remove' : 'Remove from workshop'}
-                                                </button>
+                                                {canDeleteService && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removeProductFromBranch(s.sourceId, true)}
+                                                        style={{ marginLeft: 8, padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                    >
+                                                        {branchScope ? 'Remove' : 'Remove from workshop'}
+                                                    </button>
+                                                )}
                                             </td>
                                         </tr>
                                     );

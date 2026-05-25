@@ -2,9 +2,20 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash2, Percent, Calculator, FileText, AlertCircle, Save, CheckCircle2 } from 'lucide-react';
 import { getTaxCodesConfig, saveTaxCodesConfig } from '../../services/superAdminApi';
+import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/TaxCodePage.css';
 
 const TaxCodePage = () => {
+    const { hasPermission } = useAuth();
+    // Primary VAT (top card)
+    const canEditVat = hasPermission('tax-codes.edit');
+    // Additional Tax Codes (lower card) — independently gated
+    const canViewAdditional   = hasPermission('tax-codes.additional.view');
+    const canCreateAdditional = hasPermission('tax-codes.additional.create');
+    const canEditAdditional   = hasPermission('tax-codes.additional.edit');
+    const canDeleteAdditional = hasPermission('tax-codes.additional.delete');
+    // SAVE button commits any change (VAT or additional taxes), so enable if any edit power exists.
+    const canSave = canEditVat || canCreateAdditional || canEditAdditional || canDeleteAdditional;
     const [vatRate, setVatRate] = useState(15);
     const [taxes, setTaxes] = useState([]);
     const [configId, setConfigId] = useState(null);
@@ -159,17 +170,19 @@ const TaxCodePage = () => {
                     <h2 className="tax-title">Tax Configuration</h2>
                     <p className="tax-subtitle">Manage VAT and additional operational taxes</p>
                 </div>
-                <button
-                    className={`tax-save-btn ${showSuccess ? 'success' : ''}`}
-                    onClick={handleSaveAll}
-                    disabled={saving || loading}
-                >
-                    {showSuccess ? (
-                        <><CheckCircle2 size={18} /> SETTINGS SAVED</>
-                    ) : (
-                        <><Save size={18} /> {saving ? 'SAVING...' : 'SAVE CONFIGURATION'}</>
-                    )}
-                </button>
+                {canSave && (
+                    <button
+                        className={`tax-save-btn ${showSuccess ? 'success' : ''}`}
+                        onClick={handleSaveAll}
+                        disabled={saving || loading}
+                    >
+                        {showSuccess ? (
+                            <><CheckCircle2 size={18} /> SETTINGS SAVED</>
+                        ) : (
+                            <><Save size={18} /> {saving ? 'SAVING...' : 'SAVE CONFIGURATION'}</>
+                        )}
+                    </button>
+                )}
             </header>
             {loading && (
                 <div className="vat-hint" style={{ marginBottom: 12 }}>
@@ -217,6 +230,8 @@ const TaxCodePage = () => {
                             onChange={(e) => setVatRate(e.target.value)}
                             step="0.01"
                             placeholder="0.00"
+                            disabled={!canEditVat}
+                            readOnly={!canEditVat}
                         />
                         <span className="vat-symbol">%</span>
                     </div>
@@ -269,7 +284,8 @@ const TaxCodePage = () => {
                     </div>
                 </motion.div>
 
-                {/* Additional Taxes List */}
+                {/* Additional Taxes List — entire card gated by tax-codes.additional.view */}
+                {canViewAdditional && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -286,33 +302,35 @@ const TaxCodePage = () => {
                         </div>
                     </div>
 
-                    <form className="add-tax-form" onSubmit={handleAddTax}>
-                        <div className="tax-form-group">
-                            <label>Tax Name</label>
-                            <input
-                                type="text"
-                                placeholder="e.g. Municipal Tax"
-                                value={newName}
-                                onChange={(e) => setNewName(e.target.value)}
-                            />
-                        </div>
-                        <div className="tax-form-group">
-                            <label>Percent</label>
-                            <div className="input-with-symbol">
+                    {canCreateAdditional && (
+                        <form className="add-tax-form" onSubmit={handleAddTax}>
+                            <div className="tax-form-group">
+                                <label>Tax Name</label>
                                 <input
-                                    type="number"
-                                    step="0.01"
-                                    placeholder="0.00"
-                                    value={newPercent}
-                                    onChange={(e) => setNewPercent(e.target.value)}
+                                    type="text"
+                                    placeholder="e.g. Municipal Tax"
+                                    value={newName}
+                                    onChange={(e) => setNewName(e.target.value)}
                                 />
-                                <span>%</span>
                             </div>
-                        </div>
-                        <button type="submit" className="add-btn">
-                            <Plus size={18} /> ADD TAX
-                        </button>
-                    </form>
+                            <div className="tax-form-group">
+                                <label>Percent</label>
+                                <div className="input-with-symbol">
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="0.00"
+                                        value={newPercent}
+                                        onChange={(e) => setNewPercent(e.target.value)}
+                                    />
+                                    <span>%</span>
+                                </div>
+                            </div>
+                            <button type="submit" className="add-btn">
+                                <Plus size={18} /> ADD TAX
+                            </button>
+                        </form>
+                    )}
 
                     <div className="tax-table-wrapper">
                         <table className="tax-table">
@@ -346,13 +364,15 @@ const TaxCodePage = () => {
                                                 <span className="tax-status-badge">Active</span>
                                             </td>
                                             <td className="text-right">
-                                                <button
-                                                    className="delete-tax-btn"
-                                                    onClick={() => handleDeleteTax(tax.id)}
-                                                    title="Delete Tax"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
+                                                {canDeleteAdditional && (
+                                                    <button
+                                                        className="delete-tax-btn"
+                                                        onClick={() => handleDeleteTax(tax.id)}
+                                                        title="Delete Tax"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                )}
                                             </td>
                                         </motion.tr>
                                     ))}
@@ -368,6 +388,7 @@ const TaxCodePage = () => {
                         </table>
                     </div>
                 </motion.div>
+                )}
             </div>
         </div>
     );

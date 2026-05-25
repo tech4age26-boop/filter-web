@@ -3,6 +3,12 @@ import { createPortal } from 'react-dom';
 import { Plus, ShoppingCart, BarChart3, AlertTriangle, Calendar, Zap, Eye, Trash2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import { useAuth } from '../../context/AuthContext';
+
+const PURCHASES_TABS = [
+    { id: 'invoices',      label: 'Purchase Invoices',     permission: 'workshop.purchases.invoices.view' },
+    { id: 'price_report',  label: 'Purchase Price Report', permission: 'workshop.purchases.price-report.view' },
+];
 import {
     getWorkshopStaffBranchProducts,
     getWorkshopSuppliers,
@@ -559,7 +565,15 @@ function formatViewInvoiceDiscount(raw) {
 
 export default function WorkshopPurchases({ tabState, clearTabState, selectedBranchId, branches = [] }) {
     const branchesForUi = useMemo(() => filterPortalVisibleBranches(branches), [branches]);
-    const [activeTab, setActiveTab] = useState('invoices');
+    const { hasPermission } = useAuth();
+    const visiblePurchasesTabs = PURCHASES_TABS.filter((t) => hasPermission(t.permission));
+    const [activeTab, setActiveTab] = useState(() => visiblePurchasesTabs[0]?.id ?? 'invoices');
+    useEffect(() => {
+        if (visiblePurchasesTabs.length === 0) return;
+        if (!visiblePurchasesTabs.some((t) => t.id === activeTab)) {
+            setActiveTab(visiblePurchasesTabs[0].id);
+        }
+    }, [visiblePurchasesTabs, activeTab]);
     const [filterSupplier, setFilterSupplier] = useState('all');
     const [filterProduct, setFilterProduct] = useState('all');
     const [modalOpen, setModalOpen] = useState(false);
@@ -1897,40 +1911,44 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
                 <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                        type="button"
-                        onClick={() => setActiveTab('invoices')}
-                        style={{
-                            padding: '8px 16px',
-                            borderRadius: 8,
-                            background: activeTab === 'invoices' ? 'var(--color-text-dark)' : '#fff',
-                            color: activeTab === 'invoices' ? 'var(--color-primary)' : 'var(--color-text-body)',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            border: activeTab === 'invoices' ? 'none' : '1px solid var(--color-border)',
-                        }}
-                    >
-                        Purchase Invoices
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setActiveTab('price_report')}
-                        style={{
-                            padding: '8px 16px',
-                            borderRadius: 8,
-                            border: '1px solid var(--color-border)',
-                            background: activeTab === 'price_report' ? 'var(--color-text-dark)' : '#fff',
-                            color: activeTab === 'price_report' ? 'var(--color-primary)' : 'var(--color-text-body)',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                        }}
-                    >
-                        <BarChart3 size={14} />
-                        Purchase Price Report
-                    </button>
+                    {hasPermission('workshop.purchases.invoices.view') && (
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('invoices')}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: 8,
+                                background: activeTab === 'invoices' ? 'var(--color-text-dark)' : '#fff',
+                                color: activeTab === 'invoices' ? 'var(--color-primary)' : 'var(--color-text-body)',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                border: activeTab === 'invoices' ? 'none' : '1px solid var(--color-border)',
+                            }}
+                        >
+                            Purchase Invoices
+                        </button>
+                    )}
+                    {hasPermission('workshop.purchases.price-report.view') && (
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('price_report')}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: 8,
+                                border: '1px solid var(--color-border)',
+                                background: activeTab === 'price_report' ? 'var(--color-text-dark)' : '#fff',
+                                color: activeTab === 'price_report' ? 'var(--color-primary)' : 'var(--color-text-body)',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                            }}
+                        >
+                            <BarChart3 size={14} />
+                            Purchase Price Report
+                        </button>
+                    )}
                 </div>
                 <button
                     type="button"

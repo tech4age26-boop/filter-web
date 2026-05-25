@@ -3,6 +3,12 @@ import { ShoppingCart, Plus, RefreshCw, Loader, AlertCircle, Eye } from 'lucide-
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { PI_INVENTORY_ITEMS } from './constants';
+import { useAuth } from '../../context/AuthContext';
+
+const SUPPLIER_TABS = [
+    { id: 'suppliers', label: 'Suppliers',         permission: 'workshop.suppliers.list.view' },
+    { id: 'purchases', label: 'Purchase History',  permission: 'workshop.suppliers.purchases.view' },
+];
 import {
     getWorkshopSuppliers,
     getRegisteredWorkshopSuppliers,
@@ -400,7 +406,15 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
         if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
         return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
     }, [branches, selectedBranchId]);
-    const [activeTab, setActiveTab] = useState('suppliers');
+    const { hasPermission } = useAuth();
+    const visibleSupplierTabs = SUPPLIER_TABS.filter((t) => hasPermission(t.permission));
+    const [activeTab, setActiveTab] = useState(() => visibleSupplierTabs[0]?.id ?? 'suppliers');
+    useEffect(() => {
+        if (visibleSupplierTabs.length === 0) return;
+        if (!visibleSupplierTabs.some((t) => t.id === activeTab)) {
+            setActiveTab(visibleSupplierTabs[0].id);
+        }
+    }, [visibleSupplierTabs, activeTab]);
     const [searchInput, setSearchInput] = useState('');
     const [suppliers, setSuppliers] = useState([]);
     const [listMeta, setListMeta] = useState({
@@ -700,36 +714,27 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                 </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('suppliers')}
-                    style={{
-                        padding: '8px 16px',
-                        borderRadius: 8,
-                        background: activeTab === 'suppliers' ? 'var(--color-text-dark)' : '#fff',
-                        color: activeTab === 'suppliers' ? 'var(--color-primary)' : 'var(--color-text-body)',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        border: activeTab === 'suppliers' ? 'none' : '1px solid var(--color-border)',
-                    }}
-                >
-                    Suppliers
-                </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('purchases')}
-                    style={{
-                        padding: '8px 16px',
-                        borderRadius: 8,
-                        border: '1px solid var(--color-border)',
-                        background: activeTab === 'purchases' ? 'var(--color-text-dark)' : '#fff',
-                        color: activeTab === 'purchases' ? 'var(--color-primary)' : 'var(--color-text-body)',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                    }}
-                >
-                    Purchase History
-                </button>
+                {visibleSupplierTabs.map((t) => {
+                    const active = activeTab === t.id;
+                    return (
+                        <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setActiveTab(t.id)}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: 8,
+                                background: active ? 'var(--color-text-dark)' : '#fff',
+                                color: active ? 'var(--color-primary)' : 'var(--color-text-body)',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                border: active ? 'none' : '1px solid var(--color-border)',
+                            }}
+                        >
+                            {t.label}
+                        </button>
+                    );
+                })}
             </div>
             {activeTab === 'suppliers' && (
                 <>

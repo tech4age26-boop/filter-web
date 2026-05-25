@@ -3,6 +3,7 @@ import { useParams, NavLink } from 'react-router-dom';
 import { Search, Plus, Users, Building, Pencil, FileText, Loader } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/CustomersPage.css';
 import {
     createCorporateCustomerDirect,
@@ -62,12 +63,14 @@ function mapCustomersResponse(d) {
 }
 
 const SUB_TABS = [
-    { path: 'all-customers', label: 'All Customers' },
-    { path: 'corporate-billing', label: 'Corporate Billing' },
+    { path: 'all-customers',     label: 'All Customers',     permission: 'customers.all-customers.view' },
+    { path: 'corporate-billing', label: 'Corporate Billing', permission: 'customers.corporate-billing.view' },
 ];
 
 export default function CustomersPage() {
     const { subTab } = useParams();
+    const { hasPermission } = useAuth();
+    const visibleSubTabs = SUB_TABS.filter((t) => hasPermission(t.permission));
     const activeSub = subTab || 'all-customers';
     const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -420,7 +423,7 @@ export default function CustomersPage() {
     return (
         <div className="customers-page module-container">
             <div className="customers-sub-nav">
-                {SUB_TABS.map((t) => (
+                {visibleSubTabs.map((t) => (
                     <NavLink key={t.path} to={`/admin/customers/${t.path}`} className={({ isActive }) => `customers-sub-tab ${isActive ? 'active' : ''}`}>
                         {t.label}
                     </NavLink>

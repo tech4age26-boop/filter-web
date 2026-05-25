@@ -6,6 +6,7 @@ import {
     createLocalSupplier,
     updateLocalSupplier,
 } from '../../services/workshopSuppliersApi';
+import { useAuth } from '../../context/AuthContext';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const fmtMoney = (v) =>
@@ -161,6 +162,9 @@ export default function WorkshopNonAffiliatedSuppliers({
     branches = [],
     onTabChange,
 }) {
+    const { hasPermission } = useAuth();
+    const canCreate = hasPermission('workshop.non-affiliated-suppliers.create');
+    const canEdit   = hasPermission('workshop.non-affiliated-suppliers.edit');
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
@@ -246,16 +250,18 @@ export default function WorkshopNonAffiliatedSuppliers({
                     <RefreshCw size={14} style={{ marginRight: 6 }} />
                     Refresh
                 </button>
-                <button
-                    className="btn-portal"
-                    onClick={() => {
-                        setEditTarget(null);
-                        setShowForm(true);
-                    }}
-                >
-                    <Plus size={14} style={{ marginRight: 6 }} />
-                    Add new non-affiliated supplier
-                </button>
+                {canCreate && (
+                    <button
+                        className="btn-portal"
+                        onClick={() => {
+                            setEditTarget(null);
+                            setShowForm(true);
+                        }}
+                    >
+                        <Plus size={14} style={{ marginRight: 6 }} />
+                        Add new non-affiliated supplier
+                    </button>
+                )}
             </div>
 
             <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
@@ -313,11 +319,12 @@ export default function WorkshopNonAffiliatedSuppliers({
                                     <td style={{ padding: 12 }}>{fmtMoney(r.openingBalance)}</td>
                                     <td style={{ padding: 12 }}>{fmtMoney(r.finalBalance)}</td>
                                     <td style={{ padding: 12, textAlign: 'center' }}>
-                                        <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22 }}>
+                                        <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, opacity: canEdit ? 1 : 0.55, cursor: canEdit ? 'pointer' : 'not-allowed' }} title={canEdit ? undefined : 'No edit permission'}>
                                             <input
                                                 type="checkbox"
                                                 checked={Boolean(r.isActive)}
-                                                onChange={() => onToggleActive(r)}
+                                                onChange={() => { if (canEdit) onToggleActive(r); }}
+                                                disabled={!canEdit}
                                                 style={{ opacity: 0, width: 0, height: 0 }}
                                             />
                                             <span
@@ -358,17 +365,19 @@ export default function WorkshopNonAffiliatedSuppliers({
                                             <FileText size={12} style={{ marginRight: 4 }} />
                                             Ledger
                                         </button>
-                                        <button
-                                            className="btn-portal-outline"
-                                            style={{ padding: '6px 10px', fontSize: 12 }}
-                                            onClick={() => {
-                                                setEditTarget(r);
-                                                setShowForm(true);
-                                            }}
-                                        >
-                                            <Edit size={12} style={{ marginRight: 4 }} />
-                                            Edit
-                                        </button>
+                                        {canEdit && (
+                                            <button
+                                                className="btn-portal-outline"
+                                                style={{ padding: '6px 10px', fontSize: 12 }}
+                                                onClick={() => {
+                                                    setEditTarget(r);
+                                                    setShowForm(true);
+                                                }}
+                                            >
+                                                <Edit size={12} style={{ marginRight: 4 }} />
+                                                Edit
+                                            </button>
+                                        )}
                                     </td>
                                 </tr>
                             ))
