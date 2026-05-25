@@ -16,9 +16,15 @@ const fmtMoney = (v) =>
         maximumFractionDigits: 2,
     });
 
-function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving }) {
+function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving, selectedBranchId = 'all' }) {
+    // If a specific branch is scoped from the sidebar → pre-fill it and limit
+    // the dropdown to that branch (admin can't accidentally link to another).
+    const isAll = !selectedBranchId || selectedBranchId === 'all';
+    const visibleBranches = isAll
+        ? branches
+        : branches.filter((b) => String(b.id) === String(selectedBranchId));
     const [branchId, setBranchId] = useState(
-        branches?.[0]?.id ? String(branches[0].id) : '',
+        !isAll ? String(selectedBranchId) : (branches?.[0]?.id ? String(branches[0].id) : ''),
     );
     const [search, setSearch] = useState('');
     const [available, setAvailable] = useState([]);
@@ -182,10 +188,11 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                         <select
                             value={branchId}
                             onChange={(e) => setBranchId(e.target.value)}
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
+                            disabled={!isAll}
+                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', opacity: isAll ? 1 : 0.85 }}
                         >
-                            <option value="">— None (workshop-wide) —</option>
-                            {(branches || []).map((b) => (
+                            {isAll && <option value="">— None (workshop-wide) —</option>}
+                            {visibleBranches.map((b) => (
                                 <option key={b.id} value={b.id}>
                                     {b.name}
                                 </option>
@@ -573,6 +580,7 @@ export default function WorkshopAffiliatedSuppliers({
             {showAdd && (
                 <AddAffiliatedSupplierModal
                     branches={branches}
+                    selectedBranchId={selectedBranchId}
                     onClose={() => setShowAdd(false)}
                     onSubmit={onAdd}
                     isSaving={savingAdd}

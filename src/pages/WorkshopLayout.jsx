@@ -40,19 +40,39 @@ import '../styles/admin/ApprovalsPage.css';
 export default function WorkshopLayout() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { logout, hasPermission } = useAuth();
+    const { logout, hasPermission, user } = useAuth();
 
-    /** Filter sidebar items by the current user's permissions. */
-    const visibleNavItems = NAV_ITEMS
-        .map((item) => {
-            if (item.subItems?.length) {
-                const visibleSubs = item.subItems.filter((s) => !s.permission || hasPermission(s.permission));
-                return visibleSubs.length > 0 ? { ...item, subItems: visibleSubs } : null;
-            }
-            if (item.permission && !hasPermission(item.permission)) return null;
-            return item;
-        })
-        .filter(Boolean);
+    /**
+     * Branch-restriction rule for the workshop portal:
+     *   - If user has a non-system custom role AND a User.branchId → they are
+     *     LOCKED to that branch. The sidebar branch selector hides "All
+     *     Branches" and shows only their assigned branch. Every page receives
+     *     that branchId as `selectedBranchId`.
+     *   - Workshop owners and users without a role keep full multi-branch view.
+     */
+    const userBranchLock =
+        user?.role && !user.role.isSystem && user.branchId
+            ? String(user.branchId)
+            : null;
+
+    /**
+     * Filter sidebar items by the current user's permissions.
+     * Memoized on `hasPermission` so the auto-snap effect below doesn't see a
+     * new array reference on every render (would cause needless setActiveTab).
+     */
+    const visibleNavItems = useMemo(
+        () => NAV_ITEMS
+            .map((item) => {
+                if (item.subItems?.length) {
+                    const visibleSubs = item.subItems.filter((s) => !s.permission || hasPermission(s.permission));
+                    return visibleSubs.length > 0 ? { ...item, subItems: visibleSubs } : null;
+                }
+                if (item.permission && !hasPermission(item.permission)) return null;
+                return item;
+            })
+            .filter(Boolean),
+        [hasPermission],
+    );
 
     const handleLogout = async () => {
         const t = localStorage.getItem('filter_auth_token');
@@ -139,7 +159,7 @@ export default function WorkshopLayout() {
     const toggleMenu = (id) => {
         setOpenMenus(prev => ({ ...prev, [id]: !prev[id] }));
     };
-    const [selectedBranch, setSelectedBranch] = useState('all');
+    const [selectedBranch, setSelectedBranch] = useState(userBranchLock ?? 'all');
     const [branches, setBranches] = useState([]);
     const [selectedProducts, setSelectedProducts] = useState([]);
 
@@ -239,28 +259,46 @@ export default function WorkshopLayout() {
         return () => window.removeEventListener('filter-api-loading', handleApiLoading);
     }, []);
 
-    const activeBranches = useMemo(() => filterPortalVisibleBranches(branches), [branches]);
+    const activeBranches = useMemo(() => {
+        const all = filterPortalVisibleBranches(branches);
+        if (!userBranchLock) return all;
+        // Branch-locked users only see their own branch in the dropdown + data.
+        return all.filter((b) => String(b.id) === userBranchLock);
+    }, [branches, userBranchLock]);
+
+    // If the loaded branch list never contains the user's locked branch (e.g.
+    // pending data race), still keep selectedBranch pointed at the lock so all
+    // downstream pages receive the correct scope.
+    useEffect(() => {
+        if (userBranchLock && selectedBranch !== userBranchLock) {
+            setSelectedBranch(userBranchLock);
+        }
+    }, [userBranchLock, selectedBranch]);
 
     /** Sidebar + “All Branches” scope only include active branches; inactive stay manageable on Branches page. */
     useEffect(() => {
+        if (userBranchLock) return; // never override a hard branch lock
         if (selectedBranch === 'all') return;
         const sel = branches.find((b) => String(b.id) === String(selectedBranch));
         if (!sel || isWorkshopPortalBranchInactive(sel)) {
             setSelectedBranch('all');
         }
-    }, [branches, selectedBranch]);
+    }, [branches, selectedBranch, userBranchLock]);
 
     useEffect(() => {
+        if (userBranchLock) return;
         if (activeBranches.length > 0) return;
         if (selectedBranch !== 'all') setSelectedBranch('all');
-    }, [activeBranches.length, selectedBranch]);
+    }, [activeBranches.length, selectedBranch, userBranchLock]);
 
     const selectedBranchName = useMemo(() => {
         if (selectedBranch === 'all') return 'All Branches';
         const b = activeBranches.find((branch) => String(branch.id) === String(selectedBranch));
-        if (!b) return 'All Branches';
-        return b.name ?? 'Branch';
-    }, [activeBranches, selectedBranch]);
+        if (b) return b.name ?? 'Branch';
+        // Fallback for branch-locked users when the branches list hasn't loaded yet.
+        if (userBranchLock && user?.branchName) return user.branchName;
+        return 'All Branches';
+    }, [activeBranches, selectedBranch, userBranchLock, user?.branchName]);
 
     useEffect(() => {
         if (activeTab !== 'dashboard') setDashboardLowStockCount(0);
@@ -377,9 +415,22 @@ export default function WorkshopLayout() {
                 </div>
                 {activeTab !== 'catalog-new' && activeBranches.length > 0 && (
                 <div className="ws-branch-selector">
-                    <select className="ws-branch-select" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
-                        style={{ background: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.1)', color: '#000000' }}>
-                        {!inventoryBranchOnly ? <option value="all">All Branches</option> : null}
+                    <select
+                        className="ws-branch-select"
+                        value={selectedBranch}
+                        onChange={e => setSelectedBranch(e.target.value)}
+                        disabled={!!userBranchLock}
+                        title={userBranchLock ? 'You are scoped to a single branch by your role' : undefined}
+                        style={{
+                            background: 'rgba(0,0,0,0.06)',
+                            border: '1px solid rgba(0,0,0,0.1)',
+                            color: '#000000',
+                            opacity: userBranchLock ? 0.85 : 1,
+                            cursor: userBranchLock ? 'not-allowed' : 'pointer',
+                        }}
+                    >
+                        {/* Hide "All Branches" when the user is locked to a single branch. */}
+                        {!userBranchLock && !inventoryBranchOnly ? <option value="all">All Branches</option> : null}
                         {activeBranches.map((branch) => (
                             <option key={branch.id} value={branch.id}>{branch.name}</option>
                         ))}

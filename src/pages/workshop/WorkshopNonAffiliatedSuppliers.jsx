@@ -15,10 +15,15 @@ const fmtMoney = (v) =>
         maximumFractionDigits: 2,
     });
 
-function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSaving }) {
+function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSaving, selectedBranchId = 'all' }) {
+    const isAll = !selectedBranchId || selectedBranchId === 'all';
+    const visibleBranches = isAll
+        ? branches
+        : branches.filter((b) => String(b.id) === String(selectedBranchId));
     const [form, setForm] = useState({
         name: supplier?.name || '',
-        branchId: supplier?.branchId || '',
+        // On create with a branch scoped → pre-fill it. On edit, keep existing.
+        branchId: supplier?.branchId || (!isAll ? String(selectedBranchId) : ''),
         phone: supplier?.phone || '',
         email: supplier?.email || '',
         address: supplier?.address || '',
@@ -66,10 +71,11 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                         <select
                             value={form.branchId || ''}
                             onChange={(e) => set('branchId', e.target.value)}
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
+                            disabled={!isAll}
+                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', opacity: isAll ? 1 : 0.85 }}
                         >
-                            <option value="">— None (workshop-wide) —</option>
-                            {(branches || []).map((b) => (
+                            {isAll && <option value="">— None (workshop-wide) —</option>}
+                            {visibleBranches.map((b) => (
                                 <option key={b.id} value={b.id}>
                                     {b.name}
                                 </option>
@@ -394,6 +400,7 @@ export default function WorkshopNonAffiliatedSuppliers({
                 <LocalSupplierFormModal
                     supplier={editTarget}
                     branches={branches}
+                    selectedBranchId={selectedBranchId}
                     onClose={() => {
                         setShowForm(false);
                         setEditTarget(null);

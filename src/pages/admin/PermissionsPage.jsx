@@ -167,14 +167,14 @@ export default function PermissionsPage() {
         setEditingUser(user);
     };
 
-    const handleSaveUserRole = async (userId, roleId) => {
+    const handleSaveUserRole = async (userId, roleId, opts = {}) => {
         setSaving(true);
         try {
-            await permissionsApi.assignRoleToUser(userId, roleId);
+            await permissionsApi.assignRoleToUser(userId, roleId, opts);
             setEditingUser(null);
             await fetchUsers();
         } catch (e) {
-            alert(e?.message || 'Could not update user role');
+            alert(e?.message || 'Could not update user');
         } finally {
             setSaving(false);
         }
@@ -1171,6 +1171,46 @@ function ToggleSwitch({ checked, onChange }) {
 function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
     const [roleId, setRoleId] = useState(user.role?.id ?? '');
 
+    // Workshop / branch are editable only for non-platform-admin users
+    // (Super Admin users are unscoped — they don't belong to any workshop).
+    const isWorkshopScoped = user.userType !== 'platform_admin';
+    const [workshopId, setWorkshopId] = useState(user.workshopId ?? '');
+    const [branchId, setBranchId] = useState(user.branchId ?? '');
+
+    const [workshops, setWorkshops] = useState([]);
+    const [branches, setBranches] = useState([]);
+    const [loadingWs, setLoadingWs] = useState(false);
+    const [loadingBr, setLoadingBr] = useState(false);
+
+    // Load workshops once when the modal opens (only if user is workshop-scoped).
+    useEffect(() => {
+        if (!isWorkshopScoped) return;
+        setLoadingWs(true);
+        getWorkshopOptions()
+            .then((res) => setWorkshops(res?.workshops ?? []))
+            .catch(() => setWorkshops([]))
+            .finally(() => setLoadingWs(false));
+    }, [isWorkshopScoped]);
+
+    // Load branches whenever the workshop selection changes. Reset branchId
+    // if it no longer belongs to the new workshop.
+    useEffect(() => {
+        if (!isWorkshopScoped || !workshopId) { setBranches([]); return; }
+        setLoadingBr(true);
+        getBranches({ workshopId })
+            .then((res) => {
+                const list = res?.branches ?? [];
+                setBranches(list);
+                // If current branch isn't part of the new workshop, clear it.
+                if (branchId && !list.some((b) => String(b.id) === String(branchId))) {
+                    setBranchId('');
+                }
+            })
+            .catch(() => setBranches([]))
+            .finally(() => setLoadingBr(false));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [workshopId, isWorkshopScoped]);
+
     // Show roles that match the user's portal first, then the rest.
     const userPortal = portalIdForUser(user);
     const assignableRoles = useMemo(() => {
@@ -1183,7 +1223,15 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
     const portalMismatch = selectedRole && userPortal && selectedRole.portal !== userPortal;
 
     const handleSubmit = () => {
-        onSave(user.id, roleId ? String(roleId) : null);
+        // Build the patch payload: include workshop/branch only if changed
+        // (or whenever user is workshop-scoped — backend ignores "undefined"
+        // semantics, so we send only fields the admin can actually change).
+        const opts = {};
+        if (isWorkshopScoped) {
+            opts.workshopId = workshopId || null;
+            opts.branchId   = branchId   || null;
+        }
+        onSave(user.id, roleId ? String(roleId) : null, opts);
     };
 
     return (
@@ -1243,6 +1291,54 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
                         </span>
                     )}
                 </div>
+
+                {/* Workshop + Branch — only for non-Super-Admin users */}
+                {isWorkshopScoped && (
+                    <>
+                        <div style={{
+                            marginTop: 4, marginBottom: 10, padding: '8px 12px',
+                            borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0',
+                            fontSize: '0.75rem', color: '#166534', fontWeight: 600,
+                        }}>
+                            Workshop scope — change which workshop / branch this user belongs to.
+                        </div>
+                        <div className="form-row">
+                            <div className="form-group flex-1">
+                                <label>Workshop</label>
+                                <select
+                                    className="form-input"
+                                    value={workshopId}
+                                    onChange={(e) => {
+                                        setWorkshopId(e.target.value);
+                                        setBranchId(''); // reset branch when workshop changes
+                                    }}
+                                    style={selectStyle}
+                                    disabled={loadingWs}
+                                >
+                                    <option value="">{loadingWs ? 'Loading workshops…' : '— None —'}</option>
+                                    {workshops.map((w) => (
+                                        <option key={w.id} value={w.id}>{w.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="form-group flex-1">
+                                <label>Branch</label>
+                                <select
+                                    className="form-input"
+                                    value={branchId}
+                                    onChange={(e) => setBranchId(e.target.value)}
+                                    disabled={!workshopId || loadingBr}
+                                    style={selectStyle}
+                                >
+                                    <option value="">{loadingBr ? 'Loading branches…' : '— None —'}</option>
+                                    {branches.map((b) => (
+                                        <option key={b.id} value={b.id}>{b.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    </>
+                )}
 
                 {/* Role selector */}
                 <div className="form-row">

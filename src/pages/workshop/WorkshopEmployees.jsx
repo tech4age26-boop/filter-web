@@ -150,9 +150,21 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
     const branchSelectOptions = useMemo(() => {
         const asTechnician = form.is_technician || isTechnicianRole(form.role);
         const cashierOrPortalEdit = editing && editing._source !== 'technician';
-        if (asTechnician && !cashierOrPortalEdit) return branchList;
-        return branchesForNonTechnicianSelect;
-    }, [form.is_technician, form.role, branchList, branchesForNonTechnicianSelect, editing]);
+        const base = (asTechnician && !cashierOrPortalEdit)
+            ? branchList
+            : branchesForNonTechnicianSelect;
+
+        // Sidebar branch scope — when a specific branch is selected, narrow the
+        // form's branch dropdown so the admin can only create/edit employees
+        // under that branch. While editing an existing row keep its current
+        // branch visible so the option doesn't disappear.
+        const isAll = !selectedBranchId || selectedBranchId === 'all';
+        if (isAll) return base;
+        return base.filter((b) =>
+            String(b.id) === String(selectedBranchId)
+            || (editing && String(b.id) === String(editing.branchId ?? '')),
+        );
+    }, [form.is_technician, form.role, branchList, branchesForNonTechnicianSelect, editing, selectedBranchId]);
 
     const loadEmployees = useCallback(async () => {
         setListError('');
@@ -260,7 +272,11 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
 
     const openAdd = () => {
         setEditing(null);
-        setForm(EMPTY_FORM);
+        // Pre-fill the branch from the sidebar scope (so the admin doesn't have
+        // to re-pick it). If "All Branches" is selected we leave it blank.
+        const presetBranchId =
+            selectedBranchId && selectedBranchId !== 'all' ? String(selectedBranchId) : '';
+        setForm({ ...EMPTY_FORM, branchId: presetBranchId });
         setShowPassword(false);
         setModalOpen(true);
         ensureDepartmentsLoaded();

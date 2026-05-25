@@ -86,13 +86,29 @@ export function createUser(payload) {
     });
 }
 
-/** Reassign or clear (roleId = null) a user's role. */
-export function assignRoleToUser(userId, roleId) {
+/**
+ * Update a user — reassign role and optionally move them to a different
+ * workshop / branch.
+ *
+ *   roleId      — string id, or null to clear the assignment
+ *   workshopId  — optional; omit to keep current, null to clear, string id to set
+ *   branchId    — optional; omit to keep current, null to clear, string id to set
+ */
+export function assignRoleToUser(userId, roleId, opts = {}) {
+    const body = {
+        roleId: roleId == null ? null : String(roleId),
+    };
+    if (Object.prototype.hasOwnProperty.call(opts, 'workshopId')) {
+        body.workshopId = opts.workshopId == null ? null : String(opts.workshopId);
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'branchId')) {
+        body.branchId = opts.branchId == null ? null : String(opts.branchId);
+    }
     return apiFetch(
         `/super-admin/permissions/users/${encodeURIComponent(userId)}/role`,
         {
             method: 'PATCH',
-            body: JSON.stringify({ roleId: roleId == null ? null : String(roleId) }),
+            body: JSON.stringify(body),
         },
     );
 }

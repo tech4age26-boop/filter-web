@@ -43,7 +43,6 @@ import {
     filterPortalVisibleBranches,
 } from '../../services/workshopStaffApi';
 import {
-    MOCK_BRANCHES,
     MOCK_CATEGORIES,
     UNIT_OPTIONS,
 } from './constants';
@@ -190,6 +189,11 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         () => filterPortalVisibleBranches(branches.length > 0 ? branches : branchesProp),
         [branches, branchesProp],
     );
+    // When sidebar scopes to a specific branch, narrow create-form dropdowns.
+    const scopedBranchesForForms = useMemo(() => {
+        if (!selectedBranchId || selectedBranchId === 'all') return branchesForUi;
+        return branchesForUi.filter((b) => String(b.id) === String(selectedBranchId));
+    }, [branchesForUi, selectedBranchId]);
     const [productUnits, setProductUnits] = useState(UNIT_OPTIONS);
     const [defaultProductUnit, setDefaultProductUnit] = useState('pcs');
     const [categories, setCategories] = useState([]);
@@ -211,7 +215,9 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     /** `{ value, label }[]` for unit dropdown; built from catalog UOM or staff product-units. */
     const [uomSelectOptions, setUomSelectOptions] = useState([]);
 
-    const [deptForm, setDeptForm] = useState({ name: '', branch_id: 'b1' });
+    // If a branch is scoped in the sidebar, pre-fill the request forms with it.
+    const scopedBranchInitial = !isAllBranches ? String(selectedBranchId) : '';
+    const [deptForm, setDeptForm] = useState({ name: '', branch_id: scopedBranchInitial || 'b1' });
     const [prodForm, setProdForm] = useState({
         name: '',
         arabic_name: '',
@@ -645,7 +651,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             });
             await loadDepartments();
             setShowDeptForm(false);
-            setDeptForm({ name: '', branch_id: 'b1' });
+            setDeptForm({ name: '', branch_id: scopedBranchInitial || 'b1' });
         } catch (error) {
             setDeptError(error.message || 'Failed to create department.');
         } finally {
@@ -676,7 +682,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 critical_level: '',
                 reorder_level: '',
                 department_ids: [],
-                branch_id: branches[0]?.id || '',
+                branch_id: scopedBranchInitial || branches[0]?.id || '',
                 department_id: '',
             });
         } else {
@@ -699,7 +705,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             critical_level: '',
             reorder_level: '',
             department_ids: [],
-            branch_id: branches[0]?.id || '',
+            branch_id: scopedBranchInitial || branches[0]?.id || '',
             department_id: departments[0]?.id || '',
         });
         }
@@ -1403,7 +1409,20 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 {showDeptForm && <Modal title="Request Department" onClose={()=>setShowDeptForm(false)} footer={<div style={{display:'flex',gap:10,justifyContent:'flex-end'}}><button className="btn-secondary" onClick={()=>setShowDeptForm(false)}>Cancel</button><button className="btn-submit" disabled={isSavingDept || !deptForm.name.trim()} onClick={saveDept}>{isSavingDept ? 'Saving...' : 'Save'}</button></div>}>
                     <div className="ws-form-grid">
                         <div className="ws-field"><label>Name *</label><input value={deptForm.name} onChange={e=>setDeptForm(f=>({...f,name:e.target.value}))}/></div>
-                        <div className="ws-field"><label>Branch</label><select value={deptForm.branch_id} onChange={e=>setDeptForm(f=>({...f,branch_id:e.target.value}))}><option value="b1">Main Branch — Riyadh</option>{MOCK_BRANCHES.filter(b=>!b.includes('Main')).map((b,i)=><option key={i} value={'b'+(i+2)}>{b}</option>)}</select></div>
+                        <div className="ws-field">
+                            <label>Branch</label>
+                            <select
+                                value={deptForm.branch_id}
+                                disabled={!isAllBranches}
+                                onChange={(e) => setDeptForm((f) => ({ ...f, branch_id: e.target.value }))}
+                                style={{ opacity: isAllBranches ? 1 : 0.85 }}
+                            >
+                                {isAllBranches && <option value="">Select Branch</option>}
+                                {scopedBranchesForForms.map((b) => (
+                                    <option key={b.id} value={b.id}>{b.name}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                 </Modal>}
                 {showProdForm && (
@@ -1640,12 +1659,14 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         <label>Branch</label>
                                         <select
                                             value={prodForm.branch_id}
+                                            disabled={!isAllBranches}
                                             onChange={(e) =>
                                                 setProdForm((f) => ({ ...f, branch_id: e.target.value }))
                                             }
+                                            style={{ opacity: isAllBranches ? 1 : 0.85 }}
                                         >
-                                            <option value="">Select Branch</option>
-                                            {branchesForUi.map((b) => (
+                                            {isAllBranches && <option value="">Select Branch</option>}
+                                            {scopedBranchesForForms.map((b) => (
                                                 <option key={b.id} value={b.id}>
                                                     {b.name}
                                                 </option>
