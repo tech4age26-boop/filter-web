@@ -172,23 +172,30 @@ function firstNonEmptyString(...candidates) {
 }
 
 function pickBranchCatalogItemId(row, nested) {
+    /** Master catalog product id — never use workshopProduct / branch adoption link ids. */
+    const productSnap = row?.product && typeof row.product === 'object' ? row.product : null;
     const raw =
-        nested?.id ??
-        nested?.productId ??
-        nested?.serviceId ??
+        productSnap?.id ??
         row?.productId ??
         row?.product_id ??
+        nested?.productId ??
+        nested?.id ??
+        nested?.serviceId ??
         row?.catalogProductId ??
         row?.catalog_product_id ??
-        row?.branchProductId ??
-        row?.branch_product_id ??
-        row?.inventoryProductId ??
-        row?.inventory_product_id ??
         row?.serviceId ??
         row?.service_id ??
         row?.id;
     if (raw == null || raw === '') return '';
     return String(raw);
+}
+
+function isBranchCatalogRowActive(row, nested) {
+    if (row?.isActive === false || row?.is_active === false) return false;
+    if (nested?.isActive === false || nested?.is_active === false) return false;
+    const productSnap = row?.product && typeof row.product === 'object' ? row.product : null;
+    if (productSnap?.isActive === false || productSnap?.is_active === false) return false;
+    return true;
 }
 
 /** Branch rows often put `name` on the row while `product` / `service` is a pricing snapshot without a label. */
@@ -308,6 +315,7 @@ function pickPriceInclusivePurchaseUnit(row) {
 function normalizeBranchProductOption(row) {
     if (!row || typeof row !== 'object') return null;
     const nested = row?.product ?? row?.service;
+    if (!isBranchCatalogRowActive(row, nested)) return null;
     const id = pickBranchCatalogItemId(row, nested);
     if (!id) return null;
     const name =
@@ -321,7 +329,7 @@ function normalizeBranchProductOption(row) {
     const type = isService ? 'service' : 'Stock';
     const priceExcl = pickPriceExclusiveUnit(row);
     const priceIncl = pickPriceInclusivePurchaseUnit(row);
-    return { id, name, unit, type, priceExcl, priceIncl };
+    return { id, name, unit, type, priceExcl, priceIncl, isActive: true };
 }
 
 function createEmptyLine() {
@@ -340,6 +348,25 @@ function createEmptyLine() {
         taxAmt: '0.00',
         totalFinal: '0.00',
     };
+}
+
+/** Snapshot raw modal line rows so draft reload restores the full form. */
+function serializePurchaseInvoiceFormLines(lines) {
+    return (lines ?? []).map((line) => ({
+        client_line_id: line.id,
+        productId: line.productId ?? '',
+        item: line.item ?? '',
+        account: line.account ?? '',
+        description: line.description ?? '',
+        uom: line.uom ?? 'piece',
+        qty: line.qty ?? 1,
+        price: line.price ?? 0,
+        discount: line.discount ?? 0,
+        discountMode: line.discountMode ?? 'percent',
+        taxCode: line.taxCode ?? TAX_LABEL,
+        taxAmt: line.taxAmt ?? '0.00',
+        totalFinal: line.totalFinal ?? '0.00',
+    }));
 }
 
 /**
@@ -1538,13 +1565,24 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const hydrateDraftInvoiceForm = (invoice) => {
         const payload = invoice?.payload && typeof invoice.payload === 'object' ? invoice.payload : {};
         const ui = payload.ui && typeof payload.ui === 'object' ? payload.ui : invoice?.ui || {};
-        const duePayload = payload.dueDate && typeof payload.dueDate === 'object' ? payload.dueDate : null;
+        const duePayload =
+            payload.dueDate && typeof payload.dueDate === 'object'
+                ? payload.dueDate
+                : payload.due_date && typeof payload.due_date === 'object'
+                  ? payload.due_date
+                  : null;
         const invDiscount = payload.invoiceDiscount || payload.invoice_discount || {};
         const payloadLines = Array.isArray(payload.lines) ? payload.lines : [];
+        const formLines = Array.isArray(payload.form_lines) ? payload.form_lines : [];
         const detailLines = Array.isArray(invoice?.items) ? invoice.items : [];
-        const sourceLines = payloadLines.length > 0 ? payloadLines : detailLines;
+        const sourceLines =
+            formLines.length > 0 ? formLines : payloadLines.length > 0 ? payloadLines : detailLines;
         const amountsTaxInclusive =
-            ui.amountsTaxInclusive ?? ui.amounts_tax_inclusive ?? ui.prices_include_vat ?? true;
+            ui.amountsTaxInclusive ??
+            ui.amounts_tax_inclusive ??
+            ui.prices_include_vat ??
+            payload.prices_include_vat ??
+            true;
         const nextPriceExcludingVat = !amountsTaxInclusive;
         const nextDiscountIsPercent = Boolean(ui.lineDiscountIsPercent ?? ui.line_discount_is_percent ?? false);
 
@@ -1572,14 +1610,26 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                   ) || selectedVendor,
         );
         setIssueDate(String(payload.issue_date ?? payload.issueDate ?? invoice?.issueDate ?? todayIso).slice(0, 10));
-        const pt = String(
-            duePayload?.type ?? invoice?.paymentTerms ?? invoice?.payment_terms ?? 'Net',
-        ).trim();
-        setDueDateType(pt || 'Net');
+        setDueDateType(
+            String(
+                payload.due_date_type ??
+                    duePayload?.type ??
+                    invoice?.paymentTerms ??
+                    invoice?.payment_terms ??
+                    'Net',
+            ).trim() || 'Net',
+        );
         setNetDays(Number(duePayload?.net_days ?? duePayload?.netDays ?? invoice?.netDays ?? 30) || 30);
-        setCustomDueDate(String(duePayload?.custom_date ?? duePayload?.customDate ?? invoice?.dueDate ?? todayIso).slice(0, 10));
-        setVendorInvoiceRef(payload.vendorInvoiceRef ?? payload.vendor_invoice_ref ?? invoice?.refNumber ?? '');
-        setInvoiceDescription(payload.description ?? invoice?.description ?? '');
+        setCustomDueDate(
+            String(duePayload?.custom_date ?? duePayload?.customDate ?? invoice?.dueDate ?? todayIso).slice(0, 10),
+        );
+        setVendorInvoiceRef(
+            payload.vendorInvoiceRef ??
+                payload.vendor_invoice_ref ??
+                invoice?.refNumber ??
+                '',
+        );
+        setInvoiceDescription(payload.description ?? payload.invoice_description ?? invoice?.description ?? '');
         setInvoiceNotes(payload.notes ?? invoice?.notes ?? '');
         const headerDiscRaw =
             invDiscount.mode ?? invoice?.discountType ?? invoice?.discount_type ?? 'fixed_sar';
@@ -1599,30 +1649,52 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
 
         const nextSearch = {};
         const nextLines = sourceLines.map((line) => {
-            const lineId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-            const itemName = line.item_name ?? line.itemName ?? line.product_name ?? line.itemName ?? '';
+            const lineId = String(line.client_line_id ?? line.clientLineId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
+            const itemName =
+                line.item ??
+                line.item_name ??
+                line.itemName ??
+                line.product_name ??
+                '';
             const productId = String(
-                line.branch_catalog_product_id ?? line.branchCatalogProductId ?? line.productId ?? line.product_id ?? '',
+                line.productId ??
+                    line.branch_catalog_product_id ??
+                    line.branchCatalogProductId ??
+                    line.product_id ??
+                    '',
             );
             const qty = line.qty ?? line.quantity ?? 1;
             const unitEx = Number(line.unit_price_ex_vat ?? line.unitPriceExVat ?? line.unitPrice ?? 0);
             const unitIncl = Number(line.unit_purchase_price_incl_vat ?? line.unitPurchasePriceInclVat ?? 0);
-            const price = nextPriceExcludingVat ? unitEx : unitIncl || unitEx;
+            const price =
+                line.price != null && line.price !== ''
+                    ? line.price
+                    : nextPriceExcludingVat
+                      ? unitEx
+                      : unitIncl || unitEx;
+            const lineDiscMode =
+                line.discountMode ??
+                line.line_discount_mode ??
+                line.lineDiscountMode ??
+                (nextDiscountIsPercent ? 'percent' : 'fixed_sar');
             nextSearch[lineId] = String(itemName || '');
             return recalcStoredLineTotals({
                 id: lineId,
                 productId,
                 item: itemName,
-                account: line.account_display ?? `${line.account_code ?? '1410'} - ${line.account_name ?? 'Inventory Asset'}`,
+                account:
+                    line.account ??
+                    line.account_display ??
+                    `${line.account_code ?? '1410'} - ${line.account_name ?? 'Inventory Asset'}`,
                 description: line.description ?? '',
                 uom: line.uom ?? 'piece',
                 qty,
                 price,
-                discount: line.line_discount_raw ?? line.discount ?? 0,
-                discountMode: nextDiscountIsPercent ? 'percent' : 'fixed_sar',
+                discount: line.discount ?? line.line_discount_raw ?? 0,
+                discountMode: lineDiscMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
                 taxCode: line.tax_code ?? line.taxCode ?? TAX_LABEL,
-                taxAmt: String(line.tax_amount ?? line.taxAmount ?? '0.00'),
-                totalFinal: String(line.line_total_incl_vat ?? line.total ?? '0.00'),
+                taxAmt: String(line.taxAmt ?? line.tax_amount ?? line.taxAmount ?? '0.00'),
+                totalFinal: String(line.totalFinal ?? line.line_total_incl_vat ?? line.total ?? '0.00'),
             });
         });
         setLineItems(nextLines.length > 0 ? nextLines : [createEmptyLine()]);
@@ -1683,6 +1755,19 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setSubmitInvoiceError(`Line ${originalIndex + 1}: qty must be greater than 0.`);
             return;
         }
+        if (normalizedSubmitStatus !== 'draft') {
+            for (const line of selectedLineItems) {
+                const pid = String(line.productId ?? '').trim();
+                const opt = branchProductOptions.find((o) => String(o.id) === pid);
+                if (!opt) {
+                    const originalIndex = lineItems.findIndex((l) => l.id === line.id);
+                    setSubmitInvoiceError(
+                        `Line ${originalIndex + 1}${line.item ? ` (${line.item})` : ''}: product is not active on this branch. Pick it again from the branch product list or remove the line.`,
+                    );
+                    return;
+                }
+            }
+        }
         const totals = computePurchaseInvoiceTotals({
             lineItems: selectedLineItems,
             applyLineDiscount: applyDiscountForCalc,
@@ -1736,32 +1821,44 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             lines: enrichedLines,
             totals,
         });
-        const createBody = buildCreateWorkshopSupplierPurchaseInvoiceBody({
-            supplierId: selectedSupplierRow.id,
-            branchId: invoiceBranchId,
-            issueDate,
-            dueDateType,
-            netDays,
-            customDueDate,
-            computedDueDate: dueComputed === '—' ? '' : dueComputed,
-            vendorInvoiceRef: vendorInvoiceRef,
+        const createBody = {
+            ...buildCreateWorkshopSupplierPurchaseInvoiceBody({
+                supplierId: selectedSupplierRow.id,
+                branchId: invoiceBranchId,
+                issueDate,
+                dueDateType,
+                netDays,
+                customDueDate,
+                computedDueDate: dueComputed === '—' ? '' : dueComputed,
+                vendorInvoiceRef: vendorInvoiceRef,
+                description: invoiceDescription,
+                notes: invoiceNotes,
+                currency: 'SAR',
+                status: normalizedSubmitStatus,
+                showLineDescriptionColumn: showDesc,
+                showLineDiscountColumn: showDiscount,
+                lineDiscountIsPercent: discountIsPercent,
+                invoiceDiscountMode,
+                invoiceDiscountValue: parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
+                updateLastPurchasePriceOnSave: updateLastPurchasePrice,
+                freightIn: freightNum,
+                showAmountsTaxInclusive: !priceExcludingVat,
+                pricesIncludeVat: !priceExcludingVat,
+                noVat: false,
+                selectedBranchFilter: selectedBranchId ?? null,
+                vatLabel: TAX_LABEL,
+                vatRate: VAT_RATE,
+                tax: { label: TAX_LABEL, rate: VAT_RATE },
+                lines: enrichedLines,
+                totals,
+            }),
+            ...purchaseInvoicePayload,
+            vendor_invoice_ref: vendorInvoiceRef,
             description: invoiceDescription,
             notes: invoiceNotes,
-            currency: 'SAR',
-            status: normalizedSubmitStatus,
-            showLineDescriptionColumn: showDesc,
-            showLineDiscountColumn: showDiscount,
-            lineDiscountIsPercent: discountIsPercent,
-            invoiceDiscountMode,
-            invoiceDiscountValue: parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
-            updateLastPurchasePriceOnSave: updateLastPurchasePrice,
-            freightIn: freightNum,
-            showAmountsTaxInclusive: !priceExcludingVat,
-            pricesIncludeVat: !priceExcludingVat,
-            noVat: false,
-            lines: enrichedLines,
-            totals,
-        });
+            tax: { label: TAX_LABEL, rate: VAT_RATE },
+            form_lines: serializePurchaseInvoiceFormLines(lineItems),
+        };
         if (import.meta.env.DEV) void console.info('[purchase_invoice_payload]', purchaseInvoicePayload);
         setSubmittingInvoice(true);
         try {

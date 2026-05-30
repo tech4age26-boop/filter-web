@@ -389,7 +389,7 @@ export default function WorkshopLayout() {
             case 'corporate-management': return <WorkshopCorporateManagement selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'branches':    return <WorkshopBranches selectedBranchId={selectedBranch} />;
             case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'my-petty-cash': return <WorkshopMyPettyCash />;
+            case 'my-petty-cash': return <WorkshopMyPettyCash selectedBranchId={selectedBranch} />;
             case 'inventory': return (
                 <WorkshopInventory
                     selectedBranchId={selectedBranch}

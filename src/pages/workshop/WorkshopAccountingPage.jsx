@@ -3912,7 +3912,7 @@ function EmployeeAdvancesView() {
     );
 }
 
-export default function WorkshopAccountingPage({ activeTab, branches = [] }) {
+export default function WorkshopAccountingPage({ activeTab, branches = [], selectedBranchId = 'all' }) {
     const { subTab: paramsSubTab } = useParams();
     
     // Normalize activeSub to match the internal view keys
@@ -3923,7 +3923,6 @@ export default function WorkshopAccountingPage({ activeTab, branches = [] }) {
             'cash': 'cash-bank',
             'journal': 'journal-entries',
             'transactions': 'transactions',
-            'purchases': 'purchases',
             'expenses': 'expenses',
             'receipts': 'receipts',
             'payments': 'payments',
@@ -3948,11 +3947,11 @@ export default function WorkshopAccountingPage({ activeTab, branches = [] }) {
         <div className="accounting-page module-container">
             {activeSub === 'chart-of-accounts' && <ChartOfAccountsView />}
             {activeSub === 'cash-bank' && <CashBankView branches={branches} />}
-            {activeSub === 'payments' && <WorkshopPaymentsLog branches={branches} />}
+            {activeSub === 'payments' && <WorkshopPaymentsLog branches={branches} selectedBranchId={selectedBranchId} />}
             {activeSub === 'transactions' && <TransactionEntryView branches={branches} />}
             {activeSub === 'journal-entries' && <GeneralJournalView />}
-            {activeSub === 'expenses' && <WorkshopExpensesLog branches={branches} />}
-            {activeSub === 'receipts' && <WorkshopReceiptsLog branches={branches} />}
+            {activeSub === 'expenses' && <WorkshopExpensesLog branches={branches} selectedBranchId={selectedBranchId} />}
+            {activeSub === 'receipts' && <WorkshopReceiptsLog branches={branches} selectedBranchId={selectedBranchId} />}
             {activeSub === 'advances' && <EmployeeAdvancesView />}
             {activeSub === 'payroll' && <WorkshopPayroll />}
             {activeSub === 'approvals' && <WorkshopApprovalLimits />}

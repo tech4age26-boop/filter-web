@@ -19,6 +19,9 @@ export const getMyPettyCash = (params = {}) =>
 export const listWorkshopExpenseRequests = (params = {}) =>
     apiFetch(`/employee-expense/workshop${qs(params)}`);
 
+export const listWorkshopPettyCashWallets = (params = {}) =>
+    apiFetch(`/employee-expense/workshop-petty-cash${qs(params)}`);
+
 export const listExpenseIssuanceTargets = () =>
     apiFetch('/employee-expense/issuance-targets');
 
