@@ -557,6 +557,10 @@ export function buildCreateWorkshopSupplierPurchaseInvoiceBody(p) {
         const taxableEx = money2(l.taxable_ex_vat);
         const lineDiscRaw = l.line_discount_raw ?? 0;
         const lineDiscAmt = money2(l.line_discount_amount);
+        const lineDiscMode =
+            l.line_discount_mode === 'fixed_sar' || l.lineDiscountMode === 'fixed_sar'
+                ? 'fixed_sar'
+                : 'percent';
         const taxCd = l.tax_code || 'VAT 15%';
         const taxRt = l.tax_rate;
         const taxAmt = money2(l.tax_amount);
@@ -585,6 +589,8 @@ export function buildCreateWorkshopSupplierPurchaseInvoiceBody(p) {
             line_discount_raw: lineDiscRaw,
             lineDiscountAmount: lineDiscAmt,
             line_discount_amount: lineDiscAmt,
+            lineDiscountMode: lineDiscMode,
+            line_discount_mode: lineDiscMode,
             taxCode: taxCd,
             tax_code: taxCd,
             taxRate: taxRt,
@@ -636,7 +642,15 @@ export function buildCreateWorkshopSupplierPurchaseInvoiceBody(p) {
             lineDiscountIsPercent: Boolean(p.lineDiscountIsPercent),
             amountsTaxInclusive: Boolean(p.showAmountsTaxInclusive),
             amounts_tax_inclusive: Boolean(p.showAmountsTaxInclusive),
+            prices_include_vat: Boolean(p.showAmountsTaxInclusive ?? p.pricesIncludeVat),
+            no_vat: Boolean(p.noVat),
         },
+        tax: p.tax ?? {
+            label: p.vatLabel ?? 'VAT 15%',
+            rate: p.vatRate ?? 0.15,
+        },
+        selected_branch_filter: p.selectedBranchFilter ?? null,
+        update_last_purchase_price_on_save: Boolean(p.updateLastPurchasePriceOnSave),
         invoiceDiscount: {
             mode: invMode,
             value: money2(p.invoiceDiscountValue ?? 0),
