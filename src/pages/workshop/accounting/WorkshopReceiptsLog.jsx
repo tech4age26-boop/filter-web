@@ -1,7 +1,7 @@
 import React from 'react';
 import WorkshopTransactionsLog from './WorkshopTransactionsLog';
 
-export default function WorkshopReceiptsLog({ branches = [] }) {
+export default function WorkshopReceiptsLog({ branches = [], selectedBranchId = 'all' }) {
     return (
         <WorkshopTransactionsLog
             direction="in"
@@ -9,6 +9,7 @@ export default function WorkshopReceiptsLog({ branches = [] }) {
             subtitle="Every receiving transaction across cash, bank, and petty-cash registers."
             emptyHint="No receipts in this period."
             branches={branches}
+            selectedBranchId={selectedBranchId}
         />
     );
 }

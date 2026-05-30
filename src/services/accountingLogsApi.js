@@ -13,5 +13,5 @@ export const listCashBankTransactionsLog = (params = {}) =>
 export const listPettyCashExpensesLog = (params = {}) =>
     apiFetch(`/accounting/logs/petty-expenses${qs(params)}`);
 
-export const listLogFilterUsers = () =>
-    apiFetch('/accounting/logs/filter-users');
+export const listLogFilterUsers = (params = {}) =>
+    apiFetch(`/accounting/logs/filter-users${qs(params)}`);

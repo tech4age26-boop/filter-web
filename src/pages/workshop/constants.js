@@ -38,7 +38,6 @@ export const NAV_ITEMS = [
             { id: 'acc-cash', label: 'Cash & Bank', permission: 'workshop.accounting.cash-bank.view' },
             { id: 'acc-transactions', label: 'Transactions', permission: 'workshop.accounting.transactions.view' },
             { id: 'acc-journal', label: 'Journal Entries', permission: 'workshop.accounting.journal-entries.view' },
-            { id: 'acc-purchases', label: 'Purchases', permission: 'workshop.accounting.purchases.view' },
             { id: 'acc-expenses', label: 'Expenses', permission: 'workshop.accounting.expenses.view' },
             { id: 'acc-receipts', label: 'Receipts', permission: 'workshop.accounting.receipts.view' },
             { id: 'acc-payments', label: 'Payments', permission: 'workshop.accounting.payments.view' },
