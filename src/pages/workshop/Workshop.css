@@ -2225,6 +2225,20 @@
     font-size: 0.8125rem;
     cursor: pointer;
 }
+.ws-promo-scope-radios {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    margin-bottom: 10px;
+}
+.ws-promo-scope-radio {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+}
 .ws-promo-form-error {
     margin: 0 0 12px;
     padding: 10px 12px;
