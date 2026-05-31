@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, RefreshCw, ChevronDown } from 'lucide-react';
 import { getWorkshopEmployeeLedger } from '../../../services/advancesApi';
+import {
+    parseWorkshopStaffSelectValue,
+    workshopStaffSelectValue,
+} from '../../../services/workshopStaffApi';
 
 const fmt = (n) => {
     const x = Number(n);
@@ -16,8 +20,9 @@ const defaultPeriod = () => {
 const TYPE_LABELS = {
     commission_accrued: 'Commission accrued',
     commission_paid: 'Commission paid',
-    salary_payable: 'Salary payable',
-    salary_paid: 'Salary paid',
+    commission_settled: 'Commission settled',
+    salary_payable: 'Basic salary',
+    salary_paid: 'Salary payout',
     advance_issued: 'Advance issued',
     advance_deducted: 'Advance deducted',
     penalty: 'Penalty',
@@ -28,6 +33,7 @@ const TYPE_COLORS = {
     Payment: { bg: '#EFF6FF', color: '#1D4ED8' },
     Advance: { bg: '#FFF7ED', color: '#C2410C' },
     Deduction: { bg: '#FEF2F2', color: '#B91C1C' },
+    Settlement: { bg: '#F5F3FF', color: '#6D28D9' },
 };
 
 function CategoryBadge({ category }) {
@@ -66,9 +72,11 @@ export default function WorkshopEmployeeLedgerTab({
         setLoading(true);
         setError('');
         try {
+            const parsed = parseWorkshopStaffSelectValue(ledgerEmployeeId);
             const emp = employeeByRecordId[ledgerEmployeeId];
-            const res = await getWorkshopEmployeeLedger(ledgerEmployeeId, {
+            const res = await getWorkshopEmployeeLedger(parsed.id, {
                 ...(allPeriods ? {} : { period }),
+                recordType: parsed.recordType,
                 userId: emp?.userId || undefined,
                 ...(branchFilter ? { branchId: branchFilter } : {}),
             });
@@ -119,11 +127,14 @@ export default function WorkshopEmployeeLedgerTab({
                             onChange={(e) => setLedgerEmployeeId(e.target.value)}
                         >
                             <option value="">Select employee…</option>
-                            {employeeOptions.map((e) => (
-                                <option key={String(e.id)} value={String(e.id)}>
+                            {employeeOptions.map((e) => {
+                                const selectKey = workshopStaffSelectValue(e);
+                                return (
+                                <option key={selectKey} value={selectKey}>
                                     {e.name}{e.branch?.name ? ` — ${e.branch.name}` : ''}
                                 </option>
-                            ))}
+                                );
+                            })}
                         </select>
                         <ChevronDown size={16} className="ps-select-icon" />
                     </div>
