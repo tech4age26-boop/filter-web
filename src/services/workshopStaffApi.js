@@ -460,6 +460,16 @@ export const deleteWorkshopCashier = async (id) => {
     }
 };
 
+/**
+ * Delete a workshop portal staff user (manager / supervisor / team_leader).
+ * `id` is `users.id` (matches the recordType: 'portal_user' rows on GET /employees).
+ * Works for any approval state (pending / approved / rejected).
+ */
+export const deleteWorkshopPortalStaff = (id) =>
+    apiFetch(`/workshop-staff/portal-staff/${encodeURIComponent(String(id))}`, {
+        method: 'DELETE',
+    });
+
 export const getWorkshopBranches = () => apiFetch('/workshop-staff/branches');
 
 /** Cash/bank registers — each row is auto-linked to a Current Asset COA account for the workshop. */

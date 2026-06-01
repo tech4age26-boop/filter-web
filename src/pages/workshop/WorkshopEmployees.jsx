@@ -16,6 +16,7 @@ import {
     updateWorkshopCashier,
     deleteWorkshopTechnician,
     deleteWorkshopCashier,
+    deleteWorkshopPortalStaff,
     getWorkshopBranches,
     getWorkshopTechnicianById,
     getWorkshopCashierById,
@@ -618,12 +619,24 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
         }
     };
 
-    const handleDelete = async (id, source) => {
-        if (!confirm('Remove this employee?')) return;
+    const handleDelete = async (emp) => {
+        // Accept either the full row (new) or (id, source) for older callers.
+        const id = typeof emp === 'object' ? emp.id : emp;
+        const source = typeof emp === 'object' ? emp._source : arguments[1];
+        const isPortal = typeof emp === 'object' && isPortalEmployeeRow(emp);
+        if (!confirm('Remove this employee? This cannot be undone.')) return;
         setSaving(true);
         try {
-            if (source === 'technician') await deleteWorkshopTechnician(id);
-            else await deleteWorkshopCashier(id);
+            if (source === 'technician') {
+                await deleteWorkshopTechnician(id);
+            } else if (isPortal) {
+                // Manager / supervisor / team_leader — User row, NOT cashiers/employees table.
+                // Uses User.id; the row's `userId` is the same as `id` for portal_user.
+                const userId = (typeof emp === 'object' ? (emp.userId ?? emp.id) : id);
+                await deleteWorkshopPortalStaff(userId);
+            } else {
+                await deleteWorkshopCashier(id);
+            }
             await loadEmployees();
         } catch (e) {
             alert(e.message || 'Delete failed');
@@ -805,7 +818,7 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                             {canDelete && (
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleDelete(emp.id, emp._source)}
+                                                    onClick={() => handleDelete(emp)}
                                                     style={{
                                                         padding: '5px 10px',
                                                         background: '#FEE2E2',
