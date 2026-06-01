@@ -21,11 +21,18 @@ import Modal from '../../../components/Modal';
 import {
     bulkCreateWorkshopAdvances,
     createWorkshopAdvance,
+    getWorkshopAdvancesList,
     getWorkshopAdvancesOverview,
     getWorkshopAdvancesStats,
 } from '../../../services/advancesApi';
 import { listCashBankAccounts } from '../../../services/workshopAccountingApi';
-import { getWorkshopEmployees, unwrapWorkshopEmployeesList } from '../../../services/workshopStaffApi';
+import {
+    getWorkshopEmployees,
+    indexWorkshopStaffBySelectValue,
+    parseWorkshopStaffSelectValue,
+    unwrapWorkshopEmployeesList,
+    workshopStaffSelectValue,
+} from '../../../services/workshopStaffApi';
 import WorkshopSalaryTab from './WorkshopSalaryTab';
 import WorkshopEmployeeLedgerTab from './WorkshopEmployeeLedgerTab';
 import '../../../styles/admin/AccountingPage.css';
@@ -40,7 +47,9 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const makeAdvanceRow = () => ({
     id: Date.now() + Math.random(),
+    employeeSelectKey: '',
     employeeRecordId: '',
+    recordType: 'employee',
     userId: '',
     employeeName: '',
     amount: '',
@@ -74,7 +83,9 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
     const [cashBankAccounts, setCashBankAccounts] = useState([]);
 
     const [advanceForm, setAdvanceForm] = useState({
+        employeeSelectKey: '',
         employeeRecordId: '',
+        recordType: 'employee',
         userId: '',
         employeeName: '',
         amount: '',
@@ -96,7 +107,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
     );
 
     const employeeByRecordId = useMemo(
-        () => Object.fromEntries(employees.map((e) => [String(e.id), e])),
+        () => indexWorkshopStaffBySelectValue(employees),
         [employees],
     );
 
@@ -169,10 +180,13 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             .filter((b) => b.employees.length > 0);
     }, [overview.branches, search]);
 
-    const pickEmployee = (recordId) => {
-        const emp = employeeByRecordId[String(recordId)];
+    const pickEmployee = (selectKey) => {
+        const emp = employeeByRecordId[String(selectKey)];
+        const parsed = parseWorkshopStaffSelectValue(selectKey);
         return {
-            employeeRecordId: recordId,
+            employeeRecordId: parsed.id,
+            employeeSelectKey: selectKey,
+            recordType: parsed.recordType,
             userId: emp?.userId || '',
             employeeName: emp?.name || '',
         };
@@ -196,7 +210,9 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             });
             setPayAdvanceOpen(false);
             setAdvanceForm({
+                employeeSelectKey: '',
                 employeeRecordId: '',
+                recordType: 'employee',
                 userId: '',
                 employeeName: '',
                 amount: '',
@@ -516,18 +532,21 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                 <label>Employee *</label>
                                 <div className="ps-select-wrapper">
                                     <select
-                                        value={advanceForm.employeeRecordId}
+                                        value={advanceForm.employeeSelectKey}
                                         onChange={(e) => {
                                             const picked = pickEmployee(e.target.value);
                                             setAdvanceForm((p) => ({ ...p, ...picked }));
                                         }}
                                     >
                                         <option value="">Select employee</option>
-                                        {payableEmployees.map((e) => (
-                                            <option key={String(e.id)} value={String(e.id)} disabled={!e.userId && !e.canReceiveAdvance}>
+                                        {payableEmployees.map((e) => {
+                                            const selectKey = workshopStaffSelectValue(e);
+                                            return (
+                                            <option key={selectKey} value={selectKey} disabled={!e.userId && !e.canReceiveAdvance}>
                                                 {e.name}{e.branch?.name ? ` (${e.branch.name})` : ''}
                                             </option>
-                                        ))}
+                                            );
+                                        })}
                                     </select>
                                     <ChevronDown size={16} className="ps-select-icon" />
                                 </div>
@@ -597,7 +616,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                     <div className="bulk-row" key={row.id}>
                                         <div className="ps-select-wrapper bulk-col-emp">
                                             <select
-                                                value={row.employeeRecordId}
+                                                value={row.employeeSelectKey}
                                                 onChange={(e) => {
                                                     const picked = pickEmployee(e.target.value);
                                                     const x = [...bulkAdvanceRows];
@@ -606,11 +625,14 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                                 }}
                                             >
                                                 <option value="">Select...</option>
-                                                {payableEmployees.map((e) => (
-                                                    <option key={String(e.id)} value={String(e.id)} disabled={!e.userId && !e.canReceiveAdvance}>
+                                                {payableEmployees.map((e) => {
+                                                    const selectKey = workshopStaffSelectValue(e);
+                                                    return (
+                                                    <option key={selectKey} value={selectKey} disabled={!e.userId && !e.canReceiveAdvance}>
                                                         {e.name}
                                                     </option>
-                                                ))}
+                                                    );
+                                                })}
                                             </select>
                                             <ChevronDown size={14} className="ps-select-icon" />
                                         </div>

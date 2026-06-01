@@ -87,6 +87,34 @@ export const postWorkshopEmployees = (body = {}, options = {}) =>
         headers: options.headers,
     });
 
+/** Stable select value — ids overlap across employees, cashiers, and portal users. */
+export function workshopStaffSelectValue(row) {
+    if (!row) return '';
+    const type = row.recordType || 'employee';
+    return `${type}:${String(row.id ?? '')}`;
+}
+
+/** Parse `workshopStaffSelectValue` back to record type + bare id. */
+export function parseWorkshopStaffSelectValue(value) {
+    if (!value) return { recordType: 'employee', id: '', compositeKey: '' };
+    const s = String(value);
+    const idx = s.indexOf(':');
+    if (idx <= 0) {
+        return { recordType: 'employee', id: s, compositeKey: `employee:${s}` };
+    }
+    return {
+        recordType: s.slice(0, idx),
+        id: s.slice(idx + 1),
+        compositeKey: s,
+    };
+}
+
+export function indexWorkshopStaffBySelectValue(employees) {
+    return Object.fromEntries(
+        (employees ?? []).map((e) => [workshopStaffSelectValue(e), e]),
+    );
+}
+
 /** Unwrap GET/POST /workshop-staff/employees list payloads. */
 export function unwrapWorkshopEmployeesList(res) {
     if (Array.isArray(res)) return res;
@@ -598,6 +626,25 @@ export const getWorkshopRecentOrderDetails = (invoiceId, params = {}, options = 
 
 export const getWorkshopRecentOrderPdf = (invoiceId, params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/recent-orders/${encodeURIComponent(String(invoiceId))}/pdf${qs(params)}`, options);
+
+export const getWorkshopSalesReturns = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/sales-returns${qs(params)}`, options);
+
+export const getWorkshopSalesReturn = (returnId, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/sales-returns/${encodeURIComponent(String(returnId))}${qs(params)}`, options);
+
+export const approveWorkshopSalesReturn = (returnId, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/sales-returns/${encodeURIComponent(String(returnId))}/approve${qs(params)}`, {
+        method: 'POST',
+        ...options,
+    });
+
+export const rejectWorkshopSalesReturn = (returnId, body, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/sales-returns/${encodeURIComponent(String(returnId))}/reject${qs(params)}`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+        ...options,
+    });
 
 export const runWorkshopRelativeAction = (endpoint, method = 'POST', body) =>
     apiFetch(endpoint, {

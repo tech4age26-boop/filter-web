@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Save, RefreshCw, Users, Banknote } from 'lucide-react';
 import {
     getRecentWorkshopSalaryPayroll,
@@ -6,7 +6,13 @@ import {
     postWorkshopSalaryPayroll,
 } from '../../../services/advancesApi';
 import { listCashBankAccounts } from '../../../services/workshopAccountingApi';
-import { getWorkshopEmployees, unwrapWorkshopEmployeesList } from '../../../services/workshopStaffApi';
+import {
+    getWorkshopEmployees,
+    indexWorkshopStaffBySelectValue,
+    parseWorkshopStaffSelectValue,
+    unwrapWorkshopEmployeesList,
+    workshopStaffSelectValue,
+} from '../../../services/workshopStaffApi';
 
 const fmt = (n) => {
     const x = Number(n);
@@ -16,14 +22,34 @@ const fmt = (n) => {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+const listBasicSalary = (emp) => {
+    if (!emp) return '';
+    const n = Number(emp.basicSalary ?? emp.basic_salary ?? 0);
+    return Number.isFinite(n) && n > 0 ? String(n) : '';
+};
+
+/** Resolve employee id/type from row state (select key is source of truth for the dropdown). */
+const resolveRowEmployee = (row) => {
+    const parsed = parseWorkshopStaffSelectValue(row.employeeSelectKey);
+    return {
+        employeeRecordId: String(row.employeeRecordId || parsed.id || '').trim(),
+        recordType: row.recordType || parsed.recordType || 'employee',
+    };
+};
+
+const employeeBulkKey = (recordType, employeeRecordId) =>
+    `${recordType || 'employee'}:${String(employeeRecordId)}`;
+
 const defaultPeriod = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
 const emptyRow = () => ({
-    key: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    key: `row-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    employeeSelectKey: '',
     employeeRecordId: '',
+    recordType: 'employee',
     userId: '',
     employeeName: '',
     basicSalary: '',
@@ -32,6 +58,7 @@ const emptyRow = () => ({
     commissionLineIds: [],
     advanceDeduction: '0',
     penalties: '0',
+    penaltyNotes: '',
     notes: '',
     previewLoading: false,
     previewLoaded: false,
@@ -57,14 +84,20 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
     const [submitting, setSubmitting] = useState(false);
     const [msg, setMsg] = useState('');
     const [error, setError] = useState('');
+    const previewSeqRef = useRef({});
 
     const branchParams = useMemo(
         () => (branchFilter ? { branchId: branchFilter } : {}),
         [branchFilter],
     );
 
-    const employeeById = useMemo(
-        () => Object.fromEntries(employees.map((e) => [String(e.id), e])),
+    const staffBySelectKey = useMemo(
+        () => indexWorkshopStaffBySelectValue(employees),
+        [employees],
+    );
+
+    const sortedEmployees = useMemo(
+        () => [...employees].sort((a, b) => (a.name || '').localeCompare(b.name || '')),
         [employees],
     );
 
@@ -74,7 +107,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
             const [empRes, cashRes, salRes] = await Promise.all([
                 getWorkshopEmployees({ ...branchParams, limit: 200 }).catch(() => ({ employees: [] })),
                 listCashBankAccounts(branchParams).catch(() => ({ accounts: [] })),
-                getRecentWorkshopSalaryPayroll({ ...branchParams, limit: 15 }).catch(() => ({ list: [] })),
+                getRecentWorkshopSalaryPayroll({ limit: 50 }).catch(() => ({ list: [] })),
             ]);
             setEmployees(unwrapWorkshopEmployeesList(empRes));
             setAccounts(cashRes?.accounts ?? cashRes?.items ?? []);
@@ -88,26 +121,36 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
 
     useEffect(() => { loadLookups(); }, [loadLookups]);
 
-    const loadPreview = async (idx, employeeRecordId, userIdHint) => {
-        if (!employeeRecordId || !period) return;
+    const loadPreview = async (idx, { id, recordType }) => {
+        if (!id || !period) return;
+        const seq = (previewSeqRef.current[idx] ?? 0) + 1;
+        previewSeqRef.current[idx] = seq;
         setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, previewLoading: true } : r)));
         try {
             const preview = await getSalaryPayrollPreview({
                 period,
-                employeeRecordId: String(employeeRecordId),
-                userId: userIdHint || undefined,
+                employeeRecordId: String(id),
+                recordType,
                 ...branchParams,
             });
+            if (previewSeqRef.current[idx] !== seq) return;
             setRows((prev) => prev.map((r, i) => {
                 if (i !== idx) return r;
                 return {
                     ...r,
-                    userId: preview.userId || userIdHint || '',
+                    userId: preview.userId || r.userId || '',
+                    recordType: preview.recordType || recordType || r.recordType,
                     employeeName: preview.employeeName || r.employeeName,
-                    basicSalary: String(preview.basicSalary ?? ''),
+                    basicSalary: (() => {
+                        const fromPreview = Number(preview.basicSalary);
+                        if (Number.isFinite(fromPreview) && fromPreview > 0) {
+                            return String(fromPreview);
+                        }
+                        return r.basicSalary || listBasicSalary(staffBySelectKey[r.employeeSelectKey]) || '';
+                    })(),
                     advanceDue: Number(preview.advanceDue ?? 0),
                     commissionPayable: Number(preview.commissionPayable ?? 0),
-                    commissionLineIds: preview.commissionLineIds ?? [],
+                    commissionLineIds: [...(preview.commissionLineIds ?? [])],
                     advanceDeduction: String(
                         preview.suggestedAdvanceDeduction ?? preview.advanceDue ?? 0,
                     ),
@@ -116,6 +159,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                 };
             }));
         } catch (e) {
+            if (previewSeqRef.current[idx] !== seq) return;
             setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, previewLoading: false } : r)));
             setError(e?.message || 'Could not load employee payroll preview.');
         }
@@ -125,29 +169,34 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
         setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
     };
 
-    const handleEmployeeChange = (idx, employeeRecordId) => {
-        const emp = employeeById[String(employeeRecordId)];
+    const handleEmployeeChange = (idx, selectKey) => {
+        const parsed = parseWorkshopStaffSelectValue(selectKey);
+        const emp = staffBySelectKey[selectKey];
         setRow(idx, {
-            employeeRecordId,
+            employeeSelectKey: selectKey,
+            employeeRecordId: parsed.id,
+            recordType: parsed.recordType,
             userId: emp?.userId || '',
             employeeName: emp?.name || '',
             previewLoaded: false,
-            basicSalary: '',
+            basicSalary: listBasicSalary(emp),
             advanceDue: 0,
             commissionPayable: 0,
             commissionLineIds: [],
             advanceDeduction: '0',
             penalties: '0',
+            penaltyNotes: '',
         });
-        if (employeeRecordId) {
-            loadPreview(idx, employeeRecordId, emp?.userId);
+        if (parsed.id) {
+            loadPreview(idx, parsed);
         }
     };
 
     useEffect(() => {
         rows.forEach((r, idx) => {
-            if (r.employeeRecordId && r.previewLoaded) {
-                loadPreview(idx, r.employeeRecordId, r.userId);
+            const { employeeRecordId, recordType } = resolveRowEmployee(r);
+            if (employeeRecordId && r.previewLoaded) {
+                loadPreview(idx, { id: employeeRecordId, recordType });
             }
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,42 +224,77 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
     const submit = async () => {
         setMsg('');
         setError('');
-        const items = rows.filter((r) => r.employeeRecordId && (Number(r.basicSalary) > 0 || Number(r.commissionPayable) > 0));
-        if (items.length === 0) {
+
+        const prepared = rows
+            .map((r) => {
+                const { employeeRecordId, recordType } = resolveRowEmployee(r);
+                return { ...r, employeeRecordId, recordType };
+            })
+            .filter((r) => r.employeeRecordId && (Number(r.basicSalary) > 0 || Number(r.commissionPayable) > 0));
+
+        if (prepared.length === 0) {
             setError('Add at least one employee with salary or commission payable.');
             return;
         }
+
+        const seen = new Set();
+        for (const r of prepared) {
+            const key = employeeBulkKey(r.recordType, r.employeeRecordId);
+            if (seen.has(key)) {
+                setError(`Duplicate employee in bulk payroll: ${r.employeeName || r.employeeRecordId}. Remove the duplicate row.`);
+                return;
+            }
+            seen.add(key);
+        }
+
         if (!payFromAccountId) {
             setError('Select a Pay From account (cash or bank).');
             return;
         }
-        for (const r of items) {
+        for (const r of prepared) {
             if (netPayable(r) <= 0) {
                 setError(`Net payable must be greater than zero for ${r.employeeName || 'employee'}.`);
                 return;
             }
+            if (Number(r.penalties) > 0 && !r.penaltyNotes?.trim()) {
+                setError(`Penalty reason is required for ${r.employeeName || 'employee'} when a penalty amount is entered.`);
+                return;
+            }
         }
+
+        const payloadRows = prepared.map((r) => ({
+            employeeRecordId: String(r.employeeRecordId),
+            recordType: r.recordType || 'employee',
+            userId: r.userId ? String(r.userId) : undefined,
+            employeeName: r.employeeName,
+            basicSalary: Number(r.basicSalary || 0),
+            commissionAmount: Number(r.commissionPayable || 0),
+            commissionLineIds: [...(r.commissionLineIds ?? [])],
+            advanceDeduction: Number(r.advanceDeduction || 0),
+            penalties: Number(r.penalties || 0),
+            penaltyNotes: r.penaltyNotes?.trim() || undefined,
+            notes: r.notes?.trim() || undefined,
+        }));
+
         setSubmitting(true);
         try {
             const res = await postWorkshopSalaryPayroll({
                 period,
                 paymentDate,
                 payFromAccountId: String(payFromAccountId),
-                rows: items.map((r) => ({
-                    employeeRecordId: String(r.employeeRecordId),
-                    userId: r.userId ? String(r.userId) : undefined,
-                    employeeName: r.employeeName,
-                    basicSalary: Number(r.basicSalary || 0),
-                    commissionAmount: Number(r.commissionPayable || 0),
-                    commissionLineIds: r.commissionLineIds ?? [],
-                    advanceDeduction: Number(r.advanceDeduction || 0),
-                    penalties: Number(r.penalties || 0),
-                    notes: r.notes?.trim() || undefined,
-                })),
+                rows: payloadRows,
             });
-            setMsg(`Posted ${res?.saved ?? items.length} salary payment(s). Total net SAR ${fmt(res?.totalNet ?? totals.net)}. Journal entries created.`);
-            setRows([emptyRow()]);
-            await loadLookups();
+            const saved = Number(res?.saved ?? payloadRows.length);
+            const received = Number(res?.received ?? payloadRows.length);
+            if (saved !== payloadRows.length || received !== payloadRows.length) {
+                setError(
+                    `Only ${saved} of ${payloadRows.length} salary payment(s) were posted (server received ${received}). Check recent payments and try again for missing employees.`,
+                );
+            } else {
+                setMsg(`Posted ${saved} salary payment(s). Total net SAR ${fmt(res?.totalNet ?? totals.net)}. Journal entries created.`);
+                setRows([emptyRow()]);
+                await loadLookups();
+            }
         } catch (e) {
             setError(e?.message || 'Could not post salary payroll.');
         } finally {
@@ -278,18 +362,21 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                             <label className="form-label">Employee / Technician *</label>
                             <select
                                 className="form-input-field"
-                                value={r.employeeRecordId}
+                                value={r.employeeSelectKey}
                                 onChange={(e) => handleEmployeeChange(idx, e.target.value)}
                             >
                                 <option value="">Select…</option>
-                                {employees.map((e) => (
-                                    <option key={e.id} value={e.id}>
+                                {sortedEmployees.map((e) => {
+                                    const selectKey = workshopStaffSelectValue(e);
+                                    return (
+                                    <option key={selectKey} value={selectKey}>
                                         {e.name}{e.branch?.name ? ` (${e.branch.name})` : ''}
                                     </option>
-                                ))}
+                                    );
+                                })}
                             </select>
                         </div>
-                        {r.employeeRecordId ? (
+                        {r.employeeSelectKey ? (
                             <>
                                 <div>
                                     <label className="form-label">Basic salary (SAR)</label>
@@ -336,6 +423,19 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                                     />
                                 </div>
                                 <div>
+                                    <label className="form-label">
+                                        Penalty reason
+                                        {Number(r.penalties) > 0 ? ' *' : ''}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        className="form-input-field"
+                                        value={r.penaltyNotes}
+                                        onChange={(e) => setRow(idx, { penaltyNotes: e.target.value })}
+                                        placeholder="e.g. Late arrival — appears on penalty JE line"
+                                    />
+                                </div>
+                                <div>
                                     <label className="form-label">Net payable</label>
                                     <input
                                         type="text"
@@ -346,13 +446,13 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                                     />
                                 </div>
                                 <div style={{ gridColumn: '1 / -1' }}>
-                                    <label className="form-label">Notes</label>
+                                    <label className="form-label">Payroll notes (optional)</label>
                                     <input
                                         type="text"
                                         className="form-input-field"
                                         value={r.notes}
                                         onChange={(e) => setRow(idx, { notes: e.target.value })}
-                                        placeholder="Optional"
+                                        placeholder="Internal note for this payout"
                                     />
                                 </div>
                             </>
@@ -415,7 +515,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                                 <td className="table-cell">{s.period}</td>
                                 <td className="table-cell">SAR {fmt(s.basicSalary ?? s.grossSalary)}</td>
                                 <td className="table-cell">SAR {fmt(s.commissionAmount)}</td>
-                                <td className="table-cell">SAR {fmt(s.advanceDeduction)}</td>
+                                <td className="table-cell">SAR {fmt(s.totalDeductions ?? (Number(s.advanceDeduction || 0) + Number(s.penalties || 0)))}</td>
                                 <td className="table-cell" style={{ fontWeight: 700 }}>SAR {fmt(s.netSalary)}</td>
                                 <td className="table-cell">{s.payFromAccountName ?? '—'}</td>
                             </tr>

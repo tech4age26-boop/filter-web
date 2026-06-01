@@ -12,6 +12,15 @@ const toNumber = (value) => {
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
+/** HTML date inputs require YYYY-MM-DD; API may return full ISO strings. */
+const dateOnly = (value) => {
+    const s = String(value ?? '').trim();
+    if (!s) return '';
+    return s.length >= 10 ? s.slice(0, 10) : s;
+};
+
+const strTrim = (value) => String(value ?? '').trim();
+
 const catalogItemId = (row, kind) => {
     if (kind === 'products') {
         return String(row.id ?? row.productId ?? row.product?.id ?? '');
@@ -34,11 +43,17 @@ const emptyForm = () => ({
     isActive: true,
     branchMode: 'all',
     branchIds: [],
-    allProducts: true,
+    productScope: 'all',
     productIds: [],
-    allServices: true,
+    serviceScope: 'all',
     serviceIds: [],
 });
+
+const inferScope = (explicit, ids) => {
+    const s = String(explicit ?? '').trim().toLowerCase();
+    if (s === 'all' || s === 'selected' || s === 'none') return s;
+    return ids.length > 0 ? 'selected' : 'all';
+};
 
 const promoToForm = (promo) => {
     const branchIds = Array.isArray(promo.branchIds)
@@ -56,34 +71,36 @@ const promoToForm = (promo) => {
         code: promo.code || '',
         discountType: promo.discountType === 'percent' ? 'percent' : 'fixed',
         discountValue: promo.discountValue != null && promo.discountValue !== '' ? String(promo.discountValue) : '',
-        validFrom: promo.validFrom || '',
-        validTo: promo.validTo || '',
+        validFrom: dateOnly(promo.validFrom),
+        validTo: dateOnly(promo.validTo),
         usageLimit: promo.usageLimit != null && promo.usageLimit !== '' ? String(promo.usageLimit) : '',
         minOrderAmount: promo.minOrderAmount != null && promo.minOrderAmount !== '' ? String(promo.minOrderAmount) : '',
         description: promo.description || '',
         isActive: promo.isActive !== false,
         branchMode: branchIds.length === 0 ? 'all' : 'selected',
         branchIds,
-        allProducts: productIds.length === 0,
+        productScope: inferScope(promo.productScope, productIds),
         productIds,
-        allServices: serviceIds.length === 0,
+        serviceScope: inferScope(promo.serviceScope, serviceIds),
         serviceIds,
     };
 };
 
 function buildPromoPayload(form, { includeIsActive = false } = {}) {
     const payload = {
-        code: form.code.trim().toUpperCase(),
+        code: strTrim(form.code).toUpperCase(),
         discountType: form.discountType,
         discountValue: toNumber(form.discountValue),
-        validFrom: form.validFrom,
-        validTo: form.validTo,
-        usageLimit: form.usageLimit.trim() === '' ? null : toNumber(form.usageLimit),
-        minOrderAmount: form.minOrderAmount.trim() === '' ? null : toNumber(form.minOrderAmount),
-        description: form.description.trim() || null,
+        validFrom: dateOnly(form.validFrom),
+        validTo: dateOnly(form.validTo),
+        usageLimit: strTrim(form.usageLimit) === '' ? null : toNumber(form.usageLimit),
+        minOrderAmount: strTrim(form.minOrderAmount) === '' ? null : toNumber(form.minOrderAmount),
+        description: strTrim(form.description) || null,
         branchIds: form.branchMode === 'all' ? [] : form.branchIds.map(String),
-        productIds: form.allProducts ? [] : form.productIds.map(String),
-        serviceIds: form.allServices ? [] : form.serviceIds.map(String),
+        productScope: form.productScope,
+        productIds: form.productScope === 'selected' ? form.productIds.map(String) : [],
+        serviceScope: form.serviceScope,
+        serviceIds: form.serviceScope === 'selected' ? form.serviceIds.map(String) : [],
     };
     if (includeIsActive) {
         payload.isActive = Boolean(form.isActive);
@@ -91,11 +108,16 @@ function buildPromoPayload(form, { includeIsActive = false } = {}) {
     return payload;
 }
 
-function ApplicabilityPicker({
+const SCOPE_CHOICES = [
+    { value: 'all', label: 'All' },
+    { value: 'selected', label: 'Specific only' },
+    { value: 'none', label: 'Does not apply' },
+];
+
+function ScopeSection({
     title,
-    allLabel,
-    allChecked,
-    onAllChange,
+    scope,
+    onScopeChange,
     items,
     selectedIds,
     onToggle,
@@ -124,35 +146,29 @@ function ApplicabilityPicker({
 
     const selectedInView = visibleIds.filter((id) => selectedIds.includes(id)).length;
 
-    const selectVisible = () => {
-        if (disabled || !visibleIds.length) return;
-        onSelectMany([...new Set([...selectedIds, ...visibleIds])]);
-    };
-
-    const clearVisible = () => {
-        if (disabled || !visibleIds.length) return;
-        const remove = new Set(visibleIds);
-        onSelectMany(selectedIds.filter((id) => !remove.has(id)));
-    };
-
     return (
         <div className="ws-promo-picker">
             <div className="ws-promo-picker-head">
                 <label>{title}</label>
-                {!allChecked && selectedIds.length > 0 ? (
+                {scope === 'selected' && selectedIds.length > 0 ? (
                     <span className="ws-promo-picker-count">{selectedIds.length} selected</span>
                 ) : null}
             </div>
-            <label className="ws-promo-picker-all">
-                <input
-                    type="checkbox"
-                    checked={allChecked}
-                    disabled={disabled}
-                    onChange={(e) => onAllChange(e.target.checked)}
-                />
-                {allLabel}
-            </label>
-            {!allChecked ? (
+            <div className="ws-promo-scope-radios">
+                {SCOPE_CHOICES.map((opt) => (
+                    <label key={opt.value} className="ws-promo-scope-radio">
+                        <input
+                            type="radio"
+                            name={`promo-${kind}-scope`}
+                            checked={scope === opt.value}
+                            disabled={disabled}
+                            onChange={() => onScopeChange(opt.value)}
+                        />
+                        {opt.label}
+                    </label>
+                ))}
+            </div>
+            {scope === 'selected' ? (
                 <>
                     <div className="ws-promo-picker-search-wrap">
                         <Search size={15} />
@@ -167,10 +183,21 @@ function ApplicabilityPicker({
                     </div>
                     {!disabled && !loading && filtered.length > 0 ? (
                         <div className="ws-promo-picker-actions">
-                            <button type="button" disabled={disabled} onClick={selectVisible}>
+                            <button
+                                type="button"
+                                disabled={disabled}
+                                onClick={() => onSelectMany([...new Set([...selectedIds, ...visibleIds])])}
+                            >
                                 Select visible ({visibleIds.length})
                             </button>
-                            <button type="button" disabled={disabled || selectedInView === 0} onClick={clearVisible}>
+                            <button
+                                type="button"
+                                disabled={disabled || selectedInView === 0}
+                                onClick={() => {
+                                    const remove = new Set(visibleIds);
+                                    onSelectMany(selectedIds.filter((id) => !remove.has(id)));
+                                }}
+                            >
                                 Clear visible
                             </button>
                         </div>
@@ -182,19 +209,18 @@ function ApplicabilityPicker({
                             <p className="ws-promo-picker-empty">Select at least one branch first.</p>
                         ) : sorted.length === 0 ? (
                             <p className="ws-promo-picker-empty">
-                                No {kind} on the selected branch(es). Adopt items in catalog first.
+                                No {kind} on the selected branch(es).
                             </p>
                         ) : filtered.length === 0 ? (
                             <p className="ws-promo-picker-empty">No {kind} match &ldquo;{search.trim()}&rdquo;</p>
                         ) : filtered.map((row) => {
                             const id = catalogItemId(row, kind);
                             if (!id) return null;
-                            const checked = selectedIds.includes(id);
                             return (
                                 <label key={id} className="ws-promo-picker-row">
                                     <input
                                         type="checkbox"
-                                        checked={checked}
+                                        checked={selectedIds.includes(id)}
                                         disabled={disabled}
                                         onChange={() => onToggle(id)}
                                     />
@@ -365,7 +391,7 @@ function PromoCodeFormFields({
             <section className="ws-promo-form-section">
                 <h3 className="ws-promo-form-section-title">Where this promo applies</h3>
                 <p className="ws-promo-form-section-desc">
-                    Choose branches, then optionally limit to specific products and services from those branches.
+                    Set branches, then choose separately for products and services: all, specific items, or not applicable.
                 </p>
                 <div className="ws-form-grid">
                     <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
@@ -420,14 +446,13 @@ function PromoCodeFormFields({
                     </div>
 
                     <div className="ws-promo-applicability-grid">
-                        <ApplicabilityPicker
+                        <ScopeSection
                             title="Products"
-                            allLabel="All products on selected branch(es)"
-                            allChecked={form.allProducts}
-                            onAllChange={(checked) => setForm((prev) => ({
+                            scope={form.productScope}
+                            onScopeChange={(scope) => setForm((prev) => ({
                                 ...prev,
-                                allProducts: checked,
-                                productIds: checked ? [] : prev.productIds,
+                                productScope: scope,
+                                productIds: scope === 'selected' ? prev.productIds : [],
                             }))}
                             items={catalogProducts}
                             selectedIds={form.productIds}
@@ -438,14 +463,13 @@ function PromoCodeFormFields({
                             disabled={catalogDisabled}
                         />
 
-                        <ApplicabilityPicker
+                        <ScopeSection
                             title="Services"
-                            allLabel="All services on selected branch(es)"
-                            allChecked={form.allServices}
-                            onAllChange={(checked) => setForm((prev) => ({
+                            scope={form.serviceScope}
+                            onScopeChange={(scope) => setForm((prev) => ({
                                 ...prev,
-                                allServices: checked,
-                                serviceIds: checked ? [] : prev.serviceIds,
+                                serviceScope: scope,
+                                serviceIds: scope === 'selected' ? prev.serviceIds : [],
                             }))}
                             items={catalogServices}
                             selectedIds={form.serviceIds}
@@ -462,17 +486,25 @@ function PromoCodeFormFields({
     );
 }
 
+function scopeLabel(scope, count, kind) {
+    if (scope === 'none') return `No ${kind}`;
+    if (scope === 'selected') return `${count} ${kind}`;
+    return `All ${kind}`;
+}
+
 function scopeSummary(promo, branches) {
     const branchIds = promo.branchIds ?? [];
     const productIds = promo.productIds ?? [];
     const serviceIds = promo.serviceIds ?? [];
+    const productScope = inferScope(promo.productScope, productIds);
+    const serviceScope = inferScope(promo.serviceScope, serviceIds);
     const branchText = branchIds.length === 0
         ? 'All branches'
         : branchIds.length === 1
             ? (branches.find((b) => String(b.id) === String(branchIds[0]))?.name ?? '1 branch')
             : `${branchIds.length} branches`;
-    const productText = productIds.length === 0 ? 'All products' : `${productIds.length} products`;
-    const serviceText = serviceIds.length === 0 ? 'All services' : `${serviceIds.length} services`;
+    const productText = scopeLabel(productScope, productIds.length, 'products');
+    const serviceText = scopeLabel(serviceScope, serviceIds.length, 'services');
     return { branchText, productText, serviceText };
 }
 
@@ -582,6 +614,41 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
         return () => { cancelled = true; };
     }, [showCreateModal, branchIdsForCatalog.join('|')]);
 
+    useEffect(() => {
+        if (!showCreateModal || catalogLoading) return undefined;
+        // Wait until catalog has loaded for the selected branch scope before pruning ids.
+        if (
+            branchIdsForCatalog.length > 0
+            && catalogProducts.length === 0
+            && catalogServices.length === 0
+        ) {
+            return undefined;
+        }
+        setForm((prev) => {
+            if (prev.productScope !== 'selected' && prev.serviceScope !== 'selected') return prev;
+            const validProductIds = new Set(
+                catalogProducts.map((p) => catalogItemId(p, 'products')).filter(Boolean),
+            );
+            const validServiceIds = new Set(
+                catalogServices.map((s) => catalogItemId(s, 'services')).filter(Boolean),
+            );
+            const productIds = prev.productScope === 'selected'
+                ? prev.productIds.filter((id) => validProductIds.has(id))
+                : [];
+            const serviceIds = prev.serviceScope === 'selected'
+                ? prev.serviceIds.filter((id) => validServiceIds.has(id))
+                : [];
+            if (
+                productIds.length === prev.productIds.length
+                && serviceIds.length === prev.serviceIds.length
+            ) {
+                return prev;
+            }
+            return { ...prev, productIds, serviceIds };
+        });
+        return undefined;
+    }, [showCreateModal, catalogLoading, catalogProducts, catalogServices, branchIdsForCatalog.join('|')]);
+
     const openCreate = () => {
         setEditingPromo(null);
         setForm(emptyForm());
@@ -606,27 +673,45 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
     };
 
     const validateForm = () => {
-        if (!form.code.trim() || !form.validFrom || !form.validTo) return 'Code, valid from, and valid to are required.';
+        if (!strTrim(form.code) || !dateOnly(form.validFrom) || !dateOnly(form.validTo)) {
+            return 'Code, valid from, and valid to are required.';
+        }
         if (form.branchMode === 'selected' && form.branchIds.length === 0) {
             return 'Select at least one branch, or choose All branches.';
         }
-        if (!form.allProducts && form.productIds.length === 0) {
-            return 'Select at least one product, or choose All products.';
+        if (catalogLoading && form.branchMode === 'selected' && form.branchIds.length > 0) {
+            return 'Catalog is still loading for the selected branch(es). Please wait a moment.';
         }
-        if (!form.allServices && form.serviceIds.length === 0) {
-            return 'Select at least one service, or choose All services.';
+        if (form.productScope === 'selected' && form.productIds.length === 0) {
+            return 'Select at least one product, or change products to All / Does not apply.';
+        }
+        if (form.serviceScope === 'selected' && form.serviceIds.length === 0) {
+            return 'Select at least one service, or change services to All / Does not apply.';
+        }
+        if (form.productScope === 'none' && form.serviceScope === 'none') {
+            return 'Promo must apply to products and/or services.';
         }
         if (toNumber(form.discountValue) <= 0) return 'Discount value must be greater than zero.';
-        if (form.validTo && form.validFrom && form.validTo < form.validFrom) {
+        const from = dateOnly(form.validFrom);
+        const to = dateOnly(form.validTo);
+        if (to && from && to < from) {
             return 'Valid To must be on or after Valid From.';
         }
         return '';
     };
 
-    const savePromoCode = async () => {
+    const savePromoCode = async (event) => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+
         const validationMsg = validateForm();
         if (validationMsg) {
             setModalError(validationMsg);
+            return;
+        }
+
+        if (!editingPromo?.id && !strTrim(form.code)) {
+            setModalError('Promo code is required.');
             return;
         }
 
@@ -634,13 +719,16 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
         setModalError('');
         setError('');
         try {
-            if (editingPromo) {
-                await apiFetch(`/workshop-staff/promo-code/${encodeURIComponent(String(editingPromo.id))}`, {
+            const payload = buildPromoPayload(form, { includeIsActive: true });
+            if (editingPromo?.id) {
+                const response = await apiFetch(`/workshop-staff/promo-code/${encodeURIComponent(String(editingPromo.id))}`, {
                     method: 'PATCH',
-                    body: JSON.stringify(buildPromoPayload(form, { includeIsActive: true })),
+                    body: JSON.stringify(payload),
                 });
+                if (response?.success === false) {
+                    throw new Error(response.message || 'Failed to update promo code.');
+                }
             } else {
-                const payload = buildPromoPayload(form, { includeIsActive: true });
                 await apiFetch('/workshop-staff/promo-code/create', {
                     method: 'POST',
                     body: JSON.stringify({
@@ -661,6 +749,12 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
     };
 
     const activeCount = promoCodes.filter((p) => p.isActive).length;
+
+    const needsCatalogForSave =
+        form.productScope === 'selected'
+        || form.serviceScope === 'selected'
+        || (form.branchMode === 'selected' && form.branchIds.length > 0);
+    const saveBlockedByCatalog = catalogLoading && needsCatalogForSave;
 
     return (
         <div>
@@ -788,32 +882,43 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                     width={920}
                     contentClassName="ws-promo-modal"
                     footer={(
-                        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
-                            <button type="button" className="btn-secondary" onClick={closeModal} disabled={isSaving}>
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                className="btn-submit"
-                                onClick={savePromoCode}
-                                disabled={isSaving}
-                            >
-                                {isSaving ? 'Saving...' : editingPromo ? 'Update Promo' : 'Create Promo'}
-                            </button>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+                            {modalError ? (
+                                <p className="ws-promo-form-error" style={{ margin: 0 }}>{modalError}</p>
+                            ) : null}
+                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
+                                <button type="button" className="btn-secondary" onClick={closeModal} disabled={isSaving}>
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    form="ws-promo-code-form"
+                                    className="btn-submit"
+                                    disabled={isSaving || saveBlockedByCatalog}
+                                >
+                                    {isSaving ? 'Saving...' : saveBlockedByCatalog ? 'Loading catalog...' : editingPromo ? 'Update Promo' : 'Create Promo'}
+                                </button>
+                            </div>
                         </div>
                     )}
                 >
-                    <PromoCodeFormFields
-                        form={form}
-                        setForm={setForm}
-                        branches={branches}
-                        catalogProducts={catalogProducts}
-                        catalogServices={catalogServices}
-                        catalogLoading={catalogLoading}
-                        codeReadOnly={Boolean(editingPromo)}
-                        usageCount={editingPromo ? toNumber(editingPromo.usageCount) : undefined}
-                        formError={modalError}
-                    />
+                    <form
+                        id="ws-promo-code-form"
+                        onSubmit={savePromoCode}
+                        noValidate
+                    >
+                        <PromoCodeFormFields
+                            form={form}
+                            setForm={setForm}
+                            branches={branches}
+                            catalogProducts={catalogProducts}
+                            catalogServices={catalogServices}
+                            catalogLoading={catalogLoading}
+                            codeReadOnly={Boolean(editingPromo)}
+                            usageCount={editingPromo ? toNumber(editingPromo.usageCount) : undefined}
+                            formError={modalError}
+                        />
+                    </form>
                 </Modal>
             )}
         </div>
