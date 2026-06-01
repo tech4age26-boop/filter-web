@@ -38,6 +38,7 @@ import WorkshopReceiptsLog from './accounting/WorkshopReceiptsLog';
 import WorkshopPaymentsLog from './accounting/WorkshopPaymentsLog';
 import WorkshopExpensesLog from './accounting/WorkshopExpensesLog';
 import WorkshopPayroll from './accounting/WorkshopPayroll';
+import WorkshopAdvances from './accounting/WorkshopAdvances';
 import WorkshopLedgerView from './accounting/WorkshopLedgerView';
 import '../../styles/admin/AccountingPage.css';
 
@@ -3952,7 +3953,7 @@ export default function WorkshopAccountingPage({ activeTab, branches = [], selec
             {activeSub === 'journal-entries' && <GeneralJournalView />}
             {activeSub === 'expenses' && <WorkshopExpensesLog branches={branches} selectedBranchId={selectedBranchId} />}
             {activeSub === 'receipts' && <WorkshopReceiptsLog branches={branches} selectedBranchId={selectedBranchId} />}
-            {activeSub === 'advances' && <EmployeeAdvancesView />}
+            {activeSub === 'advances' && <WorkshopAdvances branches={branches} selectedBranchId={selectedBranchId} />}
             {activeSub === 'payroll' && <WorkshopPayroll />}
             {activeSub === 'approvals' && <WorkshopApprovalLimits />}
             {activeSub === 'ledger' && <WorkshopLedgerView />}
