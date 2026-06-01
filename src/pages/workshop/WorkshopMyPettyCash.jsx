@@ -306,8 +306,14 @@ function WorkshopMyPettyCashStaff() {
 }
 
 export default function WorkshopMyPettyCash({ selectedBranchId = 'all' }) {
-    const { user } = useAuth();
-    if (user?.userType === 'workshop_owner') {
+    const { user, hasPermission } = useAuth();
+    // Show the full management UI for anyone who can "view" petty cash —
+    // workshop owners (legacy bypass), roleless workshop users (legacy bypass),
+    // and custom-role users who were explicitly granted
+    // `workshop.my-petty-cash.view`. Falls back to the personal staff view
+    // only for users without the permission (which today is unreachable
+    // anyway, because the sidebar item is gated by the same code).
+    if (user?.userType === 'workshop_owner' || hasPermission('workshop.my-petty-cash.view')) {
         return <WorkshopPettyCashManagement selectedBranchId={selectedBranchId} />;
     }
     return <WorkshopMyPettyCashStaff />;

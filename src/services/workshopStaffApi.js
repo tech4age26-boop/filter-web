@@ -1004,6 +1004,31 @@ export function normalizeWorkshopEmployee(raw, role) {
                 ? ''
                 : String(basicSalaryRaw),
         approvalStatus: approvalStatus || undefined,
+        // Pass-through the currently-assigned RBAC role from the backend
+        // (workshop Roles & Permissions). Without this, the Edit modal's
+        // Permission Role dropdown can't pre-select and the Employees table's
+        // "Assigned Role" column always shows '—'. Accept multiple casings
+        // since different endpoints have shipped slightly different shapes.
+        permissionRole:
+            raw.permissionRole ??
+            raw.permission_role ??
+            user?.permissionRole ??
+            user?.permission_role ??
+            null,
+        userType:
+            raw.userType ??
+            raw.user_type ??
+            user?.userType ??
+            user?.user_type ??
+            null,
+        userId:
+            raw.userId != null
+                ? String(raw.userId)
+                : user?.id != null
+                  ? String(user.id)
+                  : raw.user_id != null
+                    ? String(raw.user_id)
+                    : null,
         _source: role,
     };
 }
@@ -1090,10 +1115,12 @@ export async function loadWorkshopEmployeesCombined(params = {}) {
     }
     if (params.isActive != null && params.isActive !== '') {
         query.isActive = String(params.isActive);
-    } else if (isWorkshopWide && !params.includeInactive) {
-        // Portal "all branches": list active staff only (single-branch views still load full branch roster).
-        query.isActive = 'true';
     }
+    // Note: previously "all branches" mode auto-added isActive=true, which
+    // caused newly-created employees to disappear if their User.isActive flag
+    // wasn't true yet (e.g., pending approval, or auto-set false by a portal
+    // flow). Now both single-branch and all-branches views load the same set;
+    // callers that explicitly want active-only can still pass isActive: 'true'.
     if (params.limit != null && params.limit !== '') {
         query.limit = String(params.limit);
     }
