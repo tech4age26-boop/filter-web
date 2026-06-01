@@ -46,17 +46,25 @@ export default function WorkshopLayout() {
     const { logout, hasPermission, user } = useAuth();
 
     /**
-     * Branch-restriction rule for the workshop portal:
-     *   - If user has a non-system custom role AND a User.branchId → they are
-     *     LOCKED to that branch. The sidebar branch selector hides "All
-     *     Branches" and shows only their assigned branch. Every page receives
-     *     that branchId as `selectedBranchId`.
-     *   - Workshop owners and users without a role keep full multi-branch view.
+     * Branch-restriction rules for the workshop portal (priority top-down):
+     *   1. User has a non-system custom role AND `User.branchId` set → SINGLE
+     *      branch HARD LOCK. Sidebar hides "All Branches" + dropdown disabled.
+     *   2. User has a non-system custom role AND `role.branchIds` non-empty →
+     *      MULTI-branch scope. Dropdown shows only those branches; "All
+     *      Branches" still selectable but means "all branches I have access to".
+     *   3. Workshop owners + system-role users + roleless users → full access.
      */
     const userBranchLock =
         user?.role && !user.role.isSystem && user.branchId
             ? String(user.branchId)
             : null;
+    /** Set of allowed branch IDs from role.branchIds (only when no hard lock). */
+    const roleBranchScope = useMemo(() => {
+        if (userBranchLock) return null; // hard lock overrides scope
+        if (!user?.role || user.role.isSystem) return null;
+        const ids = (user.role.branchIds ?? []).map(String);
+        return ids.length > 0 ? new Set(ids) : null;
+    }, [user?.role, userBranchLock]);
 
     /**
      * Filter sidebar items by the current user's permissions.
@@ -266,10 +274,16 @@ export default function WorkshopLayout() {
 
     const activeBranches = useMemo(() => {
         const all = filterPortalVisibleBranches(branches);
-        if (!userBranchLock) return all;
-        // Branch-locked users only see their own branch in the dropdown + data.
-        return all.filter((b) => String(b.id) === userBranchLock);
-    }, [branches, userBranchLock]);
+        if (userBranchLock) {
+            // Branch-locked users only see their own branch in the dropdown + data.
+            return all.filter((b) => String(b.id) === userBranchLock);
+        }
+        if (roleBranchScope) {
+            // Role with explicit branch scope — limit dropdown to that set.
+            return all.filter((b) => roleBranchScope.has(String(b.id)));
+        }
+        return all;
+    }, [branches, userBranchLock, roleBranchScope]);
 
     // If the loaded branch list never contains the user's locked branch (e.g.
     // pending data race), still keep selectedBranch pointed at the lock so all
@@ -285,10 +299,13 @@ export default function WorkshopLayout() {
         if (userBranchLock) return; // never override a hard branch lock
         if (selectedBranch === 'all') return;
         const sel = branches.find((b) => String(b.id) === String(selectedBranch));
-        if (!sel || isWorkshopPortalBranchInactive(sel)) {
+        // If the selected branch is now invalid (inactive, or outside this
+        // user's role scope), snap back to "All Branches" within their scope.
+        const outsideScope = roleBranchScope && !roleBranchScope.has(String(selectedBranch));
+        if (!sel || isWorkshopPortalBranchInactive(sel) || outsideScope) {
             setSelectedBranch('all');
         }
-    }, [branches, selectedBranch, userBranchLock]);
+    }, [branches, selectedBranch, userBranchLock, roleBranchScope]);
 
     useEffect(() => {
         if (userBranchLock) return;

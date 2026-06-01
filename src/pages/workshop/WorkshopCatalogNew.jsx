@@ -342,12 +342,15 @@ function ResultBanner({ banner, onClose }) {
 }
 
 /** Card used in every grid: checkbox + title + meta + adoption badge. */
-function CatalogCard({ row, label, subtitle, meta, selected, disabled, disabledLabel, hint, onToggle }) {
+function CatalogCard({ row, label, subtitle, meta, selected, disabled, disabledLabel, hint, onToggle, noAdd = false }) {
+    // `disabled` = already in workshop's inventory (can't re-add).
+    // `noAdd` = user lacks the `.add` permission for this tab (read-only mode).
+    const inert = disabled || noAdd;
     return (
         <div
-            className={`mc-product-card ${disabled ? '' : 'clickable'} ${selected ? 'selected' : ''}`}
-            onClick={() => !disabled && onToggle?.()}
-            style={disabled ? { opacity: 0.7, cursor: 'default' } : undefined}
+            className={`mc-product-card ${inert ? '' : 'clickable'} ${selected ? 'selected' : ''}`}
+            onClick={() => !inert && onToggle?.()}
+            style={inert ? { opacity: 0.7, cursor: 'default' } : undefined}
         >
             <div className="mc-card-type-label">{label}</div>
             <div className="mc-card-info-main">
@@ -374,6 +377,13 @@ function CatalogCard({ row, label, subtitle, meta, selected, disabled, disabledL
                     <span className="ws-badge ws-badge--green" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         <ShieldCheck size={14} /> {disabledLabel || 'In your workshop'}
                     </span>
+                ) : noAdd ? (
+                    // Read-only mode — no add permission. Show a muted lock-like
+                    // indicator instead of the clickable plus so users don't
+                    // wonder why the card doesn't respond.
+                    <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>
+                        Read only
+                    </span>
                 ) : (
                     <div className={`mc-card-selection-btn ${selected ? 'selected' : ''}`}>
                         {selected ? <ShieldCheck size={20} /> : <Plus size={20} />}
@@ -387,6 +397,13 @@ function CatalogCard({ row, label, subtitle, meta, selected, disabled, disabledL
 export default function WorkshopCatalogNew({ branches: branchesProp = [], selectedBranchId = 'all' }) {
     const { hasPermission } = useAuth();
     const visibleTabs = TABS.filter((t) => hasPermission(t.permission));
+    // Per-tab "add" permission gates the + icon on each card AND the
+    // "Add Selected to branches…" bulk button. Users with only `.view` see
+    // the catalog read-only; cards aren't clickable and Add buttons are hidden.
+    const canAddDept = hasPermission('workshop.catalog.departments.add');
+    const canAddCat  = hasPermission('workshop.catalog.categories.add');
+    const canAddProd = hasPermission('workshop.catalog.products.add');
+    const canAddSvc  = hasPermission('workshop.catalog.services.add');
     const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.id ?? 'departments');
     const [banner, setBanner] = useState(null);
 
@@ -917,7 +934,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
     };
 
     // ─── Render helpers ─────────────────────────────────────────────────────
-    const renderToolbar = (count, onAdd, addLabel, onClear, listToolbarOpts) => {
+    const renderToolbar = (count, onAdd, addLabel, onClear, listToolbarOpts, canAdd = true) => {
         const { onSelectAll, selectAllDisabled, selectAllBusy } = listToolbarOpts || {};
         return (
         <div
@@ -936,9 +953,14 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
         >
             <div style={{ fontWeight: 700, fontSize: '0.875rem' }}>
                 Selected: <span style={{ color: count > 0 ? '#2563EB' : 'inherit' }}>{count}</span>
+                {!canAdd && (
+                    <span style={{ marginLeft: 10, color: '#94a3b8', fontWeight: 400, fontSize: '0.75rem' }}>
+                        (read-only — no add permission)
+                    </span>
+                )}
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {typeof onSelectAll === 'function' && (
+                {canAdd && typeof onSelectAll === 'function' && (
                     <button
                         type="button"
                         className="mc-btn-ghost"
@@ -949,12 +971,16 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                         {selectAllBusy ? 'Selecting…' : 'Select all'}
                     </button>
                 )}
-                <button type="button" className="mc-btn-ghost" disabled={count === 0} onClick={onClear}>
-                    Clear
-                </button>
-                <button type="button" className="mc-btn-primary blue-btn" disabled={count === 0} onClick={onAdd}>
-                    {addLabel}
-                </button>
+                {canAdd && (
+                    <button type="button" className="mc-btn-ghost" disabled={count === 0} onClick={onClear}>
+                        Clear
+                    </button>
+                )}
+                {canAdd && (
+                    <button type="button" className="mc-btn-primary blue-btn" disabled={count === 0} onClick={onAdd}>
+                        {addLabel}
+                    </button>
+                )}
             </div>
         </div>
         );
@@ -991,6 +1017,8 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                 openDeptCategoryModal,
                 'Add Selected to branches…',
                 () => setDeptSelected(new Set()),
+                undefined,
+                canAddDept,
             )}
             <div className="mc-product-grid">
                 {deptError ? renderError(deptError)
@@ -1009,6 +1037,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                                 disabled={false}
                                 disabledLabel=""
                                 hint={null}
+                                noAdd={!canAddDept}
                                 onToggle={() => toggleId(deptSelected, setDeptSelected, id)}
                             />
                         );
@@ -1048,6 +1077,8 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                 openCategoryAdopt,
                 'Add Selected to branches…',
                 () => setCatSelected(new Set()),
+                undefined,
+                canAddCat,
             )}
             <div className="mc-product-grid">
                 {catError ? renderError(catError)
@@ -1067,6 +1098,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                                 disabled={false}
                                 disabledLabel=""
                                 hint={null}
+                                noAdd={!canAddCat}
                                 onToggle={() => toggleId(catSelected, setCatSelected, id)}
                             />
                         );
@@ -1083,6 +1115,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
         kind,
         onSelectAllAllPages,
         selectAllBusy,
+        canAdd = true,
     }) => {
         const totalPagesKnown = total > 0 ? Math.max(1, Math.ceil(total / PAGE_SIZE)) : null;
         // Next: honor explicit hasNext; else known total pages; else if this page is full, allow probing
@@ -1176,6 +1209,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                               selectAllDisabled: loading || !!error || rows.length === 0,
                           }
                         : undefined,
+                    canAdd,
                 )}
                 <div className="mc-product-grid">
                     {error ? renderError(error)
@@ -1194,6 +1228,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                                     disabled={false}
                                     disabledLabel=""
                                     hint={null}
+                                    noAdd={!canAdd}
                                     onToggle={() => toggleId(selected, setSelected, id)}
                                 />
                             );
@@ -1281,6 +1316,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                     kind: 'product',
                     onSelectAllAllPages: handleSelectAllProducts,
                     selectAllBusy: prodSelectAllBusy,
+                    canAdd: canAddProd,
                 })}
                 {activeTab === 'services' && renderListTab({
                     rows: svcRows, loading: svcLoading, error: svcError,
@@ -1292,6 +1328,7 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                     kind: 'service',
                     onSelectAllAllPages: handleSelectAllServices,
                     selectAllBusy: svcSelectAllBusy,
+                    canAdd: canAddSvc,
                 })}
             </div>
 
