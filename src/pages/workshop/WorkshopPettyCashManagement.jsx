@@ -13,9 +13,15 @@ import {
 import { listCashBankAccounts } from '../../services/workshopAccountingApi';
 import { getWorkshopBranches, unwrapWorkshopBranchesResponse } from '../../services/workshopStaffApi';
 import { StatusBadge, MessageThread, formatSar, WalletTransactionsTable } from './WorkshopMyPettyCash.shared';
+import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/AccountingPage.css';
 
 export default function WorkshopPettyCashManagement({ selectedBranchId = 'all' }) {
+    const { hasPermission, user } = useAuth();
+    // Owners bypass; otherwise role must explicitly grant the .issue code.
+    const canIssue =
+        user?.userType === 'workshop_owner' ||
+        hasPermission('workshop.my-petty-cash.issue');
     const [branchFilter, setBranchFilter] = useState('');
     const [wallets, setWallets] = useState([]);
     const [requests, setRequests] = useState([]);
@@ -47,19 +53,33 @@ export default function WorkshopPettyCashManagement({ selectedBranchId = 'all' }
     const loadAll = useCallback(async () => {
         setLoading(true);
         setError('');
-        try {
-            const [walletRes, reqRes, targetRes, cashRes, brRes] = await Promise.all([
-                listWorkshopPettyCashWallets({ branchId: effectiveBranch }),
-                listWorkshopExpenseRequests({ limit: 100 }),
-                listExpenseIssuanceTargets(),
-                listCashBankAccounts({}).catch(() => ({ accounts: [] })),
-                getWorkshopBranches().catch(() => ({ branches: [] })),
-            ]);
+
+        // Primary data — wallets + requests are the actual page content; wait
+        // for these before clearing the loader so the user sees real data, not
+        // empty tables.
+        const primary = Promise.all([
+            listWorkshopPettyCashWallets({ branchId: effectiveBranch }),
+            listWorkshopExpenseRequests({ limit: 100, branchId: effectiveBranch }),
+        ]).then(([walletRes, reqRes]) => {
             setWallets(walletRes?.wallets ?? []);
             setRequests(reqRes?.items ?? []);
-            setTargets(targetRes?.users ?? []);
-            setCashAccounts(cashRes?.accounts ?? cashRes?.items ?? []);
-            setBranches(unwrapWorkshopBranchesResponse(brRes));
+        });
+
+        // Secondary data — only needed when the Issue modal opens. Load in the
+        // background, never block the page render on these. Each catches its
+        // own errors so one slow/failing endpoint doesn't poison the others.
+        listExpenseIssuanceTargets()
+            .then((r) => setTargets(r?.users ?? []))
+            .catch(() => undefined);
+        listCashBankAccounts({})
+            .then((r) => setCashAccounts(r?.accounts ?? r?.items ?? []))
+            .catch(() => undefined);
+        getWorkshopBranches()
+            .then((r) => setBranches(unwrapWorkshopBranchesResponse(r)))
+            .catch(() => undefined);
+
+        try {
+            await primary;
         } catch (e) {
             setError(e?.message || 'Could not load petty cash management data.');
         } finally {
@@ -258,9 +278,11 @@ export default function WorkshopPettyCashManagement({ selectedBranchId = 'all' }
                     </select>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-                    <button type="button" className="btn-portal" onClick={() => setIssueOpen(true)}>
-                        <Plus size={16} /> Issue Petty Cash
-                    </button>
+                    {canIssue && (
+                        <button type="button" className="btn-portal" onClick={() => setIssueOpen(true)}>
+                            <Plus size={16} /> Issue Petty Cash
+                        </button>
+                    )}
                     <button type="button" className="btn-portal-outline" onClick={loadAll} disabled={loading}>
                         <RefreshCw size={16} /> Refresh
                     </button>
