@@ -1249,14 +1249,15 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                     </div>
                 </div>
             </div>
-            {subTab.departments === 'not_added' ? renderToolbar(
-                deptSelected.size,
-                openDeptCategoryModal,
-                'Add Selected to branches…',
-                () => setDeptSelected(new Set()),
-                undefined,
-                canAddDept,
-            )}
+            {subTab.departments === 'not_added' &&
+                renderToolbar(
+                    deptSelected.size,
+                    openDeptCategoryModal,
+                    'Add Selected to branches…',
+                    () => setDeptSelected(new Set()),
+                    undefined,
+                    canAddDept,
+                )}
             <div className="mc-product-grid">
                 {deptError ? renderError(deptError)
                     : deptLoading ? renderLoading('Loading departments…')
@@ -1335,14 +1336,15 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                     <option value="service">Service</option>
                 </select>
             </div>
-            {subTab.categories === 'not_added' ? renderToolbar(
-                catSelected.size,
-                openCategoryAdopt,
-                'Add Selected to branches…',
-                () => setCatSelected(new Set()),
-                undefined,
-                canAddCat,
-            )}
+            {subTab.categories === 'not_added' &&
+                renderToolbar(
+                    catSelected.size,
+                    openCategoryAdopt,
+                    'Add Selected to branches…',
+                    () => setCatSelected(new Set()),
+                    undefined,
+                    canAddCat,
+                )}
             <div className="mc-product-grid">
                 {catError ? renderError(catError)
                     : catLoading ? renderLoading('Loading categories…')
@@ -1486,20 +1488,21 @@ export default function WorkshopCatalogNew({ branches: branchesProp = [], select
                         ))}
                     </select>
                 </div>
-                {(kind === 'product' ? subTab.products : subTab.services) === 'not_added' ? renderToolbar(
-                    selected.size,
-                    kind === 'product' ? openProductAdopt : openServiceAdopt,
-                    'Add Selected to branches…',
-                    () => setSelected(new Set()),
-                    typeof onSelectAllAllPages === 'function'
-                        ? {
-                              onSelectAll: onSelectAllAllPages,
-                              selectAllBusy: !!selectAllBusy,
-                              selectAllDisabled: loading || !!error || rows.length === 0,
-                          }
-                        : undefined,
-                    canAdd,
-                )}
+                {(kind === 'product' ? subTab.products : subTab.services) === 'not_added' &&
+                    renderToolbar(
+                        selected.size,
+                        kind === 'product' ? openProductAdopt : openServiceAdopt,
+                        'Add Selected to branches…',
+                        () => setSelected(new Set()),
+                        typeof onSelectAllAllPages === 'function'
+                            ? {
+                                  onSelectAll: onSelectAllAllPages,
+                                  selectAllBusy: !!selectAllBusy,
+                                  selectAllDisabled: loading || !!error || rows.length === 0,
+                              }
+                            : undefined,
+                        canAdd,
+                    )}
                 <div className="mc-product-grid">
                     {error ? renderError(error)
                         : loading ? renderLoading(`Loading ${kind === 'product' ? 'products' : 'services'}…`)
