@@ -65,10 +65,16 @@ export const AuthProvider = ({ children }) => {
             localStorage.removeItem('filter_auth_user');
             localStorage.removeItem('filter_auth_workshop');
         }
+        if (import.meta.env.DEV && token) {
+            console.log('[AUTH] token:', token);
+        }
         setLoading(false);
     }, [token]);
 
     const login = (userData, userToken, sessionMeta = {}) => {
+        if (import.meta.env.DEV && userToken) {
+            console.log('[AUTH] token:', userToken);
+        }
         setUser(userData);
         setToken(userToken);
         const workshopData = sessionMeta?.workshop || null;
