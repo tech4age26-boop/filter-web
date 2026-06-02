@@ -29,6 +29,9 @@ import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 
 const PAGE_SIZE = 24;
 
+const WAREHOUSE_UNIT_PRESETS = ['Box', 'Carton', 'Dozen', 'Pack', 'Drum', 'Bag'];
+const WORKSHOP_UNIT_PRESETS = ['pcs', 'Liter', 'kg', 'ml', 'Set', 'piece'];
+
 /** Same product list payload as Admin `InventoryPage` / `MasterCatalog` exposed via supplier API. */
 function unwrapProducts(res) {
     if (Array.isArray(res)) return res;
@@ -374,10 +377,24 @@ export default function SupplierCatalog() {
         const defaults = {};
         selectedMasterProducts.forEach((p) => {
             const id = String(p.id);
+            const existingProduct =
+                existing.find(
+                    (ep) =>
+                        String(ep.sku || '').trim().toLowerCase() ===
+                            String(p.sku || '').trim().toLowerCase() ||
+                        String(ep.name || ep.productName || '')
+                            .trim()
+                            .toLowerCase() === String(p.name || '').trim().toLowerCase(),
+                ) ?? null;
             defaults[id] = {
                 openingQty: '0',
                 stockQty: '0',
                 criticalStockLevel: '',
+                warehouseUnit:
+                    existingProduct?.warehouseUnit ||
+                    (p.unit === 'piece' || p.unit === 'pcs' ? 'Box' : p.unit || 'Box'),
+                workshopUnit: existingProduct?.workshopUnit || p.unit || 'pcs',
+                conversionFactor: String(existingProduct?.conversionFactor ?? 1),
             };
         });
         setInventoryQtyForm(defaults);
@@ -392,6 +409,9 @@ export default function SupplierCatalog() {
                 openingQty: prev[id]?.openingQty ?? '0',
                 stockQty: prev[id]?.stockQty ?? '0',
                 criticalStockLevel: prev[id]?.criticalStockLevel ?? '',
+                warehouseUnit: prev[id]?.warehouseUnit ?? 'Box',
+                workshopUnit: prev[id]?.workshopUnit ?? 'pcs',
+                conversionFactor: prev[id]?.conversionFactor ?? '1',
                 [key]: value,
             },
         }));
@@ -418,9 +438,18 @@ export default function SupplierCatalog() {
                     openingQty: '0',
                     stockQty: '0',
                     criticalStockLevel: '',
+                    warehouseUnit: 'Box',
+                    workshopUnit: master.unit || 'pcs',
+                    conversionFactor: '1',
                 };
                 const openingQty = Math.max(0, Number(row.openingQty || 0));
                 const stockQty = Math.max(0, Number(row.stockQty || 0));
+                const warehouseUnit = String(row.warehouseUnit || 'Box').trim() || 'Box';
+                const workshopUnit = String(row.workshopUnit || 'pcs').trim() || 'pcs';
+                const conversionFactor = Math.max(
+                    0.0001,
+                    Number(row.conversionFactor || 1) || 1,
+                );
 
                 const critRaw = row.criticalStockLevel;
                 let criticalStockAlert;
@@ -447,8 +476,9 @@ export default function SupplierCatalog() {
                         productName: master.name,
                         sku: master.sku || `MC-${master.id}`,
                         categoryId: master.categoryId ? String(master.categoryId) : undefined,
-                        workshopUnit: master.unit || 'pcs',
-                        warehouseUnit: master.unit || 'pcs',
+                        warehouseUnit,
+                        workshopUnit,
+                        conversionFactor,
                         pricePerWarehouseUnit: Number(
                             master.purchasePrice ?? master.salePrice ?? 0,
                         ),
@@ -478,10 +508,18 @@ export default function SupplierCatalog() {
 
                 if (
                     wasExistingSupplierProduct &&
-                    criticalStockAlert !== undefined
+                    (criticalStockAlert !== undefined ||
+                        warehouseUnit ||
+                        workshopUnit ||
+                        conversionFactor)
                 ) {
                     await updateSupplierProduct(String(supplierProductId), {
-                        criticalStockAlert,
+                        ...(criticalStockAlert !== undefined
+                            ? { criticalStockAlert }
+                            : {}),
+                        warehouseUnit,
+                        workshopUnit,
+                        conversionFactor,
                     });
                 }
             }
@@ -1439,7 +1477,7 @@ export default function SupplierCatalog() {
                 {addInventoryOpen && (
                     <Modal
                         title="Add Selected Products to Inventory"
-                        width="920px"
+                        width="1100px"
                         onClose={() => setAddInventoryOpen(false)}
                         footer={
                             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -1492,7 +1530,9 @@ export default function SupplierCatalog() {
                                 <thead>
                                     <tr>
                                         <th>Product</th>
-                                        <th>Unit</th>
+                                        <th>Warehouse UOM</th>
+                                        <th>Workshop UOM</th>
+                                        <th>CF (1 wh = ? ws)</th>
                                         <th>Opening Qty</th>
                                         <th>Stock Qty</th>
                                         <th>Critical stock level</th>
@@ -1504,11 +1544,85 @@ export default function SupplierCatalog() {
                                             openingQty: '0',
                                             stockQty: '0',
                                             criticalStockLevel: '',
+                                            warehouseUnit: 'Box',
+                                            workshopUnit: p.unit || 'pcs',
+                                            conversionFactor: '1',
                                         };
                                         return (
                                             <tr key={p.id}>
                                                 <td>{p.name}</td>
-                                                <td>{p.unit || 'pcs'}</td>
+                                                <td>
+                                                    <select
+                                                        value={row.warehouseUnit || 'Box'}
+                                                        onChange={(e) =>
+                                                            updateInventoryQty(
+                                                                p.id,
+                                                                'warehouseUnit',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        style={{
+                                                            width: 100,
+                                                            padding: '6px 8px',
+                                                            borderRadius: 6,
+                                                            border: '1px solid var(--color-border)',
+                                                        }}
+                                                    >
+                                                        {WAREHOUSE_UNIT_PRESETS.map((u) => (
+                                                            <option key={u} value={u}>
+                                                                {u}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select
+                                                        value={row.workshopUnit || 'pcs'}
+                                                        onChange={(e) =>
+                                                            updateInventoryQty(
+                                                                p.id,
+                                                                'workshopUnit',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        style={{
+                                                            width: 90,
+                                                            padding: '6px 8px',
+                                                            borderRadius: 6,
+                                                            border: '1px solid var(--color-border)',
+                                                        }}
+                                                    >
+                                                        {[...new Set([...(WORKSHOP_UNIT_PRESETS || []), p.unit || 'pcs'])].map(
+                                                            (u) => (
+                                                                <option key={u} value={u}>
+                                                                    {u}
+                                                                </option>
+                                                            ),
+                                                        )}
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0.0001"
+                                                        step="any"
+                                                        value={row.conversionFactor ?? '1'}
+                                                        onChange={(e) =>
+                                                            updateInventoryQty(
+                                                                p.id,
+                                                                'conversionFactor',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        title="1 warehouse unit = this many workshop units (e.g. 1 Box = 20 Liter)"
+                                                        style={{
+                                                            width: 72,
+                                                            padding: '6px 8px',
+                                                            borderRadius: 6,
+                                                            border: '1px solid var(--color-border)',
+                                                        }}
+                                                    />
+                                                </td>
                                                 <td>
                                                     <input
                                                         type="number"

@@ -278,6 +278,19 @@ export const updateSupplierSuperSupplier = (id, body) =>
         method: 'PATCH',
         body: JSON.stringify(body),
     });
+export const deleteSupplierSuperSupplier = (id) =>
+    apiFetch(`/supplier/super-suppliers/${encodeURIComponent(String(id))}`, {
+        method: 'DELETE',
+    });
+export const getSuperSupplierApLedger = (id, params = {}) =>
+    apiFetch(withQuery(`/supplier/super-suppliers/${encodeURIComponent(String(id))}/ap-ledger`, params));
+export const getSuperSupplierPurchaseProducts = (id, params = {}) =>
+    apiFetch(
+        withQuery(
+            `/supplier/super-suppliers/${encodeURIComponent(String(id))}/purchase-products`,
+            params,
+        ),
+    );
 export const listSupplierSuperSupplierPurchases = (params = {}) =>
     apiFetch(withQuery('/supplier/super-supplier-purchases', params));
 export const createSupplierSuperSupplierPurchase = (body) =>

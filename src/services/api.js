@@ -2,11 +2,10 @@
 // export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 
 
-// production url
-export const BASE_URL = 'https://api.filtercarservices.com';
-
-// development url
-// export const BASE_URL = 'http://localhost:3000';
+// production url (override with VITE_API_BASE_URL; dev defaults to local backend)
+export const BASE_URL =
+    import.meta.env.VITE_API_BASE_URL ??
+    (import.meta.env.DEV ? 'http://localhost:3000' : 'https://api.filtercarservices.com');
 const API_LOADING_EVENT = 'filter-api-loading';
 
 /** Device UTC offset in minutes (e.g. 300 Pakistan, 240 UAE) for cashier order timestamps. */

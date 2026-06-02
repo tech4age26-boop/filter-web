@@ -354,7 +354,13 @@ export default function WorkshopLayout() {
                     branches={activeBranches}
                 />
             );
-            case 'approvals':   return <WorkshopApprovals selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'approvals':   return (
+                <WorkshopApprovals
+                    selectedBranchId={selectedBranch}
+                    branches={activeBranches}
+                    branchLockedId={userBranchLock}
+                />
+            );
             case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={activeBranches} onTabChange={handleTabChange} />;
             case 'affiliated-suppliers':
                 return (

@@ -116,7 +116,9 @@ function TrialBalance() {
                         </tfoot>
                     </table>
                     <p style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: data.isBalanced ? '#065F46' : '#B91C1C' }}>
-                        {data.isBalanced ? '✓ Balanced' : '⚠ Out of balance — check recent entries'}
+                        {data.isBalanced
+                            ? '✓ Balanced'
+                            : `⚠ Out of balance by ${money(Math.abs(data.difference ?? data.totalDebits - data.totalCredits))}`}
                     </p>
                 </div>
             )}

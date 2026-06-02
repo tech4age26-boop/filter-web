@@ -1,12 +1,15 @@
 import React, {
     forwardRef,
     useCallback,
+    useEffect,
     useImperativeHandle,
     useMemo,
     useRef,
     useState,
 } from 'react';
 import { Download } from 'lucide-react';
+import QRCode from 'qrcode';
+import { buildZatcaPhase2QrPayloadFromInvoice } from '../../utils/zatcaQr';
 import './WorkshopPurchaseInvoiceView.css';
 
 function money(n, currency = 'SAR') {
@@ -28,21 +31,40 @@ function pick(inv, ...keys) {
     return null;
 }
 
-function lineDesc(line) {
+function lineEnglishName(line) {
     const nested = line?.product && typeof line.product === 'object' ? line.product : null;
     const candidates = [
         nested?.name,
-        line?.itemName,
-        line?.item_name,
         line?.productName,
         line?.product_name,
+        line?.itemName,
+        line?.item_name,
         line?.description,
-        line?.productId,
     ];
     for (const c of candidates) {
         if (c != null && String(c).trim() !== '') return String(c).trim();
     }
     return '—';
+}
+
+function lineArabicName(line) {
+    const nested = line?.product && typeof line.product === 'object' ? line.product : null;
+    const candidates = [
+        line?.productNameArabic,
+        line?.product_name_arabic,
+        line?.arabicName,
+        line?.arabic_name,
+        nested?.arabicName,
+        nested?.arabic_name,
+    ];
+    for (const c of candidates) {
+        if (c != null && String(c).trim() !== '') return String(c).trim();
+    }
+    return '';
+}
+
+function lineDesc(line) {
+    return lineEnglishName(line);
 }
 
 function lineQty(line) {
@@ -55,6 +77,15 @@ function lineQty(line) {
 function lineUom(line) {
     const u = line?.uom ?? line?.unit ?? line?.unitOfMeasure ?? line?.unit_of_measure;
     return u != null && String(u).trim() !== '' ? String(u).trim() : 'piece';
+}
+
+function lineWorkshopConversionNote(line) {
+    const wsQty = line?.qtyWorkshop ?? line?.qty_workshop;
+    const wsUnit = line?.workshopUnit ?? line?.workshop_unit;
+    if (wsQty == null || wsUnit == null || String(wsUnit).trim() === '') return '';
+    const n = Number(wsQty);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return `= ${n} ${String(wsUnit).trim()} at workshop`;
 }
 
 function lineUnitExVat(line) {
@@ -398,17 +429,93 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
         return `${window.location.origin}/verify/wpi/${encodeURIComponent(String(internalId))}`;
     }, [inv, row.id, isSuperSupplier, isSupplierSales]);
 
-    const qrSrcLarge = verifyUrl
-        ? `https://api.qrserver.com/v1/create-qr-code/?size=132x132&margin=1&data=${encodeURIComponent(verifyUrl)}`
-        : '';
-    const qrSrcSmall = verifyUrl
-        ? `https://api.qrserver.com/v1/create-qr-code/?size=64x64&margin=0&data=${encodeURIComponent(verifyUrl)}`
-        : '';
-
+    const [verifyQrDataUrl, setVerifyQrDataUrl] = useState('');
+    const [zatcaQrDataUrl, setZatcaQrDataUrl] = useState('');
     const [qrBroken, setQrBroken] = useState(false);
     const [pdfBusy, setPdfBusy] = useState(false);
     const [pdfError, setPdfError] = useState('');
     const printRootRef = useRef(null);
+
+    const zatcaQrInputs = useMemo(
+        () => ({
+            sellerName: supplierLabel,
+            vatNumber: supplierVat,
+            invoiceDate: issueDate || pick(inv, 'createdAt', 'created_at'),
+            invoiceNumber: invoiceNo,
+            grandTotal: grand,
+            vatAmount: totalVat,
+        }),
+        [supplierLabel, supplierVat, issueDate, inv, invoiceNo, grand, totalVat],
+    );
+
+    useEffect(() => {
+        let cancelled = false;
+        setQrBroken(false);
+        if (!verifyUrl) {
+            setVerifyQrDataUrl('');
+        } else {
+            QRCode.toDataURL(verifyUrl, { width: 132, margin: 1, errorCorrectionLevel: 'M' })
+                .then((url) => {
+                    if (!cancelled) setVerifyQrDataUrl(url);
+                })
+                .catch(() => {
+                    if (!cancelled) {
+                        setVerifyQrDataUrl('');
+                        setQrBroken(true);
+                    }
+                });
+        }
+
+        (async () => {
+            if (!supplierVat || !Number.isFinite(grand)) {
+                if (!cancelled) setZatcaQrDataUrl('');
+                return;
+            }
+            try {
+                const payload = await buildZatcaPhase2QrPayloadFromInvoice(zatcaQrInputs);
+                if (!payload || cancelled) {
+                    if (!cancelled) setZatcaQrDataUrl('');
+                    return;
+                }
+                const url = await QRCode.toDataURL(payload, {
+                    width: 140,
+                    margin: 1,
+                    errorCorrectionLevel: 'M',
+                });
+                if (!cancelled) setZatcaQrDataUrl(url);
+            } catch {
+                if (!cancelled) setZatcaQrDataUrl('');
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [verifyUrl, zatcaQrInputs, supplierVat, grand]);
+
+    const renderWorkshopVerifyQr = (className = 'wpi-view__qr-block') => (
+        <div className={`${className} wpi-view__qr-visual`}>
+            {verifyUrl && verifyQrDataUrl && !qrBroken ? (
+                <>
+                    <img src={verifyQrDataUrl} width={120} height={120} alt="Verification QR" />
+                    <p className="wpi-view__qr-caption">
+                        Scan to receive stock &amp; invoice
+                        <br />
+                        <span dir="rtl">امسح لاستلام المخزون والفاتورة</span>
+                    </p>
+                </>
+            ) : verifyUrl && qrBroken ? (
+                <div className="wpi-view__qr-fallback">QR unavailable — open link below</div>
+            ) : (
+                <div className="wpi-view__qr-fallback">No verify id</div>
+            )}
+            {verifyUrl ? (
+                <a className="wpi-view__verify-link" href={verifyUrl} target="_blank" rel="noopener noreferrer">
+                    {verifyUrl}
+                </a>
+            ) : null}
+        </div>
+    );
 
     const watermarkText =
         supplierLabel.length <= 24 ? String(supplierLabel).replace(/\s+/g, ' ').toUpperCase() : 'FILTER';
@@ -584,14 +691,13 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                 </div>
 
                 <div className="wpi-view__surface">
-                    <header className="wpi-view__corp-header">
+                    <header
+                        className={`wpi-view__corp-header${verifyUrl ? ' wpi-view__corp-header--with-qr' : ''}`}
+                    >
                         <div className="wpi-view__corp-left">
                             <h1 className="wpi-view__corp-name">{supplierLabel}</h1>
                             <p className="wpi-view__corp-tagline">{supplierTagline}</p>
                             <p className="wpi-view__corp-vat">VAT No. {supplierVat || '—'}</p>
-                            <p className="wpi-view__corp-vat-ar" dir="rtl">
-                                الرقم الضريبي: {supplierVat || '—'}
-                            </p>
                         </div>
 
                         <div className="wpi-view__corp-logo">
@@ -600,12 +706,21 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                             </div>
                         </div>
 
+                        {verifyUrl ? (
+                            <div className="wpi-view__header-qr">
+                                {renderWorkshopVerifyQr('wpi-view__qr-block wpi-view__qr-block--header')}
+                            </div>
+                        ) : null}
+
                         <div className="wpi-view__corp-right">
                             <h2 className="wpi-view__corp-name-ar" dir="rtl">
                                 {supplierLabelAr}
                             </h2>
                             <p className="wpi-view__corp-tagline-ar" dir="rtl">
                                 {supplierTaglineAr}
+                            </p>
+                            <p className="wpi-view__corp-vat-ar" dir="rtl">
+                                الرقم الضريبي: {supplierVat || '—'}
                             </p>
                         </div>
                     </header>
@@ -816,7 +931,20 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                         <tr key={line.id ?? line.lineId ?? i}>
                                             <td>{i + 1}</td>
                                             <td dir="auto">
-                                                <div>{lineDesc(line)}</div>
+                                                <div>{lineEnglishName(line)}</div>
+                                                {lineArabicName(line) ? (
+                                                    <div
+                                                        dir="rtl"
+                                                        style={{
+                                                            fontSize: '0.875rem',
+                                                            color: '#475569',
+                                                            marginTop: 3,
+                                                            lineHeight: 1.4,
+                                                        }}
+                                                    >
+                                                        {lineArabicName(line)}
+                                                    </div>
+                                                ) : null}
                                                 {isSuperSupplier &&
                                                 ((line.sku != null && String(line.sku).trim() !== '') ||
                                                     (line.lineDescription != null &&
@@ -845,6 +973,19 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                             </td>
                                             <td className="wpi-view__td-num">
                                                 {lineQty(line)} {lineUom(line)}
+                                                {isSupplierSales && lineWorkshopConversionNote(line) ? (
+                                                    <div
+                                                        className="wpi-view__line-sub"
+                                                        style={{
+                                                            fontSize: '0.72rem',
+                                                            color: '#64748b',
+                                                            fontWeight: 500,
+                                                            marginTop: 2,
+                                                        }}
+                                                    >
+                                                        {lineWorkshopConversionNote(line)}
+                                                    </div>
+                                                ) : null}
                                             </td>
                                             {isSupplierSales ? (
                                                 <td className="wpi-view__td-num">
@@ -884,34 +1025,6 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                     </div>
                                 </>
                             )}
-                        </div>
-
-                        <div className="wpi-view__qr-block wpi-view__qr-visual">
-                            {verifyUrl && qrSrcLarge && !qrBroken ? (
-                                <>
-                                    <img
-                                        src={qrSrcLarge}
-                                        width={120}
-                                        height={120}
-                                        alt="Verification QR"
-                                        onError={() => setQrBroken(true)}
-                                    />
-                                    <p className="wpi-view__qr-caption">
-                                        Scan to verify on Filter
-                                        <br />
-                                        <span dir="rtl">امسح للتحقق</span>
-                                    </p>
-                                </>
-                            ) : verifyUrl && qrBroken ? (
-                                <div className="wpi-view__qr-fallback">QR unavailable — open link below</div>
-                            ) : (
-                                <div className="wpi-view__qr-fallback">No verify id</div>
-                            )}
-                            {verifyUrl ? (
-                                <a className="wpi-view__verify-link" href={verifyUrl} target="_blank" rel="noopener noreferrer">
-                                    {verifyUrl}
-                                </a>
-                            ) : null}
                         </div>
 
                         <div className="wpi-view__sum-box">
@@ -1008,6 +1121,39 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                             </div>
                         </div>
                     </div>
+
+                    <div className="wpi-view__zatca-qr">
+                        <div className="wpi-view__zatca-qr-title">
+                            ZATCA Phase 2 e-invoice QR · رمز هيئة الزكاة والضريبة والجمارك — المرحلة الثانية
+                        </div>
+                        {zatcaQrDataUrl ? (
+                            <>
+                                <img
+                                    src={zatcaQrDataUrl}
+                                    width={120}
+                                    height={120}
+                                    alt="ZATCA Phase 2 QR"
+                                    className="wpi-view__zatca-qr-img"
+                                />
+                            </>
+                        ) : (
+                            <div className="wpi-view__zatca-qr-placeholder">
+                                <div className="wpi-view__zatca-qr-placeholder-box">
+                                    ZATCA QR
+                                </div>
+                                <p>
+                                    {supplierVat
+                                        ? 'QR will appear when invoice totals are available.'
+                                        : 'VAT registration number required for ZATCA QR.'}
+                                </p>
+                                <p dir="rtl" style={{ marginTop: 6 }}>
+                                    {supplierVat
+                                        ? 'سيظهر الرمز عند توفر بيانات الفاتورة.'
+                                        : 'يلزم الرقم الضريبي لإظهار رمز هيئة الزكاة والضريبة والجمارك.'}
+                                </p>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <footer className="wpi-view__corp-footer">
@@ -1024,19 +1170,19 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                             <br />
                             {isSuperSupplier ? (
                                 <>
-                                    Purchase recorded through Filter supplier portal · verify via QR above.
+                                    Purchase recorded through Filter supplier portal · scan header QR to verify.
                                     <br />
-                                    الإصدار الإلكتروني عبر منصّة فِلتر — امسح الرمز للتحقق من فاتورة المورّد الرئيسي.
+                                    الإصدار الإلكتروني عبر منصّة فِلتر — امسح الرمز في أعلى الفاتورة للتحقق.
                                 </>
                             ) : isSupplierSales ? (
                                 <>
-                                    Sales invoice issued through Filter supplier portal · verify via QR above.
+                                    Sales invoice issued through Filter supplier portal · scan header QR to receive stock &amp; invoice.
                                     <br />
-                                    فاتورة مبيعات للورشة عبر منصّة المورد — امسح الرمز للتحقق.
+                                    فاتورة مبيعات للورشة — امسح الرمز في أعلى الفاتورة لاستلام المخزون والفاتورة.
                                 </>
                             ) : (
                                 <>
-                                    Digital document issued through Filter supplier portal · verify via QR above.
+                                    Digital document issued through Filter supplier portal · scan header QR to verify.
                                     <br />
                                     Support: hello@filter.app · الإصدار الإلكتروني عبر منصّة فِلتر
                                 </>
@@ -1057,11 +1203,6 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                 </>
                             )}
                         </div>
-                        {verifyUrl && qrSrcSmall && !qrBroken ? (
-                            <div className="wpi-view__corp-footer-qr-small">
-                                <img src={qrSrcSmall} width={56} height={56} alt="" />
-                            </div>
-                        ) : null}
                     </div>
                 </footer>
             </div>
