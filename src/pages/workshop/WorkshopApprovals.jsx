@@ -633,7 +633,7 @@ export default function WorkshopApprovals({
                         {hasPermission('workshop.approvals.supplier-invoice.view') ||
                         hasPermission('workshop.approvals.view') ? (
                             <option value="supplier_invoices">Supplier invoices</option>
-                        )}
+                        ) : null}
                         {(hasPermission('workshop.approvals.sales-return.view') || hasPermission('workshop.approvals.view')) && (
                             <option value="sales_returns">Sales returns</option>
                         )}
