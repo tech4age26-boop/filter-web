@@ -144,25 +144,37 @@ function pettyCashListQuery(queueFilter, branchSelected) {
     return base;
 }
 
-export default function WorkshopApprovals({ selectedBranchId = 'all', branches = [] }) {
+export default function WorkshopApprovals({
+    selectedBranchId = 'all',
+    branches = [],
+    /** When set, user is locked to one branch — supplier invoices are scoped to it. */
+    branchLockedId = null,
+}) {
     const { hasPermission } = useAuth();
     /** Per-type approval helpers — fall back to parent codes for backward compat. */
     const canViewType = useCallback((row) => {
         const k = approvalTypeKey(row);
         if (!k) return true;
-        return hasPermission(`workshop.approvals.${k}.view`);
+        return (
+            hasPermission(`workshop.approvals.${k}.view`) ||
+            hasPermission('workshop.approvals.view')
+        );
     }, [hasPermission]);
     const canApproveType = useCallback((row) => {
         const k = approvalTypeKey(row);
         if (!k) return hasPermission('workshop.approvals.approve');
-        const specific = hasPermission(`workshop.approvals.${k}.approve`);
-        // Strict if any per-type code is configured; otherwise allow via parent.
-        return specific;
+        return (
+            hasPermission(`workshop.approvals.${k}.approve`) ||
+            hasPermission('workshop.approvals.approve')
+        );
     }, [hasPermission]);
     const canRejectType = useCallback((row) => {
         const k = approvalTypeKey(row);
         if (!k) return hasPermission('workshop.approvals.reject');
-        return hasPermission(`workshop.approvals.${k}.reject`);
+        return (
+            hasPermission(`workshop.approvals.${k}.reject`) ||
+            hasPermission('workshop.approvals.reject')
+        );
     }, [hasPermission]);
 
     const scopeBranchName = useMemo(() => {
@@ -196,14 +208,19 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
             const loadSupplierInvoices =
                 queueFilter === 'all' || queueFilter === 'pending';
 
-            const [response, siRes, srRes] = await Promise.all([
+            // Supplier invoices are workshop-wide unless the user is branch-locked.
+            // Sidebar branch selection must not hide invoices for other branches.
+            const supplierBranchScope = branchLockedId
+                ? branchScopeParams(branchLockedId)
+                : {};
+            const [response, siRes] = await Promise.all([
                 apiFetch(`/workshop-staff/petty-cash/requests${qs(pettyQs)}`),
                 loadSupplierInvoices
                     ? apiFetch(
                           `/workshop-staff/supplier-sales-invoices${qs({
                               limit: 100,
                               offset: 0,
-                              ...branchScopeParams(selectedBranchId),
+                              ...supplierBranchScope,
                           })}`,
                       ).catch(() => null)
                     : Promise.resolve(null),
@@ -294,7 +311,7 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
         } finally {
             setIsLoading(false);
         }
-    }, [queueFilter, selectedBranchId, scopeBranchName]);
+    }, [queueFilter, selectedBranchId, scopeBranchName, branchLockedId]);
 
     useEffect(() => {
         loadApprovals();
@@ -613,7 +630,8 @@ export default function WorkshopApprovals({ selectedBranchId = 'all', branches =
                         {hasPermission('workshop.approvals.expense.view') && (
                             <option value="expenses">Expenses</option>
                         )}
-                        {hasPermission('workshop.approvals.supplier-invoice.view') && (
+                        {hasPermission('workshop.approvals.supplier-invoice.view') ||
+                        hasPermission('workshop.approvals.view') ? (
                             <option value="supplier_invoices">Supplier invoices</option>
                         )}
                         {(hasPermission('workshop.approvals.sales-return.view') || hasPermission('workshop.approvals.view')) && (

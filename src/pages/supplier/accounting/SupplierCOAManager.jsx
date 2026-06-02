@@ -1,18 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     ChevronDown,
     ChevronRight,
-    Download,
-    FileDown,
     Pencil,
     Plus,
     Trash2,
-    X,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import Modal from '../../../components/Modal';
 import {
     createSupplierAccount,
     deleteSupplierAccount,
@@ -22,6 +17,11 @@ import {
     unwrapSupplierAccountingList,
     updateSupplierAccount,
 } from '../../../services/supplierAccountingApi';
+import {
+    exportAccountLedgerExcel,
+    exportAccountLedgerPdf,
+} from '../../../utils/supplierLedgerExport';
+import AccountLedgerStatement from './AccountLedgerStatement';
 import {
     ACCOUNT_SUBTYPES_BY_TYPE,
     ACCOUNT_TYPES,
@@ -37,6 +37,7 @@ import {
     money,
     outlineBtnStyle,
     primaryBtnStyle,
+    startOfMonthISO,
     todayISO,
 } from './SupplierAccountingShared';
 
@@ -350,34 +351,24 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
     );
 }
 
-function LedgerDrawer({ context, onClose }) {
+function AccountLedgerModal({ context, onClose }) {
     const account = context?.account;
     const initialParty = context?.partyFilter;
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [data, setData] = useState(null);
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
-    const [partyType, setPartyType] = useState(initialParty?.partyType ?? '');
-    const [partyId, setPartyId] = useState(initialParty?.partyId ?? '');
-    const [externalPartyId, setExternalPartyId] = useState(initialParty?.externalPartyId ?? '');
-    const [exporting, setExporting] = useState('');
-
-    useEffect(() => {
-        setPartyType(initialParty?.partyType ?? '');
-        setPartyId(initialParty?.partyId ?? '');
-        setExternalPartyId(initialParty?.externalPartyId ?? '');
-    }, [account?.id, initialParty?.partyType, initialParty?.partyId, initialParty?.externalPartyId]);
+    const [dateFrom, setDateFrom] = useState(startOfMonthISO());
+    const [dateTo, setDateTo] = useState(todayISO());
 
     const ledgerQueryBase = useMemo(
         () => ({
-            dateFrom,
-            dateTo,
-            partyType: partyType.trim() || undefined,
-            partyId: partyId.trim() || undefined,
-            externalPartyId: externalPartyId.trim() || undefined,
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
+            partyType: initialParty?.partyType?.trim() || undefined,
+            partyId: initialParty?.partyId?.trim() || undefined,
+            externalPartyId: initialParty?.externalPartyId?.trim() || undefined,
         }),
-        [dateFrom, dateTo, partyType, partyId, externalPartyId],
+        [dateFrom, dateTo, initialParty],
     );
 
     const load = useCallback(async () => {
@@ -399,11 +390,13 @@ function LedgerDrawer({ context, onClose }) {
     }, [account?.id, ledgerQueryBase]);
 
     useEffect(() => {
+        setDateFrom(startOfMonthISO());
+        setDateTo(todayISO());
+    }, [account?.id]);
+
+    useEffect(() => {
         void load();
     }, [load]);
-
-    const lines = data?.lines || [];
-    const total = data?.total ?? lines.length;
 
     async function fetchLedgerForExport() {
         const res = await getSupplierAccountLedger(account.id, {
@@ -413,257 +406,108 @@ function LedgerDrawer({ context, onClose }) {
         return res?.data && typeof res.data === 'object' ? res.data : res;
     }
 
-    async function downloadExcel() {
+    function buildExportHeader(root) {
+        return {
+            ...(root?.header || {}),
+            accountCode: root?.header?.accountCode || account?.code || '',
+            accountName: root?.header?.accountName || account?.name || '',
+            accountType: root?.header?.accountType || account?.type || '',
+            companyName: root?.header?.companyName || undefined,
+            from: root?.header?.from || dateFrom || undefined,
+            to: root?.header?.to || dateTo || undefined,
+            currencyCode: root?.header?.currencyCode || 'SAR',
+        };
+    }
+
+    async function onExportPdf() {
         if (!account?.id) return;
-        setExporting('xlsx');
         setErr('');
         try {
             const root = await fetchLedgerForExport();
-            const rows = (root?.lines || []).map((l) => ({
-                Date: fmtDate(l.date),
-                'Entry #': l.entryNumber,
-                Description: l.lineDescription || l.journalDescription || '',
-                Reference: l.reference || '',
-                'Party type': l.partyType || '',
-                'Party id': l.partyId || '',
-                'External party': l.externalPartyId || '',
-                Debit: Number(l.debit) || 0,
-                Credit: Number(l.credit) || 0,
-                Balance: Number(l.runningBalance) || 0,
-            }));
-            const ws = XLSX.utils.json_to_sheet(rows);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
-            const code = String(account.code || 'account').replace(/[^\w\-]+/g, '_');
-            XLSX.writeFile(wb, `ledger_${code}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            exportAccountLedgerPdf({
+                header: buildExportHeader(root),
+                openingBalance: root?.openingBalance,
+                rows: root?.rows ?? [],
+                totals: root?.totals,
+            });
         } catch (e) {
-            setErr(e?.message || 'Excel export failed');
-        } finally {
-            setExporting('');
+            setErr(e?.message || 'PDF export failed');
         }
     }
 
-    async function downloadPdf() {
+    async function onExportExcel() {
         if (!account?.id) return;
-        setExporting('pdf');
         setErr('');
         try {
             const root = await fetchLedgerForExport();
-            const exportLines = root?.lines || [];
-            const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-            const title = `[${account.code}] ${account.name}`;
-            const sub =
-                `Lines: ${exportLines.length}${total > exportLines.length ? ` (of ${total} — increase limit if truncated)` : ''}`;
-            doc.setFontSize(11);
-            doc.text(title, 40, 36);
-            doc.setFontSize(9);
-            doc.setTextColor(100);
-            doc.text(sub, 40, 52);
-            doc.setTextColor(0);
-            const body = exportLines.map((l) => [
-                fmtDate(l.date),
-                String(l.entryNumber ?? ''),
-                (l.lineDescription || l.journalDescription || '—').slice(0, 80),
-                l.reference || '—',
-                l.partyType || '—',
-                Number(l.debit) > 0 ? money(l.debit) : '—',
-                Number(l.credit) > 0 ? money(l.credit) : '—',
-                money(l.runningBalance),
-            ]);
-            autoTable(doc, {
-                startY: 62,
-                head: [[
-                    'Date',
-                    'Entry #',
-                    'Description',
-                    'Ref',
-                    'Party',
-                    'Debit',
-                    'Credit',
-                    'Balance',
-                ]],
-                body,
-                styles: { fontSize: 7, cellPadding: 3 },
-                headStyles: { fillColor: [15, 23, 42] },
+            exportAccountLedgerExcel({
+                header: buildExportHeader(root),
+                openingBalance: root?.openingBalance,
+                rows: root?.rows ?? [],
+                totals: root?.totals,
             });
-            const code = String(account.code || 'account').replace(/[^\w\-]+/g, '_');
-            doc.save(`ledger_${code}_${new Date().toISOString().slice(0, 10)}.pdf`);
         } catch (e) {
-            setErr(e?.message || 'PDF export failed');
-        } finally {
-            setExporting('');
+            setErr(e?.message || 'Excel export failed');
         }
+    }
+
+    function clearRange() {
+        setDateFrom(startOfMonthISO());
+        setDateTo(todayISO());
     }
 
     if (!account) return null;
 
+    const title = 'Account Ledger';
+    const accountLabel =
+        data?.header?.accountCode || account.code
+            ? `[${data?.header?.accountCode || account.code}] ${data?.header?.accountName || account.name}`
+            : data?.header?.accountName || account.name;
+    const periodFrom = data?.header?.from || dateFrom || '—';
+    const periodTo = data?.header?.to || dateTo || '—';
+    const currentBalance =
+        data?.currentBalance ??
+        (Number(account.closingDebit || 0) - Number(account.closingCredit || 0));
+
     return (
-        <div
-            style={{
-                position: 'fixed',
-                top: 0,
-                right: 0,
-                bottom: 0,
-                width: 'min(960px, 95vw)',
-                background: '#F8FAFC',
-                zIndex: 1000,
-                boxShadow: '-12px 0 32px rgba(15, 23, 42, 0.2)',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-            }}
+        <Modal
+            title={title}
+            onClose={onClose}
+            width={960}
+            footer={
+                <button type="button" className="btn-portal-outline" onClick={onClose}>
+                    Close
+                </button>
+            }
         >
-            <header
-                style={{
-                    padding: '16px 20px',
-                    background: '#ffffff',
-                    borderBottom: '1px solid rgba(0,0,0,0.06)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 10,
-                }}
-            >
-                <div>
-                    <p style={{ margin: 0, fontSize: 11, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 800 }}>
-                        Ledger · {account.type}
-                    </p>
-                    <h2 style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 800, color: '#0F172A' }}>
-                        [{account.code}] {account.name}
-                    </h2>
-                </div>
-                <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }} aria-label="Close">
-                    <X size={22} />
-                </button>
-            </header>
-            <div style={{ padding: '12px 20px', background: '#ffffff', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <Field label="From">
-                    <input type="date" style={inputStyle} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-                </Field>
-                <Field label="To">
-                    <input type="date" style={inputStyle} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-                </Field>
-                <Field label="Party type">
-                    <input
-                        type="text"
-                        style={inputStyle}
-                        placeholder="e.g. workshop"
-                        value={partyType}
-                        onChange={(e) => setPartyType(e.target.value)}
-                    />
-                </Field>
-                <Field label="Party id">
-                    <input
-                        type="text"
-                        style={inputStyle}
-                        placeholder="Numeric id"
-                        value={partyId}
-                        onChange={(e) => setPartyId(e.target.value)}
-                    />
-                </Field>
-                <Field label="External party id">
-                    <input
-                        type="text"
-                        style={{ ...inputStyle, minWidth: 200 }}
-                        placeholder="UUID"
-                        value={externalPartyId}
-                        onChange={(e) => setExternalPartyId(e.target.value)}
-                    />
-                </Field>
-                <button type="button" style={outlineBtnStyle} onClick={() => void load()}>
-                    Apply filters
-                </button>
-                <button
-                    type="button"
-                    style={outlineBtnStyle}
-                    onClick={() => {
-                        setDateFrom('');
-                        setDateTo('');
-                        setPartyType('');
-                        setPartyId('');
-                        setExternalPartyId('');
-                    }}
-                >
-                    Clear filters
-                </button>
-                <button
-                    type="button"
-                    style={outlineBtnStyle}
-                    onClick={() => void downloadExcel()}
-                    disabled={!!exporting}
-                    title="Download all matching lines (up to 10,000) as Excel"
-                >
-                    <FileDown size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                    {exporting === 'xlsx' ? '…' : 'Excel'}
-                </button>
-                <button
-                    type="button"
-                    style={outlineBtnStyle}
-                    onClick={() => void downloadPdf()}
-                    disabled={!!exporting}
-                    title="Download all matching lines (up to 10,000) as PDF"
-                >
-                    <Download size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                    {exporting === 'pdf' ? '…' : 'PDF'}
-                </button>
-            </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
-                {loading ? <AcctLoading /> : err ? <AcctError message={err} /> : (
-                    <>
-                        {!lines.length ? <AcctEmpty message="No journal lines match these filters." /> : (
-                            <>
-                                {total > lines.length ? (
-                                    <p style={{ margin: '0 0 12px', fontSize: 12, color: '#64748B' }}>
-                                        Showing last {lines.length} of {total} lines (newest window). Use Excel/PDF for up to 10,000 lines, or narrow dates / party filters.
-                                    </p>
-                                ) : null}
-                                <table className="ws-table" style={{ width: '100%' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>Date</th>
-                                            <th>Entry #</th>
-                                            <th>Description</th>
-                                            <th>Reference</th>
-                                            <th>Party</th>
-                                            <th style={{ textAlign: 'right' }}>Debit</th>
-                                            <th style={{ textAlign: 'right' }}>Credit</th>
-                                            <th style={{ textAlign: 'right' }}>Balance</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {lines.map((l) => (
-                                            <tr key={l.id}>
-                                                <td>{fmtDate(l.date)}</td>
-                                                <td style={{ fontWeight: 700 }}>{l.entryNumber}</td>
-                                                <td style={{ maxWidth: 220 }}>
-                                                    {l.lineDescription || l.journalDescription || '—'}
-                                                    {l.source ? (
-                                                        <div style={{ fontSize: 11, color: '#64748B' }}>
-                                                            {l.source}{l.sourceId ? ` · #${l.sourceId}` : ''}
-                                                        </div>
-                                                    ) : null}
-                                                </td>
-                                                <td>{l.reference || '—'}</td>
-                                                <td style={{ fontSize: 12, color: '#475569' }}>
-                                                    {[l.partyType, l.partyId].filter(Boolean).join(' · ') || (l.externalPartyId ? `ext ${String(l.externalPartyId).slice(0, 8)}…` : '—')}
-                                                </td>
-                                                <td style={{ textAlign: 'right' }}>{Number(l.debit) > 0 ? money(l.debit) : '—'}</td>
-                                                <td style={{ textAlign: 'right' }}>{Number(l.credit) > 0 ? money(l.credit) : '—'}</td>
-                                                <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(l.runningBalance)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </>
-                        )}
-                    </>
-                )}
-            </div>
-        </div>
+            <AccountLedgerStatement
+                loading={loading}
+                error={err}
+                accountLabel={accountLabel}
+                accountLabelCaption="Ledger account"
+                currentBalanceText={money(currentBalance)}
+                companyName={data?.header?.companyName}
+                periodFrom={periodFrom}
+                periodTo={periodTo}
+                openingBalance={data?.openingBalance ?? 0}
+                rows={data?.rows ?? []}
+                totals={data?.totals}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onDateFromChange={setDateFrom}
+                onDateToChange={setDateTo}
+                onApply={() => void load()}
+                onClear={clearRange}
+                onExportPdf={() => void onExportPdf()}
+                onExportExcel={() => void onExportExcel()}
+                exportDisabled={!data || loading}
+            />
+        </Modal>
     );
 }
 
 export default function SupplierCOAManager() {
+    const navigate = useNavigate();
     const [accounts, setAccounts] = useState([]);
     const [tree, setTree] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -773,6 +617,14 @@ export default function SupplierCOAManager() {
         }
     }
 
+    function openAccountLedger(account, partyFilter = {}) {
+        if (account?.seedKey === 'VAT_OUTPUT') {
+            navigate('/supplier/accounting/vat');
+            return;
+        }
+        setLedgerFor({ account, partyFilter });
+    }
+
     function renderRow(a, depth = 0) {
         const roll = rollupById.get(a.id);
         const hasChildren =
@@ -782,7 +634,12 @@ export default function SupplierCOAManager() {
         const rd = roll ? roll.rollupDebit : Number(a.closingDebit) || 0;
         const rc = roll ? roll.rollupCredit : Number(a.closingCredit) || 0;
         const normalDebit = a.type === 'ASSET' || a.type === 'EXPENSE';
-        const balance = normalDebit ? rd : rc;
+        const isVatPayable = a.seedKey === 'VAT_OUTPUT';
+        const balance = isVatPayable
+            ? Number(a.netZatcaPayable ?? (normalDebit ? rd : rc))
+            : normalDebit
+              ? rd
+              : rc;
         const canOpenLedger = !hasChildren;
         const partyRows = (a.partyBalances || []).map((pb, idx) => {
             const pbd = Number(pb.closingDebit) || 0;
@@ -813,13 +670,10 @@ export default function SupplierCOAManager() {
                                 type="button"
                                 style={{ ...outlineBtnStyle, fontSize: 11, padding: '4px 8px' }}
                                 onClick={() =>
-                                    setLedgerFor({
-                                        account: a,
-                                        partyFilter: {
-                                            partyType: pb.partyType || '',
-                                            partyId: pb.partyId || '',
-                                            externalPartyId: pb.externalPartyId || '',
-                                        },
+                                    openAccountLedger(a, {
+                                        partyType: pb.partyType || '',
+                                        partyId: pb.partyId || '',
+                                        externalPartyId: pb.externalPartyId || '',
                                     })}
                             >
                                 Ledger
@@ -836,7 +690,7 @@ export default function SupplierCOAManager() {
                         <button
                             type="button"
                             style={{ background: 'transparent', border: 'none', padding: 0, color: '#1D4ED8', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
-                            onClick={() => setLedgerFor({ account: a })}
+                            onClick={() => openAccountLedger(a)}
                         >
                             [{a.code}] {a.name}
                         </button>
@@ -853,6 +707,11 @@ export default function SupplierCOAManager() {
                         <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#E0F2FE', color: '#075985', fontWeight: 700 }}>
                             System
                         </span>
+                    ) : null}
+                    {isVatPayable ? (
+                        <div style={{ fontSize: 11, color: '#64748B', fontWeight: 500, marginTop: 4 }}>
+                            Debit = VAT Input · Credit = VAT Output · Balance = Net payable to ZATCA
+                        </div>
                     ) : null}
                 </td>
                 <td>{a.type}</td>
@@ -958,7 +817,7 @@ export default function SupplierCOAManager() {
                 )}
             </AcctCard>
 
-            {ledgerFor ? <LedgerDrawer context={ledgerFor} onClose={() => setLedgerFor(null)} /> : null}
+            {ledgerFor ? <AccountLedgerModal context={ledgerFor} onClose={() => setLedgerFor(null)} /> : null}
         </div>
     );
 }

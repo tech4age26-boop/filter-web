@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeftRight, CreditCard, Plus, Receipt, Trash2 } from 'lucide-react';
 import {
     getSupplierAccounts,
@@ -35,6 +36,8 @@ const PAY_TYPES = [
     { value: 'customer', label: 'Customer' },
     { value: 'others', label: 'Others' },
 ];
+
+const TRANSACTION_HUB_RECEIPT_PREFILL_KEY = 'transactionHubReceiptPrefill';
 
 function emptyPayReceiptLine(headerDate) {
     return {
@@ -102,6 +105,79 @@ function cashLabel(a) {
     const rc = Number(a.closingCredit) || 0;
     const bal = a.type === 'ASSET' || a.type === 'EXPENSE' ? rd : rc;
     return `[${a.code}] ${a.name} — ${money(bal)}`;
+}
+
+function resolveReceiptCrAccountId(accounts, payeeValue) {
+    const leaves = (accounts || []).filter((a) => !a.hasChildren && !a.isCashEquivalent);
+    const kind = String(payeeValue || '').split('|')[0];
+    const code = kind === 'external' ? '1110' : '1100';
+    const byCode = leaves.find((a) => String(a.code || '').trim() === code);
+    if (byCode?.id) return String(byCode.id);
+    const needle =
+        kind === 'external'
+            ? /non-affiliated.*receivable/i
+            : /affiliated.*receivable/i;
+    const byName = leaves.find((a) => needle.test(String(a.name || '')));
+    return byName?.id ? String(byName.id) : '';
+}
+
+function resolvePrefillCashAccountId(initialPrefill, cashOptions) {
+    if (initialPrefill?.cashAccountId) return String(initialPrefill.cashAccountId);
+    if (initialPrefill?.cashBankLabel && cashOptions.length) {
+        const labelNeedle = String(initialPrefill.cashBankLabel).trim().toLowerCase();
+        const match = cashOptions.find((a) => {
+            const lbl = cashLabel(a).toLowerCase();
+            const name = String(a.name || '').toLowerCase();
+            return lbl.includes(labelNeedle) || name.includes(labelNeedle);
+        });
+        if (match?.id) return String(match.id);
+    }
+    return cashOptions[0]?.id ? String(cashOptions[0].id) : '';
+}
+
+function buildGridStateFromPrefill(initialPrefill, variant, accounts, cashOptions) {
+    if (!initialPrefill) {
+        const today = todayISO();
+        return {
+            headerDate: today,
+            headerRef: '',
+            generalNote: '',
+            cashAccountId: cashOptions[0]?.id ? String(cashOptions[0].id) : '',
+            lines: [emptyPayReceiptLine(today)],
+        };
+    }
+    const prefillVariant = initialPrefill.variant || initialPrefill.tab || variant;
+    if (prefillVariant !== variant) {
+        const today = todayISO();
+        return {
+            headerDate: today,
+            headerRef: '',
+            generalNote: '',
+            cashAccountId: cashOptions[0]?.id ? String(cashOptions[0].id) : '',
+            lines: [emptyPayReceiptLine(today)],
+        };
+    }
+    const hdrDate = initialPrefill.headerDate || todayISO();
+    return {
+        headerDate: hdrDate,
+        headerRef: String(initialPrefill.headerRef ?? ''),
+        generalNote: String(initialPrefill.generalNote ?? ''),
+        cashAccountId: resolvePrefillCashAccountId(initialPrefill, cashOptions),
+        lines: (Array.isArray(initialPrefill.lines) && initialPrefill.lines.length
+            ? initialPrefill.lines
+            : [emptyPayReceiptLine(hdrDate)]
+        ).map((l) => {
+            const payeeValue = String(l.payeeValue || '');
+            return {
+                ...emptyPayReceiptLine(l.lineDate || hdrDate),
+                ...l,
+                accountId:
+                    l.accountId ||
+                    resolveReceiptCrAccountId(accounts, payeeValue) ||
+                    '',
+            };
+        }),
+    };
 }
 
 function PayeeCell({
@@ -176,6 +252,7 @@ function PaymentReceiptGrid({
     staff,
     customerOptions,
     onPosted,
+    initialPrefill,
 }) {
     const leafAccounts = useMemo(
         () => (accounts || []).filter((a) => !a.hasChildren),
@@ -187,17 +264,40 @@ function PaymentReceiptGrid({
     );
     const receiptLineAccounts = leafAccounts.filter((a) => !a.isCashEquivalent);
 
-    const [headerDate, setHeaderDate] = useState(todayISO());
-    const [headerRef, setHeaderRef] = useState('');
-    const [generalNote, setGeneralNote] = useState('');
-    const [cashAccountId, setCashAccountId] = useState(cashOptions[0]?.id || '');
-    const [lines, setLines] = useState(() => [emptyPayReceiptLine(todayISO())]);
+    const prefillSeed = useMemo(
+        () => buildGridStateFromPrefill(initialPrefill, variant, accounts, cashOptions),
+        [initialPrefill, variant, accounts, cashOptions],
+    );
+
+    const [headerDate, setHeaderDate] = useState(() => prefillSeed.headerDate);
+    const [headerRef, setHeaderRef] = useState(() => prefillSeed.headerRef);
+    const [generalNote, setGeneralNote] = useState(() => prefillSeed.generalNote);
+    const [cashAccountId, setCashAccountId] = useState(() => prefillSeed.cashAccountId);
+    const [lines, setLines] = useState(() => prefillSeed.lines);
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
+    const prefillAppliedRef = useRef(null);
 
     useEffect(() => {
-        if (!cashAccountId && cashOptions[0]?.id) setCashAccountId(cashOptions[0].id);
+        if (!cashAccountId && cashOptions[0]?.id) setCashAccountId(String(cashOptions[0].id));
     }, [cashOptions, cashAccountId]);
+
+    useEffect(() => {
+        if (!initialPrefill) return;
+        const prefillKey =
+            initialPrefill.salesInvoiceId ||
+            initialPrefill.headerRef ||
+            JSON.stringify(initialPrefill.lines?.[0]?.payeeValue || '');
+        if (prefillAppliedRef.current === prefillKey) return;
+
+        const next = buildGridStateFromPrefill(initialPrefill, variant, accounts, cashOptions);
+        setHeaderDate(next.headerDate);
+        setHeaderRef(next.headerRef);
+        setGeneralNote(next.generalNote);
+        if (next.cashAccountId) setCashAccountId(next.cashAccountId);
+        setLines(next.lines);
+        prefillAppliedRef.current = prefillKey;
+    }, [initialPrefill, variant, accounts, cashOptions]);
 
     const accountColOptions = variant === 'payment' ? drPaymentAccounts : receiptLineAccounts;
 
@@ -715,7 +815,10 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
 }
 
 export default function SupplierTransactionHub() {
+    const location = useLocation();
+    const navigate = useNavigate();
     const [tab, setTab] = useState('payment');
+    const [entryPrefill, setEntryPrefill] = useState(null);
     const [accounts, setAccounts] = useState([]);
     const [superSuppliers, setSuperSuppliers] = useState([]);
     const [staff, setStaff] = useState([]);
@@ -804,6 +907,32 @@ export default function SupplierTransactionHub() {
         reloadRecent();
     }, [reloadRecent, lastPosted]);
 
+    useEffect(() => {
+        let raw = location.state?.[TRANSACTION_HUB_RECEIPT_PREFILL_KEY];
+        if (!raw) {
+            try {
+                const stored = sessionStorage.getItem(TRANSACTION_HUB_RECEIPT_PREFILL_KEY);
+                if (stored) {
+                    raw = JSON.parse(stored);
+                    sessionStorage.removeItem(TRANSACTION_HUB_RECEIPT_PREFILL_KEY);
+                }
+            } catch {
+                raw = null;
+            }
+        }
+        if (!raw || typeof raw !== 'object') return;
+        setTab(raw.tab === 'payment' ? 'payment' : 'receipt');
+        setEntryPrefill(raw);
+        if (location.state?.[TRANSACTION_HUB_RECEIPT_PREFILL_KEY]) {
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }, [location.pathname, location.state, navigate]);
+
+    const activeGridPrefill =
+        !loading && entryPrefill && (entryPrefill.tab === tab || entryPrefill.variant === tab)
+            ? entryPrefill
+            : null;
+
     const tabBtn = (id, label, Icon) => (
         <button
             key={id}
@@ -866,6 +995,12 @@ export default function SupplierTransactionHub() {
                                 superSuppliers={superSuppliers}
                                 staff={staff}
                                 customerOptions={customerOptions}
+                                initialPrefill={
+                                    activeGridPrefill?.tab === 'payment' ||
+                                    activeGridPrefill?.variant === 'payment'
+                                        ? activeGridPrefill
+                                        : null
+                                }
                                 onPosted={(journals) => {
                                     setLastPosted(journals?.[journals.length - 1] ?? null);
                                 }}
@@ -878,8 +1013,15 @@ export default function SupplierTransactionHub() {
                                 superSuppliers={superSuppliers}
                                 staff={staff}
                                 customerOptions={customerOptions}
+                                initialPrefill={
+                                    activeGridPrefill?.tab === 'receipt' ||
+                                    activeGridPrefill?.variant === 'receipt'
+                                        ? activeGridPrefill
+                                        : null
+                                }
                                 onPosted={(journals) => {
                                     setLastPosted(journals?.[journals.length - 1] ?? null);
+                                    setEntryPrefill(null);
                                 }}
                             />
                         )}
