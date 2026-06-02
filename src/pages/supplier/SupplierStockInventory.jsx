@@ -13,7 +13,12 @@ import {
 import { ShimmerStatStrip, ShimmerTable } from '../../components/supplier/Shimmer';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
-import { getSupplierInventoryStockBalances, setSupplierStock } from '../../services/supplierApi';
+import {
+    fetchAllSupplierProducts,
+    getSupplierInventoryStockBalances,
+    setSupplierStock,
+    updateSupplierProduct,
+} from '../../services/supplierApi';
 import SupplierProductHistoryDrawer from './accounting/SupplierProductHistoryDrawer';
 import {
     mapSupplierHistoryToMovementRegister,
@@ -66,6 +71,9 @@ const exportToolbarBtnStyle = {
 export default function SupplierStockInventory() {
     const navigate = useNavigate();
     const [stock, setStock] = useState([]);
+    const [stockTotal, setStockTotal] = useState(0);
+    const [stockPage, setStockPage] = useState(1);
+    const STOCK_PAGE_SIZE = 15;
     const [movementHistory, setMovementHistory] = useState([]);
     const [warehouseQtyByProductId, setWarehouseQtyByProductId] = useState({});
     const [productUomByProductId, setProductUomByProductId] = useState({});
@@ -77,6 +85,12 @@ export default function SupplierStockInventory() {
     const movementPickerListRef = useRef(null);
     const [activeTab, setActiveTab] = useState('inventory');
     const [search, setSearch] = useState('');
+    const [criticalOnly, setCriticalOnly] = useState(false);
+
+    const [inventoryItems, setInventoryItems] = useState([]);
+    const [itemsLoading, setItemsLoading] = useState(false);
+    const [itemsError, setItemsError] = useState('');
+    const [removingId, setRemovingId] = useState(null);
     const [adjustModalOpen, setAdjustModalOpen] = useState(false);
     const [adjustItem, setAdjustItem] = useState(null);
     const [adjustmentType, setAdjustmentType] = useState('remove');
@@ -93,6 +107,8 @@ export default function SupplierStockInventory() {
     const [timelineError, setTimelineError] = useState('');
     const [accountingHistoryProduct, setAccountingHistoryProduct] = useState(null);
 
+    // `stock` is already server-filtered by `search` (name or SKU). Keep a light client filter
+    // as a safety net (e.g. if backend returns broader results).
     const filteredList = useMemo(() => {
         const list = stock || [];
         if (!search.trim()) return list;
@@ -197,7 +213,7 @@ export default function SupplierStockInventory() {
         el?.scrollIntoView({ block: 'nearest' });
     }, [movementPickerIdx, movementPickerOpen]);
 
-    const totalSKUs = stock.length;
+    const totalSKUs = stockTotal || stock.length;
     const criticalCount = stock.filter((s) => s.qty <= (s.criticalLevel ?? 0)).length;
     const reorderNeededCount = stock.filter(
         (s) => s.reorder != null && s.qty <= s.reorder && s.qty > (s.criticalLevel ?? 0),
@@ -229,7 +245,13 @@ export default function SupplierStockInventory() {
         }
         setApiError('');
         try {
-            const res = await getSupplierInventoryStockBalances({ limit: 200, historyLimit: 200 });
+            const res = await getSupplierInventoryStockBalances({
+                limit: STOCK_PAGE_SIZE,
+                offset: (stockPage - 1) * STOCK_PAGE_SIZE,
+                historyLimit: 200,
+                search: search.trim() ? search.trim() : undefined,
+                ...(criticalOnly ? { isLowCriticalOnly: true } : {}),
+            });
             const items = Array.isArray(res?.items)
                 ? res.items.map((item) => ({
                       id: item.productId,
@@ -260,6 +282,7 @@ export default function SupplierStockInventory() {
                   }))
                 : [];
             const hist = Array.isArray(res?.transactionHistory) ? res.transactionHistory : [];
+            setStockTotal(Number(res?.total ?? items.length) || 0);
             const warehouseQtyByProductId = Object.fromEntries(
                 items.map((i) => [String(i.id), i.warehouseQty]),
             );
@@ -291,11 +314,40 @@ export default function SupplierStockInventory() {
                 setLoading(false);
             }
         }
+    }, [search, criticalOnly, stockPage]);
+
+    useEffect(() => {
+        // Reset pagination when search or critical filter changes
+        setStockPage(1);
+    }, [search, criticalOnly]);
+
+    useEffect(() => {
+        // Debounce search to avoid spamming the API while typing.
+        const t = setTimeout(() => {
+            loadStock();
+        }, 250);
+        return () => clearTimeout(t);
+    }, [loadStock, search]);
+
+    const loadItems = useCallback(async () => {
+        setItemsLoading(true);
+        setItemsError('');
+        try {
+            const products = await fetchAllSupplierProducts({ status: 'all', pageSize: 2000 });
+            setInventoryItems(Array.isArray(products) ? products : []);
+        } catch (e) {
+            setInventoryItems([]);
+            setItemsError(e?.message || 'Failed to load inventory items');
+        } finally {
+            setItemsLoading(false);
+        }
     }, []);
 
     useEffect(() => {
-        loadStock();
-    }, [loadStock]);
+        if (activeTab !== 'items') return;
+        if (inventoryItems.length > 0) return;
+        loadItems();
+    }, [activeTab, inventoryItems.length, loadItems]);
 
     const refreshTimelineForProduct = async (productId, currentQtyHint) => {
         if (!productId) return;
@@ -365,6 +417,25 @@ export default function SupplierStockInventory() {
         setAdjustNotes('');
         setAdjustConfirming(false);
         setAdjustModalOpen(true);
+    };
+
+    const removeFromStock = async (row) => {
+        if (!row?.id) return;
+        const ok = window.confirm(
+            `Remove "${row.name}" from your stock list?\n\nThis will deactivate the item in your inventory. You can re-add it later from Product Catalog.`,
+        );
+        if (!ok) return;
+        setRemovingId(String(row.id));
+        try {
+            await updateSupplierProduct(String(row.id), { isActive: false });
+            // Optimistic UI: drop from current list, then refresh.
+            setStock((prev) => prev.filter((p) => String(p.id) !== String(row.id)));
+            await loadStock({ silent: true });
+        } catch (e) {
+            window.alert(e?.message || 'Failed to remove item from stock');
+        } finally {
+            setRemovingId(null);
+        }
     };
 
     const handleConfirmAdjustment = async () => {
@@ -601,6 +672,24 @@ export default function SupplierStockInventory() {
                 </button>
                 <button
                     type="button"
+                    onClick={() => setActiveTab('items')}
+                    style={{
+                        padding: '10px 20px',
+                        fontSize: '0.875rem',
+                        fontWeight: 600,
+                        border: 'none',
+                        borderBottom:
+                            activeTab === 'items' ? '2px solid #2563EB' : '2px solid transparent',
+                        marginBottom: -2,
+                        background: 'none',
+                        color: activeTab === 'items' ? '#2563EB' : 'var(--color-text-muted)',
+                        cursor: 'pointer',
+                    }}
+                >
+                    Inventory items
+                </button>
+                <button
+                    type="button"
                     onClick={() => setActiveTab('movements')}
                     style={{
                         padding: '10px 20px',
@@ -618,6 +707,160 @@ export default function SupplierStockInventory() {
                     Stock Movements
                 </button>
             </div>
+
+            {activeTab === 'items' && (
+                <div className="ws-section" style={{ padding: 16 }}>
+                    <div
+                        style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                            marginBottom: 12,
+                        }}
+                    >
+                        <div>
+                            <h3 style={{ margin: 0, fontSize: '1rem' }}>Inventory items</h3>
+                            <p
+                                style={{
+                                    margin: '4px 0 0',
+                                    fontSize: '0.8125rem',
+                                    color: 'var(--color-text-muted)',
+                                }}
+                            >
+                                Shows all catalog items (including 0 quantity). Use Critical to
+                                toggle critical-only view.
+                            </p>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <button
+                                type="button"
+                                onClick={() => setCriticalOnly((v) => !v)}
+                                className="btn-portal-outline"
+                                style={{
+                                    borderColor: criticalOnly ? '#DC2626' : undefined,
+                                    color: criticalOnly ? '#DC2626' : undefined,
+                                    fontWeight: 700,
+                                }}
+                            >
+                                {criticalOnly ? 'Critical (ON)' : 'Critical'}
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-portal-outline"
+                                onClick={loadItems}
+                                disabled={itemsLoading}
+                            >
+                                {itemsLoading ? 'Refreshing…' : 'Refresh'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {itemsError ? (
+                        <div className="mgr-si-error" style={{ marginBottom: 12 }}>
+                            {itemsError}
+                        </div>
+                    ) : null}
+
+                    <div style={{ position: 'relative', width: '100%', marginBottom: 12 }}>
+                        <Search
+                            size={16}
+                            style={{
+                                position: 'absolute',
+                                left: 14,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                color: '#9CA3AF',
+                                pointerEvents: 'none',
+                            }}
+                            aria-hidden
+                        />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search items by name or SKU..."
+                            style={{
+                                width: '100%',
+                                padding: '11px 14px 11px 42px',
+                                borderRadius: 10,
+                                border: '1px solid var(--color-border)',
+                                fontSize: '0.875rem',
+                            }}
+                        />
+                    </div>
+
+                    {itemsLoading && inventoryItems.length === 0 ? (
+                        <ShimmerTable rows={8} columns={6} />
+                    ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                            <table className="ws-table">
+                                <thead>
+                                    <tr>
+                                        <th>Product</th>
+                                        <th>SKU</th>
+                                        <th style={{ textAlign: 'right' }}>Qty (warehouse)</th>
+                                        <th style={{ textAlign: 'right' }}>Qty (workshop)</th>
+                                        <th style={{ textAlign: 'right' }}>Critical</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(inventoryItems || [])
+                                        .filter((p) => {
+                                            const q = search.trim().toLowerCase();
+                                            if (!q) return true;
+                                            return (
+                                                String(p?.name || p?.productName || '')
+                                                    .toLowerCase()
+                                                    .includes(q) ||
+                                                String(p?.sku || '').toLowerCase().includes(q)
+                                            );
+                                        })
+                                        .filter((p) => {
+                                            if (!criticalOnly) return true;
+                                            const pid = String(p?.id);
+                                            const wh = Number(warehouseQtyByProductId[pid] ?? 0);
+                                            const crit = Number(p?.criticalStockAlert ?? 0);
+                                            return crit > 0 && wh <= crit;
+                                        })
+                                        .map((p) => {
+                                            const pid = String(p?.id);
+                                            const uom = productUomByProductId[pid] || {};
+                                            const cf =
+                                                Number(
+                                                    uom.conversionFactor ||
+                                                        p?.conversionFactor ||
+                                                        1,
+                                                ) || 1;
+                                            const wh = Number(warehouseQtyByProductId[pid] ?? 0);
+                                            const ws = wh * cf;
+                                            return (
+                                                <tr key={pid}>
+                                                    <td style={{ fontWeight: 600 }}>
+                                                        {p?.name || p?.productName || '—'}
+                                                    </td>
+                                                    <td>{p?.sku || '—'}</td>
+                                                    <td style={{ textAlign: 'right' }}>
+                                                        {fmtQty(wh)}
+                                                    </td>
+                                                    <td style={{ textAlign: 'right' }}>
+                                                        {fmtQty(ws)}
+                                                    </td>
+                                                    <td style={{ textAlign: 'right' }}>
+                                                        {p?.criticalStockAlert != null
+                                                            ? fmtQty(Number(p.criticalStockAlert))
+                                                            : '—'}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {activeTab === 'inventory' && (
                 <>
@@ -668,6 +911,23 @@ export default function SupplierStockInventory() {
                                     marginTop: 10,
                                 }}
                             >
+                                <button
+                                    type="button"
+                                    onClick={() => setCriticalOnly((v) => !v)}
+                                    className="btn-portal-outline"
+                                    style={{
+                                        borderColor: criticalOnly ? '#DC2626' : undefined,
+                                        color: criticalOnly ? '#DC2626' : undefined,
+                                        fontWeight: 700,
+                                    }}
+                                    title={
+                                        criticalOnly
+                                            ? 'Showing critical + low stock only (click to release)'
+                                            : 'Show only critical/low stock (click to toggle)'
+                                    }
+                                >
+                                    {criticalOnly ? 'Critical (ON)' : 'Critical'}
+                                </button>
                                 <span
                                     style={{
                                         fontSize: '0.75rem',
@@ -962,6 +1222,37 @@ export default function SupplierStockInventory() {
                                                         >
                                                             <History size={12} /> Accounting
                                                         </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                removeFromStock(s);
+                                                            }}
+                                                            disabled={String(removingId) === String(s.id)}
+                                                            style={{
+                                                                marginLeft: 6,
+                                                                padding: '6px 10px',
+                                                                borderRadius: 6,
+                                                                border: '1px solid #fecaca',
+                                                                background:
+                                                                    String(removingId) === String(s.id)
+                                                                        ? '#fee2e2'
+                                                                        : '#fff',
+                                                                fontSize: '0.75rem',
+                                                                fontWeight: 700,
+                                                                cursor:
+                                                                    String(removingId) === String(s.id)
+                                                                        ? 'not-allowed'
+                                                                        : 'pointer',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: 6,
+                                                                color: '#b91c1c',
+                                                            }}
+                                                            title="Remove from your stock list"
+                                                        >
+                                                            Remove
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             );
@@ -976,6 +1267,42 @@ export default function SupplierStockInventory() {
                                     onClose={() => setAccountingHistoryProduct(null)}
                                 />
                             ) : null}
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 10,
+                                    marginTop: 14,
+                                }}
+                            >
+                                <div style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                                    Page <strong>{stockPage}</strong> · Showing{' '}
+                                    <strong>{stock.length}</strong> of <strong>{totalSKUs}</strong>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <button
+                                        type="button"
+                                        className="btn-portal-outline"
+                                        onClick={() => setStockPage((p) => Math.max(1, p - 1))}
+                                        disabled={stockPage <= 1}
+                                    >
+                                        Prev
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn-portal-outline"
+                                        onClick={() =>
+                                            setStockPage((p) =>
+                                                p * STOCK_PAGE_SIZE >= (totalSKUs || 0) ? p : p + 1,
+                                            )
+                                        }
+                                        disabled={stockPage * STOCK_PAGE_SIZE >= (totalSKUs || 0)}
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            </div>
                             {filteredList.length === 0 && (
                                 <div style={{ textAlign: 'center', padding: 40 }}>
                                     <Package
