@@ -103,6 +103,10 @@ export default function SupplierCatalog() {
     const [requests, setRequests] = useState([]);
     /** `browse` = master catalog grid; `requests` = My Product Requests list */
     const [catalogTab, setCatalogTab] = useState('browse');
+    /** Master catalog sub-tabs: already in my stock inventory vs not yet added */
+    const [masterFilterTab, setMasterFilterTab] = useState('not_added');
+    const [syncing, setSyncing] = useState(false);
+    const [syncMsg, setSyncMsg] = useState('');
     const [requestSubmitting, setRequestSubmitting] = useState(false);
     const [requestError, setRequestError] = useState('');
     const [reqForm, setReqForm] = useState({
@@ -151,11 +155,25 @@ export default function SupplierCatalog() {
             });
     }, []);
 
+    const loadMyInventoryProducts = useCallback(async () => {
+        try {
+            const existingRes = await fetchAllSupplierProducts({ status: 'all', pageSize: 2000 });
+            const existing = Array.isArray(existingRes) ? existingRes : [];
+            setExistingSupplierProducts(existing);
+        } catch {
+            setExistingSupplierProducts([]);
+        }
+    }, []);
+
     useEffect(() => {
         const ctrl = new AbortController();
         loadMasterCatalog(ctrl.signal);
         return () => ctrl.abort();
     }, [loadMasterCatalog]);
+
+    useEffect(() => {
+        loadMyInventoryProducts();
+    }, [loadMyInventoryProducts]);
 
     useEffect(() => {
         let cancelled = false;
@@ -201,9 +219,37 @@ export default function SupplierCatalog() {
         return [...map.entries()].map(([id, name]) => ({ id, name }));
     }, [masterProducts]);
 
+    const myInventoryKeyset = useMemo(() => {
+        const bySku = new Set();
+        const byName = new Set();
+        (existingSupplierProducts || []).forEach((p) => {
+            // treat inactive items as "not added" so they appear in Not Added tab for re-add
+            if (p?.isActive === false) return;
+            if (p?.sku) bySku.add(String(p.sku).trim().toLowerCase());
+            const nm = String(p?.productName || p?.name || '').trim().toLowerCase();
+            if (nm) byName.add(nm);
+        });
+        return { bySku, byName };
+    }, [existingSupplierProducts]);
+
+    const isAlreadyAdded = useCallback(
+        (p) => {
+            const skuKey = String(p?.sku || '').trim().toLowerCase();
+            const nameKey = String(p?.name || '').trim().toLowerCase();
+            return (
+                (!!skuKey && myInventoryKeyset.bySku.has(skuKey)) ||
+                (!!nameKey && myInventoryKeyset.byName.has(nameKey))
+            );
+        },
+        [myInventoryKeyset],
+    );
+
     const filteredRaw = useMemo(() => {
         const q = debouncedSearch.toLowerCase().trim();
         return masterProducts.filter((p) => {
+            const added = isAlreadyAdded(p);
+            if (masterFilterTab === 'already_added' && !added) return false;
+            if (masterFilterTab === 'not_added' && added) return false;
             const matchesCategory =
                 selectedCategoryId === 'all' || String(p.categoryId) === String(selectedCategoryId);
             const matchesBrand =
@@ -221,7 +267,14 @@ export default function SupplierCatalog() {
             }
             return matchesSearch && matchesCategory && matchesBrand;
         });
-    }, [masterProducts, debouncedSearch, selectedCategoryId, selectedBrand]);
+    }, [
+        masterProducts,
+        debouncedSearch,
+        selectedCategoryId,
+        selectedBrand,
+        masterFilterTab,
+        isAlreadyAdded,
+    ]);
 
     const cardRows = useMemo(() => filteredRaw.map(mapMasterCatalogRow), [filteredRaw]);
 
@@ -559,6 +612,30 @@ export default function SupplierCatalog() {
                     <button
                         className="btn-portal-outline"
                         type="button"
+                        onClick={async () => {
+                            setSyncing(true);
+                            setSyncMsg('');
+                            try {
+                                const ctrl = new AbortController();
+                                loadMasterCatalog(ctrl.signal);
+                                await loadMyInventoryProducts();
+                                setSyncMsg('Synced master catalog.');
+                                setTimeout(() => setSyncMsg(''), 2500);
+                            } catch (e) {
+                                setSyncMsg(e?.message || 'Sync failed.');
+                                setTimeout(() => setSyncMsg(''), 3500);
+                            } finally {
+                                setSyncing(false);
+                            }
+                        }}
+                        disabled={syncing}
+                        title="Sync / refresh master catalog"
+                    >
+                        {syncing ? 'Syncing…' : 'Sync'}
+                    </button>
+                    <button
+                        className="btn-portal-outline"
+                        type="button"
                         onClick={openAddToInventoryModal}
                         disabled={selectedProductIds.size === 0}
                     >
@@ -570,6 +647,22 @@ export default function SupplierCatalog() {
                     </button>
                 </div>
             </div>
+            {syncMsg ? (
+                <div
+                    className="ws-section"
+                    style={{
+                        marginBottom: 12,
+                        padding: 12,
+                        background: '#EFF6FF',
+                        border: '1px solid #BFDBFE',
+                        borderRadius: 12,
+                        color: '#1D4ED8',
+                        fontSize: '0.875rem',
+                    }}
+                >
+                    {syncMsg}
+                </div>
+            ) : null}
 
             <div
                 role="tablist"
@@ -692,6 +785,30 @@ export default function SupplierCatalog() {
 
             {catalogTab === 'browse' ? (
                 <>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                        <button
+                            type="button"
+                            className={
+                                masterFilterTab === 'not_added'
+                                    ? 'btn-portal'
+                                    : 'btn-portal-outline'
+                            }
+                            onClick={() => setMasterFilterTab('not_added')}
+                        >
+                            Not Added Products
+                        </button>
+                        <button
+                            type="button"
+                            className={
+                                masterFilterTab === 'already_added'
+                                    ? 'btn-portal'
+                                    : 'btn-portal-outline'
+                            }
+                            onClick={() => setMasterFilterTab('already_added')}
+                        >
+                            Already Added Products
+                        </button>
+                    </div>
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
                 <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
                     <Search
