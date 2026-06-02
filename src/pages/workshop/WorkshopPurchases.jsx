@@ -50,7 +50,12 @@ import {
     computePurchaseInvoiceTotals,
     buildPurchaseInvoicePayload,
     buildEnrichedLineItems,
+    reconstructInvoiceUnitPriceInput,
 } from './purchaseInvoicePayload';
+import {
+    applyLineTotals,
+    computeLineFinancials,
+} from '../../utils/invoiceLineFinancials';
 
 const SUPPLIERS_PAGE_LIMIT = 500;
 const PRODUCT_SEARCH_RESULT_LIMIT = 30;
@@ -636,8 +641,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(false);
     const [freightSar, setFreightSar] = useState('0');
     const [updateLastPurchasePrice, setUpdateLastPurchasePrice] = useState(true);
-    const amountsTaxInclusivePrevRef = useRef(false);
-    const amountsTaxInclusiveInitRef = useRef(false);
     const [linkedSuppliers, setLinkedSuppliers] = useState([]);
     const [linkedSuppliersLoading, setLinkedSuppliersLoading] = useState(false);
     const [linkedSuppliersError, setLinkedSuppliersError] = useState('');
@@ -999,25 +1002,22 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     /**
      * Unit field is ex-VAT by default; when "Amounts are tax inclusive" is checked, unit is VAT-inclusive.
      */
-    const lineAmountOpts = useMemo(
-        () => ({ unitPriceTaxInclusive: amountsTaxInclusive, noVat: false }),
-        [amountsTaxInclusive],
+    const lineFinancialsOpts = useMemo(
+        () => ({
+            taxes: TAXES,
+            defaultRate: VAT_RATE,
+            noVat: false,
+        }),
+        [],
     );
 
     const recalcStoredLineTotals = (line) => {
-        const { taxAmt, totalIncl } = computeLineAmounts(
-            line,
-            applyDiscountForCalc,
-            discountIsPercent,
-            VAT_RATE,
-            lineAmountOpts,
+        const workingLine = applyDiscountForCalc ? line : { ...line, discount: 0 };
+        return applyLineTotals(
+            { ...workingLine, taxCode: line.taxCode || TAX_LABEL },
+            amountsTaxInclusive,
+            lineFinancialsOpts,
         );
-        return {
-            ...line,
-            taxCode: TAX_LABEL,
-            taxAmt: taxAmt.toFixed(2),
-            totalFinal: totalIncl.toFixed(2),
-        };
     };
 
     const getProductSearchText = (line) => productSearchByLineId[line.id] ?? line.item ?? '';
@@ -1094,50 +1094,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
 
     useEffect(() => {
         setLineItems((prev) =>
-            prev.map((line) => {
-                const { taxAmt, totalIncl } = computeLineAmounts(
-                    line,
-                    showDiscount,
-                    discountIsPercent,
-                    VAT_RATE,
-                    lineAmountOpts,
-                );
-                return {
-                    ...line,
-                    taxCode: TAX_LABEL,
-                    taxAmt: taxAmt.toFixed(2),
-                    totalFinal: totalIncl.toFixed(2),
-                };
-            }),
+            prev.map((line) => recalcStoredLineTotals(line)),
         );
-    }, [showDiscount, discountIsPercent, lineAmountOpts]);
-
-    /**
-     * Toggling "Amounts are tax inclusive" converts unit prices so line totals stay equivalent.
-     */
-    useEffect(() => {
-        if (!amountsTaxInclusiveInitRef.current) {
-            amountsTaxInclusiveInitRef.current = true;
-            amountsTaxInclusivePrevRef.current = amountsTaxInclusive;
-            return;
-        }
-        const prev = amountsTaxInclusivePrevRef.current;
-        amountsTaxInclusivePrevRef.current = amountsTaxInclusive;
-        if (prev === amountsTaxInclusive) return;
-        setLineItems((prevLines) =>
-            prevLines.map((line) => {
-                const p = parseFloat(line.price) || 0;
-                if (p === 0) return line;
-                if (amountsTaxInclusive && !prev) {
-                    return { ...line, price: roundMoney2(p * (1 + VAT_RATE)) };
-                }
-                if (!amountsTaxInclusive && prev) {
-                    return { ...line, price: roundMoney2(p / (1 + VAT_RATE)) };
-                }
-                return line;
-            }),
-        );
-    }, [amountsTaxInclusive]);
+    }, [showDiscount, discountIsPercent, amountsTaxInclusive]);
 
     const handleLineProductChange = (lineId, productId) => {
         if (!productId) {
@@ -1257,14 +1216,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             });
         const freightIn = invoiceTotals.freight_in ?? 0;
         const invoiceDiscountSar = invoiceTotals.invoice_discount_applied_ex_vat ?? 0;
-        const invPctDisplayed = (() => {
-            if (invoiceDiscountMode !== 'percent') return 0;
-            const pct = parseFloat(String(invoiceDiscountValue ?? '').replace(',', '.')) || 0;
-            return Math.max(0, Math.min(100, pct));
-        })();
+        const invRaw = parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0;
+        const invPctDisplayed = Math.min(100, Math.max(0, invRaw));
         return {
             subtotal: fmt2(invoiceTotals.lines_taxable_ex_vat),
-            totalTax: fmt2(invoiceTotals.total_vat),
+            totalTax: fmt2(invoiceTotals.lines_total_vat),
             freight: fmt2(freightIn),
             freightInFormatted: fmt2(freightIn),
             invoiceDiscountFormatted: fmt2(invoiceDiscountSar),
@@ -1642,9 +1598,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setAmountsTaxInclusive(loadedAmountsTaxInclusive);
         setFreightSar(String(payload.freightIn ?? payload.freight_in ?? invoice?.freightIn ?? '0'));
         setUpdateLastPurchasePrice(Boolean(payload.updateLastPurchasePriceOnSave ?? payload.update_last_purchase_price_on_save ?? true));
-        amountsTaxInclusiveInitRef.current = false;
-        amountsTaxInclusivePrevRef.current = loadedAmountsTaxInclusive;
-
         const nextSearch = {};
         const nextLines = sourceLines.map((line) => {
             const lineId = String(line.client_line_id ?? line.clientLineId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
@@ -1662,14 +1615,25 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     '',
             );
             const qty = line.qty ?? line.quantity ?? 1;
+            const taxCode = line.tax_code ?? line.taxCode ?? TAX_LABEL;
             const unitEx = Number(line.unit_price_ex_vat ?? line.unitPriceExVat ?? line.unitPrice ?? 0);
-            const unitIncl = Number(line.unit_purchase_price_incl_vat ?? line.unitPurchasePriceInclVat ?? 0);
             const price =
                 line.price != null && line.price !== ''
                     ? line.price
-                    : loadedAmountsTaxInclusive
-                      ? unitIncl || unitEx
-                      : unitEx || unitIncl;
+                    : reconstructInvoiceUnitPriceInput(
+                          {
+                              qty,
+                              unitPrice: unitEx,
+                              lineDiscountValue: line.discount ?? line.line_discount_raw ?? 0,
+                              lineDiscountMode:
+                                  line.discountMode ??
+                                  line.line_discount_mode ??
+                                  line.lineDiscountMode,
+                          },
+                          loadedAmountsTaxInclusive,
+                          taxCode,
+                          { taxes: TAXES, defaultRate: VAT_RATE },
+                      );
             const lineDiscMode =
                 line.discountMode ??
                 line.line_discount_mode ??
@@ -1971,8 +1935,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setProductDropdownPosition(null);
             setEditingDraftId(null);
             clearDraftEditSession();
-            amountsTaxInclusiveInitRef.current = false;
-            amountsTaxInclusivePrevRef.current = false;
             setUpdateLastPurchasePrice(true);
         } catch (e) {
             setSubmitInvoiceError(e.message || 'Could not create purchase invoice.');
@@ -2051,8 +2013,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         setEditingDraftId(null);
                         clearDraftEditSession();
                         setAmountsTaxInclusive(false);
-                        amountsTaxInclusiveInitRef.current = false;
-                        amountsTaxInclusivePrevRef.current = false;
                         setLineItems((prev) => (prev.length > 0 ? prev : [createEmptyLine()]));
                         setModalOpen(true);
                     }}
@@ -2298,8 +2258,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             setProductDropdownPosition(null);
                             setEditingDraftId(null);
                             clearDraftEditSession();
-                            amountsTaxInclusiveInitRef.current = false;
-                            amountsTaxInclusivePrevRef.current = false;
                         }}
                         width="1350px"
                         contentClassName="modal-content-purchase"
@@ -2320,8 +2278,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             setProductDropdownPosition(null);
                                             setEditingDraftId(null);
                                             clearDraftEditSession();
-                                            amountsTaxInclusiveInitRef.current = false;
-                                            amountsTaxInclusivePrevRef.current = false;
                                         }}
                                     >
                                         Cancel
@@ -2602,12 +2558,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         </thead>
                                         <tbody>
                                             {lineItems.map((line, idx) => {
-                                                const amounts = computeLineAmounts(
-                                                    line,
-                                                    applyDiscountForCalc,
-                                                    discountIsPercent,
-                                                    VAT_RATE,
-                                                    lineAmountOpts,
+                                                const workingLine = applyDiscountForCalc
+                                                    ? line
+                                                    : { ...line, discount: 0 };
+                                                const amounts = computeLineFinancials(
+                                                    workingLine,
+                                                    amountsTaxInclusive,
+                                                    lineFinancialsOpts,
                                                 );
                                                 return (
                                                     <tr key={line.id}>
@@ -2837,7 +2794,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                 </div>
                                                             </td>
                                                         ) : null}
-                                                        <td className="ws-pi-td-num">SAR {amounts.taxableExcl.toFixed(2)}</td>
+                                                        <td className="ws-pi-td-num">SAR {amounts.lineExStr}</td>
                                                         <td className="ws-pi-td-tax">
                                                             <select
                                                                 className="pi-row-input ws-pi-select"
@@ -2852,8 +2809,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                 ))}
                                                             </select>
                                                         </td>
-                                                        <td className="ws-pi-td-num">SAR {amounts.taxAmt.toFixed(2)}</td>
-                                                        <td className="ws-pi-td-num ws-pi-td-strong">SAR {amounts.totalIncl.toFixed(2)}</td>
+                                                        <td className="ws-pi-td-num">SAR {amounts.taxAmtStr}</td>
+                                                        <td className="ws-pi-td-num ws-pi-td-strong">SAR {amounts.grandInclStr}</td>
                                                         <td className="ws-pi-td-num">
                                                             {(() => {
                                                                 if (!line.productId) {
