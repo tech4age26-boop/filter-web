@@ -1746,7 +1746,7 @@ export default function SupplierPurchaseInvoices() {
                                 const apStatus = ss.apStatus ?? 'paid';
                                 return (
                                     <tr key={String(ss.id)} className="table-row">
-                                        <td className="table-cell">
+                                    <td className="table-cell">
                                             <button
                                                 type="button"
                                                 onClick={() =>
@@ -1784,11 +1784,11 @@ export default function SupplierPurchaseInvoices() {
                                                     VAT: {ss.vatNumber}
                                                 </div>
                                             ) : null}
-                                        </td>
-                                        <td className="table-cell">
+                                    </td>
+                                    <td className="table-cell">
                                             {formatAccountsPayableDisplay(ss.accountsPayable)}
-                                        </td>
-                                        <td className="table-cell">
+                                    </td>
+                                    <td className="table-cell">
                                             <span
                                                 className="status-badge"
                                                 style={{
@@ -1811,8 +1811,8 @@ export default function SupplierPurchaseInvoices() {
                                             >
                                                 <BookOpen size={14} /> Ledger
                                             </button>
-                                        </td>
-                                    </tr>
+                                    </td>
+                                </tr>
                                 );
                             })
                         )}
@@ -1968,9 +1968,9 @@ export default function SupplierPurchaseInvoices() {
                                                     <Edit size={14} /> Edit
                                                 </button>
                                                 {canDeleteSuperSupplier(ss) ? (
-                                                    <button
-                                                        type="button"
-                                                        className="btn-pi-cancel"
+                                                <button
+                                                    type="button"
+                                                    className="btn-pi-cancel"
                                                         style={{
                                                             padding: '6px 12px',
                                                             fontSize: '0.8125rem',
@@ -1984,7 +1984,7 @@ export default function SupplierPurchaseInvoices() {
                                                         {ssDeletingId === String(ss.id)
                                                             ? 'Deleting…'
                                                             : 'Delete'}
-                                                    </button>
+                                                </button>
                                                 ) : null}
                                             </div>
                                         </td>
@@ -2134,13 +2134,13 @@ export default function SupplierPurchaseInvoices() {
                                     Current accounts payable:{' '}
                                     {formatAccountsPayableDisplay(ssLedgerData?.accountsPayable)}
                                 </span>
-                                <button
-                                    type="button"
-                                    className="btn-portal-outline"
+                            <button
+                                type="button"
+                                className="btn-portal-outline"
                                     onClick={closeSuperSupplierLedger}
-                                >
-                                    Close
-                                </button>
+                            >
+                                Close
+                            </button>
                             </div>
                         }
                     >
@@ -2361,21 +2361,21 @@ export default function SupplierPurchaseInvoices() {
                         ) : ssProductsError ? (
                             <p style={{ margin: 0, color: '#B91C1C', fontSize: '0.875rem' }}>{ssProductsError}</p>
                         ) : (
-                            <div style={{ maxHeight: 460, overflow: 'auto' }}>
-                                <table className="ws-table" style={{ width: '100%', fontSize: '0.8125rem' }}>
-                                    <thead>
-                                        <tr>
-                                            <th style={{ textAlign: 'left', padding: 8 }}>Date</th>
-                                            <th style={{ textAlign: 'left', padding: 8 }}>Invoice</th>
+                                <div style={{ maxHeight: 460, overflow: 'auto' }}>
+                                    <table className="ws-table" style={{ width: '100%', fontSize: '0.8125rem' }}>
+                                        <thead>
+                                            <tr>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>Date</th>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>Invoice</th>
                                             <th style={{ textAlign: 'left', padding: 8 }}>Reference</th>
                                             <th style={{ textAlign: 'left', padding: 8 }}>Product</th>
-                                            <th style={{ textAlign: 'left', padding: 8 }}>SKU</th>
-                                            <th style={{ textAlign: 'right', padding: 8 }}>Qty</th>
-                                            <th style={{ textAlign: 'right', padding: 8 }}>Unit price</th>
-                                            <th style={{ textAlign: 'right', padding: 8 }}>Line total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>SKU</th>
+                                                <th style={{ textAlign: 'right', padding: 8 }}>Qty</th>
+                                                <th style={{ textAlign: 'right', padding: 8 }}>Unit price</th>
+                                                <th style={{ textAlign: 'right', padding: 8 }}>Line total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
                                         {(ssProductsData?.lines || []).length === 0 ? (
                                             <tr>
                                                 <td
@@ -2383,14 +2383,14 @@ export default function SupplierPurchaseInvoices() {
                                                     style={{ padding: 16, color: 'var(--color-text-muted)' }}
                                                 >
                                                     No purchased products found for the selected filters.
-                                                </td>
-                                            </tr>
-                                        ) : (
+                                                    </td>
+                                                </tr>
+                                            ) : (
                                             (ssProductsData?.lines || []).map((ln) => (
                                                 <tr key={ln.id}>
-                                                    <td style={{ padding: 8, whiteSpace: 'nowrap', verticalAlign: 'top' }}>
-                                                        {ln.purchaseDate || '—'}
-                                                    </td>
+                                                        <td style={{ padding: 8, whiteSpace: 'nowrap', verticalAlign: 'top' }}>
+                                                            {ln.purchaseDate || '—'}
+                                                        </td>
                                                     <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.invoiceNo || '—'}</td>
                                                     <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.referenceNo || '—'}</td>
                                                     <td style={{ padding: 8, verticalAlign: 'top' }}>
@@ -2406,25 +2406,25 @@ export default function SupplierPurchaseInvoices() {
                                                                 {ln.lineDescription}
                                                             </div>
                                                         ) : null}
-                                                    </td>
+                                                        </td>
                                                     <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.sku || '—'}</td>
-                                                    <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
+                                                        <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
                                                         {Number(ln.qty).toLocaleString(undefined, {
                                                             maximumFractionDigits: 3,
                                                         })}{' '}
                                                         {ln.unit || 'pcs'}
-                                                    </td>
-                                                    <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
+                                                        </td>
+                                                        <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
                                                         SAR {fmtApMoney(ln.unitPrice)}
                                                     </td>
                                                     <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top', fontWeight: 700 }}>
                                                         SAR {fmtApMoney(ln.lineTotal)}
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
                                 {ssProductsData?.total > (ssProductsData?.lines?.length || 0) ? (
                                     <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                                         Showing {ssProductsData.lines.length} of {ssProductsData.total} product lines.
@@ -2987,21 +2987,21 @@ export default function SupplierPurchaseInvoices() {
                                                     ))}
                                                 </select>
                                             ) : (
-                                                <input
-                                                    type="text"
-                                                    className="pi-row-input"
-                                                    placeholder="UOM"
-                                                    value={line.uom ?? ''}
+                                            <input
+                                                type="text"
+                                                className="pi-row-input"
+                                                placeholder="UOM"
+                                                value={line.uom ?? ''}
                                                     ref={(el) => {
                                                         lineFieldRefs.current[`${line.id}:uom`] = el;
                                                     }}
-                                                    onChange={(e) =>
-                                                        updateLineItem(
-                                                            line.id,
-                                                            'uom',
-                                                            e.target.value,
-                                                        )
-                                                    }
+                                                onChange={(e) =>
+                                                    updateLineItem(
+                                                        line.id,
+                                                        'uom',
+                                                        e.target.value,
+                                                    )
+                                                }
                                                     onKeyDown={(e) =>
                                                         handleLineFieldTab(
                                                             e,

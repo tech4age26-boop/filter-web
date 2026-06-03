@@ -17,6 +17,9 @@ export default function SearchableEntityCombobox({
     disabled = false,
     id,
     required = false,
+    maxInitial = 100,
+    maxFiltered = 200,
+    emptyHint,
 }) {
     const [open, setOpen] = useState(false);
     const [highlightIdx, setHighlightIdx] = useState(0);
@@ -28,14 +31,24 @@ export default function SearchableEntityCombobox({
 
     const filtered = useMemo(() => {
         const q = (displayText || '').trim().toLowerCase();
-        if (!q) return options.slice(0, 60);
+        if (!q) return options.slice(0, maxInitial);
         return options
             .filter(
                 (o) =>
                     (o.label || '').toLowerCase().includes(q) ||
                     (o.subtitle || '').toLowerCase().includes(q),
             )
-            .slice(0, 60);
+            .slice(0, maxFiltered);
+    }, [options, displayText, maxInitial, maxFiltered]);
+
+    const totalMatches = useMemo(() => {
+        const q = (displayText || '').trim().toLowerCase();
+        if (!q) return options.length;
+        return options.filter(
+            (o) =>
+                (o.label || '').toLowerCase().includes(q) ||
+                (o.subtitle || '').toLowerCase().includes(q),
+        ).length;
     }, [options, displayText]);
 
     const updateMenuPosition = useCallback(() => {
@@ -66,7 +79,7 @@ export default function SearchableEntityCombobox({
     }, [displayText, filtered.length]);
 
     useLayoutEffect(() => {
-        if (!open || filtered.length === 0) {
+        if (!open) {
             setMenuStyle(null);
             return undefined;
         }
@@ -146,7 +159,7 @@ export default function SearchableEntityCombobox({
     const showValue = open ? displayText : displayText || selectedLabel;
 
     const menu =
-        open && filtered.length > 0 && menuStyle
+        open && menuStyle
             ? createPortal(
                   <div
                       ref={listRef}
@@ -154,24 +167,38 @@ export default function SearchableEntityCombobox({
                       style={menuStyle}
                       role="listbox"
                   >
-                      {filtered.map((opt, idx) => (
-                          <div
-                              key={opt.id}
-                              role="option"
-                              data-highlight={idx === highlightIdx ? 'true' : 'false'}
-                              className={`pi-result-item ${idx === highlightIdx ? 'selected' : ''}`}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => pick(opt, false)}
-                              onMouseEnter={() => setHighlightIdx(idx)}
-                          >
-                              <div className="pi-result-info">
-                                  <div className="pi-item-name">{opt.label}</div>
-                                  {opt.subtitle ? (
-                                      <div className="pi-item-meta">{opt.subtitle}</div>
-                                  ) : null}
-                              </div>
+                      {filtered.length === 0 ? (
+                          <div className="sf-combobox-empty">
+                              {emptyHint || 'No matches — try another name or SKU'}
                           </div>
-                      ))}
+                      ) : (
+                          filtered.map((opt, idx) => (
+                              <div
+                                  key={opt.id}
+                                  role="option"
+                                  aria-selected={idx === highlightIdx}
+                                  data-highlight={idx === highlightIdx ? 'true' : 'false'}
+                                  className={`pi-result-item ${idx === highlightIdx ? 'selected' : ''}`}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => pick(opt, false)}
+                                  onMouseEnter={() => setHighlightIdx(idx)}
+                              >
+                                  <div className="pi-result-info">
+                                      <div className="pi-item-name">{opt.label}</div>
+                                      {opt.subtitle ? (
+                                          <div className="pi-item-meta">{opt.subtitle}</div>
+                                      ) : null}
+                                  </div>
+                              </div>
+                          ))
+                      )}
+                      {filtered.length > 0 ? (
+                          <div className="sf-combobox-footer">
+                              {totalMatches > filtered.length
+                                  ? `Showing ${filtered.length} of ${totalMatches} — keep typing to narrow`
+                                  : `${totalMatches} product${totalMatches === 1 ? '' : 's'}`}
+                          </div>
+                      ) : null}
                   </div>,
                   document.body,
               )

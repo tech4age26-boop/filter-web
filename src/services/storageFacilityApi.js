@@ -63,6 +63,33 @@ export const deleteStorageProduct = (brandId, productId) =>
         { method: 'DELETE' },
     );
 
+export const listStorageUomProfiles = (brandId) =>
+    apiFetch(`${base}/brands/${encodeURIComponent(brandId)}/uom-profiles`);
+
+export const createStorageUomProfile = (brandId, body) =>
+    apiFetch(`${base}/brands/${encodeURIComponent(brandId)}/uom-profiles`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
+export const updateStorageUomProfile = (brandId, profileId, body) =>
+    apiFetch(
+        `${base}/brands/${encodeURIComponent(brandId)}/uom-profiles/${encodeURIComponent(profileId)}`,
+        { method: 'PATCH', body: JSON.stringify(body) },
+    );
+
+export const deleteStorageUomProfile = (brandId, profileId) =>
+    apiFetch(
+        `${base}/brands/${encodeURIComponent(brandId)}/uom-profiles/${encodeURIComponent(profileId)}`,
+        { method: 'DELETE' },
+    );
+
+export const applyStorageProductUom = (brandId, productId, body) =>
+    apiFetch(
+        `${base}/brands/${encodeURIComponent(brandId)}/products/${encodeURIComponent(productId)}/uom`,
+        { method: 'PATCH', body: JSON.stringify(body) },
+    );
+
 export const getStorageProductTimeline = (brandId, productId, params = {}) =>
     apiFetch(
         withQuery(
@@ -175,8 +202,13 @@ export const deleteStorageSalesRepTarget = (brandId, targetId) =>
         { method: 'DELETE' },
     );
 
-export const listStorageInvoices = (brandId) =>
-    apiFetch(`${base}/brands/${encodeURIComponent(brandId)}/invoices`);
+export const listStorageInvoices = (brandId, params = {}) =>
+    apiFetch(
+        withQuery(
+            `${base}/brands/${encodeURIComponent(brandId)}/invoices`,
+            params,
+        ),
+    );
 
 export const createStorageInvoice = (brandId, body) =>
     apiFetch(`${base}/brands/${encodeURIComponent(brandId)}/invoices`, {
@@ -204,6 +236,23 @@ export const listStorageCustomers = (brandId, params = {}) =>
         withQuery(`${base}/brands/${encodeURIComponent(brandId)}/customers`, params),
     );
 
+export const listStorageSuppliers = (brandId, params = {}) =>
+    apiFetch(
+        withQuery(`${base}/brands/${encodeURIComponent(brandId)}/suppliers`, params),
+    );
+
+export const createStorageSupplier = (brandId, body) =>
+    apiFetch(`${base}/brands/${encodeURIComponent(brandId)}/suppliers`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
+export const updateStorageSupplier = (brandId, supplierId, body) =>
+    apiFetch(
+        `${base}/brands/${encodeURIComponent(brandId)}/suppliers/${encodeURIComponent(supplierId)}`,
+        { method: 'PATCH', body: JSON.stringify(body) },
+    );
+
 export const createStorageCustomer = (brandId, body) =>
     apiFetch(`${base}/brands/${encodeURIComponent(brandId)}/customers`, {
         method: 'POST',
@@ -227,5 +276,5 @@ export const createStorageTransfer = (brandId, body) =>
         body: JSON.stringify(body),
     });
 
-export const searchWarehouseProductsForMap = (q) =>
-    apiFetch(withQuery(`${base}/warehouse-products`, { q }));
+export const searchWarehouseProductsForMap = (q, params = {}) =>
+    apiFetch(withQuery(`${base}/warehouse-products`, { q, ...params }));

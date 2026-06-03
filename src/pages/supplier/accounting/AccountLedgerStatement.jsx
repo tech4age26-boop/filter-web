@@ -63,8 +63,19 @@ export default function AccountLedgerStatement({
     onExportPdf,
     onExportExcel,
     exportDisabled = false,
+    showCashLedgerColumns = false,
+    counterpartyColumnLabel = 'Paid to / Received from',
+    offsetAccountColumnLabel = 'Expense / AR account',
+    filterOptions = null,
+    partyFilterKey = '',
+    onPartyFilterKeyChange,
+    offsetAccountFilterId = '',
+    onOffsetAccountFilterIdChange,
     children,
 }) {
+    const parties = filterOptions?.parties ?? [];
+    const offsetAccounts = filterOptions?.offsetAccounts ?? [];
+    const colSpan = showCashLedgerColumns ? 7 : 5;
     return (
         <>
             {error ? (
@@ -199,6 +210,48 @@ export default function AccountLedgerStatement({
                 >
                     Clear filters
                 </button>
+                {showCashLedgerColumns ? (
+                    <div style={{ minWidth: 240, flex: '1 1 240px' }}>
+                        <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>
+                            Party (payment / receipt)
+                        </div>
+                        <select
+                            value={partyFilterKey}
+                            onChange={(e) =>
+                                onPartyFilterKeyChange?.(e.target.value)
+                            }
+                            style={inputStyle}
+                        >
+                            <option value="">All parties</option>
+                            {parties.map((p) => (
+                                <option key={p.key} value={p.key}>
+                                    {p.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                ) : null}
+                {showCashLedgerColumns ? (
+                    <div style={{ minWidth: 240, flex: '1 1 240px' }}>
+                        <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>
+                            Expense / AR account
+                        </div>
+                        <select
+                            value={offsetAccountFilterId}
+                            onChange={(e) =>
+                                onOffsetAccountFilterIdChange?.(e.target.value)
+                            }
+                            style={inputStyle}
+                        >
+                            <option value="">All accounts</option>
+                            {offsetAccounts.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                    {a.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                ) : null}
                 <div style={{ flex: 1, minWidth: 12 }} />
                 <button
                     type="button"
@@ -232,6 +285,12 @@ export default function AccountLedgerStatement({
                     <thead>
                         <tr>
                             <th style={{ width: 110 }}>Date</th>
+                            {showCashLedgerColumns ? (
+                                <>
+                                    <th>{counterpartyColumnLabel}</th>
+                                    <th>{offsetAccountColumnLabel}</th>
+                                </>
+                            ) : null}
                             <th>Description</th>
                             <th style={{ width: 120, textAlign: 'right' }}>Debit</th>
                             <th style={{ width: 120, textAlign: 'right' }}>Credit</th>
@@ -241,20 +300,26 @@ export default function AccountLedgerStatement({
                     <tbody>
                         <tr style={{ background: '#F8FAFC', fontWeight: 700 }}>
                             <td>—</td>
+                            {showCashLedgerColumns ? (
+                                <>
+                                    <td>—</td>
+                                    <td>—</td>
+                                </>
+                            ) : null}
                             <td>Opening balance</td>
                             <td style={{ textAlign: 'right' }}>—</td>
                             <td style={{ textAlign: 'right' }}>—</td>
                             <td style={{ textAlign: 'right' }}>{money(openingBalance)}</td>
                         </tr>
-                        {loading ? (
+                        {loading && rows.length === 0 ? (
                             <tr>
-                                <td colSpan={5} style={{ textAlign: 'center', padding: 24 }}>
+                                <td colSpan={colSpan} style={{ textAlign: 'center', padding: 24 }}>
                                     Loading ledger…
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={5} style={{ textAlign: 'center', padding: 24 }}>
+                                <td colSpan={colSpan} style={{ textAlign: 'center', padding: 24 }}>
                                     No transactions in this period.
                                 </td>
                             </tr>
@@ -262,6 +327,22 @@ export default function AccountLedgerStatement({
                             rows.map((r) => (
                                 <tr key={r.id}>
                                     <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
+                                    {showCashLedgerColumns ? (
+                                        <>
+                                            <td
+                                                style={{ maxWidth: 200 }}
+                                                title={r.counterpartyLabel || ''}
+                                            >
+                                                {r.counterpartyLabel || '—'}
+                                            </td>
+                                            <td
+                                                style={{ maxWidth: 240 }}
+                                                title={r.offsetAccountLabel || ''}
+                                            >
+                                                {r.offsetAccountLabel || '—'}
+                                            </td>
+                                        </>
+                                    ) : null}
                                     <td>{r.description || '—'}</td>
                                     <td style={{ textAlign: 'right' }}>
                                         {r.debit > 0 ? money(r.debit) : ''}
@@ -282,6 +363,12 @@ export default function AccountLedgerStatement({
                                 }}
                             >
                                 <td />
+                                {showCashLedgerColumns ? (
+                                    <>
+                                        <td />
+                                        <td />
+                                    </>
+                                ) : null}
                                 <td>Closing summary</td>
                                 <td style={{ textAlign: 'right' }}>{money(totals.totalDebit)}</td>
                                 <td style={{ textAlign: 'right' }}>{money(totals.totalCredit)}</td>
