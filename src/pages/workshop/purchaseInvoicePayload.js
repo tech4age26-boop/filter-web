@@ -218,7 +218,16 @@ export function buildPurchaseInvoicePayload(p) {
             show_line_discount_column: Boolean(p.ui?.show_line_discount_column),
             line_discount_is_percent: Boolean(p.ui?.line_discount_is_percent),
             amounts_tax_inclusive: Boolean(p.ui?.amounts_tax_inclusive),
+            amountsTaxInclusive: Boolean(p.ui?.amounts_tax_inclusive),
+            prices_include_vat: Boolean(p.ui?.prices_include_vat ?? p.ui?.amounts_tax_inclusive),
+            no_vat: Boolean(p.ui?.no_vat),
+            showLineDescriptionColumn: Boolean(p.ui?.show_line_description_column),
+            showLineDiscountColumn: Boolean(p.ui?.show_line_discount_column),
+            lineDiscountIsPercent: Boolean(p.ui?.line_discount_is_percent),
         },
+
+        freight_in: money2(p.freight_in ?? p.totals?.freight_in ?? 0),
+        freightIn: money2(p.freight_in ?? p.totals?.freight_in ?? 0),
 
         invoice_discount: {
             mode: p.invoice_discount?.mode ?? 'fixed_sar',
@@ -248,4 +257,116 @@ export function buildPurchaseInvoicePayload(p) {
             freight_in: money2(p.totals?.freight_in ?? 0),
         },
     };
+}
+
+/** Snapshot raw modal line rows so draft reload restores the full form. */
+export function serializePurchaseInvoiceFormLines(lines) {
+    return (lines ?? []).map((line) => ({
+        client_line_id: line.id,
+        productId: line.productId ?? '',
+        item: line.item ?? '',
+        account: line.account ?? '',
+        description: line.description ?? '',
+        uom: line.uom ?? 'piece',
+        qty: line.qty ?? 1,
+        price: line.price ?? 0,
+        discount: line.discount ?? 0,
+        discountMode: line.discountMode ?? 'percent',
+        taxCode: line.taxCode ?? PURCHASE_INVOICE_TAX_LABEL,
+        taxAmt: line.taxAmt ?? '0.00',
+        totalFinal: line.totalFinal ?? '0.00',
+    }));
+}
+
+/**
+ * Full purchase-invoice modal state for draft save/restore (checkboxes, searches, all lines).
+ */
+export function buildPurchaseInvoiceFormSnapshot(state) {
+    return {
+        version: 1,
+        invoice_branch_id: state.invoiceBranchId ?? '',
+        selected_vendor: state.selectedVendor ?? '',
+        supplier_id: state.supplierId ?? null,
+        issue_date: state.issueDate ?? '',
+        due_date_type: state.dueDateType ?? 'Net',
+        net_days: state.netDays ?? 30,
+        custom_due_date: state.customDueDate ?? '',
+        vendor_invoice_ref: state.vendorInvoiceRef ?? '',
+        invoice_description: state.invoiceDescription ?? '',
+        invoice_notes: state.invoiceNotes ?? '',
+        invoice_discount_value: state.invoiceDiscountValue ?? '0',
+        invoice_discount_mode: state.invoiceDiscountMode ?? 'fixed_sar',
+        show_desc: Boolean(state.showDesc),
+        show_discount: Boolean(state.showDiscount),
+        discount_is_percent: Boolean(state.discountIsPercent),
+        amounts_tax_inclusive: Boolean(state.amountsTaxInclusive),
+        freight_sar: state.freightSar ?? '0',
+        update_last_purchase_price: Boolean(state.updateLastPurchasePrice),
+        product_search_by_line_id: state.productSearchByLineId ?? {},
+        line_items: serializePurchaseInvoiceFormLines(state.lineItems),
+    };
+}
+
+/** Build API line DTOs; for drafts include every modal row (even without a picked product). */
+export function buildPurchaseInvoiceLinesForSave(
+    lineItems,
+    {
+        applyLineDiscount,
+        lineDiscountIsPercent,
+        amountsTaxInclusive,
+        forDraft = false,
+        productSearchByLineId = {},
+    },
+) {
+    const mapped = (lineItems ?? []).map((line) => {
+        const itemLabel = String(productSearchByLineId[line.id] ?? line.item ?? '').trim();
+        const qtyRaw = parseFloat(String(line.qty ?? '').replace(',', '.'));
+        const qty =
+            forDraft && (!Number.isFinite(qtyRaw) || qtyRaw <= 0)
+                ? 1
+                : line.qty ?? 1;
+        return {
+            ...line,
+            item: itemLabel || line.item || '',
+            qty,
+        };
+    });
+
+    let rows = forDraft
+        ? mapped
+        : mapped.filter((l) => l.productId != null && String(l.productId).trim() !== '');
+
+    if (forDraft && rows.length === 0) {
+        rows = [
+            {
+                id: `draft-${Date.now()}`,
+                productId: '',
+                item: '',
+                account: '1410 - Inventory Asset',
+                description: '',
+                uom: 'piece',
+                qty: 1,
+                price: 0,
+                discount: 0,
+                discountMode: 'percent',
+                taxCode: PURCHASE_INVOICE_TAX_LABEL,
+            },
+        ];
+    }
+
+    if (forDraft) {
+        rows = rows.map((line) => ({
+            ...line,
+            item: String(line.item ?? '').trim() || 'Draft line',
+        }));
+    }
+
+    return buildEnrichedLineItems(
+        rows,
+        applyLineDiscount,
+        lineDiscountIsPercent,
+        PURCHASE_INVOICE_VAT_RATE,
+        PURCHASE_INVOICE_TAX_LABEL,
+        { unitPriceTaxInclusive: amountsTaxInclusive, noVat: false },
+    );
 }

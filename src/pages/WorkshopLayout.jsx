@@ -40,6 +40,22 @@ import './workshop/Workshop.css';
 import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
 
+/** Tabs reachable by in-app navigation but not listed in the sidebar. */
+const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger']);
+
+function parseLedgerTabStateFromSearch(search) {
+    const params = new URLSearchParams(search || '');
+    const type = params.get('type');
+    const id = params.get('id');
+    if (!type || !id) return null;
+    const name = params.get('name');
+    return {
+        type,
+        id,
+        ...(name ? { name } : {}),
+    };
+}
+
 export default function WorkshopLayout() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -121,7 +137,12 @@ export default function WorkshopLayout() {
     };
 
     const [activeTab, setActiveTab] = useState(getActiveTabFromUrl());
-    const [tabState, setTabState] = useState(null);
+    const [tabState, setTabState] = useState(() => {
+        if (getActiveTabFromUrl() === 'supplier-ledger') {
+            return parseLedgerTabStateFromSearch(window.location.search);
+        }
+        return null;
+    });
 
     /** Resolve first visible tab id (top-level OR sub-item). Used for auto-snap. */
     const firstVisibleTabId = (() => {
@@ -137,11 +158,21 @@ export default function WorkshopLayout() {
      */
     useEffect(() => {
         if (!firstVisibleTabId) return;
+        if (WORKSHOP_INTERNAL_TABS.has(activeTab)) return;
         const allVisible = visibleNavItems.flatMap((i) => i.subItems ? i.subItems.map((s) => s.id) : [i.id]);
         if (!allVisible.includes(activeTab)) {
             setActiveTab(firstVisibleTabId);
         }
     }, [activeTab, firstVisibleTabId, visibleNavItems]);
+
+    useEffect(() => {
+        const tabFromUrl = getActiveTabFromUrl();
+        setActiveTab(tabFromUrl);
+        if (tabFromUrl === 'supplier-ledger') {
+            const ledgerState = parseLedgerTabStateFromSearch(location.search);
+            if (ledgerState) setTabState(ledgerState);
+        }
+    }, [location.pathname, location.search]);
 
     const handleTabChange = (tabId, state = null) => {
         setActiveTab(tabId);
@@ -162,6 +193,17 @@ export default function WorkshopLayout() {
                 'acc-ledger': 'ledger',
             };
             navigate(`/workshop/accounting/${reverseMapping[tabId]}`);
+        } else if (
+            tabId === 'supplier-ledger' &&
+            state?.type &&
+            state?.id
+        ) {
+            const q = new URLSearchParams({
+                type: String(state.type),
+                id: String(state.id),
+            });
+            if (state.name) q.set('name', String(state.name));
+            navigate(`/workshop/${tabId}?${q.toString()}`);
         } else {
             navigate(`/workshop/${tabId}`);
         }
@@ -436,7 +478,10 @@ export default function WorkshopLayout() {
         }
     };
 
-    const currentLabel = NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
+    const currentLabel =
+        activeTab === 'supplier-ledger'
+            ? 'Supplier Ledger'
+            : NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
     const topbarSubtitle = activeTab === 'catalog-new' ? 'Corporate master catalog' : selectedBranchName;
 
     return (
