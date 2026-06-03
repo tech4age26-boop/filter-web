@@ -351,28 +351,101 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
     );
 }
 
-function AccountLedgerModal({ context, onClose }) {
+function derivePartyFilterKey(party) {
+    if (party?.externalPartyId) {
+        return `external:${party.externalPartyId}`;
+    }
+    if (party?.partyType && party?.partyId) {
+        return `${party.partyType}:${party.partyId}`;
+    }
+    return '';
+}
+
+function partyQueryFromFilterKey(key) {
+    if (!key) return {};
+    if (key.startsWith('external:')) {
+        return { externalPartyId: key.slice(9) };
+    }
+    const idx = key.indexOf(':');
+    if (idx > 0) {
+        return {
+            partyType: key.slice(0, idx),
+            partyId: key.slice(idx + 1),
+        };
+    }
+    return {};
+}
+
+/** Cash/bank child accounts may not have isCashEquivalent set on the row itself. */
+function isBankCashLedgerAccount(account, accountsById) {
+    if (!account) return false;
+    if (account.isCashEquivalent) return true;
+    if (account.seedKey === 'CASH' || account.seedKey === 'BANK') return true;
+    let pid = account.parentId ? String(account.parentId) : '';
+    const seen = new Set();
+    while (pid && !seen.has(pid)) {
+        seen.add(pid);
+        const parent = accountsById?.get(pid);
+        if (!parent) break;
+        if (parent.isCashEquivalent) return true;
+        if (parent.seedKey === 'CASH' || parent.seedKey === 'BANK') return true;
+        pid = parent.parentId ? String(parent.parentId) : '';
+    }
+    return false;
+}
+
+function AccountLedgerModal({ context, onClose, allAccounts = [] }) {
     const account = context?.account;
     const initialParty = context?.partyFilter;
+    const accountsById = useMemo(() => {
+        const m = new Map();
+        for (const a of allAccounts || []) {
+            if (a?.id != null) m.set(String(a.id), a);
+        }
+        return m;
+    }, [allAccounts]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [data, setData] = useState(null);
+    const loadSeqRef = useRef(0);
+    const isCashLedger = useMemo(
+        () =>
+            data?.isCashLedger === true ||
+            isBankCashLedgerAccount(account, accountsById),
+        [data?.isCashLedger, account, accountsById],
+    );
     const [dateFrom, setDateFrom] = useState(startOfMonthISO());
     const [dateTo, setDateTo] = useState(todayISO());
+    const [partyFilterKey, setPartyFilterKey] = useState(() =>
+        derivePartyFilterKey(initialParty),
+    );
+    const [offsetAccountFilterId, setOffsetAccountFilterId] = useState('');
 
-    const ledgerQueryBase = useMemo(
-        () => ({
+    useEffect(() => {
+        setPartyFilterKey(derivePartyFilterKey(initialParty));
+        setOffsetAccountFilterId('');
+    }, [
+        account?.id,
+        initialParty?.partyType,
+        initialParty?.partyId,
+        initialParty?.externalPartyId,
+    ]);
+
+    const filterOptions = data?.filterOptions ?? { parties: [], offsetAccounts: [] };
+
+    const ledgerQueryBase = useMemo(() => {
+        const partyQ = partyQueryFromFilterKey(partyFilterKey);
+        return {
             dateFrom: dateFrom || undefined,
             dateTo: dateTo || undefined,
-            partyType: initialParty?.partyType?.trim() || undefined,
-            partyId: initialParty?.partyId?.trim() || undefined,
-            externalPartyId: initialParty?.externalPartyId?.trim() || undefined,
-        }),
-        [dateFrom, dateTo, initialParty],
-    );
+            ...partyQ,
+            offsetAccountId: offsetAccountFilterId || undefined,
+        };
+    }, [dateFrom, dateTo, partyFilterKey, offsetAccountFilterId]);
 
     const load = useCallback(async () => {
         if (!account?.id) return;
+        const seq = ++loadSeqRef.current;
         setLoading(true);
         setErr('');
         try {
@@ -380,12 +453,14 @@ function AccountLedgerModal({ context, onClose }) {
                 ...ledgerQueryBase,
                 limit: 2000,
             });
+            if (seq !== loadSeqRef.current) return;
             const root = res?.data && typeof res.data === 'object' ? res.data : res;
             setData(root);
         } catch (e) {
+            if (seq !== loadSeqRef.current) return;
             setErr(e?.message || 'Failed to load ledger');
         } finally {
-            setLoading(false);
+            if (seq === loadSeqRef.current) setLoading(false);
         }
     }, [account?.id, ledgerQueryBase]);
 
@@ -454,15 +529,18 @@ function AccountLedgerModal({ context, onClose }) {
     function clearRange() {
         setDateFrom(startOfMonthISO());
         setDateTo(todayISO());
+        setPartyFilterKey('');
+        setOffsetAccountFilterId('');
     }
 
     if (!account) return null;
 
     const title = 'Account Ledger';
+    const partyLabel = data?.header?.partyLabel || null;
     const accountLabel =
         data?.header?.accountCode || account.code
-            ? `[${data?.header?.accountCode || account.code}] ${data?.header?.accountName || account.name}`
-            : data?.header?.accountName || account.name;
+            ? `[${data?.header?.accountCode || account.code}] ${data?.header?.accountName || account.name}${partyLabel ? ` · ${partyLabel}` : ''}`
+            : `${data?.header?.accountName || account.name}${partyLabel ? ` · ${partyLabel}` : ''}`;
     const periodFrom = data?.header?.from || dateFrom || '—';
     const periodTo = data?.header?.to || dateTo || '—';
     const currentBalance =
@@ -473,7 +551,7 @@ function AccountLedgerModal({ context, onClose }) {
         <Modal
             title={title}
             onClose={onClose}
-            width={960}
+            width={isCashLedger ? 1120 : 960}
             footer={
                 <button type="button" className="btn-portal-outline" onClick={onClose}>
                     Close
@@ -501,6 +579,14 @@ function AccountLedgerModal({ context, onClose }) {
                 onExportPdf={() => void onExportPdf()}
                 onExportExcel={() => void onExportExcel()}
                 exportDisabled={!data || loading}
+                showCashLedgerColumns={isCashLedger}
+                counterpartyColumnLabel="Paid to / Received from"
+                offsetAccountColumnLabel="Expense / AR account"
+                filterOptions={filterOptions}
+                partyFilterKey={partyFilterKey}
+                onPartyFilterKeyChange={setPartyFilterKey}
+                offsetAccountFilterId={offsetAccountFilterId}
+                onOffsetAccountFilterIdChange={setOffsetAccountFilterId}
             />
         </Modal>
     );
@@ -817,7 +903,13 @@ export default function SupplierCOAManager() {
                 )}
             </AcctCard>
 
-            {ledgerFor ? <AccountLedgerModal context={ledgerFor} onClose={() => setLedgerFor(null)} /> : null}
+            {ledgerFor ? (
+                <AccountLedgerModal
+                    context={ledgerFor}
+                    allAccounts={accounts}
+                    onClose={() => setLedgerFor(null)}
+                />
+            ) : null}
         </div>
     );
 }

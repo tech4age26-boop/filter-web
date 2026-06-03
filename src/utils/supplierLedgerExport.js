@@ -335,6 +335,10 @@ function buildAccountFileBase({ header }) {
     return `Account_Ledger_${account}_${range}`;
 }
 
+function accountLedgerHasCashColumns(rows) {
+    return (rows ?? []).some((r) => r.counterpartyLabel || r.offsetAccountLabel);
+}
+
 /** Export a Chart of Accounts ledger statement to PDF. */
 export function exportAccountLedgerPdf({ header, openingBalance, rows, totals }) {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
@@ -371,38 +375,85 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
     });
     cursorY += lines.length * 14 + 8;
 
+    const hasCashCols = accountLedgerHasCashColumns(rows);
     const body = [
-        ['—', 'Opening balance', '', '', fmtMoney(openingBalance)],
-        ...rows.map((r) => [
-            r.date,
-            r.description || '',
-            r.debit > 0 ? fmtMoney(r.debit) : '',
-            r.credit > 0 ? fmtMoney(r.credit) : '',
-            fmtMoney(r.runningBalance),
-        ]),
-        [
-            '',
-            'Totals',
-            fmtMoney(totals?.totalDebit),
-            fmtMoney(totals?.totalCredit),
-            fmtMoney(totals?.closingBalance),
-        ],
+        hasCashCols
+            ? ['—', 'Opening balance', '', '', '', '', fmtMoney(openingBalance)]
+            : ['—', 'Opening balance', '', '', fmtMoney(openingBalance)],
+        ...rows.map((r) =>
+            hasCashCols
+                ? [
+                      r.date,
+                      r.counterpartyLabel || '',
+                      r.offsetAccountLabel || '',
+                      r.description || '',
+                      r.debit > 0 ? fmtMoney(r.debit) : '',
+                      r.credit > 0 ? fmtMoney(r.credit) : '',
+                      fmtMoney(r.runningBalance),
+                  ]
+                : [
+                      r.date,
+                      r.description || '',
+                      r.debit > 0 ? fmtMoney(r.debit) : '',
+                      r.credit > 0 ? fmtMoney(r.credit) : '',
+                      fmtMoney(r.runningBalance),
+                  ],
+        ),
+        hasCashCols
+            ? [
+                  '',
+                  '',
+                  '',
+                  'Totals',
+                  fmtMoney(totals?.totalDebit),
+                  fmtMoney(totals?.totalCredit),
+                  fmtMoney(totals?.closingBalance),
+              ]
+            : [
+                  '',
+                  'Totals',
+                  fmtMoney(totals?.totalDebit),
+                  fmtMoney(totals?.totalCredit),
+                  fmtMoney(totals?.closingBalance),
+              ],
     ];
 
     autoTable(doc, {
         startY: cursorY,
-        head: [['Date', 'Description', 'Debit', 'Credit', 'Balance']],
+        head: hasCashCols
+            ? [
+                  [
+                      'Date',
+                      'Paid to / Received from',
+                      'Expense / AR account',
+                      'Description',
+                      'Debit',
+                      'Credit',
+                      'Balance',
+                  ],
+              ]
+            : [['Date', 'Description', 'Debit', 'Credit', 'Balance']],
         body,
         margin: { left: margin, right: margin },
         styles: { fontSize: 9, cellPadding: 5 },
         headStyles: { fillColor: [241, 245, 249], textColor: 30 },
-        columnStyles: {
-            0: { cellWidth: 70 },
-            1: { cellWidth: 'auto' },
-            2: { cellWidth: 75, halign: 'right' },
-            3: { cellWidth: 75, halign: 'right' },
-            4: { cellWidth: 85, halign: 'right' },
-        },
+        columnStyles: hasCashCols
+            ? {
+                  0: { cellWidth: 58 },
+                  1: { cellWidth: 90 },
+                  2: { cellWidth: 90 },
+                  3: { cellWidth: 'auto' },
+                  4: { cellWidth: 58, halign: 'right' },
+                  5: { cellWidth: 58, halign: 'right' },
+                  6: { cellWidth: 68, halign: 'right' },
+              }
+            : {
+                  0: { cellWidth: 70 },
+                  1: { cellWidth: 'auto' },
+                  2: { cellWidth: 75, halign: 'right' },
+                  3: { cellWidth: 75, halign: 'right' },
+                  4: { cellWidth: 85, halign: 'right' },
+              },
         didParseCell(data) {
             const last = data.row.index === body.length - 1;
             const first = data.row.index === 0;
@@ -431,6 +482,7 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
     const accountLabel = header?.accountCode
         ? `[${header.accountCode}] ${header.accountName || ''}`
         : header?.accountName || 'Account';
+    const hasCashCols = accountLedgerHasCashColumns(rows);
     const aoa = [
         [header?.companyName || 'Supplier'],
         [accountLabel],
@@ -441,25 +493,68 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
         ['Period', `${header?.from || '—'}  to  ${header?.to || '—'}`],
         ['Currency', header?.currencyCode || 'SAR'],
         [],
-        ['Date', 'Description', 'Debit', 'Credit', 'Balance'],
-        ['—', 'Opening balance', '', '', Number(openingBalance ?? 0)],
-        ...rows.map((r) => [
-            r.date,
-            r.description || '',
-            r.debit > 0 ? Number(r.debit) : '',
-            r.credit > 0 ? Number(r.credit) : '',
-            Number(r.runningBalance ?? 0),
-        ]),
-        [
-            '',
-            'Totals',
-            Number(totals?.totalDebit ?? 0),
-            Number(totals?.totalCredit ?? 0),
-            Number(totals?.closingBalance ?? 0),
-        ],
+        ...(hasCashCols
+            ? [
+                  [
+                      'Date',
+                      'Paid to / Received from',
+                      'Expense / AR account',
+                      'Description',
+                      'Debit',
+                      'Credit',
+                      'Balance',
+                  ],
+                  ['—', 'Opening balance', '', '', '', '', Number(openingBalance ?? 0)],
+                  ...rows.map((r) => [
+                      r.date,
+                      r.counterpartyLabel || '',
+                      r.offsetAccountLabel || '',
+                      r.description || '',
+                      r.debit > 0 ? Number(r.debit) : '',
+                      r.credit > 0 ? Number(r.credit) : '',
+                      Number(r.runningBalance ?? 0),
+                  ]),
+                  [
+                      '',
+                      '',
+                      '',
+                      'Totals',
+                      Number(totals?.totalDebit ?? 0),
+                      Number(totals?.totalCredit ?? 0),
+                      Number(totals?.closingBalance ?? 0),
+                  ],
+              ]
+            : [
+                  ['Date', 'Description', 'Debit', 'Credit', 'Balance'],
+                  ['—', 'Opening balance', '', '', Number(openingBalance ?? 0)],
+                  ...rows.map((r) => [
+                      r.date,
+                      r.description || '',
+                      r.debit > 0 ? Number(r.debit) : '',
+                      r.credit > 0 ? Number(r.credit) : '',
+                      Number(r.runningBalance ?? 0),
+                  ]),
+                  [
+                      '',
+                      'Totals',
+                      Number(totals?.totalDebit ?? 0),
+                      Number(totals?.totalCredit ?? 0),
+                      Number(totals?.closingBalance ?? 0),
+                  ],
+              ]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 14 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
+    ws['!cols'] = hasCashCols
+        ? [
+              { wch: 14 },
+              { wch: 36 },
+              { wch: 36 },
+              { wch: 40 },
+              { wch: 12 },
+              { wch: 12 },
+              { wch: 14 },
+          ]
+        : [{ wch: 14 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
     XLSX.writeFile(wb, `${buildAccountFileBase({ header })}.xlsx`);

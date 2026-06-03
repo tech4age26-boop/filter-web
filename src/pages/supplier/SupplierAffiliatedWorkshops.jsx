@@ -80,6 +80,10 @@ import {
     buildSalesArLedgerRows,
     isSupplierCustomerFinancialTx,
 } from './supplierFinanceTransactionUtils';
+import {
+    formatAffiliatedBranchCustomerLabel,
+    formatAffiliatedWorkshopCustomerLabel,
+} from '../../utils/affiliatedCustomerLabels';
 
 function fmtLedgerAmt(value) {
     if (value == null || Number.isNaN(value)) return '—';
@@ -119,8 +123,13 @@ export default function SupplierAffiliatedWorkshops() {
     const logExportSubtitle = useMemo(() => {
         if (!logRow) return '';
         const scopeLabel = rowIsBranch(logRow)
-            ? `${logRow.branchName || logRow.branchId} · ${logRow.workshopName || ''}`
-            : `${logRow.workshopName || logRow.workshopId} (workshop)`;
+            ? formatAffiliatedBranchCustomerLabel(
+                  logRow.workshopName,
+                  logRow.branchName || logRow.branchId,
+              )
+            : formatAffiliatedWorkshopCustomerLabel(
+                  logRow.workshopName || logRow.workshopId,
+              );
         let rangeBit = 'All dates';
         if (logFrom && logTo) rangeBit = `${logFrom} → ${logTo}`;
         else if (logFrom) rangeBit = `From ${logFrom}`;
@@ -758,8 +767,13 @@ export default function SupplierAffiliatedWorkshops() {
                 <Modal
                     title={
                         rowIsBranch(logRow)
-                            ? `Transaction log — ${logRow.branchName || logRow.branchId} · ${logRow.workshopName || ''}`
-                            : `Transaction log — ${logRow.workshopName || logRow.workshopId} (workshop)`
+                            ? `Transaction log — ${formatAffiliatedBranchCustomerLabel(
+                                  logRow.workshopName,
+                                  logRow.branchName || logRow.branchId,
+                              )}`
+                            : `Transaction log — ${formatAffiliatedWorkshopCustomerLabel(
+                                  logRow.workshopName || logRow.workshopId,
+                              )}`
                     }
                     onClose={() => setLogRow(null)}
                     width={980}
@@ -823,19 +837,27 @@ export default function SupplierAffiliatedWorkshops() {
                             type="button"
                             className="btn-portal-outline"
                             onClick={() => {
-                                const ws = String(logRow?.workshopId ?? '').trim();
-                                if (!ws) return;
-                                navigate(
-                                    `/supplier/accounting/coa?${new URLSearchParams({
-                                        openLedgerSeed: 'AR_AFFILIATED',
-                                        partyType: 'workshop',
-                                        partyId: ws,
-                                    }).toString()}`,
-                                );
+                                const params = new URLSearchParams({
+                                    openLedgerSeed: 'AR_AFFILIATED',
+                                });
+                                if (rowIsBranch(logRow) && logRow.branchId) {
+                                    params.set('partyType', 'branch');
+                                    params.set('partyId', String(logRow.branchId));
+                                } else {
+                                    const ws = String(logRow?.workshopId ?? '').trim();
+                                    if (!ws) return;
+                                    params.set('partyType', 'workshop');
+                                    params.set('partyId', ws);
+                                }
+                                navigate(`/supplier/accounting/coa?${params.toString()}`);
                                 setLogRow(null);
                             }}
-                            disabled={!logRow?.workshopId}
-                            title="Opens Chart of Accounts with AR Affiliated ledger filtered to this workshop"
+                            disabled={
+                                rowIsBranch(logRow)
+                                    ? !logRow?.branchId
+                                    : !logRow?.workshopId
+                            }
+                            title="Opens Chart of Accounts with AR Affiliated ledger filtered to this customer"
                         >
                             Chart of Accounts (ledger)
                         </button>
