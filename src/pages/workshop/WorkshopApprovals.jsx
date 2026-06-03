@@ -213,7 +213,7 @@ export default function WorkshopApprovals({
             const supplierBranchScope = branchLockedId
                 ? branchScopeParams(branchLockedId)
                 : {};
-            const [response, siRes] = await Promise.all([
+            const [response, siRes, srRes] = await Promise.all([
                 apiFetch(`/workshop-staff/petty-cash/requests${qs(pettyQs)}`),
                 loadSupplierInvoices
                     ? apiFetch(

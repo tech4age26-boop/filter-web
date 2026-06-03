@@ -50,7 +50,12 @@ import {
     computePurchaseInvoiceTotals,
     buildPurchaseInvoicePayload,
     buildEnrichedLineItems,
+    reconstructInvoiceUnitPriceInput,
 } from './purchaseInvoicePayload';
+import {
+    applyLineTotals,
+    computeLineFinancials,
+} from '../../utils/invoiceLineFinancials';
 
 const SUPPLIERS_PAGE_LIMIT = 500;
 const PRODUCT_SEARCH_RESULT_LIMIT = 30;
@@ -566,7 +571,12 @@ function pickViewInvoiceUi(raw, items = []) {
             Boolean(ui.lineDiscountIsPercent ?? ui.line_discount_is_percent) ||
             rawDiscType === 'percent' ||
             (lineHasDisc && line0DiscType === 'percent'),
-        amountsTaxInclusive: Boolean(ui.amountsTaxInclusive ?? ui.amounts_tax_inclusive),
+        amountsTaxInclusive: Boolean(
+            ui.amountsTaxInclusive ??
+                ui.amounts_tax_inclusive ??
+                ui.prices_include_vat ??
+                false,
+        ),
     };
 }
 
@@ -625,19 +635,12 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [invoiceDiscountValue, setInvoiceDiscountValue] = useState('0');
     const [invoiceDiscountMode, setInvoiceDiscountMode] = useState('fixed_sar');
     /**
-     * "Prices include VAT (VAT 15%)" checkbox semantics:
-     *   - true  (CHECKED, default): apply VAT 15%. Unit price field is ex-VAT;
-     *           tax shown separately so total = unit × 1.15.
-     *   - false (UNCHECKED): VAT-exempt invoice (e.g. non-VAT supplier). Unit
-     *           price field is the gross/final amount per unit; no tax line,
-     *           total = unit × qty.
+     * When false (default), unit price is ex-VAT and VAT is added on the line (same as supplier sales invoice).
+     * When true, unit price is VAT-inclusive and tax is extracted from the entered amount.
      */
-    /** When true, unit price column is ex VAT (20 + tax 3 = 23). When false (default), unit price is incl. VAT (23). */
-    const [priceExcludingVat, setPriceExcludingVat] = useState(false);
+    const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(false);
     const [freightSar, setFreightSar] = useState('0');
     const [updateLastPurchasePrice, setUpdateLastPurchasePrice] = useState(true);
-    const priceExcludingVatPrevRef = useRef(false);
-    const priceExcludingVatInitRef = useRef(false);
     const [linkedSuppliers, setLinkedSuppliers] = useState([]);
     const [linkedSuppliersLoading, setLinkedSuppliersLoading] = useState(false);
     const [linkedSuppliersError, setLinkedSuppliersError] = useState('');
@@ -966,7 +969,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             const item = tabState.selectedItem;
             const unitExcl = pickPriceExclusiveUnit(item);
             const unitIncl = pickPriceInclusivePurchaseUnit(item);
-            const price = priceExcludingVat ? unitExcl : unitIncl;
+            const price = amountsTaxInclusive ? unitIncl : unitExcl;
             const tempLine = {
                 id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
                 productId: String(item.id ?? ''),
@@ -981,7 +984,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 taxCode: TAX_LABEL,
             };
             const amts = computeLineAmounts(tempLine, false, discountIsPercent, VAT_RATE, {
-                unitPriceTaxInclusive: !priceExcludingVat,
+                unitPriceTaxInclusive: amountsTaxInclusive,
                 noVat: false,
             });
             const newLine = {
@@ -992,33 +995,29 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setLineItems([newLine]);
         }
         if (clearTabState) clearTabState();
-    }, [tabState, clearTabState, priceExcludingVat, discountIsPercent]);
+    }, [tabState, clearTabState, amountsTaxInclusive, discountIsPercent]);
 
     const applyDiscountForCalc = showDiscount;
 
     /**
-     * Unit field holds VAT-inclusive amount when `priceExcludingVat` is false (default);
-     * holds ex-VAT amount when the user checks "Price excluding VAT".
+     * Unit field is ex-VAT by default; when "Amounts are tax inclusive" is checked, unit is VAT-inclusive.
      */
-    const lineAmountOpts = useMemo(
-        () => ({ unitPriceTaxInclusive: !priceExcludingVat, noVat: false }),
-        [priceExcludingVat],
+    const lineFinancialsOpts = useMemo(
+        () => ({
+            taxes: TAXES,
+            defaultRate: VAT_RATE,
+            noVat: false,
+        }),
+        [],
     );
 
     const recalcStoredLineTotals = (line) => {
-        const { taxAmt, totalIncl } = computeLineAmounts(
-            line,
-            applyDiscountForCalc,
-            discountIsPercent,
-            VAT_RATE,
-            lineAmountOpts,
+        const workingLine = applyDiscountForCalc ? line : { ...line, discount: 0 };
+        return applyLineTotals(
+            { ...workingLine, taxCode: line.taxCode || TAX_LABEL },
+            amountsTaxInclusive,
+            lineFinancialsOpts,
         );
-        return {
-            ...line,
-            taxCode: TAX_LABEL,
-            taxAmt: taxAmt.toFixed(2),
-            totalFinal: totalIncl.toFixed(2),
-        };
     };
 
     const getProductSearchText = (line) => productSearchByLineId[line.id] ?? line.item ?? '';
@@ -1095,51 +1094,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
 
     useEffect(() => {
         setLineItems((prev) =>
-            prev.map((line) => {
-                const { taxAmt, totalIncl } = computeLineAmounts(
-                    line,
-                    showDiscount,
-                    discountIsPercent,
-                    VAT_RATE,
-                    lineAmountOpts,
-                );
-                return {
-                    ...line,
-                    taxCode: TAX_LABEL,
-                    taxAmt: taxAmt.toFixed(2),
-                    totalFinal: totalIncl.toFixed(2),
-                };
-            }),
+            prev.map((line) => recalcStoredLineTotals(line)),
         );
-    }, [showDiscount, discountIsPercent, lineAmountOpts]);
-
-    /**
-     * "Price excluding VAT" checked → stored unit becomes ex VAT (divide incl. by 1.15).
-     * Unchecked again → stored unit becomes incl. VAT (multiply ex by 1.15).
-     */
-    useEffect(() => {
-        if (!priceExcludingVatInitRef.current) {
-            priceExcludingVatInitRef.current = true;
-            priceExcludingVatPrevRef.current = priceExcludingVat;
-            return;
-        }
-        const prev = priceExcludingVatPrevRef.current;
-        priceExcludingVatPrevRef.current = priceExcludingVat;
-        if (prev === priceExcludingVat) return;
-        setLineItems((prevLines) =>
-            prevLines.map((line) => {
-                const p = parseFloat(line.price) || 0;
-                if (p === 0) return line;
-                if (priceExcludingVat && !prev) {
-                    return { ...line, price: roundMoney2(p / (1 + VAT_RATE)) };
-                }
-                if (!priceExcludingVat && prev) {
-                    return { ...line, price: roundMoney2(p * (1 + VAT_RATE)) };
-                }
-                return line;
-            }),
-        );
-    }, [priceExcludingVat]);
+    }, [showDiscount, discountIsPercent, amountsTaxInclusive]);
 
     const handleLineProductChange = (lineId, productId) => {
         if (!productId) {
@@ -1169,19 +1126,19 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         const last = lastPricesByProductId[String(productId)];
         /**
          * Prefill priority: supplier-scoped last purchase price → master catalog.
-         * Shape matches the unit column (incl. vs ex VAT) from `priceExcludingVat`.
+         * Shape matches the unit column (incl. vs ex VAT) from `amountsTaxInclusive`.
          */
         const lastEx = last ? Number(last.lastUnitPriceExVat ?? 0) : 0;
         const lastIncl = last ? Number(last.lastUnitPriceInclVat ?? 0) : 0;
         const catalogEx = Number(opt.priceExcl ?? 0);
         const catalogIncl = Number(opt.priceIncl ?? opt.priceExcl ?? 0);
-        const prefillPrice = priceExcludingVat
-            ? lastEx > 0
-                ? lastEx
-                : catalogEx
-            : lastIncl > 0
-              ? lastIncl
-              : catalogIncl;
+        const prefillPrice = amountsTaxInclusive
+            ? lastIncl > 0
+                ? lastIncl
+                : catalogIncl
+            : lastEx > 0
+              ? lastEx
+              : catalogEx;
         setLineItems((prev) =>
             prev.map((line) => {
                 if (line.id !== lineId) return line;
@@ -1236,7 +1193,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 invoiceDiscountMode,
                 invoiceDiscountValue,
                 vatRate: VAT_RATE,
-                unitPriceTaxInclusive: !priceExcludingVat,
+                unitPriceTaxInclusive: amountsTaxInclusive,
                 noVat: false,
                 freightIn: freightNum,
             }),
@@ -1246,7 +1203,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             discountIsPercent,
             invoiceDiscountMode,
             invoiceDiscountValue,
-            priceExcludingVat,
+            amountsTaxInclusive,
             freightNum,
         ],
     );
@@ -1259,14 +1216,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             });
         const freightIn = invoiceTotals.freight_in ?? 0;
         const invoiceDiscountSar = invoiceTotals.invoice_discount_applied_ex_vat ?? 0;
-        const invPctDisplayed = (() => {
-            if (invoiceDiscountMode !== 'percent') return 0;
-            const pct = parseFloat(String(invoiceDiscountValue ?? '').replace(',', '.')) || 0;
-            return Math.max(0, Math.min(100, pct));
-        })();
+        const invRaw = parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0;
+        const invPctDisplayed = Math.min(100, Math.max(0, invRaw));
         return {
             subtotal: fmt2(invoiceTotals.lines_taxable_ex_vat),
-            totalTax: fmt2(invoiceTotals.total_vat),
+            totalTax: fmt2(invoiceTotals.lines_total_vat),
             freight: fmt2(freightIn),
             freightInFormatted: fmt2(freightIn),
             invoiceDiscountFormatted: fmt2(invoiceDiscountSar),
@@ -1577,13 +1531,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         const detailLines = Array.isArray(invoice?.items) ? invoice.items : [];
         const sourceLines =
             formLines.length > 0 ? formLines : payloadLines.length > 0 ? payloadLines : detailLines;
-        const amountsTaxInclusive =
+        const loadedAmountsTaxInclusive = Boolean(
             ui.amountsTaxInclusive ??
-            ui.amounts_tax_inclusive ??
-            ui.prices_include_vat ??
-            payload.prices_include_vat ??
-            true;
-        const nextPriceExcludingVat = !amountsTaxInclusive;
+                ui.amounts_tax_inclusive ??
+                ui.prices_include_vat ??
+                payload.prices_include_vat ??
+                false,
+        );
         const nextDiscountIsPercent = Boolean(ui.lineDiscountIsPercent ?? ui.line_discount_is_percent ?? false);
 
         setInvoiceBranchId(String(payload.branch_id ?? payload.branchId ?? invoice?.branchId ?? invoice?.branch_id ?? ''));
@@ -1641,12 +1595,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setShowDesc(Boolean(ui.showLineDescriptionColumn ?? ui.show_line_description_column ?? true));
         setShowDiscount(Boolean(ui.showLineDiscountColumn ?? ui.show_line_discount_column ?? false));
         setDiscountIsPercent(nextDiscountIsPercent);
-        setPriceExcludingVat(nextPriceExcludingVat);
+        setAmountsTaxInclusive(loadedAmountsTaxInclusive);
         setFreightSar(String(payload.freightIn ?? payload.freight_in ?? invoice?.freightIn ?? '0'));
         setUpdateLastPurchasePrice(Boolean(payload.updateLastPurchasePriceOnSave ?? payload.update_last_purchase_price_on_save ?? true));
-        priceExcludingVatInitRef.current = false;
-        priceExcludingVatPrevRef.current = nextPriceExcludingVat;
-
         const nextSearch = {};
         const nextLines = sourceLines.map((line) => {
             const lineId = String(line.client_line_id ?? line.clientLineId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
@@ -1664,14 +1615,25 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     '',
             );
             const qty = line.qty ?? line.quantity ?? 1;
+            const taxCode = line.tax_code ?? line.taxCode ?? TAX_LABEL;
             const unitEx = Number(line.unit_price_ex_vat ?? line.unitPriceExVat ?? line.unitPrice ?? 0);
-            const unitIncl = Number(line.unit_purchase_price_incl_vat ?? line.unitPurchasePriceInclVat ?? 0);
             const price =
                 line.price != null && line.price !== ''
                     ? line.price
-                    : nextPriceExcludingVat
-                      ? unitEx
-                      : unitIncl || unitEx;
+                    : reconstructInvoiceUnitPriceInput(
+                          {
+                              qty,
+                              unitPrice: unitEx,
+                              lineDiscountValue: line.discount ?? line.line_discount_raw ?? 0,
+                              lineDiscountMode:
+                                  line.discountMode ??
+                                  line.line_discount_mode ??
+                                  line.lineDiscountMode,
+                          },
+                          loadedAmountsTaxInclusive,
+                          taxCode,
+                          { taxes: TAXES, defaultRate: VAT_RATE },
+                      );
             const lineDiscMode =
                 line.discountMode ??
                 line.line_discount_mode ??
@@ -1775,7 +1737,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             invoiceDiscountMode,
             invoiceDiscountValue,
             vatRate: VAT_RATE,
-            unitPriceTaxInclusive: !priceExcludingVat,
+            unitPriceTaxInclusive: amountsTaxInclusive,
             noVat: false,
             freightIn: freightNum,
         });
@@ -1785,7 +1747,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             discountIsPercent,
             VAT_RATE,
             TAX_LABEL,
-            { unitPriceTaxInclusive: !priceExcludingVat, noVat: false },
+            { unitPriceTaxInclusive: amountsTaxInclusive, noVat: false },
         );
         const dueComputed = calculateDueDate();
         const purchaseInvoicePayload = buildPurchaseInvoicePayload({
@@ -1808,9 +1770,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 show_line_description_column: showDesc,
                 show_line_discount_column: showDiscount,
                 line_discount_is_percent: discountIsPercent,
-                /** Unit column holds incl. VAT amounts unless "Price excluding VAT" is checked. */
-                amounts_tax_inclusive: !priceExcludingVat,
-                prices_include_vat: !priceExcludingVat,
+                amounts_tax_inclusive: amountsTaxInclusive,
+                prices_include_vat: amountsTaxInclusive,
                 no_vat: false,
             },
             invoice_discount: {
@@ -1842,8 +1803,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 invoiceDiscountValue: parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0,
                 updateLastPurchasePriceOnSave: updateLastPurchasePrice,
                 freightIn: freightNum,
-                showAmountsTaxInclusive: !priceExcludingVat,
-                pricesIncludeVat: !priceExcludingVat,
+                showAmountsTaxInclusive: amountsTaxInclusive,
+                pricesIncludeVat: amountsTaxInclusive,
                 noVat: false,
                 selectedBranchFilter: selectedBranchId ?? null,
                 vatLabel: TAX_LABEL,
@@ -1967,15 +1928,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setInvoiceDiscountValue('0');
             setInvoiceDiscountMode('fixed_sar');
             setFreightSar('0');
-            setPriceExcludingVat(false);
+            setAmountsTaxInclusive(false);
             setInvoiceBranchId('');
             setProductSearchByLineId({});
             setActiveProductSearchLineId(null);
             setProductDropdownPosition(null);
             setEditingDraftId(null);
             clearDraftEditSession();
-            priceExcludingVatInitRef.current = false;
-            priceExcludingVatPrevRef.current = false;
             setUpdateLastPurchasePrice(true);
         } catch (e) {
             setSubmitInvoiceError(e.message || 'Could not create purchase invoice.');
@@ -2053,6 +2012,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     onClick={() => {
                         setEditingDraftId(null);
                         clearDraftEditSession();
+                        setAmountsTaxInclusive(false);
                         setLineItems((prev) => (prev.length > 0 ? prev : [createEmptyLine()]));
                         setModalOpen(true);
                     }}
@@ -2291,15 +2251,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             setModalOpen(false);
                             setSubmitInvoiceError('');
                             setFreightSar('0');
-                            setPriceExcludingVat(false);
+                            setAmountsTaxInclusive(false);
                             setInvoiceBranchId('');
                             setProductSearchByLineId({});
                             setActiveProductSearchLineId(null);
                             setProductDropdownPosition(null);
                             setEditingDraftId(null);
                             clearDraftEditSession();
-                            priceExcludingVatInitRef.current = false;
-                            priceExcludingVatPrevRef.current = false;
                         }}
                         width="1350px"
                         contentClassName="modal-content-purchase"
@@ -2313,15 +2271,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             setModalOpen(false);
                                             setSubmitInvoiceError('');
                                             setFreightSar('0');
-                                            setPriceExcludingVat(false);
+                                            setAmountsTaxInclusive(false);
                                             setInvoiceBranchId('');
                                             setProductSearchByLineId({});
                                             setActiveProductSearchLineId(null);
                                             setProductDropdownPosition(null);
                                             setEditingDraftId(null);
                                             clearDraftEditSession();
-                                            priceExcludingVatInitRef.current = false;
-                                            priceExcludingVatPrevRef.current = false;
                                         }}
                                     >
                                         Cancel
@@ -2573,7 +2529,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                     Qty
                                                 </th>
                                                 <th scope="col" className="ws-pi-th-num">
-                                                    Unit price {priceExcludingVat ? '(ex VAT)' : '(incl. VAT)'}
+                                                    Unit price {amountsTaxInclusive ? '(incl. VAT)' : '(ex VAT)'}
                                                 </th>
                                                 {showDiscount ? (
                                                     <th scope="col" className="ws-pi-th-num">
@@ -2602,12 +2558,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         </thead>
                                         <tbody>
                                             {lineItems.map((line, idx) => {
-                                                const amounts = computeLineAmounts(
-                                                    line,
-                                                    applyDiscountForCalc,
-                                                    discountIsPercent,
-                                                    VAT_RATE,
-                                                    lineAmountOpts,
+                                                const workingLine = applyDiscountForCalc
+                                                    ? line
+                                                    : { ...line, discount: 0 };
+                                                const amounts = computeLineFinancials(
+                                                    workingLine,
+                                                    amountsTaxInclusive,
+                                                    lineFinancialsOpts,
                                                 );
                                                 return (
                                                     <tr key={line.id}>
@@ -2795,9 +2752,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         <td
                                                             className="ws-pi-td-num ws-pi-price-cell"
                                                             title={
-                                                                priceExcludingVat
-                                                                    ? 'Prefilled from supplier last price ex VAT (or master catalog ex VAT). Editable.'
-                                                                    : 'Prefilled from supplier last price incl. VAT (or master catalog incl.). Editable.'
+                                                                amountsTaxInclusive
+                                                                    ? 'Prefilled from supplier last price incl. VAT (or master catalog incl.). Editable.'
+                                                                    : 'Prefilled from supplier last price ex VAT (or master catalog ex VAT). Editable.'
                                                             }
                                                         >
                                                             <input
@@ -2837,7 +2794,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                 </div>
                                                             </td>
                                                         ) : null}
-                                                        <td className="ws-pi-td-num">SAR {amounts.taxableExcl.toFixed(2)}</td>
+                                                        <td className="ws-pi-td-num">SAR {amounts.lineExStr}</td>
                                                         <td className="ws-pi-td-tax">
                                                             <select
                                                                 className="pi-row-input ws-pi-select"
@@ -2852,8 +2809,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                 ))}
                                                             </select>
                                                         </td>
-                                                        <td className="ws-pi-td-num">SAR {amounts.taxAmt.toFixed(2)}</td>
-                                                        <td className="ws-pi-td-num ws-pi-td-strong">SAR {amounts.totalIncl.toFixed(2)}</td>
+                                                        <td className="ws-pi-td-num">SAR {amounts.taxAmtStr}</td>
+                                                        <td className="ws-pi-td-num ws-pi-td-strong">SAR {amounts.grandInclStr}</td>
                                                         <td className="ws-pi-td-num">
                                                             {(() => {
                                                                 if (!line.productId) {
@@ -2890,7 +2847,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                 const tooltip =
                                                                     `Per unit after line discount\n` +
                                                                     `Incl. VAT: SAR ${Number.isFinite(lastIncl) ? lastIncl.toFixed(2) : '0.00'}\n` +
-                                                                    (priceExcludingVat && Number.isFinite(lastEx) && lastEx > 0
+                                                                    (!amountsTaxInclusive &&
+                                                                    Number.isFinite(lastEx) &&
+                                                                    lastEx > 0
                                                                         ? `Ex VAT: SAR ${lastEx.toFixed(2)}\n`
                                                                         : '') +
                                                                     `Invoice ${last.lastInvoiceNumber || '—'}` +
@@ -2904,7 +2863,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                         <span style={{ fontWeight: 600, color: '#0f766e' }}>
                                                                             SAR {Number.isFinite(lastIncl) ? lastIncl.toFixed(2) : '0.00'}
                                                                         </span>
-                                                                        {!priceExcludingVat &&
+                                                                        {!amountsTaxInclusive &&
                                                                         Number.isFinite(lastEx) &&
                                                                         lastEx > 0 &&
                                                                         Math.abs(lastEx - lastIncl) > 0.005 ? (
@@ -2935,11 +2894,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     </button>
                                 </div>
                                 <div className="pi-hint">
-                                    <Zap size={14} /> Tip: By default the unit column is <strong>incl. VAT</strong>{' '}
-                                    (prefill uses supplier last price incl. VAT when available). Check{' '}
-                                    <strong>Price excluding VAT</strong> to enter ex-VAT unit prices (15% VAT is calculated
-                                    on the line). Prefill then uses supplier last price ex VAT or catalog ex VAT. Qty, unit
-                                    price, and discount support math (e.g. 12*5).
+                                    <Zap size={14} /> Tip: By default the unit column is <strong>ex VAT</strong> (15% VAT is
+                                    added on each line). Check <strong>Amounts are tax inclusive</strong> to enter
+                                    VAT-inclusive unit prices. Qty, unit price, and discount support math (e.g. 12*5).
                                 </div>
                             </div>
 
@@ -2963,10 +2920,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 <label className="pi-checkbox">
                                     <input
                                         type="checkbox"
-                                        checked={priceExcludingVat}
-                                        onChange={(e) => setPriceExcludingVat(e.target.checked)}
+                                        checked={amountsTaxInclusive}
+                                        onChange={(e) => setAmountsTaxInclusive(e.target.checked)}
                                     />
-                                    <span>Price excluding VAT ({TAX_LABEL})</span>
+                                    <span>Amounts are tax inclusive</span>
                                 </label>
                             </div>
 
