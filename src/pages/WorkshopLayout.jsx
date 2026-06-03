@@ -556,9 +556,11 @@ export default function WorkshopLayout() {
                                                         key={sub.id}
                                                         className={`ws-nav-btn ws-nav-sub-btn ${activeTab === sub.id ? 'active' : ''}`}
                                                         onClick={() => handleTabChange(sub.id)}
-                                                        style={{ 
-                                                            padding: '8px 12px', 
-                                                            fontSize: '0.8125rem',
+                                                        style={{
+                                                            padding: '10px 12px',
+                                                            // Bumped from 0.8125rem — sub-items felt like "small print"
+                                                            // and were hard to read; now matches parent nav button.
+                                                            fontSize: '0.875rem',
                                                             background: 'transparent',
                                                             color: '#000000',
                                                             textDecoration: activeTab === sub.id ? 'underline' : 'none',
@@ -567,7 +569,7 @@ export default function WorkshopLayout() {
                                                             textAlign: 'left',
                                                             cursor: 'pointer',
                                                             display: 'block',
-                                                            opacity: activeTab === sub.id ? 1 : 0.6
+                                                            opacity: activeTab === sub.id ? 1 : 0.7
                                                         }}
                                                     >
                                                         {sub.label}

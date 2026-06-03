@@ -8,6 +8,7 @@ import SalesOrders from './SalesOrders';
 import WorkshopSales from './WorkshopSales';
 import SuppliersWarehouseSales from './SuppliersWarehouseSales';
 import CorporateTransactions from './CorporateTransactions';
+import SalesReturnsPage from './SalesReturnsPage';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/SalesPage.css';
 
@@ -17,6 +18,7 @@ const SUB_TABS = [
     { path: 'workshop-sales',              label: 'Workshop Sales',                permission: 'sales.workshop-sales.view' },
     { path: 'suppliers-warehouse-sales',   label: 'Suppliers & Warehouse Sales',   permission: 'sales.suppliers-warehouse-sales.view' },
     { path: 'corporate-transactions',      label: 'Corporate Transactions',        permission: 'sales.corporate-transactions.view' },
+    { path: 'sales-returns',               label: 'Sales Returns',                 permission: 'sales.sales-returns.view' },
     { path: 'receipts',                    label: 'Receipts',                      permission: 'sales.receipts.view' },
 ];
 
@@ -330,6 +332,8 @@ export default function SalesPage() {
             {activeSub === 'suppliers-warehouse-sales' && <SuppliersWarehouseSales />}
 
             {activeSub === 'corporate-transactions' && <CorporateTransactions />}
+
+            {activeSub === 'sales-returns' && <SalesReturnsPage />}
 
             {activeSub === 'receipts' && (
                 <>

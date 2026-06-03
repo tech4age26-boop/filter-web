@@ -1,6 +1,5 @@
 // staging url
-//export const BASE_URL = 'https://filterbackend-production.up.railway.app';
-//export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 
 // production url
 // export const BASE_URL = 'https://api.filtercarservices.com';
