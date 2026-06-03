@@ -458,8 +458,16 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
         .map((v) => (v == null ? '' : String(v).trim()))
         .find((s) => s !== '') ?? '';
     const branch_name = branchNameRaw || (branch_id ? `Branch ${branch_id}` : '');
+    const supplierInvoiceId =
+        inv.supplierInvoiceId ??
+        inv.supplier_invoice_id ??
+        payload?.supplierInvoiceId ??
+        payload?.supplier_invoice_id ??
+        null;
     return {
         id: String(id),
+        invoice_category: inv.invoiceCategory ?? inv.invoice_category ?? 'sales_invoice',
+        supplier_invoice_id: supplierInvoiceId != null ? String(supplierInvoiceId) : null,
         invoice_number:
             inv.invoiceNumber ?? inv.invoice_number ?? inv.reference ?? inv.ref ?? String(id).slice(0, 12),
         supplier: vendorName,
