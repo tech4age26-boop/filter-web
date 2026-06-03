@@ -354,8 +354,28 @@ export function compareWorkshopPurchaseInvoiceListRowsDesc(a, b) {
 export function dedupeWorkshopPurchaseInvoiceListRows(rows) {
     if (!Array.isArray(rows) || rows.length <= 1) return rows.filter(Boolean);
     const map = new Map();
+    const poBySupplierInvoiceId = new Map();
     for (const r of rows) {
         if (!r || typeof r !== 'object') continue;
+        const siId = r.supplier_invoice_id ?? r.supplierInvoiceId ?? null;
+        if (siId != null && String(siId).trim() !== '' && r.invoiceKind !== 'local') {
+            poBySupplierInvoiceId.set(String(siId), r);
+        }
+    }
+    for (const r of rows) {
+        if (!r || typeof r !== 'object') continue;
+        const raw = r._raw && typeof r._raw === 'object' ? r._raw : null;
+        const sourceSiId =
+            raw?.sourceSupplierInvoiceId ??
+            raw?.source_supplier_invoice_id ??
+            null;
+        if (
+            sourceSiId != null &&
+            poBySupplierInvoiceId.has(String(sourceSiId)) &&
+            String(poBySupplierInvoiceId.get(String(sourceSiId))?.id) !== String(r.id)
+        ) {
+            continue;
+        }
         const no = String(r.invoice_number ?? '').trim();
         const key = /^WLPI-/i.test(no)
             ? `wlpi:${no.toUpperCase()}`
@@ -440,10 +460,7 @@ export function normalizeWorkshopSupplierPurchaseInvoiceRow(inv) {
             inv.stockReceived ??
             inv.stock_received,
     );
-    const stockUpdated =
-        hasStockFlag ||
-        status === 'approved' ||
-        (status === 'completed' && invoiceKind !== 'local');
+    const stockUpdated = hasStockFlag;
     const { quantity_label, unit_label } = workshopInvoiceQtyUnitSummary(items);
     const { product_label } = workshopInvoiceProductNameSummary(items);
     const { primary_unit_price } = workshopInvoicePrimaryUnitPriceSummary(items);

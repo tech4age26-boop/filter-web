@@ -49,8 +49,10 @@ import {
     computeLineAmounts,
     computePurchaseInvoiceTotals,
     buildPurchaseInvoicePayload,
-    buildEnrichedLineItems,
     reconstructInvoiceUnitPriceInput,
+    serializePurchaseInvoiceFormLines,
+    buildPurchaseInvoiceFormSnapshot,
+    buildPurchaseInvoiceLinesForSave,
 } from './purchaseInvoicePayload';
 import {
     applyLineTotals,
@@ -353,25 +355,6 @@ function createEmptyLine() {
         taxAmt: '0.00',
         totalFinal: '0.00',
     };
-}
-
-/** Snapshot raw modal line rows so draft reload restores the full form. */
-function serializePurchaseInvoiceFormLines(lines) {
-    return (lines ?? []).map((line) => ({
-        client_line_id: line.id,
-        productId: line.productId ?? '',
-        item: line.item ?? '',
-        account: line.account ?? '',
-        description: line.description ?? '',
-        uom: line.uom ?? 'piece',
-        qty: line.qty ?? 1,
-        price: line.price ?? 0,
-        discount: line.discount ?? 0,
-        discountMode: line.discountMode ?? 'percent',
-        taxCode: line.taxCode ?? TAX_LABEL,
-        taxAmt: line.taxAmt ?? '0.00',
-        totalFinal: line.totalFinal ?? '0.00',
-    }));
 }
 
 /**
@@ -1516,8 +1499,82 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         lineItems.length > 0 &&
         hasProductLine;
 
+    /** Draft save: branch + supplier only; partial lines and empty product rows are OK. */
+    const canSavePurchaseInvoiceDraft =
+        Boolean(invoiceBranchId) &&
+        !linkedSuppliersLoading &&
+        !submittingInvoice &&
+        invoiceSupplierOptions.length > 0 &&
+        Boolean(selectedVendor) &&
+        invoiceSupplierOptions.includes(selectedVendor) &&
+        Boolean(selectedSupplierRow?.id);
+
     const hydrateDraftInvoiceForm = (invoice) => {
         const payload = invoice?.payload && typeof invoice.payload === 'object' ? invoice.payload : {};
+        const snapshot =
+            payload.form_snapshot ??
+            payload.formSnapshot ??
+            (payload.form && typeof payload.form === 'object' ? payload.form : null);
+        if (snapshot && typeof snapshot === 'object') {
+            setInvoiceBranchId(String(snapshot.invoice_branch_id ?? snapshot.invoiceBranchId ?? payload.branch_id ?? ''));
+            setSelectedVendor(String(snapshot.selected_vendor ?? snapshot.selectedVendor ?? ''));
+            setIssueDate(String(snapshot.issue_date ?? snapshot.issueDate ?? todayIso).slice(0, 10));
+            setDueDateType(String(snapshot.due_date_type ?? snapshot.dueDateType ?? 'Net').trim() || 'Net');
+            setNetDays(Number(snapshot.net_days ?? snapshot.netDays ?? 30) || 30);
+            setCustomDueDate(String(snapshot.custom_due_date ?? snapshot.customDueDate ?? todayIso).slice(0, 10));
+            setVendorInvoiceRef(String(snapshot.vendor_invoice_ref ?? snapshot.vendorInvoiceRef ?? ''));
+            setInvoiceDescription(String(snapshot.invoice_description ?? snapshot.invoiceDescription ?? ''));
+            setInvoiceNotes(String(snapshot.invoice_notes ?? snapshot.invoiceNotes ?? ''));
+            setInvoiceDiscountValue(String(snapshot.invoice_discount_value ?? snapshot.invoiceDiscountValue ?? '0'));
+            const discMode = String(snapshot.invoice_discount_mode ?? snapshot.invoiceDiscountMode ?? 'fixed_sar').toLowerCase();
+            setInvoiceDiscountMode(discMode.includes('percent') ? 'percent' : 'fixed_sar');
+            setShowDesc(Boolean(snapshot.show_desc ?? snapshot.showDesc ?? true));
+            setShowDiscount(Boolean(snapshot.show_discount ?? snapshot.showDiscount ?? false));
+            setDiscountIsPercent(Boolean(snapshot.discount_is_percent ?? snapshot.discountIsPercent ?? false));
+            setAmountsTaxInclusive(Boolean(snapshot.amounts_tax_inclusive ?? snapshot.amountsTaxInclusive ?? false));
+            setFreightSar(String(snapshot.freight_sar ?? snapshot.freightSar ?? '0'));
+            setUpdateLastPurchasePrice(
+                Boolean(snapshot.update_last_purchase_price ?? snapshot.updateLastPurchasePrice ?? true),
+            );
+            const searchMap =
+                snapshot.product_search_by_line_id ??
+                snapshot.productSearchByLineId ??
+                {};
+            const rawLines = Array.isArray(snapshot.line_items)
+                ? snapshot.line_items
+                : Array.isArray(snapshot.lineItems)
+                  ? snapshot.lineItems
+                  : [];
+            const nextSearch = {};
+            const nextLines = rawLines.map((line) => {
+                const lineId = String(
+                    line.client_line_id ?? line.clientLineId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+                );
+                const itemName =
+                    line.item ?? line.item_name ?? line.itemName ?? line.product_name ?? '';
+                nextSearch[lineId] = String(searchMap[lineId] ?? searchMap[line.id] ?? itemName ?? '');
+                return {
+                    id: lineId,
+                    productId: String(line.productId ?? line.branch_catalog_product_id ?? ''),
+                    item: itemName,
+                    account: line.account ?? '1410 - Inventory Asset',
+                    description: line.description ?? '',
+                    uom: line.uom ?? 'piece',
+                    qty: line.qty ?? line.quantity ?? 1,
+                    price: line.price ?? 0,
+                    discount: line.discount ?? 0,
+                    discountMode: line.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
+                    taxCode: line.tax_code ?? line.taxCode ?? TAX_LABEL,
+                    taxAmt: String(line.taxAmt ?? line.tax_amount ?? '0.00'),
+                    totalFinal: String(line.totalFinal ?? line.line_total_incl_vat ?? '0.00'),
+                };
+            });
+            setLineItems(nextLines.length > 0 ? nextLines : [createEmptyLine()]);
+            setProductSearchByLineId(nextSearch);
+            setActiveProductSearchLineId(null);
+            setProductDropdownPosition(null);
+            return;
+        }
         const ui = payload.ui && typeof payload.ui === 'object' ? payload.ui : invoice?.ui || {};
         const duePayload =
             payload.dueDate && typeof payload.dueDate === 'object'
@@ -1699,23 +1756,28 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     };
 
     const handleCreateInvoice = async (submitStatus = 'pending') => {
-        if (!canSubmitPurchaseInvoice) return;
+        const isDraftSave = submitStatus === 'draft';
+        if (isDraftSave ? !canSavePurchaseInvoiceDraft : !canSubmitPurchaseInvoice) return;
         setSubmitInvoiceError('');
-        const normalizedSubmitStatus = submitStatus === 'draft' ? 'draft' : 'pending';
+        const normalizedSubmitStatus = isDraftSave ? 'draft' : 'pending';
         const isLocalSupplier =
             selectedSupplierRow?.__supplierType === 'local' ||
             selectedSupplierRow?.raw?.__supplierType === 'local';
-        const selectedLineItems = lineItems.filter(
-            (line) => line.productId != null && String(line.productId).trim() !== '',
-        );
-        const invalidQtyIndex = selectedLineItems.findIndex((line) => {
-            const qty = parseFloat(String(line.qty ?? '').replace(',', '.'));
-            return !Number.isFinite(qty) || qty <= 0;
-        });
-        if (invalidQtyIndex !== -1) {
-            const originalIndex = lineItems.findIndex((line) => line.id === selectedLineItems[invalidQtyIndex].id);
-            setSubmitInvoiceError(`Line ${originalIndex + 1}: qty must be greater than 0.`);
-            return;
+        const selectedLineItems = isDraftSave
+            ? lineItems
+            : lineItems.filter(
+                  (line) => line.productId != null && String(line.productId).trim() !== '',
+              );
+        if (!isDraftSave) {
+            const invalidQtyIndex = selectedLineItems.findIndex((line) => {
+                const qty = parseFloat(String(line.qty ?? '').replace(',', '.'));
+                return !Number.isFinite(qty) || qty <= 0;
+            });
+            if (invalidQtyIndex !== -1) {
+                const originalIndex = lineItems.findIndex((line) => line.id === selectedLineItems[invalidQtyIndex].id);
+                setSubmitInvoiceError(`Line ${originalIndex + 1}: qty must be greater than 0.`);
+                return;
+            }
         }
         if (normalizedSubmitStatus !== 'draft') {
             for (const line of selectedLineItems) {
@@ -1741,15 +1803,36 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             noVat: false,
             freightIn: freightNum,
         });
-        const enrichedLines = buildEnrichedLineItems(
-            selectedLineItems,
-            applyDiscountForCalc,
-            discountIsPercent,
-            VAT_RATE,
-            TAX_LABEL,
-            { unitPriceTaxInclusive: amountsTaxInclusive, noVat: false },
-        );
+        const enrichedLines = buildPurchaseInvoiceLinesForSave(selectedLineItems, {
+            applyLineDiscount: applyDiscountForCalc,
+            lineDiscountIsPercent: discountIsPercent,
+            amountsTaxInclusive,
+            forDraft: isDraftSave,
+            productSearchByLineId,
+        });
         const dueComputed = calculateDueDate();
+        const formSnapshot = buildPurchaseInvoiceFormSnapshot({
+            invoiceBranchId,
+            selectedVendor,
+            supplierId: selectedSupplierRow?.id ?? null,
+            issueDate,
+            dueDateType,
+            netDays,
+            customDueDate,
+            vendorInvoiceRef,
+            invoiceDescription,
+            invoiceNotes,
+            invoiceDiscountValue,
+            invoiceDiscountMode,
+            showDesc,
+            showDiscount,
+            discountIsPercent,
+            amountsTaxInclusive,
+            freightSar,
+            updateLastPurchasePrice,
+            productSearchByLineId,
+            lineItems,
+        });
         const purchaseInvoicePayload = buildPurchaseInvoicePayload({
             status: normalizedSubmitStatus,
             branch_id: invoiceBranchId,
@@ -1819,6 +1902,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             notes: invoiceNotes,
             tax: { label: TAX_LABEL, rate: VAT_RATE },
             form_lines: serializePurchaseInvoiceFormLines(lineItems),
+            form_snapshot: formSnapshot,
         };
         if (import.meta.env.DEV) void console.info('[purchase_invoice_payload]', purchaseInvoicePayload);
         setSubmittingInvoice(true);
@@ -1852,11 +1936,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         };
                     })
                     .filter(Boolean);
-                if (localLines.length === 0) {
-                    throw new Error(
-                        'Local supplier PI requires every line to be picked from the branch catalog.',
-                    );
-                }
                 const localApiStatus = normalizedSubmitStatus === 'draft' ? 'draft' : 'completed';
                 const localPiPayload = {
                     branchId: String(invoiceBranchId),
@@ -1877,7 +1956,23 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     grandTotal: Number(totals?.grand_total ?? 0),
                     lines: localLines,
                     status: localApiStatus,
+                    ui: {
+                        showLineDescriptionColumn: showDesc,
+                        showLineDiscountColumn: showDiscount,
+                        lineDiscountIsPercent: discountIsPercent,
+                        amountsTaxInclusive,
+                        amounts_tax_inclusive: amountsTaxInclusive,
+                        prices_include_vat: amountsTaxInclusive,
+                    },
+                    form_lines: serializePurchaseInvoiceFormLines(lineItems),
+                    form_snapshot: formSnapshot,
+                    updateLastPurchasePriceOnSave: updateLastPurchasePrice,
                 };
+                if (!isDraftSave && localLines.length === 0) {
+                    throw new Error(
+                        'Local supplier PI requires every line to be picked from the branch catalog.',
+                    );
+                }
                 if (editingLocalPiId) {
                     createRes = await patchWorkshopLocalPurchaseInvoice(editingLocalPiId, localPiPayload);
                 } else {
@@ -2294,7 +2389,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         type="button"
                                         className="btn-pi-draft"
                                         onClick={() => handleCreateInvoice('draft')}
-                                        disabled={!canSubmitPurchaseInvoice || submittingInvoice}
+                                        disabled={!canSavePurchaseInvoiceDraft || submittingInvoice}
                                     >
                                         {submittingInvoice
                                             ? 'Saving…'

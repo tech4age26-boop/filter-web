@@ -14,7 +14,6 @@ import {
     updateWorkshopPortalStaff,
     updateWorkshopTechnician,
     updateWorkshopCashier,
-    deleteWorkshopTechnician,
     deleteWorkshopCashier,
     deleteWorkshopPortalStaff,
     getWorkshopBranches,
@@ -624,12 +623,14 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
         const id = typeof emp === 'object' ? emp.id : emp;
         const source = typeof emp === 'object' ? emp._source : arguments[1];
         const isPortal = typeof emp === 'object' && isPortalEmployeeRow(emp);
+        if (source === 'technician') {
+            alert('Technicians cannot be deleted. Edit the technician and set Status to Inactive instead.');
+            return;
+        }
         if (!confirm('Remove this employee? This cannot be undone.')) return;
         setSaving(true);
         try {
-            if (source === 'technician') {
-                await deleteWorkshopTechnician(id);
-            } else if (isPortal) {
+            if (isPortal) {
                 // Manager / supervisor / team_leader — User row, NOT cashiers/employees table.
                 // Uses User.id; the row's `userId` is the same as `id` for portal_user.
                 const userId = (typeof emp === 'object' ? (emp.userId ?? emp.id) : id);
@@ -815,7 +816,7 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
                                                     <Pencil size={12} />
                                                 </button>
                                             )}
-                                            {canDelete && (
+                                            {canDelete && emp._source !== 'technician' && (
                                                 <button
                                                     type="button"
                                                     onClick={() => handleDelete(emp)}
