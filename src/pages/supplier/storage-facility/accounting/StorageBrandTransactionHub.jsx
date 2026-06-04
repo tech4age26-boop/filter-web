@@ -9,6 +9,7 @@ import {
     postBrandReceipt,
     unwrapBrandAccounts,
 } from '../../../../services/storageFacilityAccountingApi';
+import { listStorageSuppliers } from '../../../../services/storageFacilityApi';
 import {
     AcctCard,
     AcctEmpty,
@@ -24,7 +25,8 @@ import {
 } from '../../accounting/SupplierAccountingShared';
 
 const PAY_TYPES = [
-    { value: 'customer', label: 'Customer' },
+    { value: 'customer', label: 'Customers' },
+    { value: 'supplier', label: 'Suppliers' },
     { value: 'others', label: 'Others' },
 ];
 
@@ -48,23 +50,121 @@ function cashLabel(a) {
     return `[${a.code}] ${a.name} — ${money(a.balance ?? 0)}`;
 }
 
+function findAccountByCode(accounts, code) {
+    return (accounts || []).find((a) => String(a.code || '').trim() === String(code));
+}
+
 function partyFromRow(row) {
     if (row.payType === 'customer' && row.payeeValue) {
         return { partyType: 'storage_customer', partyId: row.payeeValue };
     }
+    if (row.payType === 'supplier' && row.payeeValue) {
+        return { partyType: 'storage_supplier', partyId: row.payeeValue };
+    }
     return {};
 }
 
-function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }) {
+function lineDescription(row) {
+    const parts = [];
+    if (row.payType === 'others' && String(row.payeeValue || '').trim()) {
+        parts.push(`Payee: ${String(row.payeeValue).trim()}`);
+    }
+    if (String(row.notes || '').trim()) {
+        parts.push(String(row.notes).trim());
+    }
+    return parts.length ? parts.join(' | ') : undefined;
+}
+
+function groupAccounts(accounts) {
+    const map = new Map();
+    for (const a of accounts || []) {
+        const key = a.accountCategory || a.type || 'Other';
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(a);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
+
+function AccountSelect({ accounts, value, onChange, placeholder = 'Select account…' }) {
+    const groups = useMemo(() => groupAccounts(accounts), [accounts]);
+    return (
+        <select style={inputStyle} value={value} onChange={(e) => onChange(e.target.value)}>
+            <option value="">{placeholder}</option>
+            {groups.map(([label, rows]) => (
+                <optgroup key={label} label={label}>
+                    {rows.map((a) => (
+                        <option key={a.id} value={a.id}>
+                            [{a.code}] {a.name}
+                        </option>
+                    ))}
+                </optgroup>
+            ))}
+        </select>
+    );
+}
+
+function PayeeCell({ row, customers, suppliers, onChange }) {
+    if (row.payType === 'customer') {
+        return (
+            <select
+                style={inputStyle}
+                value={row.payeeValue}
+                onChange={(e) => onChange(e.target.value)}
+            >
+                <option value="">Select customer…</option>
+                {customers.map((c) => (
+                    <option key={c.id} value={String(c.id)}>
+                        {c.name}
+                        {c.code ? ` (${c.code})` : ''}
+                    </option>
+                ))}
+            </select>
+        );
+    }
+    if (row.payType === 'supplier') {
+        return (
+            <select
+                style={inputStyle}
+                value={row.payeeValue}
+                onChange={(e) => onChange(e.target.value)}
+            >
+                <option value="">Select supplier…</option>
+                {suppliers.length === 0 ? (
+                    <option value="" disabled>
+                        No suppliers — add under Suppliers (AP)
+                    </option>
+                ) : null}
+                {suppliers.map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                        {s.name || s.companyName || s.code || s.id}
+                    </option>
+                ))}
+            </select>
+        );
+    }
+    return (
+        <input
+            style={inputStyle}
+            value={row.payeeValue}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Type payee name"
+        />
+    );
+}
+
+function BrandPayReceiptGrid({
+    brandId,
+    variant,
+    accounts,
+    customers,
+    suppliers,
+    onPosted,
+}) {
     const leafAccounts = useMemo(
         () => (accounts || []).filter((a) => !a.hasChildren),
         [accounts],
     );
     const cashOptions = leafAccounts.filter((a) => a.isCashEquivalent);
-    const lineAccounts =
-        variant === 'payment'
-            ? leafAccounts.filter((a) => a.type === 'LIABILITY' || a.type === 'EXPENSE')
-            : leafAccounts.filter((a) => !a.isCashEquivalent);
 
     const [headerDate, setHeaderDate] = useState(todayISO());
     const [headerRef, setHeaderRef] = useState('');
@@ -83,19 +183,33 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
         [lines],
     );
 
-    const validCount = useMemo(
-        () =>
-            lines.filter(
-                (l) =>
-                    l.accountId &&
-                    Number(l.amount) > 0 &&
-                    (l.payType === 'others' || (l.payeeValue && String(l.payeeValue).trim())),
-            ).length,
-        [lines],
-    );
+    const isRowValid = useCallback((l) => {
+        if (!l.accountId || !(Number(l.amount) > 0)) return false;
+        if (l.payType === 'others') return true;
+        return Boolean(l.payeeValue && String(l.payeeValue).trim());
+    }, []);
+
+    const validCount = useMemo(() => lines.filter(isRowValid).length, [lines, isRowValid]);
 
     function updateLine(idx, patch) {
         setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+    }
+
+    function handleTypeChange(idx, payType) {
+        updateLine(idx, { payType, payeeValue: '', accountId: '' });
+    }
+
+    function handlePayeeChange(idx, payeeValue, row) {
+        const patch = { payeeValue };
+        if (variant === 'receipt' && row.payType === 'customer' && payeeValue) {
+            const ar = findAccountByCode(leafAccounts, '1100');
+            if (ar) patch.accountId = String(ar.id);
+        }
+        if (variant === 'payment' && row.payType === 'supplier' && payeeValue) {
+            const ap = findAccountByCode(leafAccounts, '2000');
+            if (ap) patch.accountId = String(ap.id);
+        }
+        updateLine(idx, patch);
     }
 
     function addLine() {
@@ -115,14 +229,9 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
             setErr('Select a cash/bank account.');
             return;
         }
-        const clean = lines.filter(
-            (l) =>
-                l.accountId &&
-                Number(l.amount) > 0 &&
-                (l.payType === 'others' || (l.payeeValue && String(l.payeeValue).trim())),
-        );
+        const clean = lines.filter(isRowValid);
         if (clean.length === 0) {
-            setErr('Add at least one valid row.');
+            setErr('Add at least one row with type, payee (when required), account, and amount.');
             return;
         }
         setSaving(true);
@@ -138,7 +247,7 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
                         {
                             accountId: l.accountId,
                             amount: Number(l.amount),
-                            description: l.notes?.trim() || undefined,
+                            description: lineDescription(l),
                             lineReference: l.lineReference?.trim() || undefined,
                             ...partyFromRow(l),
                         },
@@ -162,19 +271,13 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
     }
 
     return (
-        <form onSubmit={saveAll} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <p style={{ margin: 0, fontSize: 12, color: '#64748B' }}>
+        <form onSubmit={saveAll} className="sf-hub-entry-form">
+            <p className="sf-acct-report-lead">
                 {variant === 'payment'
-                    ? 'Payments — Dr expense/payable, Cr cash/bank. Tab from Notes on the last row adds a line.'
-                    : 'Receipts — Dr cash/bank, Cr revenue/AR. Tab from Notes on the last row adds a line.'}
+                    ? 'Record money out — debit the expense or payable account, credit cash/bank.'
+                    : 'Record money in — debit cash/bank, credit revenue, AR, or other account.'}
             </p>
-            <div
-                style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                    gap: 12,
-                }}
-            >
+            <div className="sf-hub-header-grid">
                 <Field label="Date" required>
                     <input
                         type="date"
@@ -185,19 +288,29 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
                     />
                 </Field>
                 <Field label="Reference number">
-                    <input style={inputStyle} value={headerRef} onChange={(e) => setHeaderRef(e.target.value)} />
+                    <input
+                        style={inputStyle}
+                        value={headerRef}
+                        onChange={(e) => setHeaderRef(e.target.value)}
+                        placeholder="Optional"
+                    />
                 </Field>
                 <Field label="General note">
-                    <input style={inputStyle} value={generalNote} onChange={(e) => setGeneralNote(e.target.value)} />
+                    <input
+                        style={inputStyle}
+                        value={generalNote}
+                        onChange={(e) => setGeneralNote(e.target.value)}
+                        placeholder="Optional"
+                    />
                 </Field>
-                <Field label="Paid from / Receipt to account *" required>
+                <Field label={variant === 'payment' ? 'Paid from (cash/bank) *' : 'Received into (cash/bank) *'} required>
                     <select
                         style={inputStyle}
                         value={cashAccountId}
                         onChange={(e) => setCashAccountId(e.target.value)}
                         required
                     >
-                        <option value="">— Select —</option>
+                        <option value="">Select register…</option>
                         {cashOptions.map((a) => (
                             <option key={a.id} value={a.id}>
                                 {cashLabel(a)}
@@ -206,26 +319,36 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
                     </select>
                 </Field>
             </div>
-            <div style={{ overflowX: 'auto' }}>
-                <table className="ws-table" style={{ width: '100%', minWidth: 900 }}>
+
+            <div className="premium-table mgr-si-table-wrap sf-acct-report-table-wrap">
+                <table className="mgr-si-table sf-hub-lines-table">
                     <thead>
-                        <tr>
-                            <th>Voucher</th>
-                            <th>Date</th>
-                            <th>Type</th>
-                            <th>Payee</th>
-                            <th>{variant === 'payment' ? 'Account Dr' : 'Account Cr'}</th>
-                            <th style={{ textAlign: 'right' }}>Amount</th>
-                            <th>Ref</th>
-                            <th>Notes</th>
-                            <th />
+                        <tr className="table-header-row">
+                            <th className="table-th">Voucher</th>
+                            <th className="table-th">Date</th>
+                            <th className="table-th">Type</th>
+                            <th className="table-th">Payee</th>
+                            <th className="table-th">
+                                {variant === 'payment' ? 'Account Dr' : 'Account Cr'}
+                            </th>
+                            <th className="table-th" style={{ textAlign: 'right' }}>
+                                Amount
+                            </th>
+                            <th className="table-th">Ref</th>
+                            <th className="table-th">Notes</th>
+                            <th className="table-th" />
                         </tr>
                     </thead>
                     <tbody>
                         {lines.map((l, idx) => (
-                            <tr key={idx}>
-                                <td>{variant === 'payment' ? 'PE' : 'RC'}{String(idx + 1).padStart(4, '0')}</td>
-                                <td>
+                            <tr key={idx} className="table-row">
+                                <td className="table-cell">
+                                    <span className="sf-hub-voucher">
+                                        {variant === 'payment' ? 'PE' : 'RC'}
+                                        {String(idx + 1).padStart(4, '0')}
+                                    </span>
+                                </td>
+                                <td className="table-cell">
                                     <input
                                         type="date"
                                         style={inputStyle}
@@ -233,13 +356,11 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
                                         onChange={(e) => updateLine(idx, { lineDate: e.target.value })}
                                     />
                                 </td>
-                                <td>
+                                <td className="table-cell">
                                     <select
                                         style={inputStyle}
                                         value={l.payType}
-                                        onChange={(e) =>
-                                            updateLine(idx, { payType: e.target.value, payeeValue: '' })
-                                        }
+                                        onChange={(e) => handleTypeChange(idx, e.target.value)}
                                     >
                                         {PAY_TYPES.map((p) => (
                                             <option key={p.value} value={p.value}>
@@ -248,46 +369,22 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
                                         ))}
                                     </select>
                                 </td>
-                                <td>
-                                    {l.payType === 'customer' ? (
-                                        <select
-                                            style={inputStyle}
-                                            value={l.payeeValue}
-                                            onChange={(e) => {
-                                                const id = e.target.value;
-                                                updateLine(idx, { payeeValue: id });
-                                                if (variant === 'receipt' && id) {
-                                                    const ar = lineAccounts.find((a) => a.code === '1100');
-                                                    if (ar) updateLine(idx, { accountId: String(ar.id) });
-                                                }
-                                            }}
-                                        >
-                                            <option value="">Select customer…</option>
-                                            {customers.map((c) => (
-                                                <option key={c.id} value={String(c.id)}>
-                                                    {c.name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>
-                                    )}
+                                <td className="table-cell">
+                                    <PayeeCell
+                                        row={l}
+                                        customers={customers}
+                                        suppliers={suppliers}
+                                        onChange={(val) => handlePayeeChange(idx, val, l)}
+                                    />
                                 </td>
-                                <td>
-                                    <select
-                                        style={inputStyle}
+                                <td className="table-cell">
+                                    <AccountSelect
+                                        accounts={leafAccounts}
                                         value={l.accountId}
-                                        onChange={(e) => updateLine(idx, { accountId: e.target.value })}
-                                    >
-                                        <option value="">Select account…</option>
-                                        {lineAccounts.map((a) => (
-                                            <option key={a.id} value={a.id}>
-                                                [{a.code}] {a.name}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        onChange={(id) => updateLine(idx, { accountId: id })}
+                                    />
                                 </td>
-                                <td>
+                                <td className="table-cell">
                                     <input
                                         type="number"
                                         step="0.01"
@@ -297,14 +394,16 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
                                         onChange={(e) => updateLine(idx, { amount: e.target.value })}
                                     />
                                 </td>
-                                <td>
+                                <td className="table-cell">
                                     <input
                                         style={inputStyle}
                                         value={l.lineReference}
-                                        onChange={(e) => updateLine(idx, { lineReference: e.target.value })}
+                                        onChange={(e) =>
+                                            updateLine(idx, { lineReference: e.target.value })
+                                        }
                                     />
                                 </td>
-                                <td>
+                                <td className="table-cell">
                                     <input
                                         style={inputStyle}
                                         value={l.notes}
@@ -312,12 +411,13 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
                                         onKeyDown={(e) => handleTabFromNotes(e, idx)}
                                     />
                                 </td>
-                                <td>
+                                <td className="table-cell">
                                     <button
                                         type="button"
                                         style={{ ...outlineBtnStyle, color: '#B91C1C' }}
                                         onClick={() => setLines((ls) => ls.filter((_, i) => i !== idx))}
                                         disabled={lines.length === 1}
+                                        title="Remove row"
                                     >
                                         <Trash2 size={14} />
                                     </button>
@@ -327,11 +427,12 @@ function BrandPayReceiptGrid({ brandId, variant, accounts, customers, onPosted }
                     </tbody>
                 </table>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>
-                    {validCount} row(s) — {money(total)}
+
+            <div className="sf-hub-footer">
+                <span className="sf-hub-footer-total">
+                    {validCount} row{validCount === 1 ? '' : 's'} — {money(total)}
                 </span>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div className="sf-hub-footer-actions">
                     <button type="button" style={outlineBtnStyle} onClick={addLine}>
                         <Plus size={14} /> Add row
                     </button>
@@ -406,62 +507,66 @@ function BrandJournalGrid({ brandId, accounts, headerDate, headerRef, generalNot
     }
 
     return (
-        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ overflowX: 'auto' }}>
-                <table className="ws-table" style={{ width: '100%', minWidth: 720 }}>
+        <form onSubmit={submit} className="sf-hub-entry-form">
+            <div className="premium-table mgr-si-table-wrap sf-acct-report-table-wrap">
+                <table className="mgr-si-table sf-hub-lines-table">
                     <thead>
-                        <tr>
-                            <th>Account</th>
-                            <th style={{ textAlign: 'right' }}>Debit</th>
-                            <th style={{ textAlign: 'right' }}>Credit</th>
-                            <th>Ref</th>
-                            <th>Notes</th>
-                            <th />
+                        <tr className="table-header-row">
+                            <th className="table-th">Account</th>
+                            <th className="table-th" style={{ textAlign: 'right' }}>
+                                Debit
+                            </th>
+                            <th className="table-th" style={{ textAlign: 'right' }}>
+                                Credit
+                            </th>
+                            <th className="table-th">Ref</th>
+                            <th className="table-th">Notes</th>
+                            <th className="table-th" />
                         </tr>
                     </thead>
                     <tbody>
                         {lines.map((l, idx) => (
-                            <tr key={idx}>
-                                <td>
-                                    <select
-                                        style={inputStyle}
+                            <tr key={idx} className="table-row">
+                                <td className="table-cell">
+                                    <AccountSelect
+                                        accounts={leafAccounts}
                                         value={l.accountId}
-                                        onChange={(e) => updateLine(idx, { accountId: e.target.value })}
-                                    >
-                                        <option value="">—</option>
-                                        {leafAccounts.map((a) => (
-                                            <option key={a.id} value={a.id}>
-                                                [{a.code}] {a.name}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        onChange={(id) => updateLine(idx, { accountId: id })}
+                                        placeholder="—"
+                                    />
                                 </td>
-                                <td>
+                                <td className="table-cell">
                                     <input
                                         type="number"
                                         step="0.01"
                                         style={{ ...inputStyle, textAlign: 'right' }}
                                         value={l.debit}
-                                        onChange={(e) => updateLine(idx, { debit: e.target.value, credit: '' })}
+                                        onChange={(e) =>
+                                            updateLine(idx, { debit: e.target.value, credit: '' })
+                                        }
                                     />
                                 </td>
-                                <td>
+                                <td className="table-cell">
                                     <input
                                         type="number"
                                         step="0.01"
                                         style={{ ...inputStyle, textAlign: 'right' }}
                                         value={l.credit}
-                                        onChange={(e) => updateLine(idx, { credit: e.target.value, debit: '' })}
+                                        onChange={(e) =>
+                                            updateLine(idx, { credit: e.target.value, debit: '' })
+                                        }
                                     />
                                 </td>
-                                <td>
+                                <td className="table-cell">
                                     <input
                                         style={inputStyle}
                                         value={l.lineReference}
-                                        onChange={(e) => updateLine(idx, { lineReference: e.target.value })}
+                                        onChange={(e) =>
+                                            updateLine(idx, { lineReference: e.target.value })
+                                        }
                                     />
                                 </td>
-                                <td>
+                                <td className="table-cell">
                                     <input
                                         style={inputStyle}
                                         value={l.notes}
@@ -469,7 +574,7 @@ function BrandJournalGrid({ brandId, accounts, headerDate, headerRef, generalNot
                                         onKeyDown={(e) => onNotesKeyDown(e, idx)}
                                     />
                                 </td>
-                                <td>
+                                <td className="table-cell">
                                     <button
                                         type="button"
                                         style={outlineBtnStyle}
@@ -483,22 +588,31 @@ function BrandJournalGrid({ brandId, accounts, headerDate, headerRef, generalNot
                         ))}
                     </tbody>
                     <tfoot>
-                        <tr>
-                            <td style={{ textAlign: 'right', fontWeight: 700 }}>Totals</td>
-                            <td style={{ textAlign: 'right', fontWeight: 800 }}>{money(totals.debit)}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 800 }}>{money(totals.credit)}</td>
-                            <td colSpan={3} />
+                        <tr className="table-row">
+                            <td className="table-cell" style={{ textAlign: 'right', fontWeight: 700 }}>
+                                Totals
+                            </td>
+                            <td className="table-cell" style={{ textAlign: 'right', fontWeight: 800 }}>
+                                {money(totals.debit)}
+                            </td>
+                            <td className="table-cell" style={{ textAlign: 'right', fontWeight: 800 }}>
+                                {money(totals.credit)}
+                            </td>
+                            <td colSpan={3} className="table-cell" />
                         </tr>
                     </tfoot>
                 </table>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <button type="button" style={outlineBtnStyle} onClick={addLine}>
-                    <Plus size={14} /> Add row
-                </button>
-                <button type="submit" style={primaryBtnStyle} disabled={saving || !totals.balanced}>
-                    {saving ? 'Posting…' : 'Save journal'}
-                </button>
+            <div className="sf-hub-footer">
+                <span />
+                <div className="sf-hub-footer-actions">
+                    <button type="button" style={outlineBtnStyle} onClick={addLine}>
+                        <Plus size={14} /> Add row
+                    </button>
+                    <button type="submit" style={primaryBtnStyle} disabled={saving || !totals.balanced}>
+                        {saving ? 'Posting…' : 'Save journal'}
+                    </button>
+                </div>
             </div>
             <AcctError message={err} />
         </form>
@@ -508,6 +622,7 @@ function BrandJournalGrid({ brandId, accounts, headerDate, headerRef, generalNot
 export default function StorageBrandTransactionHub({ brandId, customers = [] }) {
     const [tab, setTab] = useState('payment');
     const [accounts, setAccounts] = useState([]);
+    const [suppliers, setSuppliers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [gjDate, setGjDate] = useState(todayISO());
@@ -517,12 +632,26 @@ export default function StorageBrandTransactionHub({ brandId, customers = [] }) 
     const [recentPayments, setRecentPayments] = useState([]);
     const [recentReceipts, setRecentReceipts] = useState([]);
 
+    const activeCustomers = useMemo(
+        () => (customers || []).filter((c) => c.isActive !== false),
+        [customers],
+    );
+
+    const activeSuppliers = useMemo(
+        () => (suppliers || []).filter((s) => s.isActive !== false),
+        [suppliers],
+    );
+
     const reload = useCallback(async () => {
         setLoading(true);
         setErr('');
         try {
-            const res = await getBrandAccounts(brandId);
-            setAccounts(unwrapBrandAccounts(res));
+            const [accRes, supRes] = await Promise.all([
+                getBrandAccounts(brandId, { activeOnly: true }),
+                listStorageSuppliers(brandId).catch(() => ({ suppliers: [] })),
+            ]);
+            setAccounts(unwrapBrandAccounts(accRes));
+            setSuppliers(Array.isArray(supRes?.suppliers) ? supRes.suppliers : []);
         } catch (e) {
             setErr(e?.message || 'Failed to load accounts');
         } finally {
@@ -580,7 +709,8 @@ export default function StorageBrandTransactionHub({ brandId, customers = [] }) 
                             brandId={brandId}
                             variant="payment"
                             accounts={accounts}
-                            customers={customers}
+                            customers={activeCustomers}
+                            suppliers={activeSuppliers}
                             onPosted={(j) => {
                                 setLastPosted(j?.[j.length - 1]);
                                 reloadRecent();
@@ -592,7 +722,8 @@ export default function StorageBrandTransactionHub({ brandId, customers = [] }) 
                             brandId={brandId}
                             variant="receipt"
                             accounts={accounts}
-                            customers={customers}
+                            customers={activeCustomers}
+                            suppliers={activeSuppliers}
                             onPosted={(j) => {
                                 setLastPosted(j?.[j.length - 1]);
                                 reloadRecent();
@@ -601,14 +732,7 @@ export default function StorageBrandTransactionHub({ brandId, customers = [] }) 
                     ) : null}
                     {tab === 'journal' ? (
                         <>
-                            <div
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                                    gap: 12,
-                                    marginBottom: 12,
-                                }}
-                            >
+                            <div className="sf-hub-header-grid" style={{ marginBottom: 12 }}>
                                 <Field label="Date">
                                     <input
                                         type="date"
@@ -618,10 +742,18 @@ export default function StorageBrandTransactionHub({ brandId, customers = [] }) 
                                     />
                                 </Field>
                                 <Field label="Reference">
-                                    <input style={inputStyle} value={gjRef} onChange={(e) => setGjRef(e.target.value)} />
+                                    <input
+                                        style={inputStyle}
+                                        value={gjRef}
+                                        onChange={(e) => setGjRef(e.target.value)}
+                                    />
                                 </Field>
                                 <Field label="Note">
-                                    <input style={inputStyle} value={gjNote} onChange={(e) => setGjNote(e.target.value)} />
+                                    <input
+                                        style={inputStyle}
+                                        value={gjNote}
+                                        onChange={(e) => setGjNote(e.target.value)}
+                                    />
                                 </Field>
                             </div>
                             <BrandJournalGrid
@@ -638,16 +770,16 @@ export default function StorageBrandTransactionHub({ brandId, customers = [] }) 
                         </>
                     ) : null}
                     {lastPosted ? (
-                        <p style={{ marginTop: 12, color: '#065f46', fontWeight: 700, fontSize: 13 }}>
+                        <p className="sf-hub-last-saved">
                             Last saved: {lastPosted.entryNumber} — {money(lastPosted.totalDebit)}
                         </p>
                     ) : null}
-                    <div style={{ marginTop: 20 }}>
-                        <h4 style={{ fontSize: 14, fontWeight: 800 }}>Recent payments</h4>
+                    <div className="sf-hub-recent">
+                        <h4>Recent payments</h4>
                         {recentPayments.length === 0 ? (
                             <AcctEmpty message="No recent payments." />
                         ) : (
-                            <ul style={{ fontSize: 13 }}>
+                            <ul>
                                 {recentPayments.map((j) => (
                                     <li key={j.id}>
                                         {j.entryNumber} · {fmtDate(j.date)} · {money(j.totalDebit)}
@@ -656,12 +788,12 @@ export default function StorageBrandTransactionHub({ brandId, customers = [] }) 
                             </ul>
                         )}
                     </div>
-                    <div style={{ marginTop: 12 }}>
-                        <h4 style={{ fontSize: 14, fontWeight: 800 }}>Recent receipts</h4>
+                    <div className="sf-hub-recent">
+                        <h4>Recent receipts</h4>
                         {recentReceipts.length === 0 ? (
                             <AcctEmpty message="No recent receipts." />
                         ) : (
-                            <ul style={{ fontSize: 13 }}>
+                            <ul>
                                 {recentReceipts.map((j) => (
                                     <li key={j.id}>
                                         {j.entryNumber} · {fmtDate(j.date)} · {money(j.totalCredit)}

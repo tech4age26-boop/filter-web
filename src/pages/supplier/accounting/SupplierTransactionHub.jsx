@@ -17,6 +17,10 @@ import {
     listSupplierSuperSuppliers,
 } from '../../../services/supplierApi';
 import {
+    formatAffiliatedBranchCustomerLabel,
+    formatAffiliatedWorkshopCustomerLabel,
+} from '../../../utils/affiliatedCustomerLabels';
+import {
     AcctCard,
     AcctEmpty,
     AcctError,
@@ -835,17 +839,29 @@ export default function SupplierTransactionHub() {
     const [gjNote, setGjNote] = useState('');
 
     const customerOptions = useMemo(() => {
+        const workshopsWithBranchPins = new Set(
+            affiliatedRows
+                .filter((r) => r.scope === 'branch' && r.branchId)
+                .map((r) => String(r.workshopId)),
+        );
         const opts = [];
         for (const r of affiliatedRows) {
             if (r.scope === 'branch' && r.branchId) {
                 opts.push({
                     value: `branch|${r.branchId}`,
-                    label: `Affiliated · ${r.workshopName || 'Workshop'} — ${r.branchName || 'Branch'}`,
+                    label: formatAffiliatedBranchCustomerLabel(
+                        r.workshopName,
+                        r.branchName,
+                    ),
                 });
-            } else if (r.scope === 'workshop' && r.workshopId) {
+            } else if (
+                r.scope === 'workshop' &&
+                r.workshopId &&
+                !workshopsWithBranchPins.has(String(r.workshopId))
+            ) {
                 opts.push({
                     value: `workshop|${r.workshopId}`,
-                    label: `Affiliated · ${r.workshopName || 'Workshop'} (whole)`,
+                    label: formatAffiliatedWorkshopCustomerLabel(r.workshopName),
                 });
             }
         }
@@ -1002,7 +1018,18 @@ export default function SupplierTransactionHub() {
                                         : null
                                 }
                                 onPosted={(journals) => {
-                                    setLastPosted(journals?.[journals.length - 1] ?? null);
+                                    const last = journals?.[journals.length - 1] ?? null;
+                                    const mirrors = (journals || []).flatMap(
+                                        (j) => j?.storageFacilityMirrors || [],
+                                    );
+                                    setLastPosted(
+                                        last
+                                            ? {
+                                                  ...last,
+                                                  storageFacilityMirrors: mirrors,
+                                              }
+                                            : null,
+                                    );
                                 }}
                             />
                         )}
@@ -1073,6 +1100,18 @@ export default function SupplierTransactionHub() {
                                 }}
                             >
                                 Last saved: <strong>{lastPosted.entryNumber}</strong> — total {money(lastPosted.totalDebit)}.
+                                {lastPosted.storageFacilityMirrors?.length ? (
+                                    <>
+                                        {' '}
+                                        · Synced to storage facility:{' '}
+                                        {lastPosted.storageFacilityMirrors
+                                            .map(
+                                                (m) =>
+                                                    `${m.brandName} (${m.entryNumber}, ${money(m.amount)})`,
+                                            )
+                                            .join('; ')}
+                                    </>
+                                ) : null}
                             </div>
                         ) : null}
 

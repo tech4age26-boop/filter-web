@@ -33,11 +33,14 @@ import {
 } from '../../services/supplierApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
+import { formatAffiliatedBranchCustomerLabel } from '../../utils/affiliatedCustomerLabels';
 
 /** Session key: JSON line preset (legacy / fallback). Primary path is router state `salesInvoiceFromAlert`. */
 const SI_PRESET_LINE_KEY = 'supplier_sales_invoice_preset_line';
 
 const SALES_INVOICE_FROM_ALERT_KEY = 'salesInvoiceFromAlert';
+const FOCUS_SALES_INVOICE_ID_KEY = 'supplier_focus_sales_invoice_id';
+const WORKSHOP_PURCHASE_SI_PREFILL_KEY = 'supplier_workshop_purchase_sales_prefill';
 
 /** Router state key for Transaction Hub receipt prefill from Sales Invoices. */
 const TRANSACTION_HUB_RECEIPT_PREFILL_KEY = 'transactionHubReceiptPrefill';
@@ -65,7 +68,9 @@ function normalizeSalesInvoiceCustomers(branchesRes) {
             return {
                 key: `affiliated:branch:${branchId}`,
                 group: 'Affiliated Workshops',
-                label: b.label || `${b.workshopName || ''} — ${b.name || ''}`.trim(),
+                label:
+                    b.label ||
+                    formatAffiliatedBranchCustomerLabel(b.workshopName, b.name),
                 subtitle: null,
                 customerType: 'affiliated_branch',
                 branchId,
@@ -79,6 +84,39 @@ function normalizeSalesInvoiceCustomers(branchesRes) {
 function customerKeyFromBranchId(branchId) {
     const bid = String(branchId ?? '').trim();
     return bid ? `affiliated:branch:${bid}` : '';
+}
+
+function normalizePrefillCustomerOption(customer, prefillFallback = {}) {
+    if (!customer || typeof customer !== 'object' || !customer.key) return null;
+    return {
+        key: String(customer.key),
+        group: customer.group || 'Affiliated Workshops',
+        label:
+            customer.label ||
+            formatAffiliatedBranchCustomerLabel(
+                prefillFallback.workshopName,
+                prefillFallback.branchName,
+            ) ||
+            'Customer',
+        subtitle: customer.subtitle ?? null,
+        customerType: customer.customerType || 'affiliated_branch',
+        branchId: customer.branchId ?? prefillFallback.branchId ?? null,
+        workshopId: customer.workshopId ?? prefillFallback.workshopId ?? null,
+        externalPartyId: null,
+        disabled: Boolean(customer.disabled),
+    };
+}
+
+function mergeSalesInvoiceCustomerOption(options, customer, prefillFallback = {}) {
+    const c = normalizePrefillCustomerOption(customer, prefillFallback);
+    if (!c) return options;
+    const list = Array.isArray(options) ? options : [];
+    if (list.some((x) => x.key === c.key)) return list;
+    return [...list, c].sort((a, b) => {
+        const g = (a.group || '').localeCompare(b.group || '');
+        if (g !== 0) return g;
+        return (a.label || '').localeCompare(b.label || '');
+    });
 }
 
 /** Map GET `/supplier/invoices/:id` → WorkshopPurchaseInvoiceView detail (same bilingual layout as workshop PI). */
@@ -904,6 +942,9 @@ export default function SupplierSalesInvoices() {
 
     /** Line preset from Workshop Alerts; applied after inventory load (avoids session + Strict Mode races). */
     const salesInvoiceAlertLinePresetRef = useRef(null);
+    /** Workshop purchase order id when issuing AR from Prepare sales invoice. */
+    const workshopPurchaseSourceIdRef = useRef(null);
+    const workshopPurchasePrefillRef = useRef(null);
 
     const getSearchSuggestions = (query) => {
         const items = [...inventoryItems].sort((a, b) =>
@@ -1253,7 +1294,49 @@ export default function SupplierSalesInvoices() {
         setItemPickerInput('');
         setItemPickerFilter('');
         setEditingInvoiceStatus(null);
+        workshopPurchaseSourceIdRef.current = null;
+        workshopPurchasePrefillRef.current = null;
     };
+
+    const applyWorkshopPurchasePrefill = useCallback(
+        (prefill) => {
+            if (!prefill || typeof prefill !== 'object') return;
+            workshopPurchasePrefillRef.current = prefill;
+            workshopPurchaseSourceIdRef.current =
+                prefill.workshopPurchaseInvoiceId != null
+                    ? String(prefill.workshopPurchaseInvoiceId)
+                    : null;
+            if (prefill.issueDate) setIssueDate(String(prefill.issueDate).slice(0, 10));
+            if (prefill.dueDateType) setDueDateType(prefill.dueDateType);
+            if (prefill.netDays != null) setNetDays(String(prefill.netDays));
+            if (prefill.customDueDate) setCustomDueDate(String(prefill.customDueDate).slice(0, 10));
+            if (prefill.refNo) setRefNo(String(prefill.refNo));
+            if (prefill.internalNotes) setInternalNotes(String(prefill.internalNotes));
+            if (prefill.freightIn != null) setFreightCharges(String(prefill.freightIn));
+            if (prefill.invoiceDiscount != null) {
+                setInvoiceDiscountValue(String(prefill.invoiceDiscount));
+            }
+            if (prefill.invoiceDiscountMode === 'percent') {
+                setInvoiceDiscountMode('percent');
+            }
+            if (prefill.customerKey) {
+                setSelectedCustomerKey(String(prefill.customerKey));
+            } else if (prefill.branchId) {
+                setSelectedCustomerKey(customerKeyFromBranchId(prefill.branchId));
+            }
+            if (prefill.customer) {
+                setCustomerOptions((prev) =>
+                    mergeSalesInvoiceCustomerOption(prev, prefill.customer, prefill),
+                );
+            }
+            setDescription(
+                prefill.workshopPurchaseInvoiceNumber
+                    ? `Workshop order ${prefill.workshopPurchaseInvoiceNumber}`
+                    : '',
+            );
+        },
+        [],
+    );
 
     const openNewInvoiceModal = () => {
         setInvoiceModalMode('create');
@@ -1428,6 +1511,13 @@ export default function SupplierSalesInvoices() {
             ...(selectedCustomer.customerType === 'affiliated_workshop' &&
             selectedCustomer.workshopId
                 ? { affiliatedWorkshopId: String(selectedCustomer.workshopId) }
+                : {}),
+            ...(workshopPurchaseSourceIdRef.current
+                ? {
+                      workshopPurchaseInvoiceId: workshopPurchaseSourceIdRef.current,
+                      origin: 'workshop_purchase_request',
+                      invoiceCategory: 'sales_invoice',
+                  }
                 : {}),
         };
         try {
@@ -1638,6 +1728,18 @@ export default function SupplierSalesInvoices() {
             setViewLoading(false);
         }
     };
+
+    useEffect(() => {
+        try {
+            const focusId = sessionStorage.getItem(FOCUS_SALES_INVOICE_ID_KEY);
+            if (!focusId || !String(focusId).trim()) return;
+            sessionStorage.removeItem(FOCUS_SALES_INVOICE_ID_KEY);
+            handleViewInvoice({ id: String(focusId).trim() });
+        } catch {
+            /* ignore */
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount (workshop order → sales invoice link)
+    }, []);
 
     const handleDownloadInvoice = async (row) => {
         if (salesInvoicePdfBusy) return;
@@ -2203,7 +2305,15 @@ export default function SupplierSalesInvoices() {
 
                 setCustomerBranchesLoadError(branchesErr);
                 setInventoryItems(mergeInventoryLists(stockItems, INVENTORY_ITEMS));
-                const customers = normalizeSalesInvoiceCustomers(branchesRes);
+                let customers = normalizeSalesInvoiceCustomers(branchesRes);
+                const wpiPrefill = workshopPurchasePrefillRef.current;
+                if (wpiPrefill?.customer) {
+                    customers = mergeSalesInvoiceCustomerOption(
+                        customers,
+                        wpiPrefill.customer,
+                        wpiPrefill,
+                    );
+                }
                 setCustomerOptions(customers);
 
                 if (invRes && invRes.__error) {
@@ -2304,6 +2414,23 @@ export default function SupplierSalesInvoices() {
     }, [modalOpen]);
 
     useEffect(() => {
+        try {
+            const raw = sessionStorage.getItem(WORKSHOP_PURCHASE_SI_PREFILL_KEY);
+            if (raw) {
+                sessionStorage.removeItem(WORKSHOP_PURCHASE_SI_PREFILL_KEY);
+                const prefill = JSON.parse(raw);
+                if (prefill && typeof prefill === 'object') {
+                    setInvoiceModalMode('create');
+                    setEditingInvoiceId(null);
+                    resetInvoiceForm();
+                    applyWorkshopPurchasePrefill(prefill);
+                    setModalOpen(true);
+                    return;
+                }
+            }
+        } catch {
+            /* ignore */
+        }
         const fromAlert = location.state?.[SALES_INVOICE_FROM_ALERT_KEY];
         if (fromAlert && typeof fromAlert === 'object') {
             navigate(location.pathname + location.search, { replace: true, state: {} });
@@ -2352,11 +2479,84 @@ export default function SupplierSalesInvoices() {
         } catch {
             /* ignore */
         }
-    }, [location.state, location.pathname, location.search, navigate]);
+    }, [location.state, location.pathname, location.search, navigate, applyWorkshopPurchasePrefill]);
 
     useEffect(() => {
         if (!modalOpen || !inventoryInitialLoadDone) return;
         if (invoiceModalMode !== 'create' || editingInvoiceId != null) return;
+
+        const wpiPrefill = workshopPurchasePrefillRef.current;
+        if (wpiPrefill && Array.isArray(wpiPrefill.lines) && wpiPrefill.lines.length > 0) {
+            workshopPurchasePrefillRef.current = null;
+            const built = [];
+            for (const ln of wpiPrefill.lines) {
+                const nameTrim = String(ln.productName ?? '').trim();
+                if (!nameTrim) continue;
+                const sid =
+                    ln.supplierProductId != null && String(ln.supplierProductId).trim() !== ''
+                        ? String(ln.supplierProductId).trim()
+                        : '';
+                let match = sid
+                    ? inventoryItems.find((i) => String(i.id) === sid)
+                    : null;
+                if (!match) {
+                    match = inventoryItems.find(
+                        (i) =>
+                            String(i.name || '').trim().toLowerCase() ===
+                            nameTrim.toLowerCase(),
+                    );
+                }
+                const vatRate = Number(ln.vatRate ?? 15);
+                const taxCode =
+                    TAXES.find((t) => Math.abs(t.percent - vatRate) < 0.01)?.code || 'VAT 15%';
+                const qty = Number(ln.qty) > 0 ? Number(ln.qty) : 1;
+                const unitPrice = Number(ln.unitPrice) || 0;
+                const lineId = nextLineId();
+                const rawLine = {
+                    id: lineId,
+                    sku: String(ln.sku ?? '').trim(),
+                    item: nameTrim,
+                    account: '4100 - Sales Revenue',
+                    description: String(ln.lineDescription ?? '').trim(),
+                    uom: String(ln.unit || 'pcs').trim() || 'pcs',
+                    qty: String(qty),
+                    price: String(unitPrice),
+                    discount: Number(ln.lineDiscount ?? 0),
+                    discountMode:
+                        ln.lineDiscountMode === 'percent' ? 'percent' : 'fixed_sar',
+                    taxCode,
+                    taxAmt: '0.00',
+                    totalFinal: '0.00',
+                    supplierStockProductId: sid || null,
+                    supplierProductId: sid,
+                    workshopCatalogProductId: ln.workshopCatalogProductId
+                        ? String(ln.workshopCatalogProductId)
+                        : null,
+                    hasPreviousSale: false,
+                    lastSalePrice: 0,
+                    lastSaleMeta: '',
+                };
+                if (match) {
+                    rawLine.sku = match.sku || rawLine.sku;
+                    rawLine.uom = ln.unit || match.unit || match.warehouseUnit || 'pcs';
+                    rawLine.warehouseUnit = match.warehouseUnit ?? null;
+                    rawLine.workshopUnitCatalog = match.workshopUnit ?? null;
+                    rawLine.conversionFactor = match.conversionFactor ?? 1;
+                    rawLine.supplierStockProductId = match.supplierStockProductId ?? sid;
+                    rawLine.supplierProductId = String(match.id);
+                    rawLine.hasPreviousSale = !!match.hasPreviousSale;
+                    rawLine.lastSalePrice = match.hasPreviousSale
+                        ? Number(match.lastPrice ?? 0)
+                        : 0;
+                    rawLine.lastSaleMeta = match.hasPreviousSale
+                        ? String(match.lastSaleMeta || '').trim()
+                        : '';
+                }
+                built.push(applyLineTotals(rawLine, amountsTaxInclusive));
+            }
+            if (built.length) setLineItems(built);
+            return;
+        }
 
         let preset = null;
         if (salesInvoiceAlertLinePresetRef.current) {

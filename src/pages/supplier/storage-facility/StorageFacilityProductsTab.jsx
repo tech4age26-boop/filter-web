@@ -4,6 +4,7 @@ import Modal from '../../../components/Modal';
 import SearchableEntityCombobox from './SearchableEntityCombobox';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
 import {
+    applyStorageProductUom,
     createStorageProduct,
     deleteStorageProduct,
     getStorageProductTimeline,
@@ -11,6 +12,13 @@ import {
     setStorageProductCatalogMap,
     updateStorageProduct,
 } from '../../../services/storageFacilityApi';
+import StorageUomSelect from './StorageUomSelect';
+import {
+    formatStockOnHandDisplay,
+    parseProductUomSelectValue,
+    productEffectiveUom,
+    productUomSelectValue,
+} from './storageFacilityUomUtils';
 import {
     exportStorageTimelineExcel,
     exportStorageTimelinePdf,
@@ -36,6 +44,7 @@ function fmtQty(n, unit = '') {
 export default function StorageFacilityProductsTab({
     brandId,
     products,
+    uomProfiles = [],
     onReload,
     whSearch,
     onLoadCatalog,
@@ -51,11 +60,21 @@ export default function StorageFacilityProductsTab({
     const [productModal, setProductModal] = useState(false);
     const [editProduct, setEditProduct] = useState(null);
     const [linkProduct, setLinkProduct] = useState(null);
-    const [newProduct, setNewProduct] = useState({ name: '', sku: '', unit: 'pcs' });
+    const [newProduct, setNewProduct] = useState({
+        name: '',
+        sku: '',
+        unit: 'pcs',
+        uomSelect: 'unit:pcs',
+    });
     const [catalogMapId, setCatalogMapId] = useState('');
     const [catalogSearch, setCatalogSearch] = useState('');
+    const [linkMapId, setLinkMapId] = useState('');
+    const [linkMapSearch, setLinkMapSearch] = useState('');
+    const [catalogLoading, setCatalogLoading] = useState(false);
+    const [catalogTotal, setCatalogTotal] = useState(0);
     const [busy, setBusy] = useState(false);
     const [localWh, setLocalWh] = useState(whSearch ?? []);
+    const catalogSearchTimer = React.useRef(null);
 
     useEffect(() => {
         setLocalWh(whSearch ?? []);
@@ -66,10 +85,46 @@ export default function StorageFacilityProductsTab({
             (localWh || []).map((w) => ({
                 id: w.id,
                 label: w.name,
-                subtitle: [w.sku, w.barcode].filter(Boolean).join(' · ') || undefined,
+                subtitle: [w.sku, w.unit].filter(Boolean).join(' · ') || undefined,
             })),
         [localWh],
     );
+
+    const searchWh = useCallback(async (q = '', limit) => {
+        setCatalogLoading(true);
+        try {
+            const res = await searchWarehouseProductsForMap(q, {
+                limit: limit ?? (q.trim() ? 200 : 5000),
+            });
+            setLocalWh(res?.products ?? []);
+            setCatalogTotal(Number(res?.total) || (res?.products?.length ?? 0));
+        } catch {
+            setLocalWh([]);
+            setCatalogTotal(0);
+        } finally {
+            setCatalogLoading(false);
+        }
+    }, []);
+
+    const handleCatalogQuery = useCallback(
+        (text, setText) => {
+            setText(text);
+            if (catalogSearchTimer.current) clearTimeout(catalogSearchTimer.current);
+            catalogSearchTimer.current = setTimeout(() => {
+                const q = text.trim();
+                searchWh(q, q ? 200 : 5000);
+            }, 280);
+        },
+        [searchWh],
+    );
+
+    const openLinkModal = (p) => {
+        setLinkProduct(p);
+        setLinkMapId(p.warehouseProduct?.id ? String(p.warehouseProduct.id) : '');
+        setLinkMapSearch(p.warehouseProduct?.name ?? '');
+        onLoadCatalog?.();
+        searchWh('', 5000);
+    };
 
     const loadTimeline = useCallback(async () => {
         if (!timelineProductId) return;
@@ -104,19 +159,41 @@ export default function StorageFacilityProductsTab({
         setBusy(true);
         try {
             if (editProduct) {
+                const parsed = parseProductUomSelectValue(editProduct.uomSelect);
                 await updateStorageProduct(brandId, editProduct.id, {
                     name: editProduct.name,
                     sku: editProduct.sku,
-                    unit: editProduct.unit,
+                    ...(parsed.uomProfileId
+                        ? { uomProfileId: parsed.uomProfileId }
+                        : { unit: parsed.unit }),
                 });
+                if (!parsed.uomProfileId && parsed.unit) {
+                    await applyStorageProductUom(brandId, editProduct.id, {
+                        warehouseUnit: parsed.unit,
+                        workshopUnit: parsed.unit,
+                        conversionFactor: 1,
+                    });
+                }
                 setEditProduct(null);
             } else {
-                await createStorageProduct(brandId, {
-                    ...newProduct,
+                const parsed = parseProductUomSelectValue(newProduct.uomSelect);
+                const res = await createStorageProduct(brandId, {
+                    name: newProduct.name,
+                    sku: newProduct.sku,
+                    unit: parsed.unit || newProduct.unit || 'pcs',
+                    uomProfileId: parsed.uomProfileId || undefined,
                     supplierProductId: catalogMapId || undefined,
                 });
+                const newId = res?.product?.id;
+                if (newId && !parsed.uomProfileId && parsed.unit) {
+                    await applyStorageProductUom(brandId, newId, {
+                        warehouseUnit: parsed.unit,
+                        workshopUnit: parsed.unit,
+                        conversionFactor: 1,
+                    });
+                }
                 setProductModal(false);
-                setNewProduct({ name: '', sku: '', unit: 'pcs' });
+                setNewProduct({ name: '', sku: '', unit: 'pcs', uomSelect: 'unit:pcs' });
                 setCatalogMapId('');
                 setCatalogSearch('');
             }
@@ -158,28 +235,22 @@ export default function StorageFacilityProductsTab({
     };
 
     const saveLink = async (supplierProductId) => {
-        if (!linkProduct || !supplierProductId) return;
+        const id = supplierProductId || linkMapId;
+        if (!linkProduct || !id) return;
         setBusy(true);
         try {
             await setStorageProductCatalogMap(brandId, linkProduct.id, {
-                supplierProductId,
+                supplierProductId: id,
             });
             setLinkProduct(null);
+            setLinkMapId('');
+            setLinkMapSearch('');
             await onReload();
             if (timelineProductId === linkProduct.id) await loadTimeline();
         } catch (ex) {
             window.alert(ex?.message || 'Link failed');
         } finally {
             setBusy(false);
-        }
-    };
-
-    const searchWh = async (q) => {
-        try {
-            const res = await searchWarehouseProductsForMap(q);
-            setLocalWh(res?.products ?? []);
-        } catch {
-            setLocalWh([]);
         }
     };
 
@@ -386,7 +457,7 @@ export default function StorageFacilityProductsTab({
                 onClick={() => {
                     setProductModal(true);
                     onLoadCatalog?.();
-                    searchWh('');
+                    searchWh('', 5000);
                 }}
             >
                 <Plus size={14} /> Add product
@@ -424,6 +495,8 @@ export default function StorageFacilityProductsTab({
                                                     name: p.name,
                                                     sku: p.sku || '',
                                                     unit: p.unit || 'pcs',
+                                                    uomProfileId: p.uomProfileId,
+                                                    uomSelect: productUomSelectValue(p, uomProfiles),
                                                 })
                                             }
                                         >
@@ -439,11 +512,7 @@ export default function StorageFacilityProductsTab({
                                         <button
                                             type="button"
                                             className="mgr-sf-ar-link-btn"
-                                            onClick={() => {
-                                                setLinkProduct(p);
-                                                onLoadCatalog?.();
-                                                searchWh('');
-                                            }}
+                                            onClick={() => openLinkModal(p)}
                                             title="Update warehouse catalog link"
                                         >
                                             <Link2 size={12} /> Link
@@ -477,7 +546,28 @@ export default function StorageFacilityProductsTab({
                                     onClick={() => openTimeline(p.id)}
                                     style={{ cursor: 'pointer' }}
                                 >
-                                    {p.qtyOnHand} {p.unit}
+                                    {(() => {
+                                        const d = formatStockOnHandDisplay(
+                                            p.qtyOnHand,
+                                            productEffectiveUom(p),
+                                        );
+                                        return (
+                                            <>
+                                                {d.primary}
+                                                {d.secondary ? (
+                                                    <span
+                                                        style={{
+                                                            display: 'block',
+                                                            fontSize: '0.75rem',
+                                                            color: '#64748b',
+                                                        }}
+                                                    >
+                                                        {d.secondary}
+                                                    </span>
+                                                ) : null}
+                                            </>
+                                        );
+                                    })()}
                                 </td>
                                 <td className="table-cell">
                                     {p.warehouseProduct?.name ?? (
@@ -511,14 +601,23 @@ export default function StorageFacilityProductsTab({
                     <form className="sf-simple-form" onSubmit={saveProduct}>
                         <div className="sf-form-field">
                             <label htmlFor="sf-prod-catalog">Map from warehouse catalog (optional)</label>
+                            {catalogLoading ? (
+                                <p className="sf-form-field-hint">Loading catalog…</p>
+                            ) : (
+                                <p className="sf-form-field-hint">
+                                    {catalogTotal > 0
+                                        ? `${catalogTotal} warehouse products — type to search, ↑↓ to move, Enter to select`
+                                        : 'Search your main warehouse catalog'}
+                                </p>
+                            )}
                             <SearchableEntityCombobox
                                 id="sf-prod-catalog"
                                 options={catalogOptions}
                                 value={catalogMapId}
                                 displayText={catalogSearch}
                                 onDisplayTextChange={(t) => {
-                                    setCatalogSearch(t);
-                                    setCatalogMapId('');
+                                    handleCatalogQuery(t, setCatalogSearch);
+                                    if (!t.trim()) setCatalogMapId('');
                                 }}
                                 onSelect={(w) => {
                                     setCatalogMapId(String(w.id));
@@ -534,20 +633,15 @@ export default function StorageFacilityProductsTab({
                                         }));
                                     }
                                 }}
-                                placeholder="Search catalog product…"
+                                placeholder="Search by name or SKU…"
                             />
-                            <p className="sf-form-field-hint">
-                                Link your main warehouse SKU for withdrawals and reporting.
-                            </p>
                             <button
                                 type="button"
                                 className="sf-doc-link-btn"
-                                onClick={() => {
-                                    onLoadCatalog?.();
-                                    searchWh('');
-                                }}
+                                disabled={catalogLoading}
+                                onClick={() => searchWh('', 5000)}
                             >
-                                Refresh catalog list
+                                Refresh catalog ({catalogTotal || '…'})
                             </button>
                         </div>
                         <div className="sf-form-field">
@@ -573,14 +667,26 @@ export default function StorageFacilityProductsTab({
                                 />
                             </div>
                             <div className="sf-form-field">
-                                <label htmlFor="sf-prod-unit">Unit</label>
-                                <input
+                                <label htmlFor="sf-prod-unit">Unit / UOM</label>
+                                <StorageUomSelect
                                     id="sf-prod-unit"
-                                    value={newProduct.unit}
-                                    onChange={(e) =>
-                                        setNewProduct((x) => ({ ...x, unit: e.target.value }))
-                                    }
+                                    variant="product"
+                                    profiles={uomProfiles}
+                                    value={newProduct.uomSelect}
+                                    onChange={(v) => {
+                                        const parsed = parseProductUomSelectValue(v);
+                                        setNewProduct((x) => ({
+                                            ...x,
+                                            uomSelect: v,
+                                            unit: parsed.unit || x.unit,
+                                        }));
+                                    }}
                                 />
+                                {uomProfiles.length === 0 ? (
+                                    <p className="sf-form-field-hint">
+                                        Create UOM profiles on the UOM tab (e.g. 1 Box = 12 Liter).
+                                    </p>
+                                ) : null}
                             </div>
                         </div>
                         <div className="sf-form-actions">
@@ -631,13 +737,23 @@ export default function StorageFacilityProductsTab({
                                 />
                             </div>
                             <div className="sf-form-field">
-                                <label htmlFor="sf-edit-unit">Unit</label>
-                                <input
+                                <label htmlFor="sf-edit-unit">Unit / UOM</label>
+                                <StorageUomSelect
                                     id="sf-edit-unit"
-                                    value={editProduct.unit ?? 'pcs'}
-                                    onChange={(e) =>
-                                        setEditProduct((x) => ({ ...x, unit: e.target.value }))
+                                    variant="product"
+                                    profiles={uomProfiles}
+                                    value={
+                                        editProduct.uomSelect ??
+                                        productUomSelectValue(editProduct, uomProfiles)
                                     }
+                                    onChange={(v) => {
+                                        const parsed = parseProductUomSelectValue(v);
+                                        setEditProduct((x) => ({
+                                            ...x,
+                                            uomSelect: v,
+                                            unit: parsed.unit || x.unit,
+                                        }));
+                                    }}
                                 />
                             </div>
                         </div>
@@ -660,38 +776,75 @@ export default function StorageFacilityProductsTab({
 
             {linkProduct ? (
                 <Modal
-                    title={`Link: ${linkProduct.name}`}
+                    title="Link warehouse SKU"
+                    width="560px"
+                    contentClassName="sf-simple-modal sf-link-catalog-modal"
                     onClose={() => !busy && setLinkProduct(null)}
                 >
-                    <p style={{ fontSize: '0.8125rem', color: '#64748b', marginTop: 0 }}>
-                        Map to your main warehouse catalog SKU (for withdrawals).
-                    </p>
+                    <div className="sf-link-catalog-head">
+                        <span className="sf-link-catalog-label">Storage product</span>
+                        <strong>{linkProduct.name}</strong>
+                        {linkProduct.sku ? (
+                            <span className="sf-link-catalog-meta">SKU: {linkProduct.sku}</span>
+                        ) : null}
+                    </div>
                     {linkProduct.warehouseProduct ? (
-                        <p style={{ fontSize: '0.875rem' }}>
-                            Current: <strong>{linkProduct.warehouseProduct.name}</strong>
+                        <div className="sf-link-catalog-current">
+                            <span>Currently linked</span>
+                            <strong>{linkProduct.warehouseProduct.name}</strong>
+                        </div>
+                    ) : (
+                        <p className="sf-link-catalog-lead">
+                            Choose the matching product from your main warehouse catalog (for
+                            withdrawals).
                         </p>
-                    ) : null}
-                    <select
-                        style={{ width: '100%', marginBottom: 8 }}
-                        defaultValue=""
-                        onChange={(e) => {
-                            if (e.target.value) saveLink(e.target.value);
-                        }}
-                    >
-                        <option value="">Select warehouse product…</option>
-                        {localWh.map((w) => (
-                            <option key={w.id} value={w.id}>
-                                {w.name} {w.sku ? `(${w.sku})` : ''}
-                            </option>
-                        ))}
-                    </select>
-                    <button
-                        type="button"
-                        className="mgr-si-search-btn"
-                        onClick={() => searchWh('')}
-                    >
-                        Refresh catalog list
-                    </button>
+                    )}
+                    {catalogLoading ? (
+                        <p className="sf-form-field-hint">Loading warehouse catalog…</p>
+                    ) : (
+                        <p className="sf-form-field-hint">
+                            {catalogTotal > 0
+                                ? `${catalogTotal} products available — search, then ↑↓ and Enter`
+                                : 'No catalog products loaded'}
+                        </p>
+                    )}
+                    <div className="sf-form-field">
+                        <label htmlFor="sf-link-catalog">Warehouse catalog product</label>
+                        <SearchableEntityCombobox
+                            id="sf-link-catalog"
+                            options={catalogOptions}
+                            value={linkMapId}
+                            displayText={linkMapSearch}
+                            onDisplayTextChange={(t) => {
+                                handleCatalogQuery(t, setLinkMapSearch);
+                                if (!t.trim()) setLinkMapId('');
+                            }}
+                            onSelect={(w) => {
+                                setLinkMapId(String(w.id));
+                                setLinkMapSearch(w.label);
+                            }}
+                            placeholder="Type name or SKU…"
+                            disabled={busy}
+                        />
+                    </div>
+                    <div className="sf-form-actions">
+                        <button
+                            type="button"
+                            className="btn-portal-outline"
+                            disabled={busy || catalogLoading}
+                            onClick={() => searchWh('', 5000)}
+                        >
+                            Refresh list
+                        </button>
+                        <button
+                            type="button"
+                            className="mgr-si-btn-new"
+                            disabled={busy || !linkMapId}
+                            onClick={() => saveLink()}
+                        >
+                            {busy ? 'Linking…' : 'Save link'}
+                        </button>
+                    </div>
                 </Modal>
             ) : null}
         </>

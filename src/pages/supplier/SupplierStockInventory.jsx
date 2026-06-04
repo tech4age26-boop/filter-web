@@ -16,10 +16,12 @@ import Modal from '../../components/Modal';
 import {
     fetchAllSupplierProducts,
     getSupplierInventoryStockBalances,
+    getSupplierProductInventoryTimeline,
     setSupplierStock,
     updateSupplierProduct,
 } from '../../services/supplierApi';
 import SupplierProductHistoryDrawer from './accounting/SupplierProductHistoryDrawer';
+import StockProductUomEditModal from './StockProductUomEditModal';
 import {
     mapSupplierHistoryToMovementRegister,
     mapSupplierHistoryToTimelineEntries,
@@ -106,6 +108,7 @@ export default function SupplierStockInventory() {
     const [timelineLoading, setTimelineLoading] = useState(false);
     const [timelineError, setTimelineError] = useState('');
     const [accountingHistoryProduct, setAccountingHistoryProduct] = useState(null);
+    const [uomEditProduct, setUomEditProduct] = useState(null);
 
     // `stock` is already server-filtered by `search` (name or SKU). Keep a light client filter
     // as a safety net (e.g. if backend returns broader results).
@@ -248,7 +251,7 @@ export default function SupplierStockInventory() {
             const res = await getSupplierInventoryStockBalances({
                 limit: STOCK_PAGE_SIZE,
                 offset: (stockPage - 1) * STOCK_PAGE_SIZE,
-                historyLimit: 200,
+                historyLimit: 50,
                 search: search.trim() ? search.trim() : undefined,
                 ...(criticalOnly ? { isLowCriticalOnly: true } : {}),
             });
@@ -354,17 +357,14 @@ export default function SupplierStockInventory() {
         setTimelineLoading(true);
         setTimelineError('');
         try {
-            const res = await getSupplierInventoryStockBalances({
-                productId: String(productId),
-                historyLimit: 200,
-                limit: 25,
-                offset: 0,
+            const res = await getSupplierProductInventoryTimeline(productId, {
+                historyLimit: 50,
             });
             const hist = Array.isArray(res?.transactionHistory) ? res.transactionHistory : [];
             const currentQty =
                 currentQtyHint ??
+                res?.currentBalanceWarehouse ??
                 stock.find((p) => String(p.id) === String(productId))?.warehouseQty ??
-                res?.items?.[0]?.currentBalanceWarehouse ??
                 0;
             const uom = productUomByProductId[String(productId)] || {};
             setTimelineEntries(mapSupplierHistoryToTimelineEntries(hist, currentQty, uom));
@@ -1105,7 +1105,26 @@ export default function SupplierStockInventory() {
                                                     <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
                                                         {s.sku || '-'}
                                                     </td>
-                                                    <td>{s.unit}</td>
+                                                    <td>
+                                                        <span style={{ fontWeight: 600 }}>
+                                                            {s.warehouseUnit || 'Box'}
+                                                        </span>
+                                                        {s.unit &&
+                                                        String(s.warehouseUnit || '')
+                                                            .toLowerCase() !==
+                                                            String(s.unit).toLowerCase() ? (
+                                                            <span
+                                                                style={{
+                                                                    display: 'block',
+                                                                    fontSize: '0.7rem',
+                                                                    color: 'var(--color-text-muted)',
+                                                                }}
+                                                            >
+                                                                → {s.unit} (×
+                                                                {s.conversionFactor || 1})
+                                                            </span>
+                                                        ) : null}
+                                                    </td>
                                                     <td>
                                                         <strong>
                                                             {formatDualUomQty(
@@ -1163,9 +1182,32 @@ export default function SupplierStockInventory() {
                                                             type="button"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
+                                                                setUomEditProduct(s);
+                                                            }}
+                                                            style={{
+                                                                padding: '6px 10px',
+                                                                borderRadius: 6,
+                                                                border: '1px solid #e0e7ff',
+                                                                background: '#eef2ff',
+                                                                fontSize: '0.75rem',
+                                                                fontWeight: 600,
+                                                                cursor: 'pointer',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: 4,
+                                                            }}
+                                                            title="Edit warehouse / workshop UOM and conversion factor"
+                                                        >
+                                                            <Pencil size={12} /> Edit UOM
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
                                                                 openAdjust(s);
                                                             }}
                                                             style={{
+                                                                marginLeft: 6,
                                                                 padding: '6px 10px',
                                                                 borderRadius: 6,
                                                                 border: '1px solid var(--color-border)',
@@ -2304,6 +2346,14 @@ export default function SupplierStockInventory() {
                     </Modal>
                 )}
             </AnimatePresence>
+
+            {uomEditProduct ? (
+                <StockProductUomEditModal
+                    product={uomEditProduct}
+                    onClose={() => setUomEditProduct(null)}
+                    onSaved={() => loadStock({ silent: true })}
+                />
+            ) : null}
         </div>
     );
 }

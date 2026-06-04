@@ -9,25 +9,29 @@ import {
     listStorageAuditLog,
     listStorageBrandUsers,
     listStorageCustomers,
-    listStorageInvoices,
     listStorageProducts,
-    postStorageInvoice,
-    recordStorageInvoicePayment,
+    listStorageSuppliers,
+    listStorageUomProfiles,
     searchWarehouseProductsForMap,
 } from '../../../services/storageFacilityApi';
-import StorageFacilityInvoicePrint from './StorageFacilityInvoicePrint';
 import StorageFacilityCustomersTab from './StorageFacilityCustomersTab';
+import StorageFacilitySuppliersTab from './StorageFacilitySuppliersTab';
 import StorageFacilityProductsTab from './StorageFacilityProductsTab';
 import StorageFacilityMovementsTab from './StorageFacilityMovementsTab';
 import StorageFacilityLocationsTab from './StorageFacilityLocationsTab';
 import StorageFacilityTransfersTab from './StorageFacilityTransfersTab';
 import StorageFacilitySalesRepsTab from './StorageFacilitySalesRepsTab';
 import StorageFacilitySalesTab from './StorageFacilitySalesTab';
-import StorageFacilityNewInvoiceModal from './StorageFacilityNewInvoiceModal';
+import StorageFacilityInvoicesTab from './StorageFacilityInvoicesTab';
+import StorageFacilityUomTab from './StorageFacilityUomTab';
 import StorageBrandTransactionHub from './accounting/StorageBrandTransactionHub';
 import StorageBrandCashBankTab from './accounting/StorageBrandCashBankTab';
 import StorageBrandAccountsTab from './accounting/StorageBrandAccountsTab';
 import StorageBrandJournalLogs from './accounting/StorageBrandJournalLogs';
+import StorageBrandTrialBalanceTab from './accounting/StorageBrandTrialBalanceTab';
+import StorageBrandIncomeStatementTab from './accounting/StorageBrandIncomeStatementTab';
+import StorageBrandBalanceSheetTab from './accounting/StorageBrandBalanceSheetTab';
+import { STORAGE_BRAND_ACCOUNTING_TABS } from './accounting/storageFacilityAccountingTabs';
 import StorageFacilityPermissionsPicker from './StorageFacilityPermissionsPicker';
 import { SF_DEFAULT_OPERATOR_PERMISSIONS } from './storageFacilityPermissions';
 import '../../../styles/admin/AccountingPage.css';
@@ -44,23 +48,16 @@ function readPortalScope() {
 const OPERATIONS_TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'products', label: 'Products' },
+    { id: 'uom', label: 'UOM' },
     { id: 'movements', label: 'Stock movements' },
     { id: 'locations', label: 'Inventory locations' },
     { id: 'transfers', label: 'Transfers' },
-    { id: 'invoices', label: 'Invoices' },
+    { id: 'sales_invoices', label: 'Sales invoices' },
+    { id: 'purchase_invoices', label: 'Purchase invoices' },
     { id: 'ar', label: 'Customers (AR)' },
+    { id: 'ap', label: 'Suppliers (AP)' },
     { id: 'sales_reps', label: 'Sales reps & performance' },
     { id: 'sales', label: 'Sales' },
-];
-
-/** Brand-scoped accounting (same areas as supplier Finance → Accounting). */
-const ACCOUNTING_TABS = [
-    { id: 'acct_hub', label: 'Transaction Hub' },
-    { id: 'acct_cash', label: 'Cash & Bank' },
-    { id: 'acct_accounts', label: 'Account categories' },
-    { id: 'acct_log_pay', label: 'Payments log' },
-    { id: 'acct_log_rcpt', label: 'Receipts log' },
-    { id: 'acct_log_je', label: 'Journal log' },
 ];
 
 const ADMIN_TABS = [{ id: 'users', label: 'Brand users', ownerOnly: true }];
@@ -71,13 +68,13 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
     const [tab, setTab] = useState('overview');
     const [summary, setSummary] = useState(null);
     const [products, setProducts] = useState([]);
-    const [invoices, setInvoices] = useState([]);
     const [customers, setCustomers] = useState([]);
+    const [suppliers, setSuppliers] = useState([]);
+    const [uomProfiles, setUomProfiles] = useState([]);
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
 
-    const [invoiceModal, setInvoiceModal] = useState(false);
     const [userModal, setUserModal] = useState(false);
     const [newUser, setNewUser] = useState({
         name: '',
@@ -89,11 +86,14 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
     const [whSearch, setWhSearch] = useState([]);
     const [busy, setBusy] = useState(false);
     const [auditEntries, setAuditEntries] = useState([]);
-    const [printInvoice, setPrintInvoice] = useState(null);
+    const [openLedgerAccountId, setOpenLedgerAccountId] = useState(null);
 
     const visibleAdminTabs = ADMIN_TABS.filter((t) => !t.ownerOnly || isOwner);
 
     function renderTabButton(t) {
+        if (t.type === 'divider') {
+            return <span key={t.id} className="sf-brand-tab-divider" aria-hidden />;
+        }
         const active = tab === t.id;
         return (
             <button
@@ -111,17 +111,19 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
         setLoading(true);
         setErr('');
         try {
-            const [sumRes, prodRes, invRes, custRes, auditRes] = await Promise.all([
+            const [sumRes, prodRes, custRes, supRes, uomRes, auditRes] = await Promise.all([
                 getStorageBrandSummary(brandId),
                 listStorageProducts(brandId),
-                listStorageInvoices(brandId),
                 listStorageCustomers(brandId),
+                listStorageSuppliers(brandId),
+                listStorageUomProfiles(brandId),
                 listStorageAuditLog(brandId, { limit: 20 }),
             ]);
             setSummary(sumRes?.brand ?? null);
             setProducts(prodRes?.products ?? []);
-            setInvoices(invRes?.invoices ?? []);
             setCustomers(custRes?.customers ?? []);
+            setSuppliers(supRes?.suppliers ?? []);
+            setUomProfiles(uomRes?.profiles ?? []);
             setAuditEntries(auditRes?.entries ?? []);
             if (isOwner) {
                 const uRes = await listStorageBrandUsers(brandId);
@@ -168,7 +170,7 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
 
     const searchWh = async (q) => {
         try {
-            const res = await searchWarehouseProductsForMap(q);
+            const res = await searchWarehouseProductsForMap(q, { limit: q?.trim() ? 200 : 5000 });
             setWhSearch(res?.products ?? []);
         } catch {
             setWhSearch([]);
@@ -208,7 +210,7 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                 </div>
                 <div className="sf-brand-tab-row sf-brand-tab-row--accounting">
                     <span className="sf-brand-tab-row-label">Accounting</span>
-                    {ACCOUNTING_TABS.map(renderTabButton)}
+                    {STORAGE_BRAND_ACCOUNTING_TABS.map(renderTabButton)}
                 </div>
             </div>
 
@@ -264,9 +266,19 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                 <StorageFacilityProductsTab
                     brandId={brandId}
                     products={products}
+                    uomProfiles={uomProfiles}
                     onReload={reload}
                     whSearch={whSearch}
                     onLoadCatalog={() => searchWh('')}
+                />
+            ) : null}
+
+            {tab === 'uom' ? (
+                <StorageFacilityUomTab
+                    brandId={brandId}
+                    products={products}
+                    uomProfiles={uomProfiles}
+                    onReload={reload}
                 />
             ) : null}
 
@@ -297,100 +309,47 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                 />
             ) : null}
 
-            {tab === 'invoices' ? (
-                <>
-                    <button
-                        type="button"
-                        className="mgr-si-btn-new"
-                        style={{ marginBottom: 12 }}
-                        onClick={() => setInvoiceModal(true)}
-                    >
-                        <Plus size={14} /> New invoice
-                    </button>
-                    <div className="premium-table mgr-si-table-wrap">
-                        <table className="mgr-si-table">
-                            <thead>
-                                <tr className="table-header-row">
-                                    <th className="table-th">Invoice #</th>
-                                    <th className="table-th">Type</th>
-                                    <th className="table-th">Date</th>
-                                    <th className="table-th">Total</th>
-                                    <th className="table-th">Balance</th>
-                                    <th className="table-th">Status</th>
-                                    <th className="table-th">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {invoices.map((inv) => (
-                                    <tr key={inv.id} className="table-row">
-                                        <td className="table-cell">{inv.invoiceNo}</td>
-                                        <td className="table-cell">{inv.invoiceType}</td>
-                                        <td className="table-cell">{inv.issueDate}</td>
-                                        <td className="table-cell">
-                                            SAR {Number(inv.grandTotal).toLocaleString()}
-                                        </td>
-                                        <td className="table-cell mgr-si-cell-balance">
-                                            SAR {Number(inv.balance).toLocaleString()}
-                                        </td>
-                                        <td className="table-cell">{inv.status}</td>
-                                        <td className="table-cell">
-                                            <button
-                                                type="button"
-                                                className="mgr-si-record-pay"
-                                                style={{ marginRight: 6 }}
-                                                onClick={() => setPrintInvoice(inv)}
-                                            >
-                                                Print
-                                            </button>
-                                            {inv.status === 'draft' ? (
-                                                <button
-                                                    type="button"
-                                                    className="mgr-si-record-pay"
-                                                    onClick={async () => {
-                                                        await postStorageInvoice(brandId, inv.id);
-                                                        await reload();
-                                                    }}
-                                                >
-                                                    Post
-                                                </button>
-                                            ) : null}
-                                            {inv.status === 'posted' && inv.balance > 0 ? (
-                                                <button
-                                                    type="button"
-                                                    className="mgr-si-record-pay"
-                                                    onClick={async () => {
-                                                        const amt = prompt(
-                                                            'Payment amount (SAR)',
-                                                            String(inv.balance),
-                                                        );
-                                                        if (!amt) return;
-                                                        await recordStorageInvoicePayment(
-                                                            brandId,
-                                                            inv.id,
-                                                            { amount: Number(amt), method: 'cash' },
-                                                        );
-                                                        await reload();
-                                                    }}
-                                                >
-                                                    Record payment
-                                                </button>
-                                            ) : null}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </>
+            {tab === 'sales_invoices' ? (
+                <StorageFacilityInvoicesTab
+                    brandId={brandId}
+                    brandName={summary?.name}
+                    scope="sales"
+                    products={products}
+                    customers={customers}
+                    suppliers={suppliers}
+                    uomProfiles={uomProfiles}
+                    onReload={reload}
+                />
+            ) : null}
+
+            {tab === 'purchase_invoices' ? (
+                <StorageFacilityInvoicesTab
+                    brandId={brandId}
+                    brandName={summary?.name}
+                    scope="purchase"
+                    products={products}
+                    customers={customers}
+                    suppliers={suppliers}
+                    uomProfiles={uomProfiles}
+                    onReload={reload}
+                />
             ) : null}
 
             {tab === 'ar' ? <StorageFacilityCustomersTab brandId={brandId} /> : null}
+
+            {tab === 'ap' ? <StorageFacilitySuppliersTab brandId={brandId} /> : null}
 
             {tab === 'acct_hub' ? (
                 <StorageBrandTransactionHub brandId={brandId} customers={customers} />
             ) : null}
             {tab === 'acct_cash' ? <StorageBrandCashBankTab brandId={brandId} /> : null}
-            {tab === 'acct_accounts' ? <StorageBrandAccountsTab brandId={brandId} /> : null}
+            {tab === 'acct_accounts' ? (
+                <StorageBrandAccountsTab
+                    brandId={brandId}
+                    openAccountId={openLedgerAccountId}
+                    onLedgerOpened={() => setOpenLedgerAccountId(null)}
+                />
+            ) : null}
             {tab === 'acct_log_pay' ? (
                 <StorageBrandJournalLogs brandId={brandId} kind="payments" />
             ) : null}
@@ -400,6 +359,17 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
             {tab === 'acct_log_je' ? (
                 <StorageBrandJournalLogs brandId={brandId} kind="journals" />
             ) : null}
+            {tab === 'acct_tb' ? (
+                <StorageBrandTrialBalanceTab
+                    brandId={brandId}
+                    onAccountClick={(id) => {
+                        setOpenLedgerAccountId(id);
+                        setTab('acct_accounts');
+                    }}
+                />
+            ) : null}
+            {tab === 'acct_pl' ? <StorageBrandIncomeStatementTab brandId={brandId} /> : null}
+            {tab === 'acct_bs' ? <StorageBrandBalanceSheetTab brandId={brandId} /> : null}
 
             {tab === 'users' && isOwner ? (
                 <>
@@ -432,19 +402,6 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                         </table>
                     </div>
                 </>
-            ) : null}
-
-            {invoiceModal ? (
-                <StorageFacilityNewInvoiceModal
-                    brandId={brandId}
-                    brandName={summary?.name}
-                    products={products}
-                    customers={customers}
-                    whSearch={whSearch}
-                    onLoadCatalog={() => searchWh('')}
-                    onClose={() => setInvoiceModal(false)}
-                    onSaved={reload}
-                />
             ) : null}
 
             {userModal ? (
@@ -539,16 +496,6 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                             </button>
                         </div>
                     </form>
-                </Modal>
-            ) : null}
-
-            {printInvoice ? (
-                <Modal onClose={() => setPrintInvoice(null)} title="Invoice preview">
-                    <StorageFacilityInvoicePrint
-                        brandName={summary?.name}
-                        invoice={printInvoice}
-                        onClose={() => setPrintInvoice(null)}
-                    />
                 </Modal>
             ) : null}
         </div>

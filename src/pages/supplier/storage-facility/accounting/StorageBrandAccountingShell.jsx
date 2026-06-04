@@ -1,17 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import StorageBrandTransactionHub from './StorageBrandTransactionHub';
 import StorageBrandJournalLogs from './StorageBrandJournalLogs';
 import StorageBrandAccountsTab from './StorageBrandAccountsTab';
 import StorageBrandCashBankTab from './StorageBrandCashBankTab';
-
-const ACCT_NAV = [
-    { id: 'acct_hub', label: 'Transaction Hub' },
-    { id: 'acct_cash', label: 'Cash & Bank' },
-    { id: 'acct_accounts', label: 'Account categories' },
-    { id: 'acct_log_pay', label: 'Payments log' },
-    { id: 'acct_log_rcpt', label: 'Receipts log' },
-    { id: 'acct_log_je', label: 'Journal log' },
-];
+import StorageBrandTrialBalanceTab from './StorageBrandTrialBalanceTab';
+import StorageBrandIncomeStatementTab from './StorageBrandIncomeStatementTab';
+import StorageBrandBalanceSheetTab from './StorageBrandBalanceSheetTab';
+import { STORAGE_BRAND_ACCOUNTING_TABS } from './storageFacilityAccountingTabs';
 
 export default function StorageBrandAccountingShell({
     brandId,
@@ -20,31 +15,36 @@ export default function StorageBrandAccountingShell({
     acctTab,
     onAcctTabChange,
 }) {
+    const [openLedgerAccountId, setOpenLedgerAccountId] = useState(null);
+
     return (
         <div className="sf-brand-accounting">
             <div className="sf-brand-accounting-head">
                 <h2 className="sf-brand-accounting-title">Accounting</h2>
                 <p className="sf-brand-accounting-sub">
                     {brandName ? `${brandName} — ` : ''}
-                    Payments, receipts, journals, cash registers, and account ledgers.
+                    Chart of accounts, cash, journals, and financial statements.
                 </p>
             </div>
-            <nav className="sf-brand-acct-nav" aria-label="Accounting sections">
-                {ACCT_NAV.map((t) => (
-                    <button
-                        key={t.id}
-                        type="button"
-                        className={
-                            acctTab === t.id
-                                ? 'sf-brand-acct-nav-btn sf-brand-acct-nav-btn--active'
-                                : 'sf-brand-acct-nav-btn'
-                        }
-                        onClick={() => onAcctTabChange(t.id)}
-                    >
-                        {t.label}
-                    </button>
-                ))}
-            </nav>
+            <div className="sf-brand-tab-row sf-brand-tab-row--accounting">
+                <span className="sf-brand-tab-row-label">Accounting</span>
+                {STORAGE_BRAND_ACCOUNTING_TABS.map((t) => {
+                    if (t.type === 'divider') {
+                        return <span key={t.id} className="sf-brand-tab-divider" aria-hidden />;
+                    }
+                    const active = acctTab === t.id;
+                    return (
+                        <button
+                            key={t.id}
+                            type="button"
+                            className={active ? 'sf-brand-tab sf-brand-tab--active' : 'sf-brand-tab'}
+                            onClick={() => onAcctTabChange(t.id)}
+                        >
+                            {t.label}
+                        </button>
+                    );
+                })}
+            </div>
             <div className="sf-brand-acct-body">
                 {acctTab === 'acct_hub' ? (
                     <StorageBrandTransactionHub brandId={brandId} customers={customers} />
@@ -53,7 +53,11 @@ export default function StorageBrandAccountingShell({
                     <StorageBrandCashBankTab brandId={brandId} />
                 ) : null}
                 {acctTab === 'acct_accounts' ? (
-                    <StorageBrandAccountsTab brandId={brandId} />
+                    <StorageBrandAccountsTab
+                        brandId={brandId}
+                        openAccountId={openLedgerAccountId}
+                        onLedgerOpened={() => setOpenLedgerAccountId(null)}
+                    />
                 ) : null}
                 {acctTab === 'acct_log_pay' ? (
                     <StorageBrandJournalLogs brandId={brandId} kind="payments" />
@@ -63,6 +67,21 @@ export default function StorageBrandAccountingShell({
                 ) : null}
                 {acctTab === 'acct_log_je' ? (
                     <StorageBrandJournalLogs brandId={brandId} kind="journals" />
+                ) : null}
+                {acctTab === 'acct_tb' ? (
+                    <StorageBrandTrialBalanceTab
+                        brandId={brandId}
+                        onAccountClick={(id) => {
+                            setOpenLedgerAccountId(id);
+                            onAcctTabChange('acct_accounts');
+                        }}
+                    />
+                ) : null}
+                {acctTab === 'acct_pl' ? (
+                    <StorageBrandIncomeStatementTab brandId={brandId} />
+                ) : null}
+                {acctTab === 'acct_bs' ? (
+                    <StorageBrandBalanceSheetTab brandId={brandId} />
                 ) : null}
             </div>
         </div>

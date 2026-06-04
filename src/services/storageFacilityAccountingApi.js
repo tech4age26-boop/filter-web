@@ -18,14 +18,34 @@ export function unwrapBrandAccounts(res) {
     return [];
 }
 
-export const getBrandAccounts = (brandId) =>
-    apiFetch(`${base(brandId)}/accounts`);
+export const getBrandAccounts = (brandId, params = {}) =>
+    apiFetch(withQuery(`${base(brandId)}/accounts`, params));
 
 export const createBrandAccount = (brandId, body) =>
     apiFetch(`${base(brandId)}/accounts`, {
         method: 'POST',
         body: JSON.stringify(body),
     });
+
+export const updateBrandAccount = (brandId, accountId, body) =>
+    apiFetch(`${base(brandId)}/accounts/${encodeURIComponent(accountId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+
+export const deleteBrandAccount = (brandId, accountId) =>
+    apiFetch(`${base(brandId)}/accounts/${encodeURIComponent(accountId)}`, {
+        method: 'DELETE',
+    });
+
+export const getBrandTrialBalance = (brandId, params = {}) =>
+    apiFetch(withQuery(`${base(brandId)}/reports/trial-balance`, params));
+
+export const getBrandProfitLoss = (brandId, params = {}) =>
+    apiFetch(withQuery(`${base(brandId)}/reports/profit-loss`, params));
+
+export const getBrandBalanceSheet = (brandId, params = {}) =>
+    apiFetch(withQuery(`${base(brandId)}/reports/balance-sheet`, params));
 
 export const getBrandCashBankRegisters = (brandId) =>
     apiFetch(`${base(brandId)}/cash-bank-registers`);

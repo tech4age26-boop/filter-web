@@ -6,6 +6,7 @@ export const SF_PERMISSIONS = [
     { key: 'transfers.create', label: 'Stock transfers' },
     { key: 'invoices.create', label: 'Create & post invoices' },
     { key: 'customers.manage', label: 'Customers (AR)' },
+    { key: 'suppliers.manage', label: 'Suppliers (AP)' },
     { key: 'locations.manage', label: 'Inventory locations' },
     { key: 'sales.view', label: 'View sales' },
     { key: 'sales_reps.manage', label: 'Sales representatives' },
