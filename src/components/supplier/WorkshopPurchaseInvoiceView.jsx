@@ -197,6 +197,8 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
     const row = listRow && typeof listRow === 'object' ? listRow : {};
     const isSuperSupplier = variant === 'super_supplier';
     const isSupplierSales = variant === 'supplier_sales';
+    const isWorkshopReceive = variant === 'workshop_receive';
+    const isStockReceiveLayout = isSupplierSales || isWorkshopReceive;
 
     const invoiceNo =
         pick(inv, 'invoiceNumber', 'invoice_number', 'invoiceNo', 'reference') ??
@@ -524,7 +526,7 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
 
     const invoiceDateDisplay = formatInvoiceDateTime(inv, row);
 
-    const lineTableColCount = isSupplierSales ? 7 : 6;
+    const lineTableColCount = isStockReceiveLayout ? 7 : 6;
 
     const paymentLabelRaw =
         pick(inv, 'paymentStatus', 'payment_status') ?? row.payment_status ?? 'unpaid';
@@ -635,7 +637,7 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
 
             const safe = String(invoiceNo).replace(/[^\w.-]+/g, '_').replace(/^_|_$/g, '').slice(0, 96) || 'invoice';
             pdf.save(
-                `${isSuperSupplier ? 'Filter-SSP' : isSupplierSales ? 'Filter-SINV' : 'Filter-WPI'}-${safe}.pdf`,
+                `${isSuperSupplier ? 'Filter-SSP' : isSupplierSales ? 'Filter-SINV' : isWorkshopReceive ? 'Filter-WPI-Recv' : 'Filter-WPI'}-${safe}.pdf`,
             );
         } catch (err) {
             console.error(err);
@@ -644,7 +646,7 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
             el.classList.remove('wpi-view--pdf-capture');
             if (hadCompact) el.classList.add('wpi-view--compact');
         }
-    }, [invoiceNo, isSuperSupplier, isSupplierSales]);
+    }, [invoiceNo, isSuperSupplier, isSupplierSales, isWorkshopReceive]);
 
     useImperativeHandle(imperativeRef, () => ({ downloadPdf: captureInvoicePdf }), [captureInvoicePdf]);
 
@@ -888,7 +890,7 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                             الكمية
                                         </span>
                                     </th>
-                                    {isSupplierSales ? (
+                                    {isStockReceiveLayout ? (
                                         <th className="wpi-view__th-num" style={{ minWidth: 80 }}>
                                             Return qty
                                             <span className="wpi-view__th-sub" dir="rtl">
@@ -973,7 +975,7 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                             </td>
                                             <td className="wpi-view__td-num">
                                                 {lineQty(line)} {lineUom(line)}
-                                                {isSupplierSales && lineWorkshopConversionNote(line) ? (
+                                                {isStockReceiveLayout && lineWorkshopConversionNote(line) ? (
                                                     <div
                                                         className="wpi-view__line-sub"
                                                         style={{
@@ -987,7 +989,7 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                                     </div>
                                                 ) : null}
                                             </td>
-                                            {isSupplierSales ? (
+                                            {isStockReceiveLayout ? (
                                                 <td className="wpi-view__td-num">
                                                     {lineQtyReturned(line)} {lineUom(line)}
                                                 </td>
@@ -1165,7 +1167,9 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                     ? 'super supplier purchase invoice'
                                     : isSupplierSales
                                       ? 'sales invoice (accounts receivable)'
-                                      : 'workshop purchase invoice'}
+                                      : isWorkshopReceive
+                                        ? 'workshop purchase invoice (receive stock)'
+                                        : 'workshop purchase invoice'}
                             </strong>
                             <br />
                             {isSuperSupplier ? (
@@ -1174,11 +1178,21 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                     <br />
                                     الإصدار الإلكتروني عبر منصّة فِلتر — امسح الرمز في أعلى الفاتورة للتحقق.
                                 </>
-                            ) : isSupplierSales ? (
+                            ) : isSupplierSales || isWorkshopReceive ? (
                                 <>
-                                    Sales invoice issued through Filter supplier portal · scan header QR to receive stock &amp; invoice.
-                                    <br />
-                                    فاتورة مبيعات للورشة — امسح الرمز في أعلى الفاتورة لاستلام المخزون والفاتورة.
+                                    {isWorkshopReceive ? (
+                                        <>
+                                            Workshop purchase invoice · scan header QR to receive stock &amp; invoice.
+                                            <br />
+                                            فاتورة مشتريات الورشة — امسح الرمز في أعلى الفاتورة لاستلام المخزون والفاتورة.
+                                        </>
+                                    ) : (
+                                        <>
+                                            Sales invoice issued through Filter supplier portal · scan header QR to receive stock &amp; invoice.
+                                            <br />
+                                            فاتورة مبيعات للورشة — امسح الرمز في أعلى الفاتورة لاستلام المخزون والفاتورة.
+                                        </>
+                                    )}
                                 </>
                             ) : (
                                 <>
@@ -1189,11 +1203,21 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                             )}
                         </div>
                         <div className="wpi-view__corp-footer-contact-ar">
-                            {isSupplierSales ? (
+                            {isSupplierSales || isWorkshopReceive ? (
                                 <>
-                                    مستند مبيعات إلكتروني بين المورد وفرع الورشة في منصّة فِلتر.
-                                    <br />
-                                    للاستفسارات يُرجى التواصل عبر بوابة المورد.
+                                    {isWorkshopReceive ? (
+                                        <>
+                                            مستند مشتريات إلكتروني بين الورشة والمورد في منصّة فِلتر — امسح الرمز لاستلام المخزون.
+                                            <br />
+                                            للاستفسارات يُرجى التواصل عبر بوابة الورشة.
+                                        </>
+                                    ) : (
+                                        <>
+                                            مستند مبيعات إلكتروني بين المورد وفرع الورشة في منصّة فِلتر.
+                                            <br />
+                                            للاستفسارات يُرجى التواصل عبر بوابة المورد.
+                                        </>
+                                    )}
                                 </>
                             ) : (
                                 <>
