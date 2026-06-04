@@ -509,6 +509,7 @@ export const deleteDemoInvoice = (id) =>
 export const getSuperAdminSalesReturns = ({
     workshopId,
     branchId,
+    status,
     search,
     startDate,
     endDate,
@@ -519,6 +520,7 @@ export const getSuperAdminSalesReturns = ({
         `/super-admin/sales-returns${qs({
             workshopId,
             branchId,
+            status,
             search,
             startDate,
             endDate,
@@ -526,6 +528,17 @@ export const getSuperAdminSalesReturns = ({
             offset,
         })}`,
     );
+
+export const approveSuperAdminSalesReturn = (returnId) =>
+    apiFetch(`/super-admin/sales-returns/${encodeURIComponent(String(returnId))}/approve`, {
+        method: 'POST',
+    });
+
+export const rejectSuperAdminSalesReturn = (returnId, rejectionReason) =>
+    apiFetch(`/super-admin/sales-returns/${encodeURIComponent(String(returnId))}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ rejectionReason }),
+    });
 
 // ─── Supplier Invoices (supplier → workshop sales / AR) ───────────────────────
 

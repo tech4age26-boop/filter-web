@@ -1,8 +1,10 @@
 // staging url (production default when VITE_API_BASE_URL is unset)
-const PRODUCTION_BASE_URL = 'https://filterbackend-production.up.railway.app';
+//const PRODUCTION_BASE_URL = 'https://filterbackend-production.up.railway.app';
 
 // production url
 // const PRODUCTION_BASE_URL = 'https://api.filtercarservices.com';
+
+const PRODUCTION_BASE_URL = 'http://localhost:3000';
 
 /** Prefer Vite env in dev (see filter-web/.env.development → localhost:3000). */
 export const BASE_URL = (
