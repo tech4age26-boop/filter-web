@@ -545,7 +545,9 @@ function AccountLedgerModal({ context, onClose, allAccounts = [] }) {
     const periodTo = data?.header?.to || dateTo || '—';
     const currentBalance =
         data?.currentBalance ??
-        (Number(account.closingDebit || 0) - Number(account.closingCredit || 0));
+        (account.type === 'EQUITY' || account.type === 'LIABILITY' || account.type === 'INCOME'
+            ? Number(account.closingCredit || 0) - Number(account.closingDebit || 0)
+            : Number(account.closingDebit || 0) - Number(account.closingCredit || 0));
 
     return (
         <Modal
@@ -717,10 +719,23 @@ export default function SupplierCOAManager() {
             (a.children && a.children.length > 0) ||
             !!a.hasChildren ||
             (roll?.hasChildren ?? false);
-        const rd = roll ? roll.rollupDebit : Number(a.closingDebit) || 0;
-        const rc = roll ? roll.rollupCredit : Number(a.closingCredit) || 0;
+        let rd = roll ? roll.rollupDebit : Number(a.closingDebit) || 0;
+        let rc = roll ? roll.rollupCredit : Number(a.closingCredit) || 0;
         const normalDebit = a.type === 'ASSET' || a.type === 'EXPENSE';
         const isVatPayable = a.seedKey === 'VAT_OUTPUT';
+        const isRetainedEarnings = a.seedKey === 'RETAINED_EARNINGS' || a.computedFromPl;
+        if (isRetainedEarnings && a.cumulativeNetIncome != null) {
+            const plNet = Number(a.cumulativeNetIncome);
+            if (Number.isFinite(plNet)) {
+                if (plNet >= 0) {
+                    rc = plNet;
+                    rd = 0;
+                } else {
+                    rd = Math.abs(plNet);
+                    rc = 0;
+                }
+            }
+        }
         const balance = isVatPayable
             ? Number(a.netZatcaPayable ?? (normalDebit ? rd : rc))
             : normalDebit
@@ -797,6 +812,11 @@ export default function SupplierCOAManager() {
                     {isVatPayable ? (
                         <div style={{ fontSize: 11, color: '#64748B', fontWeight: 500, marginTop: 4 }}>
                             Debit = VAT Input · Credit = VAT Output · Balance = Net payable to ZATCA
+                        </div>
+                    ) : null}
+                    {isRetainedEarnings ? (
+                        <div style={{ fontSize: 11, color: '#64748B', fontWeight: 500, marginTop: 4 }}>
+                            Auto-updated from Income − Expenses (live, no manual closing entry)
                         </div>
                     ) : null}
                 </td>
