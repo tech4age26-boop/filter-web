@@ -9,6 +9,7 @@ import WorkshopSales from './WorkshopSales';
 import SuppliersWarehouseSales from './SuppliersWarehouseSales';
 import CorporateTransactions from './CorporateTransactions';
 import SalesReturnsPage from './SalesReturnsPage';
+import Receipts from './Receipts';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/SalesPage.css';
 
@@ -335,20 +336,7 @@ export default function SalesPage() {
 
             {activeSub === 'sales-returns' && <SalesReturnsPage />}
 
-            {activeSub === 'receipts' && (
-                <>
-                    <header className="sales-invoices-header">
-                        <div>
-                            <h1 className="sales-invoices-title">Receipts</h1>
-                            <p className="sales-invoices-count">Payment receipts and records</p>
-                        </div>
-                        <button type="button" className="btn-portal"><Plus size={16} /> New Receipt</button>
-                    </header>
-                    <div className="sales-empty">
-                        <p>No receipts found. Create a receipt from a sale or payment.</p>
-                    </div>
-                </>
-            )}
+            {activeSub === 'receipts' && <Receipts />}
 
             {activeSub === 'sales-reports' && <SalesReports />}
             {activeSub === 'sales-orders' && <SalesOrders />}

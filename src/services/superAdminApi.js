@@ -509,6 +509,7 @@ export const deleteDemoInvoice = (id) =>
 export const getSuperAdminSalesReturns = ({
     workshopId,
     branchId,
+    status,
     search,
     startDate,
     endDate,
@@ -517,6 +518,33 @@ export const getSuperAdminSalesReturns = ({
 } = {}) =>
     apiFetch(
         `/super-admin/sales-returns${qs({
+            workshopId,
+            branchId,
+            status,
+            search,
+            startDate,
+            endDate,
+            limit,
+            offset,
+        })}`,
+    );
+
+/** Super-admin: one sales return with full line items (detail / credit note). */
+export const getSuperAdminSalesReturn = (id) =>
+    apiFetch(`/super-admin/sales-returns/${encodeURIComponent(String(id))}`);
+
+/** Super-admin → Sales → Receipts: paid monthly-billing receipts. */
+export const getSuperAdminReceipts = ({
+    workshopId,
+    branchId,
+    search,
+    startDate,
+    endDate,
+    limit,
+    offset,
+} = {}) =>
+    apiFetch(
+        `/super-admin/receipts${qs({
             workshopId,
             branchId,
             search,
