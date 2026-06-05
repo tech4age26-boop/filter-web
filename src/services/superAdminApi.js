@@ -529,6 +529,9 @@ export const getSuperAdminSalesReturns = ({
         })}`,
     );
 
+export const getSuperAdminSalesReturn = (returnId) =>
+    apiFetch(`/super-admin/sales-returns/${encodeURIComponent(String(returnId))}`);
+
 export const approveSuperAdminSalesReturn = (returnId) =>
     apiFetch(`/super-admin/sales-returns/${encodeURIComponent(String(returnId))}/approve`, {
         method: 'POST',
