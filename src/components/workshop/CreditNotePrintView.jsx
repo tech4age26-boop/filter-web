@@ -1,4 +1,6 @@
-import React, { forwardRef } from 'react';
+import React, { forwardRef, useEffect, useState } from 'react';
+import QRCode from 'qrcode';
+import { buildZatcaPhase2QrPayloadFromInvoice } from '../../utils/zatcaQr';
 
 function fmtDate(iso) {
     if (!iso) return '—';
@@ -28,9 +30,42 @@ const CreditNotePrintView = forwardRef(function CreditNotePrintView({ data }, re
     const d = data || {};
     const items = Array.isArray(d.items) ? d.items : [];
     const total = Number(d.totalAmount) || items.reduce((s, it) => s + Number(it.lineTotal || 0), 0);
-    const branchVat = d.branchVatId || d.branch?.vatId || d.workshopVatId || '—';
+    const vatNumber = d.branchVatId || d.branch?.vatId || d.workshopVatId || '';
+    const branchVat = vatNumber || '—';
     const branchName = d.branchName || d.branch?.name || '—';
     const workshopName = d.workshopName || d.workshop?.name || 'FILTER';
+    const creditNoteNo = d.creditNoteNo || d.returnNo || '';
+    // Credit note's own date drives the QR timestamp (same date shown above).
+    const creditNoteDate = d.returnDate || d.reviewedAt || d.createdAt;
+    const vatAmount = Number(d.vatAmount ?? 0);
+
+    // ZATCA Phase-2 TLV QR for the credit note (tags 1–9). Built async because
+    // the payload is hashed; needs a non-empty seller VAT number to render.
+    const [qrDataUrl, setQrDataUrl] = useState('');
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            const payload = await buildZatcaPhase2QrPayloadFromInvoice({
+                sellerName: workshopName,
+                vatNumber,
+                invoiceDate: creditNoteDate,
+                invoiceNumber: creditNoteNo,
+                grandTotal: total,
+                vatAmount,
+            });
+            if (!payload) {
+                if (!cancelled) setQrDataUrl('');
+                return;
+            }
+            try {
+                const url = await QRCode.toDataURL(payload, { width: 96, margin: 1, errorCorrectionLevel: 'M' });
+                if (!cancelled) setQrDataUrl(url);
+            } catch {
+                if (!cancelled) setQrDataUrl('');
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [workshopName, vatNumber, creditNoteDate, creditNoteNo, total, vatAmount]);
 
     return (
         <div ref={ref} className="credit-note-print-root" style={{ fontFamily: 'Arial, Helvetica, sans-serif', color: '#111', background: '#fff', padding: 24, maxWidth: 820, margin: '0 auto' }}>
@@ -49,9 +84,13 @@ const CreditNotePrintView = forwardRef(function CreditNotePrintView({ data }, re
                     <h1 style={{ margin: 0, fontSize: 28, letterSpacing: 1 }}>CREDIT NOTE</h1>
                     <div style={{ fontSize: 36, fontWeight: 900, color: '#FCC247', marginTop: 4 }}>{workshopName}</div>
                 </div>
-                <div style={{ width: 96, height: 96, border: '1px dashed #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#64748b', textAlign: 'center', padding: 8 }}>
-                    ZATCA Phase 2<br />QR Code<br />(coming soon)
-                </div>
+                {qrDataUrl ? (
+                    <img src={qrDataUrl} alt="ZATCA QR" style={{ width: 96, height: 96 }} />
+                ) : (
+                    <div style={{ width: 96, height: 96, border: '1px dashed #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#64748b', textAlign: 'center', padding: 8 }}>
+                        ZATCA Phase 2<br />QR Code<br />(needs branch VAT no.)
+                    </div>
+                )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, border: '1px solid #ccc', marginBottom: 20, fontSize: 12 }}>

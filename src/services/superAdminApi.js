@@ -529,6 +529,32 @@ export const getSuperAdminSalesReturns = ({
         })}`,
     );
 
+/** Super-admin: one sales return with full line items (detail / credit note). */
+export const getSuperAdminSalesReturn = (id) =>
+    apiFetch(`/super-admin/sales-returns/${encodeURIComponent(String(id))}`);
+
+/** Super-admin → Sales → Receipts: paid monthly-billing receipts. */
+export const getSuperAdminReceipts = ({
+    workshopId,
+    branchId,
+    search,
+    startDate,
+    endDate,
+    limit,
+    offset,
+} = {}) =>
+    apiFetch(
+        `/super-admin/receipts${qs({
+            workshopId,
+            branchId,
+            search,
+            startDate,
+            endDate,
+            limit,
+            offset,
+        })}`,
+    );
+
 export const approveSuperAdminSalesReturn = (returnId) =>
     apiFetch(`/super-admin/sales-returns/${encodeURIComponent(String(returnId))}/approve`, {
         method: 'POST',
