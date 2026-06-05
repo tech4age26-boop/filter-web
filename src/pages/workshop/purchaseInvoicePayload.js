@@ -133,6 +133,8 @@ export function buildEnrichedLineItems(
             account_name: name,
             description: line.description ?? '',
             uom: line.uom ?? 'piece',
+            uom_profile_id: line.uomProfileId ?? null,
+            uomProfileId: line.uomProfileId ?? null,
             qty,
             unit_price_ex_vat: unitPriceExVat,
             unit_purchase_price_incl_vat: unitPurchasePriceInclVat,
@@ -275,6 +277,11 @@ export function serializePurchaseInvoiceFormLines(lines) {
         taxCode: line.taxCode ?? PURCHASE_INVOICE_TAX_LABEL,
         taxAmt: line.taxAmt ?? '0.00',
         totalFinal: line.totalFinal ?? '0.00',
+        warehouseUnit: line.warehouseUnit ?? null,
+        workshopUnit: line.workshopUnit ?? null,
+        conversionFactor: line.conversionFactor ?? null,
+        uomProfileId: line.uomProfileId ?? null,
+        supplierProductId: line.supplierProductId ?? null,
     }));
 }
 

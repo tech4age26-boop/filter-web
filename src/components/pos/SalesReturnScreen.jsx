@@ -60,7 +60,9 @@ export default function SalesReturnScreen({ onBack }) {
             const trimmed = search.trim();
             const isDigits = /^\d+$/.test(trimmed);
             const qs = new URLSearchParams(
-                isDigits ? { phone: trimmed, limit: '8' } : { name: trimmed, limit: '8' }
+                isDigits
+                    ? { phone: trimmed, limit: '8', scope: 'branch' }
+                    : { name: trimmed, limit: '8', scope: 'branch' },
             ).toString();
             apiFetch(`/cashier/customers/search?${qs}`)
                 .then(d => setCustomers(d.customers || d.data || []))
@@ -75,7 +77,7 @@ export default function SalesReturnScreen({ onBack }) {
         setSearch('');
         setCustomers([]);
         setOrdersLoading(true);
-        apiFetch(`/cashier/orders/invoiced/${c.id}`)
+        apiFetch(`/cashier/orders/invoiced/${c.id}?scope=branch`)
             .then(d => setOrders(d.orders || d.data || []))
             .catch(() => setOrders([]))
             .finally(() => setOrdersLoading(false));

@@ -17,7 +17,10 @@ import {
     getSuperAdminInvoiceView,
     getWorkshopOptions,
     getBranches,
+    approveSuperAdminSalesReturn,
+    rejectSuperAdminSalesReturn,
 } from '../../services/superAdminApi';
+import { useAuth } from '../../context/AuthContext';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 
 const num = (v) =>
@@ -69,6 +72,10 @@ function normalizeInvoiceForModal(invoice) {
  * printable credit note, and can drill into the underlying invoice.
  */
 export default function SalesReturnsPage() {
+    const { hasPermission } = useAuth();
+    const canApprove = hasPermission('sales.sales-returns.approve') || hasPermission('approvals.sales-return.approve');
+    const canReject = hasPermission('sales.sales-returns.reject') || hasPermission('approvals.sales-return.reject');
+
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -82,15 +89,16 @@ export default function SalesReturnsPage() {
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
     const [selectedBranchId, setSelectedBranchId] = useState('');
 
-    // Return detail modal + credit-note print.
     const [detail, setDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
     const [printOpen, setPrintOpen] = useState(false);
     const printRef = useRef(null);
 
-    // Underlying invoice modal (reuses the admin invoice view).
     const [invoice, setInvoice] = useState(null);
     const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
+    const [actionLoadingId, setActionLoadingId] = useState(null);
+    const [rejectRow, setRejectRow] = useState(null);
+    const [rejectReason, setRejectReason] = useState('');
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -98,11 +106,11 @@ export default function SalesReturnsPage() {
         try {
             const res = await getSuperAdminSalesReturns({
                 workshopId: selectedWorkshopId || undefined,
-                branchId:   selectedBranchId   || undefined,
-                status:     statusFilter || undefined,
-                search:     search.trim() || undefined,
-                startDate:  dateFrom || undefined,
-                endDate:    dateTo || undefined,
+                branchId: selectedBranchId || undefined,
+                status: statusFilter || undefined,
+                search: search.trim() || undefined,
+                startDate: dateFrom || undefined,
+                endDate: dateTo || undefined,
                 limit: 200,
                 offset: 0,
             });
@@ -121,7 +129,6 @@ export default function SalesReturnsPage() {
 
     useEffect(() => { void load(); }, [load]);
 
-    // Workshop options (load once).
     useEffect(() => {
         let cancelled = false;
         (async () => {
@@ -144,7 +151,6 @@ export default function SalesReturnsPage() {
         return () => { cancelled = true; };
     }, []);
 
-    // Branches for the selected workshop.
     useEffect(() => {
         if (!selectedWorkshopId) {
             setBranchOptions([]);
@@ -190,6 +196,34 @@ export default function SalesReturnsPage() {
             /* keep the list row as a fallback */
         } finally {
             setDetailLoading(false);
+        }
+    };
+
+    const handleApprove = async (row) => {
+        if (row.status !== 'pending' || !canApprove) return;
+        setActionLoadingId(`approve-${row.id}`);
+        try {
+            await approveSuperAdminSalesReturn(row.id);
+            await load();
+        } catch (e) {
+            alert(e?.message || 'Could not approve sales return');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const handleRejectSubmit = async () => {
+        if (!rejectRow || !rejectReason.trim() || !canReject) return;
+        setActionLoadingId(`reject-${rejectRow.id}`);
+        try {
+            await rejectSuperAdminSalesReturn(rejectRow.id, rejectReason.trim());
+            setRejectRow(null);
+            setRejectReason('');
+            await load();
+        } catch (e) {
+            alert(e?.message || 'Could not reject sales return');
+        } finally {
+            setActionLoadingId(null);
         }
     };
 
@@ -389,13 +423,45 @@ export default function SalesReturnsPage() {
                                         </span>
                                     </td>
                                     <td style={{ ...cellTd, textAlign: 'right' }}>
-                                        <button
-                                            type="button"
-                                            onClick={() => openDetail(r)}
-                                            style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                                        >
-                                            <Eye size={14} /> View
-                                        </button>
+                                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => openDetail(r)}
+                                                style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#0f172a', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                            >
+                                                <Eye size={14} /> View
+                                            </button>
+                                            {r.status === 'pending' && canApprove ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleApprove(r)}
+                                                    disabled={actionLoadingId === `approve-${r.id}`}
+                                                    style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#15803d', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
+                                                >
+                                                    {actionLoadingId === `approve-${r.id}` ? '…' : 'Approve'}
+                                                </button>
+                                            ) : null}
+                                            {r.status === 'pending' && canReject ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setRejectRow(r); setRejectReason(''); }}
+                                                    disabled={actionLoadingId === `reject-${r.id}`}
+                                                    style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#b91c1c', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
+                                                >
+                                                    Reject
+                                                </button>
+                                            ) : null}
+                                            {r.invoice?.id ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openInvoice(r.invoice.id)}
+                                                    disabled={invoiceLoadingId === String(r.invoice.id)}
+                                                    style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: invoiceLoadingId === String(r.invoice.id) ? 'wait' : 'pointer', fontSize: '0.75rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                                >
+                                                    {invoiceLoadingId === String(r.invoice.id) ? <Loader2 size={12} className="spin" /> : <FileText size={12} />} Invoice
+                                                </button>
+                                            ) : null}
+                                        </div>
                                     </td>
                                 </tr>
                             );
@@ -409,7 +475,6 @@ export default function SalesReturnsPage() {
                 ) : null}
             </div>
 
-            {/* Return detail modal */}
             <AnimatePresence>
                 {detail ? (
                     <Modal onClose={() => { setDetail(null); setPrintOpen(false); }} title="Sales return detail" width="860px">
@@ -478,7 +543,6 @@ export default function SalesReturnsPage() {
                 ) : null}
             </AnimatePresence>
 
-            {/* Credit note print modal */}
             <AnimatePresence>
                 {printOpen && detail ? (
                     <Modal onClose={() => setPrintOpen(false)} title="Credit note" width="900px">
@@ -501,6 +565,28 @@ export default function SalesReturnsPage() {
                 footerVariant="corporate"
                 onClose={() => setInvoice(null)}
             />
+
+            {rejectRow ? (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                    <div style={{ background: '#fff', borderRadius: 12, padding: 20, width: 'min(420px, 92vw)', boxShadow: '0 20px 40px rgba(0,0,0,0.15)' }}>
+                        <h3 style={{ margin: '0 0 8px', fontSize: '1rem' }}>Reject sales return</h3>
+                        <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: '0.8125rem' }}>
+                            {rejectRow.returnNo} · {rejectRow.invoice?.invoiceNo ?? 'Invoice'}
+                        </p>
+                        <textarea
+                            value={rejectReason}
+                            onChange={(e) => setRejectReason(e.target.value)}
+                            placeholder="Rejection reason (required)"
+                            rows={4}
+                            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.875rem', resize: 'vertical' }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+                            <button type="button" onClick={() => { setRejectRow(null); setRejectReason(''); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}>Cancel</button>
+                            <button type="button" onClick={handleRejectSubmit} disabled={!rejectReason.trim() || actionLoadingId === `reject-${rejectRow.id}`} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: '#b91c1c', color: '#fff', fontWeight: 700 }}>Reject</button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }

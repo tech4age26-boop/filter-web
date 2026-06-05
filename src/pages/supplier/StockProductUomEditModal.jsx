@@ -76,6 +76,7 @@ export default function StockProductUomEditModal({ product, onClose, onSaved }) 
                 warehouseUnit: wu,
                 workshopUnit: wsu,
                 conversionFactor: cf,
+                relabelStockUom: true,
             });
             onSaved?.();
             onClose?.();
@@ -101,8 +102,9 @@ export default function StockProductUomEditModal({ product, onClose, onSaved }) 
                     {product.sku ? ` · ${product.sku}` : ''}
                 </p>
                 <p style={{ margin: 0, fontSize: '0.8125rem', color: '#b45309' }}>
-                    Warehouse stock quantity is not changed — only how units are labeled and converted
-                    (e.g. Box vs Liter). Use Adjust if you need to change quantities.
+                    Existing stock is recalculated to keep the same physical quantity (e.g. 36
+                    Liter → 3 Box when 1 Box = 12 L). Labels and conversion only — use Adjust if
+                    you need to change actual quantities.
                 </p>
 
                 {loading ? (

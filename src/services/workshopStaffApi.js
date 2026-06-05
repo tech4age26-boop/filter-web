@@ -553,9 +553,9 @@ export const getWorkshopStaffBranchCatalog = (branchId, { signal } = {}) =>
  * `workshopId` query is optional: the backend uses `query.workshopId || req.user.workshopId`.
  * Omit it for normal workshop tokens; pass it for impersonation / super-admin-style flows.
  */
-export const getWorkshopStaffBranchProducts = (branchId, { signal, workshopId } = {}) =>
+export const getWorkshopStaffBranchProducts = (branchId, { signal, workshopId, supplierId } = {}) =>
     apiFetch(
-        `/workshop-staff/branches/${encodeURIComponent(branchId)}/products${qs({ workshopId })}`,
+        `/workshop-staff/branches/${encodeURIComponent(branchId)}/products${qs({ workshopId, supplierId })}`,
         { signal },
     );
 
@@ -811,6 +811,12 @@ export const getWorkshopSupplierPurchaseInvoice = (invoiceId) =>
 export const getWorkshopSupplierLastPurchasePrices = (supplierId) =>
     apiFetch(
         `/workshop-staff/suppliers/${encodeURIComponent(String(supplierId))}/last-purchase-prices`,
+    );
+
+/** UOM rules (Box ↔ Liter) for branch products matched to affiliated supplier catalog. */
+export const getWorkshopSupplierProductUomRules = (supplierId, branchId) =>
+    apiFetch(
+        `/workshop-staff/suppliers/${encodeURIComponent(String(supplierId))}/product-uom-rules?branchId=${encodeURIComponent(String(branchId))}`,
     );
 
 /**

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Search, Package, AlertCircle, Wallet, RefreshCw, History, X } from 'lucide-react';
+import { Search, Package, AlertCircle, Wallet, RefreshCw, History, X, ArrowRightLeft } from 'lucide-react';
 import './Workshop.css';
 
 import { AnimatePresence } from 'framer-motion';
@@ -18,6 +18,12 @@ import {
     getBranchProductInventoryAdjustments,
 } from '../../services/workshopInventoryApi';
 import { useAuth } from '../../context/AuthContext';
+import WorkshopProductUomEditModal, {
+    WorkshopBulkUomModal,
+    formatWorkshopConversionRule,
+} from './WorkshopProductUomEditModal';
+import WorkshopUomProfilesTab from './WorkshopUomProfilesTab';
+import { formatStockOnHandDisplay, productEffectiveUom } from './workshopUomUtils';
 
 /** Match WorkshopDashboard / WorkshopDepartments response shapes. */
 function extractProducts(res) {
@@ -635,6 +641,32 @@ function mapApiRowToInventory(row) {
         master?.purchase_price,
     );
 
+    const unit =
+        master?.unit ??
+        row?.unit ??
+        merged?.unit ??
+        'pcs';
+    const warehouseUnit =
+        merged.warehouseUnit ??
+        row?.warehouseUnit ??
+        master?.warehouseUnit ??
+        null;
+    const workshopUnit =
+        merged.workshopUnit ??
+        row?.workshopUnit ??
+        master?.workshopUnit ??
+        unit;
+    const conversionFactor = pickNumber(
+        merged.conversionFactor,
+        row?.conversionFactor,
+        master?.conversionFactor,
+    ) ?? 1;
+    const conversionRule =
+        merged.conversionRule ??
+        row?.conversionRule ??
+        master?.conversionRule ??
+        formatWorkshopConversionRule(warehouseUnit, workshopUnit, conversionFactor);
+
     return {
         id: String(id),
         name: pickDisplayName(master, row),
@@ -661,6 +693,18 @@ function mapApiRowToInventory(row) {
         lastPhysicalQty: isInfiniteQty ? lastPhysicalQty : null,
         qty,
         critical_level,
+        unit,
+        warehouseUnit,
+        workshopUnit,
+        conversionFactor,
+        conversionRule,
+        uomProfileId: merged.uomProfileId ?? row?.uomProfileId ?? master?.uomProfileId ?? null,
+        uomProfileName:
+            merged.uomProfileName ?? row?.uomProfileName ?? master?.uomProfileName ?? null,
+        stockDisplayPrimary:
+            row?.stockDisplayPrimary ?? merged?.stockDisplayPrimary ?? null,
+        stockDisplaySecondary:
+            row?.stockDisplaySecondary ?? merged?.stockDisplaySecondary ?? null,
         branchId: branchId != null && String(branchId).trim() !== '' ? String(branchId) : null,
         branchName: branchName != null && String(branchName).trim() !== '' ? String(branchName) : null,
         _rowKey: [
@@ -670,6 +714,28 @@ function mapApiRowToInventory(row) {
             row?.sku ?? master?.sku ?? '',
         ].map((v) => (v == null ? '' : String(v))).join(':'),
         _searchText: buildRawInventorySearchText(row, master, merged, nested),
+    };
+}
+
+function inventoryUomDisplay(item) {
+    if (item?.uomProfileName) {
+        return {
+            primary: item.uomProfileName,
+            secondary: item.conversionRule || 'Linked profile',
+        };
+    }
+    const cf = Number(item?.conversionFactor) || 1;
+    const wu = String(item?.warehouseUnit || '').trim();
+    const ws = String(item?.workshopUnit || item?.unit || 'pcs').trim();
+    const rule = String(item?.conversionRule || '').trim();
+    const hasConversion =
+        cf > 1 && wu && ws && wu.toLowerCase() !== ws.toLowerCase();
+    if (hasConversion && rule && rule !== '—') {
+        return { primary: rule, secondary: 'Click to edit' };
+    }
+    return {
+        primary: ws || 'pcs',
+        secondary: hasConversion ? 'Set conversion' : null,
     };
 }
 
@@ -1026,6 +1092,51 @@ export default function WorkshopInventory({
     const [criticalSaving, setCriticalSaving] = useState(false);
     const [isInvValueProofOpen, setIsInvValueProofOpen] = useState(false);
     const [isLowStockProofOpen, setIsLowStockProofOpen] = useState(false);
+
+    const [uomEditProduct, setUomEditProduct] = useState(null);
+    const [isBulkUomModalOpen, setIsBulkUomModalOpen] = useState(false);
+    const [inventoryView, setInventoryView] = useState('stock');
+
+    const handleUomSaved = (saved) => {
+        if (!uomEditProduct) return;
+        const pid = String(uomEditProduct.id);
+        setProductRows((prev) =>
+            prev.map((row) =>
+                String(row.id) === pid
+                    ? {
+                          ...row,
+                          warehouseUnit: saved.warehouseUnit,
+                          workshopUnit: saved.workshopUnit,
+                          conversionFactor: saved.conversionFactor,
+                          conversionRule: saved.conversionRule,
+                      }
+                    : row,
+            ),
+        );
+        setUomEditProduct(null);
+    };
+
+    const handleBulkUomSaved = ({ warehouseUnit, workshopUnit, conversionFactor, conversionRule, failures = [] }) => {
+        const failedIds = new Set(failures.map((f) => String(f.productId)));
+        const selectedSet = new Set(selectedProductIds.map(String));
+        setProductRows((prev) =>
+            prev.map((row) => {
+                const id = String(row.id);
+                if (!selectedSet.has(id) || failedIds.has(id)) return row;
+                return {
+                    ...row,
+                    warehouseUnit,
+                    workshopUnit,
+                    conversionFactor,
+                    conversionRule,
+                };
+            }),
+        );
+        setIsBulkUomModalOpen(false);
+        if (failures.length > 0) {
+            window.alert(`${failures.length} product(s) could not be updated. Others were saved.`);
+        }
+    };
 
     const inventoryValueBreakdown = useMemo(() => {
         const lines = productRows
@@ -1849,6 +1960,32 @@ export default function WorkshopInventory({
                 })}
             </div>
 
+            <div className="ws-inv-view-tabs">
+                <button
+                    type="button"
+                    className={`ws-inv-view-tab${inventoryView === 'stock' ? ' is-active' : ''}`}
+                    onClick={() => setInventoryView('stock')}
+                >
+                    Stock
+                </button>
+                <button
+                    type="button"
+                    className={`ws-inv-view-tab${inventoryView === 'profiles' ? ' is-active' : ''}`}
+                    onClick={() => setInventoryView('profiles')}
+                >
+                    UOM profiles
+                </button>
+            </div>
+
+            {inventoryView === 'profiles' ? (
+                <WorkshopUomProfilesTab
+                    workshopId={workshopIdQuery}
+                    branchId={isAllBranches ? null : String(selectedBranchId)}
+                    products={productRows}
+                    onReloadProducts={loadInventory}
+                    isAllBranches={isAllBranches}
+                />
+            ) : (
             <div className="mc-selection-layout">
                 <div className="mc-selection-main" style={{ gridColumn: 'span 2' }}>
                     <div
@@ -1994,15 +2131,7 @@ export default function WorkshopInventory({
                                 <strong>{productRows.length}</strong> products
                                 {searchQuery ? ` for "${searchQuery}"` : ''}.
                             </p>
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    flexWrap: 'wrap',
-                                    alignItems: 'center',
-                                    gap: 10,
-                                    marginTop: 4,
-                                }}
-                            >
+                            <div className="ws-inv-bulk-toolbar">
                                 <button
                                     type="button"
                                     className="mc-btn-ghost"
@@ -2016,9 +2145,19 @@ export default function WorkshopInventory({
                                 </button>
                                 {selectedProductIds.length > 0 ? (
                                     <>
-                                        <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-text-dark)' }}>
+                                        <span className="ws-inv-bulk-count">
                                             {selectedProductIds.length} selected
                                         </span>
+                                        <button
+                                            type="button"
+                                            className="mc-btn-ghost"
+                                            style={{ padding: '8px 14px', fontSize: '0.8125rem', border: '1px solid var(--color-border)', borderRadius: 10 }}
+                                            onClick={() => setIsBulkUomModalOpen(true)}
+                                            disabled={isAllBranches}
+                                            title={isAllBranches ? 'Select a single branch to set UOM rules' : undefined}
+                                        >
+                                            Set UOM
+                                        </button>
                                         <button
                                             type="button"
                                             className="mc-btn-primary"
@@ -2033,18 +2172,19 @@ export default function WorkshopInventory({
                                             style={{ padding: '8px 14px', fontSize: '0.8125rem', border: '1px solid var(--color-border)', borderRadius: 10 }}
                                             onClick={clearProductSelection}
                                         >
-                                            Clear selection
+                                            Clear
                                         </button>
                                     </>
                                 ) : null}
                                 {isAllBranches && selectedProductIds.length > 0 ? (
                                     <span style={{ fontSize: '0.75rem', color: '#B45309' }}>
-                                        Select a single branch to save bulk adjustments on the server.
+                                        Select a single branch to save bulk changes on the server.
                                     </span>
                                 ) : null}
                             </div>
                             <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                Use checkboxes to select products for <strong>bulk adjust</strong>, or <strong>Select all on page</strong>.
+                                Use checkboxes to select products for <strong>bulk adjust</strong> or <strong>bulk UOM</strong>, or{' '}
+                                <strong>Select all on page</strong>.
                                 Click a <strong>row</strong> for adjustment history. Use <strong>↑</strong> <strong>↓</strong> and{' '}
                                 <strong>Enter</strong> to pick a search suggestion.
                                 {isAllBranches
@@ -2164,6 +2304,19 @@ export default function WorkshopInventory({
                                         <th
                                             style={{
                                                 padding: '16px 24px',
+                                                textAlign: 'left',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 800,
+                                                color: 'var(--color-text-muted)',
+                                                textTransform: 'uppercase',
+                                            }}
+                                            title="Warehouse vs workshop unit conversion for this branch"
+                                        >
+                                            UOM / conversion
+                                        </th>
+                                        <th
+                                            style={{
+                                                padding: '16px 24px',
                                                 textAlign: 'center',
                                                 fontSize: '0.75rem',
                                                 fontWeight: 800,
@@ -2201,10 +2354,10 @@ export default function WorkshopInventory({
                                 </thead>
                                 <tbody>
                                     {isLoading ? (
-                                        <ShimmerTableBodyRows rows={8} columns={11} />
+                                        <ShimmerTableBodyRows rows={8} columns={12} />
                                     ) : filteredProducts.length === 0 ? (
                                         <tr>
-                                            <td colSpan={11} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                            <td colSpan={12} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <div style={{ marginBottom: '16px', opacity: 0.3 }}>
                                                     <Package size={48} style={{ margin: '0 auto' }} />
                                                 </div>
@@ -2320,21 +2473,80 @@ export default function WorkshopInventory({
                                                         </span>
                                                     </td>
                                                     <td style={{ padding: '16px 24px', textAlign: 'center' }}>
-                                                        <span
-                                                            style={{
-                                                                padding: '4px 10px',
-                                                                background: qtyBg,
-                                                                color: qtyColor,
-                                                                borderRadius: '6px',
-                                                                fontSize: '0.8125rem',
-                                                                fontWeight: 700,
-                                                            }}
-                                                        >
-                                                            {formatInventoryQty(item.qty, item.isInfiniteQty)}
-                                                        </span>
+                                                        {(() => {
+                                                            const eff = productEffectiveUom(item);
+                                                            const stock =
+                                                                item.stockDisplayPrimary && item.stockDisplaySecondary != null
+                                                                    ? {
+                                                                          primary: item.stockDisplayPrimary,
+                                                                          secondary: item.stockDisplaySecondary,
+                                                                      }
+                                                                    : item.isInfiniteQty
+                                                                      ? { primary: 'Unlimited', secondary: null }
+                                                                      : formatStockOnHandDisplay(item.qty, eff);
+                                                            const qtyBg =
+                                                                item.isInfiniteQty || (Number(item.qty) || 0) > 0
+                                                                    ? '#ECFDF5'
+                                                                    : '#FEF2F2';
+                                                            const qtyColor =
+                                                                item.isInfiniteQty || (Number(item.qty) || 0) > 0
+                                                                    ? '#059669'
+                                                                    : '#DC2626';
+                                                            return (
+                                                                <span
+                                                                    style={{
+                                                                        display: 'inline-block',
+                                                                        padding: '6px 10px',
+                                                                        background: qtyBg,
+                                                                        color: qtyColor,
+                                                                        borderRadius: '6px',
+                                                                        fontSize: '0.8125rem',
+                                                                        textAlign: 'center',
+                                                                    }}
+                                                                >
+                                                                    <span className="ws-inv-stock-primary">{stock.primary}</span>
+                                                                    {stock.secondary ? (
+                                                                        <span className="ws-inv-stock-secondary">{stock.secondary}</span>
+                                                                    ) : null}
+                                                                </span>
+                                                            );
+                                                        })()}
                                                     </td>
                                                     <td style={{ padding: '16px 24px', textAlign: 'center', fontSize: '0.875rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
                                                         {Number(item.critical_level) > 0 ? item.critical_level : '—'}
+                                                    </td>
+                                                    <td className="ws-inv-uom-cell">
+                                                        {(() => {
+                                                            const uom = inventoryUomDisplay(item);
+                                                            return (
+                                                                <button
+                                                                    type="button"
+                                                                    className="ws-inv-uom-pill"
+                                                                    title={
+                                                                        isAllBranches
+                                                                            ? 'Select a single branch to edit UOM'
+                                                                            : 'Edit warehouse / workshop conversion'
+                                                                    }
+                                                                    disabled={isAllBranches}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setUomEditProduct(item);
+                                                                    }}
+                                                                >
+                                                                    <ArrowRightLeft
+                                                                        size={14}
+                                                                        className="ws-inv-uom-pill-icon"
+                                                                        aria-hidden
+                                                                    />
+                                                                    <span className="ws-inv-uom-pill-text">
+                                                                        {uom.primary}
+                                                                        {uom.secondary ? (
+                                                                            <span className="ws-inv-uom-pill-sub">{uom.secondary}</span>
+                                                                        ) : null}
+                                                                    </span>
+                                                                </button>
+                                                            );
+                                                        })()}
                                                     </td>
                                                     <td style={{ padding: '16px 24px', textAlign: 'center', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-text-dark)' }}>
                                                         SAR {item.basePrice?.toLocaleString() || '0'}
@@ -2410,6 +2622,7 @@ export default function WorkshopInventory({
                     </div>
                 </div>
             </div>
+            )}
 
             <AnimatePresence>
                 {isRequestModalOpen && (
@@ -3017,6 +3230,25 @@ export default function WorkshopInventory({
                     </Modal>
                 )}
             </AnimatePresence>
+
+            {uomEditProduct && !isAllBranches ? (
+                <WorkshopProductUomEditModal
+                    product={uomEditProduct}
+                    branchId={String(selectedBranchId)}
+                    workshopId={workshopIdQuery}
+                    onClose={() => setUomEditProduct(null)}
+                    onSaved={handleUomSaved}
+                />
+            ) : null}
+            {isBulkUomModalOpen && !isAllBranches ? (
+                <WorkshopBulkUomModal
+                    products={selectedProductsForBulk}
+                    branchId={String(selectedBranchId)}
+                    workshopId={workshopIdQuery}
+                    onClose={() => setIsBulkUomModalOpen(false)}
+                    onSaved={handleBulkUomSaved}
+                />
+            ) : null}
 
             <AnimatePresence>
                 {isCriticalModalOpen && (
