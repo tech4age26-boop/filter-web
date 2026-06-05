@@ -192,15 +192,24 @@ export default function CorporateTransactions() {
         });
     }, [rows, search]);
 
-    // Two totals side-by-side — total billed and outstanding (unpaid).
-    const { totalBilled, totalOutstanding } = useMemo(() => {
+    // KPI totals — billed, collected (real, non-phantom) and outstanding.
+    const { totalBilled, totalCollected, totalOutstanding } = useMemo(() => {
         let billed = 0;
+        let collected = 0;
         let outstanding = 0;
         for (const r of filtered) {
-            billed += Number(r.totalAmount ?? r.grandTotal ?? 0);
-            outstanding += Number(r.balance ?? 0);
+            const total = Number(r.totalAmount ?? r.grandTotal ?? 0);
+            const paid = r.realPaid != null
+                ? Number(r.realPaid)
+                : Math.max(0, total - Number(r.realBalance ?? r.balance ?? 0));
+            const bal = r.realBalance != null
+                ? Number(r.realBalance)
+                : Number(r.balance ?? 0);
+            billed += total;
+            collected += paid;
+            outstanding += bal;
         }
-        return { totalBilled: billed, totalOutstanding: outstanding };
+        return { totalBilled: billed, totalCollected: collected, totalOutstanding: outstanding };
     }, [filtered]);
 
     const openInvoice = async (invoiceId) => {
@@ -262,6 +271,13 @@ export default function CorporateTransactions() {
                 </button>
             </header>
 
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+                <KpiCard label="Invoices" value={loading ? '—' : filtered.length.toLocaleString()} accent="#0f172a" />
+                <KpiCard label="Total Billed" value={loading ? '—' : num(totalBilled)} accent="#0f172a" />
+                <KpiCard label="Collected" value={loading ? '—' : num(totalCollected)} accent="#15803d" />
+                <KpiCard label="Outstanding" value={loading ? '—' : num(totalOutstanding)} accent={totalOutstanding > 0 ? '#b91c1c' : '#15803d'} />
+            </div>
+
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'flex-end' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 200 }}>
                     <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Workshop</label>
@@ -320,20 +336,6 @@ export default function CorporateTransactions() {
                         fontSize: '0.875rem',
                     }}
                 />
-                <div style={{ padding: '10px 14px', borderRadius: 10, background: '#f0fdfa', border: '1px solid #99f6e4', display: 'flex', gap: 16, alignItems: 'center' }}>
-                    <div>
-                        <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>Invoices</div>
-                        <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#134e4a' }}>{filtered.length}</div>
-                    </div>
-                    <div>
-                        <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>Total Billed</div>
-                        <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#134e4a' }}>{num(totalBilled)}</div>
-                    </div>
-                    <div>
-                        <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>Outstanding</div>
-                        <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: totalOutstanding > 0 ? '#b91c1c' : '#134e4a' }}>{num(totalOutstanding)}</div>
-                    </div>
-                </div>
             </div>
 
             {error ? (
@@ -379,17 +381,52 @@ export default function CorporateTransactions() {
     );
 }
 
+/* ───────── KPI summary card ───────── */
+
+function KpiCard({ label, value, accent = '#0f172a' }) {
+    return (
+        <div style={{
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            padding: '14px 16px',
+            boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+        }}>
+            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                {label}
+            </span>
+            <span style={{ fontSize: '1.35rem', fontWeight: 800, color: accent, fontVariantNumeric: 'tabular-nums' }}>
+                {value}
+            </span>
+        </div>
+    );
+}
+
 /* ───────── Invoices table (only corporate + sales-order status=invoiced) ── */
 
-/** Binary Paid / Not Paid badge derived from invoice balance.
- *  balance === 0 → Paid (green); balance > 0 → Not Paid (red).
- *  Simpler than surfacing the full paymentStatus vocabulary
- *  (pending_payment / partially_paid / overdue) for the admin overview. */
-function PaidStatusBadge({ balance }) {
-    const isPaid = Number(balance ?? 0) <= 0;
-    const style = isPaid
-        ? { bg: '#dcfce7', fg: '#166534' }   // green
-        : { bg: '#fef2f2', fg: '#991b1b' };  // red
+/** Three-state payment badge derived from collected vs outstanding:
+ *    balance ≈ 0            → Paid (green)
+ *    paid > 0 & balance > 0 → Partially Paid (amber)
+ *    paid ≈ 0               → Not Paid (red)  */
+function PaidStatusBadge({ paid = 0, balance = 0 }) {
+    const EPS = 0.01;
+    const p = Number(paid) || 0;
+    const b = Number(balance) || 0;
+    let label;
+    let style;
+    if (b <= EPS) {
+        label = 'Paid';
+        style = { bg: '#dcfce7', fg: '#166534' };          // green
+    } else if (p > EPS) {
+        label = 'Partially Paid';
+        style = { bg: '#fef3c7', fg: '#92400e' };          // amber
+    } else {
+        label = 'Not Paid';
+        style = { bg: '#fef2f2', fg: '#991b1b' };          // red
+    }
     return (
         <span style={{
             padding: '3px 10px',
@@ -399,8 +436,9 @@ function PaidStatusBadge({ balance }) {
             background: style.bg,
             color: style.fg,
             display: 'inline-block',
+            whiteSpace: 'nowrap',
         }}>
-            {isPaid ? 'Paid' : 'Not Paid'}
+            {label}
         </span>
     );
 }
@@ -453,8 +491,8 @@ function InvoicesTable({ loading, filtered, cellTh, cellTd, invoiceLoadingId, on
                     <th style={cellTh}>Order Type</th>
                     <th style={cellTh}>Workshop / Branch</th>
                     <th style={cellTh}>Status</th>
-                    <th style={{ ...cellTh, textAlign: 'right' }}>Total</th>
-                    <th style={{ ...cellTh, textAlign: 'right' }}>Paid</th>
+                    <th style={{ ...cellTh, textAlign: 'right' }}>Invoice amount</th>
+                    <th style={{ ...cellTh, textAlign: 'right' }}>Receipt Amount</th>
                     <th style={{ ...cellTh, textAlign: 'right' }}>Balance</th>
                     <th style={{ ...cellTh, textAlign: 'right' }}>Actions</th>
                 </tr>
@@ -497,7 +535,7 @@ function InvoicesTable({ loading, filtered, cellTh, cellTd, invoiceLoadingId, on
                                 <div>{r.workshopName ?? r.workshop?.name ?? '—'}</div>
                                 <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{r.branchName ?? r.branch?.name ?? '—'}</div>
                             </td>
-                            <td style={cellTd}><PaidStatusBadge balance={isPaid ? 0 : Math.max(realBalance, 0.01)} /></td>
+                            <td style={cellTd}><PaidStatusBadge paid={isPaid ? total : realPaid} balance={isPaid ? 0 : realBalance} /></td>
                             <td style={{ ...cellTd, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{num(total)}</td>
                             <td style={{ ...cellTd, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#15803d' }}>{num(realPaid)}</td>
                             <td style={{ ...cellTd, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: realBalance > 0 ? '#b91c1c' : '#94a3b8' }}>{num(realBalance)}</td>

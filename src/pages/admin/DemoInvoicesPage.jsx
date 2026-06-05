@@ -31,6 +31,14 @@ function formatDate(raw) {
     return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+/** Format a date/ISO into a `datetime-local` input value (local time). */
+function toLocalDateTimeInput(raw) {
+    const d = raw instanceof Date ? raw : new Date(raw);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /**
  * Sandbox / demo invoices. Looks identical to real invoices in the UI but
  * never affects journals, inventory, workflow, or notifications. Super
@@ -310,6 +318,11 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
     const [workshopId, setWorkshopId] = useState('');
     const [branchId, setBranchId] = useState('');
     const [branches, setBranches] = useState([]);
+    // Invoice date & time chosen by the admin — this becomes the date printed on
+    // the invoice (not the row's creation timestamp). Defaults to now for new.
+    const [invoiceDateTime, setInvoiceDateTime] = useState(() =>
+        editId ? '' : toLocalDateTimeInput(new Date()),
+    );
     const [customerName, setCustomerName] = useState('');
     const [customerMobile, setCustomerMobile] = useState('');
     const [customerType, setCustomerType] = useState('Individual');
@@ -350,6 +363,7 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
                 const inv = res?.invoice ?? res;
                 setWorkshopId(inv.workshop?.id ?? '');
                 setBranchId(inv.branch?.id ?? '');
+                setInvoiceDateTime(toLocalDateTimeInput(inv.invoiceDate ?? inv.issuedAt));
                 setCustomerName(inv.customerName ?? '');
                 setCustomerMobile(inv.customerMobile ?? '');
                 setCustomerType(inv.customerType ?? 'Individual');
@@ -482,9 +496,16 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
         setSaving(true);
         setError('');
         try {
+            // Selected date+time → both the printed invoice date and the issued
+            // timestamp. Local datetime-local value converted to an ISO instant.
+            const invoiceIso = invoiceDateTime
+                ? new Date(invoiceDateTime).toISOString()
+                : undefined;
             const body = {
                 workshopId,
                 branchId,
+                invoiceDate: invoiceIso,
+                issuedAt:    invoiceIso,
                 customerName:   customerName   || null,
                 customerMobile: customerMobile || null,
                 customerType:   customerType   || null,
@@ -545,7 +566,7 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
                             </div>
                         )}
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
                             <FormField label="Workshop *">
                                 <select value={workshopId} onChange={(e) => setWorkshopId(e.target.value)} style={selectStyle}>
                                     <option value="">Select workshop…</option>
@@ -561,6 +582,14 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
                                         <option key={b.id} value={b.id}>{b.name}</option>
                                     ))}
                                 </select>
+                            </FormField>
+                            <FormField label="Invoice date & time *">
+                                <input
+                                    type="datetime-local"
+                                    value={invoiceDateTime}
+                                    onChange={(e) => setInvoiceDateTime(e.target.value)}
+                                    style={inputStyle}
+                                />
                             </FormField>
                         </div>
 
@@ -893,6 +922,12 @@ function mapDemoToInvoice(demo) {
         vehicleVin: demo.vehicleVin ?? '',
         workshop: demo.workshop ?? null,
         branch: demo.branch ?? null,
+        // Seller identity for the header VAT reg + ZATCA Phase-2 QR.
+        workshopName: demo.workshop?.name ?? '',
+        branchVatId: demo.branch?.vatId ?? '',
+        workshopTaxId: demo.workshop?.taxId ?? '',
+        vatAmount: demo.vatAmount,
+        totalAmount: demo.totalAmount,
         maintenanceChecklist: demo.maintenanceChecklist ?? { checks: [] },
         items: (demo.items ?? []).map((it) => ({
             productName: it.name,

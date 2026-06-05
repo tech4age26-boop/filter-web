@@ -67,6 +67,15 @@ async function sha256Bytes(text) {
     return new Uint8Array(hash);
 }
 
+/** Raw bytes → base64 string (so TLV tags 6–9 are readable text, not binary). */
+function bytesToBase64(bytes) {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 1) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
 function hexToBytes(hex) {
     const clean = String(hex || '').replace(/[^0-9a-f]/gi, '');
     if (clean.length < 2) return new Uint8Array(0);
@@ -116,10 +125,14 @@ export async function buildZatcaPhase2QrTlvBase64(opts) {
     writeTlvText(chunks, 3, ts);
     writeTlvText(chunks, 4, totalWithVat);
     writeTlvText(chunks, 5, vatAmount);
-    writeTlvBytes(chunks, 6, invoiceHash);
-    writeTlvBytes(chunks, 7, digitalSignature);
-    writeTlvBytes(chunks, 8, publicKey);
-    writeTlvBytes(chunks, 9, certStamp);
+    // Tags 6–9 carried as base64 TEXT (not raw bytes) so generic scanners show
+    // clean strings instead of garbled symbols. Tag 6 = base64(invoice hash)
+    // matches the ZATCA spec; 7–9 are deterministic placeholders until the real
+    // ECDSA signing / certificate stamp is wired via the ZATCA APIs.
+    writeTlvText(chunks, 6, bytesToBase64(invoiceHash));
+    writeTlvText(chunks, 7, bytesToBase64(digitalSignature));
+    writeTlvText(chunks, 8, bytesToBase64(publicKey));
+    writeTlvText(chunks, 9, bytesToBase64(certStamp));
 
     return concatTlv(chunks);
 }
@@ -157,6 +170,29 @@ export async function buildZatcaPhase2QrPayloadFromInvoice({
         vatNumber,
         timestampUtc,
         invoiceNumber,
+        totalWithVat: Number(grandTotal ?? 0).toFixed(2),
+        vatAmount: Number(vatAmount ?? 0).toFixed(2),
+    });
+}
+
+/**
+ * Phase-1 payload — ONLY tags 1–5 (seller, VAT, timestamp, total incl VAT,
+ * VAT amount). No cryptographic stamp tags, so scanners show just those five
+ * clean fields. Use until the real ZATCA Phase-2 signing is integrated.
+ */
+export function buildZatcaPhase1QrPayloadFromInvoice({
+    sellerName,
+    vatNumber,
+    invoiceDate,
+    grandTotal,
+    vatAmount,
+}) {
+    const dateRaw = invoiceDate ? new Date(invoiceDate) : new Date();
+    const timestampUtc = Number.isNaN(dateRaw.getTime()) ? new Date() : dateRaw;
+    return buildZatcaQrTlvBase64({
+        sellerName,
+        vatNumber,
+        timestampUtc,
         totalWithVat: Number(grandTotal ?? 0).toFixed(2),
         vatAmount: Number(vatAmount ?? 0).toFixed(2),
     });
