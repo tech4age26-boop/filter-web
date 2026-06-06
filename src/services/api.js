@@ -1,7 +1,7 @@
 // staging url
 //export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 // staging url (production default when VITE_API_BASE_URL is unset)
-// const PRODUCTION_BASE_URL = 'https://filterbackend-production.up.railway.app';
+const PRODUCTION_BASE_URL = 'https://filterbackend-production.up.railway.app';
 
 // production url
 // const PRODUCTION_BASE_URL = 'https://api.filtercarservices.com';
