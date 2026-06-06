@@ -109,7 +109,7 @@ export default function WorkshopLayout() {
             console.warn('[workshop] logout API failed (session cleared locally anyway)', e);
         }
         logout();
-        navigate('/workshop/login', { replace: true });
+        navigate('/', { replace: true });
     };
 
     const getActiveTabFromUrl = () => {
