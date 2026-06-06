@@ -88,6 +88,7 @@ export default function SalesReturnsPage() {
     const [branchOptions, setBranchOptions] = useState([]);
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
     const [selectedBranchId, setSelectedBranchId] = useState('');
+    const [summary, setSummary] = useState(null);
 
     const [detail, setDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
@@ -116,10 +117,12 @@ export default function SalesReturnsPage() {
             });
             setRows(Array.isArray(res?.items) ? res.items : []);
             setTotal(Number(res?.total) || 0);
+            setSummary(res?.summary ?? null);
         } catch (e) {
             setError(e?.message || 'Could not load sales returns');
             setRows([]);
             setTotal(0);
+            setSummary(null);
         } finally {
             setLoading(false);
         }
@@ -181,9 +184,12 @@ export default function SalesReturnsPage() {
         return () => { cancelled = true; };
     }, [selectedWorkshopId]);
 
+    // KPI count + total across the FULL filtered set (server `summary`), with a
+    // fallback to the loaded rows when summary isn't present.
+    const kpiCount = summary ? Number(summary.count ?? 0) : rows.length;
     const totalAmount = useMemo(
-        () => rows.reduce((s, r) => s + Number(r.totalAmount ?? 0), 0),
-        [rows],
+        () => (summary ? Number(summary.totalReturned ?? 0) : rows.reduce((s, r) => s + Number(r.totalAmount ?? 0), 0)),
+        [rows, summary],
     );
 
     const openDetail = async (row) => {
@@ -286,7 +292,7 @@ export default function SalesReturnsPage() {
                     <div style={{ padding: '8px 14px', borderRadius: 10, background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', gap: 16, alignItems: 'center' }}>
                         <div>
                             <div style={{ fontSize: '0.65rem', color: '#b91c1c', fontWeight: 700, textTransform: 'uppercase' }}>Returns</div>
-                            <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#7f1d1d' }}>{loading ? '—' : rows.length.toLocaleString()}</div>
+                            <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#7f1d1d' }}>{loading ? '—' : Number(kpiCount).toLocaleString()}</div>
                         </div>
                         <div>
                             <div style={{ fontSize: '0.65rem', color: '#b91c1c', fontWeight: 700, textTransform: 'uppercase' }}>Total Returned</div>

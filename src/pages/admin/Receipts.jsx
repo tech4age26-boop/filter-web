@@ -5,6 +5,7 @@ import {
     getSuperAdminInvoiceView,
     getWorkshopOptions,
     getBranches,
+    getSuperAdminCorporateCompanies,
 } from '../../services/superAdminApi';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 
@@ -57,8 +58,11 @@ export default function Receipts() {
     const [search, setSearch] = useState('');
     const [workshopOptions, setWorkshopOptions] = useState([]);
     const [branchOptions, setBranchOptions] = useState([]);
+    const [companyOptions, setCompanyOptions] = useState([]);
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
     const [selectedBranchId, setSelectedBranchId] = useState('');
+    const [selectedCompanyId, setSelectedCompanyId] = useState('');
+    const [summary, setSummary] = useState(null);
     const [invoice, setInvoice] = useState(null);
     const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
     const [invoiceErr, setInvoiceErr] = useState('');
@@ -70,6 +74,7 @@ export default function Receipts() {
             const res = await getSuperAdminReceipts({
                 workshopId: selectedWorkshopId || undefined,
                 branchId:   selectedBranchId   || undefined,
+                corporateAccountId: selectedCompanyId || undefined,
                 limit: PAGE_SIZE,
                 offset: (page - 1) * PAGE_SIZE,
             });
@@ -79,19 +84,39 @@ export default function Receipts() {
                 : Array.isArray(res) ? res : [];
             setRows(list);
             setTotal(Number(res?.total) || list.length);
+            setSummary(res?.summary ?? null);
         } catch (e) {
             setError(e?.message || 'Could not load receipts');
             setRows([]);
             setTotal(0);
+            setSummary(null);
         } finally {
             setLoading(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, page]);
+    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, page]);
 
     useEffect(() => { void load(); }, [load]);
 
     // Snap back to page 1 when filters change.
-    useEffect(() => { setPage(1); }, [selectedWorkshopId, selectedBranchId]);
+    useEffect(() => { setPage(1); }, [selectedWorkshopId, selectedBranchId, selectedCompanyId]);
+
+    // Companies for the Company filter (scoped to the selected workshop).
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await getSuperAdminCorporateCompanies({ workshopId: selectedWorkshopId || undefined });
+                const list = Array.isArray(res?.companies) ? res.companies : [];
+                if (!cancelled) {
+                    setCompanyOptions(list.map((c) => ({ id: String(c.id), name: String(c.companyName || '').trim() || 'Company' })));
+                    setSelectedCompanyId('');
+                }
+            } catch {
+                if (!cancelled) { setCompanyOptions([]); setSelectedCompanyId(''); }
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [selectedWorkshopId]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -154,6 +179,7 @@ export default function Receipts() {
         if (!q) return rows;
         return rows.filter((r) => {
             const hay = [
+                r.receiptNo,
                 r.invoiceNo,
                 r.corporateAccountName, r.customerName,
                 r.workshopName, r.branchName,
@@ -164,15 +190,24 @@ export default function Receipts() {
         });
     }, [rows, search]);
 
-    const { totalBilled, totalCollected } = useMemo(() => {
+    // KPIs across ALL pages via the server `summary`; fall back to the visible
+    // rows when a client-side search is narrowing the current page.
+    const { totalBilled, totalCollected, kpiCount } = useMemo(() => {
+        if (summary && !search.trim()) {
+            return {
+                totalBilled: Number(summary.totalBilled ?? 0),
+                totalCollected: Number(summary.totalCollected ?? 0),
+                kpiCount: Number(summary.count ?? 0),
+            };
+        }
         let billed = 0;
         let collected = 0;
         for (const r of filtered) {
             billed += Number(r.totalAmount ?? 0);
             collected += Number(r.amountPaid ?? r.totalAmount ?? 0);
         }
-        return { totalBilled: billed, totalCollected: collected };
-    }, [filtered]);
+        return { totalBilled: billed, totalCollected: collected, kpiCount: filtered.length };
+    }, [filtered, summary, search]);
 
     const openInvoice = async (invoiceId) => {
         if (!invoiceId) return;
@@ -253,20 +288,29 @@ export default function Receipts() {
                         ))}
                     </select>
                 </div>
+                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 200 }}>
+                    <label style={labelStyle}>Company</label>
+                    <select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)} style={{ ...inputStyle, minWidth: 200 }}>
+                        <option value="">All companies</option>
+                        {companyOptions.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                    </select>
+                </div>
                 <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
                     <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                     <input
                         type="search"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search company, invoice no, method, amount…"
+                        placeholder="Search receipt no, company, invoice no, method, amount…"
                         style={{ ...inputStyle, width: '100%', paddingLeft: 36 }}
                     />
                 </div>
                 <div style={{ padding: '10px 14px', borderRadius: 10, background: '#f0fdfa', border: '1px solid #99f6e4', display: 'flex', gap: 16, alignItems: 'center' }}>
                     <div>
                         <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>Receipts</div>
-                        <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#134e4a' }}>{filtered.length}</div>
+                        <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#134e4a' }}>{Number(kpiCount).toLocaleString()}</div>
                     </div>
                     <div>
                         <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>Billed</div>
@@ -294,6 +338,7 @@ export default function Receipts() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                     <thead>
                         <tr>
+                            <th style={cellTh}>Receipt No</th>
                             <th style={cellTh}>Payment Date</th>
                             <th style={cellTh}>Invoice No</th>
                             <th style={cellTh}>Customer</th>
@@ -308,11 +353,11 @@ export default function Receipts() {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
+                            <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
                                 <Loader2 size={18} className="spin" /> Loading…
                             </td></tr>
                         ) : filtered.length === 0 ? (
-                            <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
+                            <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
                                 No monthly-billing receipts for the selected filters.
                             </td></tr>
                         ) : filtered.map((r) => {
@@ -322,6 +367,7 @@ export default function Receipts() {
                             const isPartial = balance > 0.01 && String(r.paymentStatus).toLowerCase() !== 'paid';
                             return (
                                 <tr key={r.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                                    <td style={{ ...cellTd, whiteSpace: 'nowrap' }}><span style={{ fontWeight: 700, color: '#0f172a' }}>{r.receiptNo ?? '—'}</span></td>
                                     <td style={{ ...cellTd, whiteSpace: 'nowrap' }}>{formatDate(r.paymentDate ?? r.issuedAt ?? r.invoiceDate)}</td>
                                     <td style={cellTd}><span style={{ fontWeight: 700, color: '#2563eb' }}>{r.invoiceNo ?? '—'}</span></td>
                                     <td style={cellTd}>

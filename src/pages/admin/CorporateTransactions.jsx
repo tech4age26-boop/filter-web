@@ -7,6 +7,7 @@ import {
     getWorkshopOptions,
     getBranches,
     getInvoices,
+    getSuperAdminCorporateCompanies,
 } from '../../services/superAdminApi';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 
@@ -59,8 +60,12 @@ export default function CorporateTransactions() {
     const [search, setSearch] = useState('');
     const [workshopOptions, setWorkshopOptions] = useState([]);
     const [branchOptions, setBranchOptions] = useState([]);
+    const [companyOptions, setCompanyOptions] = useState([]);
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
     const [selectedBranchId, setSelectedBranchId] = useState('');
+    const [selectedCompanyId, setSelectedCompanyId] = useState('');
+    // Server-computed KPI totals across ALL pages (not just this page's rows).
+    const [summary, setSummary] = useState(null);
     const [invoice, setInvoice] = useState(null);
     const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
     // Error from the last invoice fetch (kept so we can surface it to the user
@@ -79,6 +84,7 @@ export default function CorporateTransactions() {
             const res = await getInvoices({
                 workshopId: selectedWorkshopId || undefined,
                 branchId:   selectedBranchId   || undefined,
+                corporateAccountId: selectedCompanyId || undefined,
                 limit: PAGE_SIZE,
                 offset: (page - 1) * PAGE_SIZE,
                 corporateOnly: true,     // only corporate invoices
@@ -91,14 +97,16 @@ export default function CorporateTransactions() {
                 : [];
             setRows(list);
             setTotal(Number(res?.total) || list.length);
+            setSummary(res?.summary ?? null);
         } catch (e) {
             setError(e?.message || 'Could not load invoices');
             setRows([]);
             setTotal(0);
+            setSummary(null);
         } finally {
             setLoading(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, page]);
+    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, page]);
 
     useEffect(() => {
         void load();
@@ -108,7 +116,25 @@ export default function CorporateTransactions() {
     // than the new total returns nothing and the user sees an empty table.
     useEffect(() => {
         setPage(1);
-    }, [selectedWorkshopId, selectedBranchId]);
+    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId]);
+
+    // Companies for the Company filter (scoped to the selected workshop).
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await getSuperAdminCorporateCompanies({ workshopId: selectedWorkshopId || undefined });
+                const list = Array.isArray(res?.companies) ? res.companies : [];
+                if (!cancelled) {
+                    setCompanyOptions(list.map((c) => ({ id: String(c.id), name: String(c.companyName || '').trim() || 'Company' })));
+                    setSelectedCompanyId('');
+                }
+            } catch {
+                if (!cancelled) { setCompanyOptions([]); setSelectedCompanyId(''); }
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [selectedWorkshopId]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -193,7 +219,18 @@ export default function CorporateTransactions() {
     }, [rows, search]);
 
     // KPI totals — billed, collected (real, non-phantom) and outstanding.
-    const { totalBilled, totalCollected, totalOutstanding } = useMemo(() => {
+    // Prefer the server `summary` (across ALL pages). When a client-side search
+    // is active it only narrows the current page, so fall back to summing the
+    // visible rows so the KPIs match what's on screen.
+    const { totalBilled, totalCollected, totalOutstanding, kpiCount } = useMemo(() => {
+        if (summary && !search.trim()) {
+            return {
+                totalBilled: Number(summary.totalBilled ?? 0),
+                totalCollected: Number(summary.totalCollected ?? 0),
+                totalOutstanding: Number(summary.totalOutstanding ?? 0),
+                kpiCount: Number(summary.count ?? 0),
+            };
+        }
         let billed = 0;
         let collected = 0;
         let outstanding = 0;
@@ -209,8 +246,8 @@ export default function CorporateTransactions() {
             collected += paid;
             outstanding += bal;
         }
-        return { totalBilled: billed, totalCollected: collected, totalOutstanding: outstanding };
-    }, [filtered]);
+        return { totalBilled: billed, totalCollected: collected, totalOutstanding: outstanding, kpiCount: filtered.length };
+    }, [filtered, summary, search]);
 
     const openInvoice = async (invoiceId) => {
         if (!invoiceId) return;
@@ -272,7 +309,7 @@ export default function CorporateTransactions() {
             </header>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-                <KpiCard label="Invoices" value={loading ? '—' : filtered.length.toLocaleString()} accent="#0f172a" />
+                <KpiCard label="Invoices" value={loading ? '—' : Number(kpiCount).toLocaleString()} accent="#0f172a" />
                 <KpiCard label="Total Billed" value={loading ? '—' : num(totalBilled)} accent="#0f172a" />
                 <KpiCard label="Collected" value={loading ? '—' : num(totalCollected)} accent="#15803d" />
                 <KpiCard label="Outstanding" value={loading ? '—' : num(totalOutstanding)} accent={totalOutstanding > 0 ? '#b91c1c' : '#15803d'} />
@@ -319,6 +356,26 @@ export default function CorporateTransactions() {
                         <option value="">All branches</option>
                         {branchOptions.map((b) => (
                             <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 200 }}>
+                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Company</label>
+                    <select
+                        value={selectedCompanyId}
+                        onChange={(e) => setSelectedCompanyId(e.target.value)}
+                        style={{
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            border: '1px solid #cbd5e1',
+                            fontSize: '0.875rem',
+                            background: '#fff',
+                            minWidth: 200,
+                        }}
+                    >
+                        <option value="">All companies</option>
+                        {companyOptions.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                     </select>
                 </div>
