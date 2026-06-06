@@ -19,19 +19,15 @@ const ROOT = '/super-admin-marketing-protal';
    Marketing Targeting APIs
 ========================= */
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingListBranches = (params = {}) =>
   apiFetch(`${ROOT}/branches${qs(params)}`);
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingListTargetZones = (params = {}) =>
   apiFetch(`${ROOT}/target-zones${qs(params)}`);
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingListTargetProducts = (params = {}) =>
   apiFetch(`${ROOT}/target-products${qs(params)}`);
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingListRewardItems = (params = {}) =>
   apiFetch(`${ROOT}/reward-items${qs(params)}`);
 
@@ -45,7 +41,6 @@ export const marketingCreatePromoCode = (body) =>
     body: JSON.stringify(body),
   });
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingListPromoCodes = (params = {}) =>
   apiFetch(`${ROOT}/promo-codes${qs(params)}`);
 
@@ -63,22 +58,22 @@ export const marketingDeletePromoCode = (id) =>
     method: 'DELETE',
   });
 
-/** @param {{ workshopId: string }} params */
 export const marketingGeneratePromoAutoCode = (params) =>
   apiFetch(`${ROOT}/promo-codes/auto-code/generate${qs(params)}`);
 
 /* =========================
    Promotions APIs
 ========================= */
+
 export const marketingGetPromotionOptions = () =>
   apiFetch(`${ROOT}/promotions/options`);
+
 export const marketingCreatePromotion = (body) =>
   apiFetch(`${ROOT}/promotions`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingListPromotions = (params = {}) =>
   apiFetch(`${ROOT}/promotions${qs(params)}`);
 
@@ -106,7 +101,6 @@ export const marketingCreateCampaign = (body) =>
     body: JSON.stringify(body),
   });
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingListCampaigns = (params = {}) =>
   apiFetch(`${ROOT}/campaigns${qs(params)}`);
 
@@ -157,7 +151,6 @@ export const marketingCreateReferrer = (body) =>
     body: JSON.stringify(body),
   });
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingListReferrers = (params = {}) =>
   apiFetch(`${ROOT}/referrers${qs(params)}`);
 
@@ -185,7 +178,6 @@ export const marketingCreateLoyaltyProgram = (body) =>
     body: JSON.stringify(body),
   });
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingListLoyaltyPrograms = (params = {}) =>
   apiFetch(`${ROOT}/loyalty-programs${qs(params)}`);
 
@@ -207,11 +199,9 @@ export const marketingDeleteLoyaltyProgram = (id) =>
    Dashboard / Insights APIs
 ========================= */
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingGetCustomerInsights = (params = {}) =>
   apiFetch(`${ROOT}/customer-insights${qs(params)}`);
 
-/** @param {Record<string, string|number|undefined|null>} params */
 export const marketingGetDashboard = (params = {}) =>
   apiFetch(`${ROOT}/dashboard${qs(params)}`);
 
@@ -219,11 +209,9 @@ export const marketingGetDashboard = (params = {}) =>
    Referral Management APIs
 ========================= */
 
-/** @param {{ recentReferrals?: number, recentReferrers?: number }} params */
 export const marketingGetReferralManagementDashboard = (params = {}) =>
   apiFetch(`${ROOT}/referral_management_dashboard${qs(params)}`);
 
-/** @param {{ workshopId: string, tableLimit?: number }} params */
 export const marketingGetReferralCommissionsDashboard = (params) =>
   apiFetch(`${ROOT}/referral-commissions/dashboard${qs(params)}`);
 
@@ -233,7 +221,6 @@ export const marketingLookupReferralCommissionsDashboard = (body) =>
     body: JSON.stringify(body),
   });
 
-/** @param {{ workshopId: string }} params */
 export const marketingListReferralLedgerAccounts = (params) =>
   apiFetch(`${ROOT}/referral-marketing/ledger-accounts${qs(params)}`);
 
@@ -243,7 +230,6 @@ export const marketingLookupReferralLedgerAccounts = (body) =>
     body: JSON.stringify(body),
   });
 
-/** @param {{ workshopId: string }} params */
 export const marketingGetReferralMarketingSettings = (params) =>
   apiFetch(`${ROOT}/referral-marketing/settings${qs(params)}`);
 
@@ -258,24 +244,29 @@ export const marketingUpsertReferralMarketingSettings = (body) =>
     method: 'PUT',
     body: JSON.stringify(body),
   });
-  // Campaign Requests / MarketingRequest
+
+/* =========================
+   Campaign Requests APIs
+========================= */
+
 export const marketingListCampaignRequests = (params = {}) =>
-    apiFetch(`${ROOT}/campaign-requests${qs(params)}`);
+  apiFetch(`${ROOT}/campaign-requests${qs(params)}`);
 
 export const marketingGetCampaignRequest = (id) =>
-    apiFetch(`${ROOT}/campaign-requests/${encodeURIComponent(String(id))}`);
+  apiFetch(`${ROOT}/campaign-requests/${encodeURIComponent(String(id))}`);
 
 export const marketingApproveCampaignRequest = (id, body = {}) =>
-    apiFetch(`${ROOT}/campaign-requests/${encodeURIComponent(String(id))}/approve`, {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-    });
+  apiFetch(`${ROOT}/campaign-requests/${encodeURIComponent(String(id))}/approve`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 
 export const marketingRejectCampaignRequest = (id, body = {}) =>
-    apiFetch(`${ROOT}/campaign-requests/${encodeURIComponent(String(id))}/reject`, {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-    });
+  apiFetch(`${ROOT}/campaign-requests/${encodeURIComponent(String(id))}/reject`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
 /* =========================
    Marketing Wallet APIs
 ========================= */
@@ -296,25 +287,20 @@ export const marketingCreateBudgetRequest = (body) =>
   });
 
 export const marketingApproveBudgetRequest = (id, body = {}) =>
-  apiFetch(
-    `${ROOT}/wallet/budget-requests/${encodeURIComponent(String(id))}/approve`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }
-  );
+  apiFetch(`${ROOT}/wallet/budget-requests/${encodeURIComponent(String(id))}/approve`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 
 export const marketingRejectBudgetRequest = (id, body) =>
-  apiFetch(
-    `${ROOT}/wallet/budget-requests/${encodeURIComponent(String(id))}/reject`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }
-  );
+  apiFetch(`${ROOT}/wallet/budget-requests/${encodeURIComponent(String(id))}/reject`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 
 export const marketingListWalletTransactions = (params = {}) =>
   apiFetch(`${ROOT}/wallet/transactions${qs(params)}`);
+
 /* =========================
    Marketing Expenses APIs
 ========================= */
@@ -359,15 +345,21 @@ export const marketingDeleteExpense = (id) =>
   apiFetch(`${ROOT}/expenses/${encodeURIComponent(String(id))}`, {
     method: 'DELETE',
   });
-  
+
+/* =========================
+   Marketing Analytics APIs
+========================= */
+
 export const marketingGetAnalyticsRoi = (params = {}) =>
   apiFetch(`${ROOT}/analytics/roi${qs(params)}`);
+
 /* =========================
    Marketing Reports APIs
 ========================= */
 
 export const marketingGetCampaignReport = (params = {}) =>
   apiFetch(`${ROOT}/reports/campaigns${qs(params)}`);
+
 /* =========================
    Marketing Ad Platforms APIs
 ========================= */
@@ -406,7 +398,8 @@ export const marketingDeleteAdPlatform = (id) =>
   apiFetch(`${ROOT}/ad-platforms/${encodeURIComponent(String(id))}`, {
     method: 'DELETE',
   });
-  /* =========================
+
+/* =========================
    Marketing Budget Optimizer APIs
 ========================= */
 
@@ -418,6 +411,10 @@ export const marketingOptimizeBudget = (body) =>
     method: 'POST',
     body: JSON.stringify(body),
   });
+
+/* =========================
+   Backward-compatible aliases
+========================= */
 
 export const marketingGetMarketingWallet = marketingGetWallet;
 export const marketingListMarketingWalletCashAccounts = marketingListWalletCashAccounts;
