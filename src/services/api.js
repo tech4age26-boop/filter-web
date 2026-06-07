@@ -1,10 +1,25 @@
+// staging url
+//export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+// staging url (production default when VITE_API_BASE_URL is unset)
+const PRODUCTION_BASE_URL = 'https://filterbackend-production.up.railway.app';
+
+// production url
+// const PRODUCTION_BASE_URL = 'https://api.filtercarservices.com';
+
+// development url
+//export const BASE_URL = 'http://localhost:3000';
+//const PRODUCTION_BASE_URL = 'http://localhost:3000';
+
+/** Prefer Vite env in dev (see filter-web/.env.development → localhost:3000). */
 export const BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:3000"
-).replace(/\/+$/, "");
+    typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
+        ? String(import.meta.env.VITE_API_BASE_URL).trim()
+        : PRODUCTION_BASE_URL
+).replace(/\/$/, '');
 
-const API_LOADING_EVENT = "filter-api-loading";
+const API_LOADING_EVENT = 'filter-api-loading';
 
-/** Device UTC offset in minutes, e.g. 300 Pakistan, 240 UAE. */
+/** Device UTC offset in minutes (e.g. 300 Pakistan, 240 UAE) for cashier order timestamps. */
 export function clientUtcOffsetMinutes() {
   return -new Date().getTimezoneOffset();
 }
@@ -49,10 +64,60 @@ export function clearAuthSession() {
   localStorage.removeItem("adminToken");
 }
 
-function buildUrl(path) {
-  if (/^https?:\/\//i.test(path)) return path;
-  return `${BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
-}
+        if (!res.ok) {
+            // Expired/invalid token while using supplier portal → send to supplier login (not on login POST itself).
+            if (res.status === 401) {
+                const pathname =
+                    typeof window !== 'undefined' && window.location ? window.location.pathname : '';
+                const hadSession =
+                    typeof localStorage !== 'undefined' && localStorage.getItem('filter_auth_token');
+                if (
+                    hadSession &&
+                    pathname.startsWith('/supplier') &&
+                    !pathname.startsWith('/supplier/login')
+                ) {
+                    localStorage.removeItem('filter_auth_token');
+                    localStorage.removeItem('filter_auth_user');
+                    localStorage.removeItem('filter_auth_workshop');
+                    window.location.replace('/');
+                }
+            }
+
+            const err = await res.json().catch(() => ({}));
+            const detail = {
+                path,
+                method: options.method || 'GET',
+                status: res.status,
+                statusText: res.statusText,
+                response: err,
+                requestBody:
+                    options.body instanceof FormData
+                        ? '[FormData]'
+                        : options.body
+                            ? safeJsonParse(options.body)
+                            : undefined,
+            };
+            if (traceImport) {
+                console.error(`[apiFetch] ${csvImportLabel} — error body`, {
+                    requestId,
+                    ...detail,
+                    msTotal: `${(performance.now() - t0).toFixed(0)}ms`,
+                });
+            }
+            // Keep a full object log to make backend debugging easier.
+            console.error('[apiFetch] Request failed', detail);
+            const msgRaw = err.message;
+            const msgStr = Array.isArray(msgRaw)
+                ? msgRaw.filter(Boolean).map(String).join(' ')
+                : typeof msgRaw === 'string'
+                    ? msgRaw.trim()
+                    : '';
+            throw new Error(
+                msgStr ||
+                (typeof err.error === 'string' ? err.error : '') ||
+                `Request failed: ${res.status} ${res.statusText} (${options.method || 'GET'} ${path})`,
+            );
+        }
 
 function shouldRedirectToLogin() {
   if (typeof window === "undefined") return false;

@@ -9,6 +9,8 @@ import {
     list as listApprovals,
     approve as approveApi,
     reject as rejectApi,
+    getWalkInSettings,
+    updateWalkInSettings,
 } from '../../services/approvalsApi';
 import {
     approveSuperAdminCorporatePriceQuotation,
@@ -19,10 +21,38 @@ import {
     approveCorporatePaymentApproval,
     rejectCorporatePaymentApproval,
     getSuperAdminInvoiceView,
+    getSuperAdminSalesReturns,
+    approveSuperAdminSalesReturn,
+    rejectSuperAdminSalesReturn,
 } from '../../services/superAdminApi';
 import Modal from '../../components/Modal';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
+import { useAuth } from '../../context/AuthContext';
+
+/**
+ * Map backend entity-type string (snake_case) → permission code suffix (kebab-case).
+ * Used to build per-type permission keys: `approvals.<suffix>.{view,approve,reject}`
+ */
+const APPROVAL_TYPE_TO_PERMISSION_SUFFIX = {
+    workshop_registration: 'workshop-registration',
+    branch_creation: 'branch-creation',
+    cashier_registration: 'cashier-registration',
+    workshop_portal_staff_registration: 'workshop-portal-staff',
+    technician_registration: 'technician-registration',
+    supplier_registration: 'supplier-registration',
+    corporate_registration: 'corporate-registration',
+    corporate_price_quotation: 'corporate-price-quotation',
+    corporate_walk_in_booking: 'corporate-walk-in-booking',
+    corporate_payment_approval: 'corporate-payment-proof',
+    sales_return: 'sales-return',
+};
+
+function approvalPermission(entityType, action) {
+    const suffix = APPROVAL_TYPE_TO_PERMISSION_SUFFIX[entityType];
+    if (!suffix) return null; // unknown type → no gate (open)
+    return `approvals.${suffix}.${action}`;
+}
 
 const ENTITY_TYPES = [
     { value: '', label: 'All Types' },
@@ -35,6 +65,7 @@ const ENTITY_TYPES = [
     { value: 'corporate_price_quotation', label: 'Corporate price quotation' },
     { value: 'corporate_walk_in_booking', label: 'Corporate walk-in booking' },
     { value: 'corporate_payment_approval', label: 'Corporate payment proof' },
+    { value: 'sales_return', label: 'POS sales return' },
     { value: 'technician_registration', label: 'Technician' },
 ];
 
@@ -549,12 +580,16 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
                     <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
                     {data?.status === 'pending' && (
                         <>
-                            <button type="button" className="btn-reject" onClick={onReject}>
-                                <X size={16} /> Reject
-                            </button>
-                            <button type="button" className="btn-approve" onClick={onApprove}>
-                                <Check size={16} /> Approve
-                            </button>
+                            {onReject && (
+                                <button type="button" className="btn-reject" onClick={onReject}>
+                                    <X size={16} /> Reject
+                                </button>
+                            )}
+                            {onApprove && (
+                                <button type="button" className="btn-approve" onClick={onApprove}>
+                                    <Check size={16} /> Approve
+                                </button>
+                            )}
                         </>
                     )}
                 </>
@@ -785,10 +820,118 @@ function Toast({ toast }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Global auto-approve toggle (corporate walk-ins)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Platform-wide master switch. When ON, every cashier-submitted corporate
+ * walk-in auto-approves on submission (bypasses this queue) regardless of each
+ * corporate account's own per-account toggle. Optimistic flip; parent rolls
+ * back on backend error.
+ */
+function GlobalAutoApproveToggle({ value, busy, disabled, onChange }) {
+    return (
+        <label
+            style={{
+                position: 'relative',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 10,
+                marginLeft: 'auto',
+                padding: '8px 14px',
+                borderRadius: 999,
+                border: `1px solid ${value ? '#10b981' : '#cbd5e1'}`,
+                background: value ? '#ecfdf5' : '#f8fafc',
+                cursor: disabled ? 'not-allowed' : busy ? 'wait' : 'pointer',
+                userSelect: 'none',
+                fontSize: '0.8125rem',
+                fontWeight: 700,
+                color: value ? '#065f46' : '#475569',
+                opacity: disabled ? 0.6 : busy ? 0.85 : 1,
+                transition: 'background 0.15s, border-color 0.15s, opacity 0.15s',
+            }}
+            title={
+                disabled
+                    ? 'You do not have permission to change this.'
+                    : busy
+                        ? 'Saving…'
+                        : value
+                            ? 'Global auto-approve is ON — all corporate walk-ins skip this queue.'
+                            : 'Global auto-approve is OFF — corporate walk-ins follow each account\'s own setting.'
+            }
+        >
+            <input
+                type="checkbox"
+                checked={!!value}
+                disabled={busy || disabled}
+                onChange={(e) => { e.stopPropagation(); if (!disabled) onChange?.(); }}
+                style={{ display: 'none' }}
+            />
+            <span style={{
+                width: 36, height: 20, borderRadius: 999,
+                background: value ? '#10b981' : '#cbd5e1',
+                position: 'relative', transition: 'background 0.15s',
+            }}>
+                <span style={{
+                    position: 'absolute', top: 2, left: value ? 18 : 2,
+                    width: 16, height: 16, borderRadius: '50%', background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.15)', transition: 'left 0.15s',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                    {busy ? (
+                        <Loader size={11} className="spin" style={{ color: value ? '#10b981' : '#64748b' }} />
+                    ) : null}
+                </span>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                Auto-approve corporate walk-ins
+                <span style={{
+                    fontSize: '0.65rem', fontWeight: 800, padding: '2px 8px', borderRadius: 999,
+                    background: busy ? '#64748b' : value ? '#10b981' : '#94a3b8', color: '#fff',
+                    minWidth: 36, textAlign: 'center',
+                }}>
+                    {busy ? 'Saving' : value ? 'ON' : 'OFF'}
+                </span>
+            </span>
+        </label>
+    );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Main page                                                         */
 /* ------------------------------------------------------------------ */
 
 export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
+    const { hasPermission } = useAuth();
+
+    /**
+     * Per-entity-type access helpers.
+     *
+     * Backward compat: if the user has the parent `approvals.view/approve/reject`
+     * permission but NO per-type permissions, we treat them as having all types
+     * (so old roles keep working without re-editing). New roles that grant
+     * specific per-type permissions enable fine-grained gating.
+     */
+    const canViewType = useCallback((entityType) => {
+        const code = approvalPermission(entityType, 'view');
+        return code ? hasPermission(code) : true;
+    }, [hasPermission]);
+    const canApproveType = useCallback((entityType) => {
+        const code = approvalPermission(entityType, 'approve');
+        return code ? hasPermission(code) : hasPermission('approvals.approve');
+    }, [hasPermission]);
+    const canRejectType = useCallback((entityType) => {
+        const code = approvalPermission(entityType, 'reject');
+        return code ? hasPermission(code) : hasPermission('approvals.reject');
+    }, [hasPermission]);
+
+    const visibleEntityTypes = useMemo(
+        () => ENTITY_TYPES.filter(
+            (et) => et.value === '' || canViewType(et.value),
+        ),
+        [canViewType],
+    );
+
     const [currentTab, setCurrentTab] = useState(onlySettings ? 'Settings' : 'Pending');
     const [entityTypeFilter, setEntityTypeFilter] = useState('');
     const [items, setItems] = useState([]);
@@ -809,6 +952,42 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         setTimeout(() => setToast(null), 3000);
     }, []);
 
+    // Global auto-approve master switch for corporate walk-ins. Visible to users
+    // who can approve corporate_walk_in_booking; toggling it bypasses this queue
+    // for ALL corporate accounts.
+    const canManageWalkInToggle = canApproveType('corporate_walk_in_booking');
+    const canSeeWalkInToggle = canViewType('corporate_walk_in_booking');
+    const [autoApproveWalkIns, setAutoApproveWalkIns] = useState(false);
+    const [walkInToggleBusy, setWalkInToggleBusy] = useState(false);
+
+    useEffect(() => {
+        if (!canSeeWalkInToggle) return;
+        let cancelled = false;
+        getWalkInSettings()
+            .then((res) => {
+                if (!cancelled) setAutoApproveWalkIns(Boolean(res?.autoApproveCorporateWalkIns));
+            })
+            .catch(() => { /* non-fatal — leave toggle at default OFF */ });
+        return () => { cancelled = true; };
+    }, [canSeeWalkInToggle]);
+
+    const handleToggleAutoApproveWalkIns = useCallback(async () => {
+        const next = !autoApproveWalkIns;
+        setWalkInToggleBusy(true);
+        setAutoApproveWalkIns(next); // optimistic
+        try {
+            await updateWalkInSettings({ autoApproveCorporateWalkIns: next });
+            showToast(next
+                ? 'Corporate walk-ins will now auto-approve globally.'
+                : 'Global auto-approval of corporate walk-ins turned off.');
+        } catch (err) {
+            setAutoApproveWalkIns(!next); // rollback
+            showToast(`Could not update setting: ${err.message}`, 'error');
+        } finally {
+            setWalkInToggleBusy(false);
+        }
+    }, [autoApproveWalkIns, showToast]);
+
     const [moduleSettings, setModuleSettings] = useState({
         inventory: { enabled: true, sub: { adjustments: true, transfers: true, uomChanges: false, priceOverrides: true, safetyStock: false } },
         sales: { enabled: true, sub: { invoiceDiscounts: true, salesRefunds: true, creditLimitChanges: false, customerTierUpgrades: true } },
@@ -828,10 +1007,12 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         // entityType filter to something else.
         const wantPaymentApprovals =
             !entityTypeFilter || entityTypeFilter === 'corporate_payment_approval';
+        const wantSalesReturns =
+            !entityTypeFilter || entityTypeFilter === 'sales_return';
 
         // When the filter is narrowed to corporate_payment_approval, skip the
         // standard approvals endpoint entirely (it doesn't know that entityType).
-        const stdReq = entityTypeFilter === 'corporate_payment_approval'
+        const stdReq = entityTypeFilter === 'corporate_payment_approval' || entityTypeFilter === 'sales_return'
             ? Promise.resolve([])
             : listApprovals({ status, entityType: entityTypeFilter }).then(
                 (data) => unwrapApprovalsListResponse(data).map(normalizeItem),
@@ -882,11 +1063,46 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                   .catch(() => [])
             : Promise.resolve([]);
 
-        Promise.all([stdReq, cpaReq])
-            .then(([stdItems, cpaItems]) => {
+        const salesReturnStatus =
+            status === 'approved' ? 'completed' : status;
+        const srReq = wantSalesReturns && canViewType('sales_return')
+            ? getSuperAdminSalesReturns({
+                  status: salesReturnStatus ?? undefined,
+                  limit: 100,
+                  offset: 0,
+              })
+                  .then((res) => {
+                      const list = Array.isArray(res?.items) ? res.items : [];
+                      return list.map((sr) => ({
+                          id: String(sr.id),
+                          entityType: 'sales_return',
+                          type: 'sales_return',
+                          typeLabel: 'POS sales return',
+                          status: sr.status === 'completed' ? 'approved' : sr.status,
+                          title: `Sales return · ${sr.returnNo ?? sr.id}`,
+                          meta: {
+                              returnNo: sr.returnNo,
+                              creditNoteNo: sr.creditNoteNo,
+                              invoiceNo: sr.invoice?.invoiceNo,
+                              workshopName: sr.workshop?.name,
+                              branchName: sr.branch?.name,
+                              amount: sr.totalAmount,
+                              reason: sr.reason,
+                              rejectionReason: sr.rejectionReason,
+                          },
+                          submittedBy: sr.createdBy,
+                          date: sr.createdAt ?? sr.returnDate,
+                          reference: sr.invoice?.invoiceNo ?? sr.returnNo ?? '',
+                          raw: sr,
+                      }));
+                  })
+                  .catch(() => [])
+            : Promise.resolve([]);
+
+        Promise.all([stdReq, cpaReq, srReq])
+            .then(([stdItems, cpaItems, srItems]) => {
                 if (cancelled) return;
-                // Merge — payment proofs first (most actionable) then standard.
-                const merged = [...cpaItems, ...stdItems];
+                const merged = [...srItems, ...cpaItems, ...stdItems];
                 setItems(merged);
             })
             .catch((err) => {
@@ -897,7 +1113,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             });
 
         return () => { cancelled = true; };
-    }, [currentTab, entityTypeFilter, reloadTick]);
+    }, [currentTab, entityTypeFilter, reloadTick, canViewType]);
 
     const removeFromList = useCallback((id) => {
         setItems((prev) => prev.filter((i) => i.id !== id));
@@ -906,6 +1122,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const isCorporatePriceQuotation = (et) =>
         et === 'corporate_price_quotation' || et === 'corporate_price_quotations';
     const isCorporatePaymentApproval = (et) => et === 'corporate_payment_approval';
+    const isSalesReturnApproval = (et) => et === 'sales_return';
 
     const handleApproveConfirm = async (item, remarksOrPayload) => {
         setActionLoading(item.id);
@@ -916,6 +1133,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     : (remarksOrPayload && typeof remarksOrPayload === 'object' ? remarksOrPayload : {});
             if (isCorporatePaymentApproval(item.entityType)) {
                 await approveCorporatePaymentApproval(item.id);
+            } else if (isSalesReturnApproval(item.entityType)) {
+                await approveSuperAdminSalesReturn(item.id);
             } else if (isCorporatePriceQuotation(item.entityType)) {
                 await approveSuperAdminCorporatePriceQuotation(item.id);
             } else {
@@ -937,6 +1156,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         try {
             if (isCorporatePaymentApproval(item.entityType)) {
                 await rejectCorporatePaymentApproval(item.id, reason);
+            } else if (isSalesReturnApproval(item.entityType)) {
+                await rejectSuperAdminSalesReturn(item.id, reason);
             } else if (isCorporatePriceQuotation(item.entityType)) {
                 await rejectSuperAdminCorporatePriceQuotation(item.id, { reason });
             } else {
@@ -990,12 +1211,30 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 return <Users size={14} />;
             case 'corporate_payment_approval':
                 return <DollarSign size={14} />;
+            case 'sales_return':
+                return <RefreshCcw size={14} />;
             default:
                 return <FileText size={14} />;
         }
     };
 
-    const tabs = ['Pending', 'Approved', 'Rejected', 'All'];
+    // Pending is always available when the parent `approvals.view` is granted
+    // (sidebar gate already enforces this). The 3 history tabs require their
+    // own per-tab view permissions — admin can grant any subset.
+    const tabs = [
+        { key: 'Pending',  show: true },
+        { key: 'Approved', show: hasPermission('approvals.approved-history.view') },
+        { key: 'Rejected', show: hasPermission('approvals.rejected-history.view') },
+        { key: 'All',      show: hasPermission('approvals.all-history.view') },
+    ].filter((t) => t.show);
+
+    // If user lands on a hidden tab (perms changed mid-session), snap back to Pending.
+    useEffect(() => {
+        if (currentTab === 'Settings') return;
+        if (!tabs.some((t) => t.key === currentTab)) {
+            setCurrentTab(tabs[0]?.key ?? 'Pending');
+        }
+    }, [tabs, currentTab]);
 
     const content = (
         <>
@@ -1005,12 +1244,12 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 <div className="tabs-container">
                     {tabs.map((tab) => (
                         <button
-                            key={tab}
+                            key={tab.key}
                             type="button"
-                            className={`tab-item ${currentTab === tab ? 'active' : ''}`}
-                            onClick={() => setCurrentTab(tab)}
+                            className={`tab-item ${currentTab === tab.key ? 'active' : ''}`}
+                            onClick={() => setCurrentTab(tab.key)}
                         >
-                            {tab}
+                            {tab.key}
                         </button>
                     ))}
                 </div>
@@ -1023,7 +1262,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                         value={entityTypeFilter}
                         onChange={(e) => setEntityTypeFilter(e.target.value)}
                     >
-                        {ENTITY_TYPES.map((et) => (
+                        {visibleEntityTypes.map((et) => (
                             <option key={et.value} value={et.value}>{et.label}</option>
                         ))}
                     </select>
@@ -1035,6 +1274,14 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     >
                         <RefreshCcw size={14} className={loading ? 'spin' : ''} /> Refresh
                     </button>
+                    {canSeeWalkInToggle && (
+                        <GlobalAutoApproveToggle
+                            value={autoApproveWalkIns}
+                            busy={walkInToggleBusy}
+                            disabled={!canManageWalkInToggle}
+                            onChange={handleToggleAutoApproveWalkIns}
+                        />
+                    )}
                 </div>
             )}
 
@@ -1106,8 +1353,10 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
 
             {currentTab !== 'Settings' && !loading && !error && items.length > 0 && (
                 <div className="approval-cards">
-                    {items.map((item) => {
+                    {items.filter((item) => canViewType(item.entityType)).map((item) => {
                         const chips = buildMetaChips(item);
+                        const allowApprove = canApproveType(item.entityType);
+                        const allowReject = canRejectType(item.entityType);
                         return (
                             <div key={item.id} className="approval-card">
                                 <div className="approval-card-header">
@@ -1144,22 +1393,26 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                 <div className="approval-card-actions">
                                     {item.status === 'pending' && (
                                         <>
-                                            <button
-                                                type="button"
-                                                className="btn-approve"
-                                                disabled={actionLoading === item.id}
-                                                onClick={() => setApproveTarget(item)}
-                                            >
-                                                {actionLoading === item.id ? <Loader size={14} className="spin" /> : <Check size={16} />} Approve
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="btn-reject"
-                                                disabled={actionLoading === item.id}
-                                                onClick={() => setRejectTarget(item)}
-                                            >
-                                                {actionLoading === item.id ? <Loader size={14} className="spin" /> : <X size={16} />} Reject
-                                            </button>
+                                            {allowApprove && (
+                                                <button
+                                                    type="button"
+                                                    className="btn-approve"
+                                                    disabled={actionLoading === item.id}
+                                                    onClick={() => setApproveTarget(item)}
+                                                >
+                                                    {actionLoading === item.id ? <Loader size={14} className="spin" /> : <Check size={16} />} Approve
+                                                </button>
+                                            )}
+                                            {allowReject && (
+                                                <button
+                                                    type="button"
+                                                    className="btn-reject"
+                                                    disabled={actionLoading === item.id}
+                                                    onClick={() => setRejectTarget(item)}
+                                                >
+                                                    {actionLoading === item.id ? <Loader size={14} className="spin" /> : <X size={16} />} Reject
+                                                </button>
+                                            )}
                                         </>
                                     )}
                                     <button
@@ -1192,8 +1445,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     id={detailsTarget.id}
                     item={detailsTarget.item}
                     onClose={() => setDetailsTarget(null)}
-                    onApprove={() => setApproveTarget(detailsTarget.item)}
-                    onReject={() => setRejectTarget(detailsTarget.item)}
+                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
+                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
                 />
             )}
 
@@ -1203,6 +1456,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     id={detailsTarget.id}
                     onClose={() => setDetailsTarget(null)}
                     actionDisabled={actionLoading === detailsTarget.id}
+                    canApprove={canApproveType(detailsTarget.entityType)}
+                    canReject={canRejectType(detailsTarget.entityType)}
                     onApprove={(data) => {
                         const idStr = toStringId(
                             data?.requestId ?? data?.id ?? detailsTarget.id,

@@ -6,6 +6,7 @@ import DashboardPage from './pages/admin/DashboardPage';
 import ApprovalsPage from './pages/admin/ApprovalsPage';
 import ZoneManagementPage from './pages/admin/ZoneManagementPage';
 import PermissionsPage from './pages/admin/PermissionsPage';
+import DemoInvoicesPage from './pages/admin/DemoInvoicesPage';
 import TierManagementPage from './pages/admin/TierManagementPage';
 import TaxCodePage from './pages/admin/TaxCodePage';
 import InventoryPage from './pages/admin/InventoryPage';
@@ -62,7 +63,14 @@ import ReferrerReports from './pages/referrer-portal/ReferrerReports';
 import ReferrerNotifications from './pages/referrer-portal/ReferrerNotifications';
 import ReferrerSettings from './pages/referrer-portal/ReferrerSettings';
 
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { firstVisibleAdminPath } from './utils/permissions';
+
+/** Index redirect for `/admin` — picks the first sidebar page the user can view. */
+function AdminIndexRedirect() {
+    const { user } = useAuth();
+    return <Navigate to={firstVisibleAdminPath(user)} replace />;
+}
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicWpiVerifyPage from './pages/PublicWpiVerifyPage';
 import PublicSinvVerifyPage from './pages/PublicSinvVerifyPage';
@@ -87,12 +95,12 @@ function App() {
             <Route
               path="/admin"
               element={
-                <ProtectedRoute requiredType="admin" redirectTo="/admin/login">
+                <ProtectedRoute requiredType="admin">
                   <AdminLayout />
                 </ProtectedRoute>
               }
             >
-              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route index element={<AdminIndexRedirect />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="approvals" element={<ApprovalsPage />} />
               <Route path="zone-management" element={<ZoneManagementPage />} />
@@ -113,6 +121,7 @@ function App() {
 
               <Route path="tax-codes" element={<TaxCodePage />} />
               <Route path="permissions" element={<PermissionsPage />} />
+              <Route path="demo-invoices" element={<DemoInvoicesPage />} />
 
               <Route
                 path="inventory"
@@ -181,7 +190,7 @@ function App() {
             <Route
               path="/workshop/*"
               element={
-                <ProtectedRoute requiredType="workshop_user" redirectTo="/workshop/login">
+                <ProtectedRoute requiredType="workshop_user">
                   <WorkshopLayout />
                 </ProtectedRoute>
               }
@@ -190,7 +199,7 @@ function App() {
             <Route
               path="/locker/*"
               element={
-                <ProtectedRoute requiredType="locker_user" redirectTo="/locker/login">
+                <ProtectedRoute requiredType="locker_user">
                   <LockerLayout />
                 </ProtectedRoute>
               }
@@ -198,7 +207,7 @@ function App() {
             <Route
               path="/supplier/*"
               element={
-                <ProtectedRoute requiredType="supplier_user" redirectTo="/supplier/login">
+                <ProtectedRoute requiredType="supplier_user">
                   <SupplierLayout />
                 </ProtectedRoute>
               }
@@ -207,7 +216,7 @@ function App() {
             <Route
               path="/corporate/*"
               element={
-                <ProtectedRoute requiredType="corporate_user" redirectTo="/corporate/login">
+                <ProtectedRoute requiredType="corporate_user">
                   <CorporateLayout />
                 </ProtectedRoute>
               }
@@ -220,7 +229,7 @@ function App() {
             <Route
               path="/technician/*"
               element={
-                <ProtectedRoute requiredType="technician_user" redirectTo="/technician/login">
+                <ProtectedRoute requiredType="technician_user">
                   <TechnicianLayout />
                 </ProtectedRoute>
               }

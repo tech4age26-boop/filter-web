@@ -11,6 +11,7 @@ import WorkshopDepartments from './workshop/WorkshopDepartments';
 import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
 import WorkshopPurchases from './workshop/WorkshopPurchases';
 import WorkshopApprovals from './workshop/WorkshopApprovals';
+import WorkshopSalesReturns from './workshop/WorkshopSalesReturns';
 import WorkshopSuppliers from './workshop/WorkshopSuppliers';
 import WorkshopReports from './workshop/WorkshopReports';
 import WorkshopPosMonitoring from './workshop/WorkshopPosMonitoring';
@@ -39,10 +40,66 @@ import './workshop/Workshop.css';
 import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
 
+/** Tabs reachable by in-app navigation but not listed in the sidebar. */
+const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger']);
+
+function parseLedgerTabStateFromSearch(search) {
+    const params = new URLSearchParams(search || '');
+    const type = params.get('type');
+    const id = params.get('id');
+    if (!type || !id) return null;
+    const name = params.get('name');
+    return {
+        type,
+        id,
+        ...(name ? { name } : {}),
+    };
+}
+
 export default function WorkshopLayout() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { logout } = useAuth();
+    const { logout, hasPermission, user } = useAuth();
+
+    /**
+     * Branch-restriction rules for the workshop portal (priority top-down):
+     *   1. User has a non-system custom role AND `User.branchId` set → SINGLE
+     *      branch HARD LOCK. Sidebar hides "All Branches" + dropdown disabled.
+     *   2. User has a non-system custom role AND `role.branchIds` non-empty →
+     *      MULTI-branch scope. Dropdown shows only those branches; "All
+     *      Branches" still selectable but means "all branches I have access to".
+     *   3. Workshop owners + system-role users + roleless users → full access.
+     */
+    const userBranchLock =
+        user?.role && !user.role.isSystem && user.branchId
+            ? String(user.branchId)
+            : null;
+    /** Set of allowed branch IDs from role.branchIds (only when no hard lock). */
+    const roleBranchScope = useMemo(() => {
+        if (userBranchLock) return null; // hard lock overrides scope
+        if (!user?.role || user.role.isSystem) return null;
+        const ids = (user.role.branchIds ?? []).map(String);
+        return ids.length > 0 ? new Set(ids) : null;
+    }, [user?.role, userBranchLock]);
+
+    /**
+     * Filter sidebar items by the current user's permissions.
+     * Memoized on `hasPermission` so the auto-snap effect below doesn't see a
+     * new array reference on every render (would cause needless setActiveTab).
+     */
+    const visibleNavItems = useMemo(
+        () => NAV_ITEMS
+            .map((item) => {
+                if (item.subItems?.length) {
+                    const visibleSubs = item.subItems.filter((s) => !s.permission || hasPermission(s.permission));
+                    return visibleSubs.length > 0 ? { ...item, subItems: visibleSubs } : null;
+                }
+                if (item.permission && !hasPermission(item.permission)) return null;
+                return item;
+            })
+            .filter(Boolean),
+        [hasPermission],
+    );
 
     const handleLogout = async () => {
         const t = localStorage.getItem('filter_auth_token');
@@ -52,7 +109,7 @@ export default function WorkshopLayout() {
             console.warn('[workshop] logout API failed (session cleared locally anyway)', e);
         }
         logout();
-        navigate('/workshop/login', { replace: true });
+        navigate('/', { replace: true });
     };
 
     const getActiveTabFromUrl = () => {
@@ -80,7 +137,42 @@ export default function WorkshopLayout() {
     };
 
     const [activeTab, setActiveTab] = useState(getActiveTabFromUrl());
-    const [tabState, setTabState] = useState(null);
+    const [tabState, setTabState] = useState(() => {
+        if (getActiveTabFromUrl() === 'supplier-ledger') {
+            return parseLedgerTabStateFromSearch(window.location.search);
+        }
+        return null;
+    });
+
+    /** Resolve first visible tab id (top-level OR sub-item). Used for auto-snap. */
+    const firstVisibleTabId = (() => {
+        const first = visibleNavItems[0];
+        if (!first) return null;
+        if (first.subItems?.length) return first.subItems[0].id;
+        return first.id;
+    })();
+
+    /**
+     * Auto-snap activeTab to the first visible tab if user lacks permission
+     * for the current tab (e.g. legacy URL, role change mid-session).
+     */
+    useEffect(() => {
+        if (!firstVisibleTabId) return;
+        if (WORKSHOP_INTERNAL_TABS.has(activeTab)) return;
+        const allVisible = visibleNavItems.flatMap((i) => i.subItems ? i.subItems.map((s) => s.id) : [i.id]);
+        if (!allVisible.includes(activeTab)) {
+            setActiveTab(firstVisibleTabId);
+        }
+    }, [activeTab, firstVisibleTabId, visibleNavItems]);
+
+    useEffect(() => {
+        const tabFromUrl = getActiveTabFromUrl();
+        setActiveTab(tabFromUrl);
+        if (tabFromUrl === 'supplier-ledger') {
+            const ledgerState = parseLedgerTabStateFromSearch(location.search);
+            if (ledgerState) setTabState(ledgerState);
+        }
+    }, [location.pathname, location.search]);
 
     const handleTabChange = (tabId, state = null) => {
         setActiveTab(tabId);
@@ -101,6 +193,17 @@ export default function WorkshopLayout() {
                 'acc-ledger': 'ledger',
             };
             navigate(`/workshop/accounting/${reverseMapping[tabId]}`);
+        } else if (
+            tabId === 'supplier-ledger' &&
+            state?.type &&
+            state?.id
+        ) {
+            const q = new URLSearchParams({
+                type: String(state.type),
+                id: String(state.id),
+            });
+            if (state.name) q.set('name', String(state.name));
+            navigate(`/workshop/${tabId}?${q.toString()}`);
         } else {
             navigate(`/workshop/${tabId}`);
         }
@@ -111,7 +214,7 @@ export default function WorkshopLayout() {
     const toggleMenu = (id) => {
         setOpenMenus(prev => ({ ...prev, [id]: !prev[id] }));
     };
-    const [selectedBranch, setSelectedBranch] = useState('all');
+    const [selectedBranch, setSelectedBranch] = useState(userBranchLock ?? 'all');
     const [branches, setBranches] = useState([]);
     const [selectedProducts, setSelectedProducts] = useState([]);
 
@@ -211,28 +314,55 @@ export default function WorkshopLayout() {
         return () => window.removeEventListener('filter-api-loading', handleApiLoading);
     }, []);
 
-    const activeBranches = useMemo(() => filterPortalVisibleBranches(branches), [branches]);
+    const activeBranches = useMemo(() => {
+        const all = filterPortalVisibleBranches(branches);
+        if (userBranchLock) {
+            // Branch-locked users only see their own branch in the dropdown + data.
+            return all.filter((b) => String(b.id) === userBranchLock);
+        }
+        if (roleBranchScope) {
+            // Role with explicit branch scope — limit dropdown to that set.
+            return all.filter((b) => roleBranchScope.has(String(b.id)));
+        }
+        return all;
+    }, [branches, userBranchLock, roleBranchScope]);
+
+    // If the loaded branch list never contains the user's locked branch (e.g.
+    // pending data race), still keep selectedBranch pointed at the lock so all
+    // downstream pages receive the correct scope.
+    useEffect(() => {
+        if (userBranchLock && selectedBranch !== userBranchLock) {
+            setSelectedBranch(userBranchLock);
+        }
+    }, [userBranchLock, selectedBranch]);
 
     /** Sidebar + “All Branches” scope only include active branches; inactive stay manageable on Branches page. */
     useEffect(() => {
+        if (userBranchLock) return; // never override a hard branch lock
         if (selectedBranch === 'all') return;
         const sel = branches.find((b) => String(b.id) === String(selectedBranch));
-        if (!sel || isWorkshopPortalBranchInactive(sel)) {
+        // If the selected branch is now invalid (inactive, or outside this
+        // user's role scope), snap back to "All Branches" within their scope.
+        const outsideScope = roleBranchScope && !roleBranchScope.has(String(selectedBranch));
+        if (!sel || isWorkshopPortalBranchInactive(sel) || outsideScope) {
             setSelectedBranch('all');
         }
-    }, [branches, selectedBranch]);
+    }, [branches, selectedBranch, userBranchLock, roleBranchScope]);
 
     useEffect(() => {
+        if (userBranchLock) return;
         if (activeBranches.length > 0) return;
         if (selectedBranch !== 'all') setSelectedBranch('all');
-    }, [activeBranches.length, selectedBranch]);
+    }, [activeBranches.length, selectedBranch, userBranchLock]);
 
     const selectedBranchName = useMemo(() => {
         if (selectedBranch === 'all') return 'All Branches';
         const b = activeBranches.find((branch) => String(branch.id) === String(selectedBranch));
-        if (!b) return 'All Branches';
-        return b.name ?? 'Branch';
-    }, [activeBranches, selectedBranch]);
+        if (b) return b.name ?? 'Branch';
+        // Fallback for branch-locked users when the branches list hasn't loaded yet.
+        if (userBranchLock && user?.branchName) return user.branchName;
+        return 'All Branches';
+    }, [activeBranches, selectedBranch, userBranchLock, user?.branchName]);
 
     useEffect(() => {
         if (activeTab !== 'dashboard') setDashboardLowStockCount(0);
@@ -284,7 +414,15 @@ export default function WorkshopLayout() {
                     branches={activeBranches}
                 />
             );
-            case 'approvals':   return <WorkshopApprovals selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'approvals':   return (
+                <WorkshopApprovals
+                    selectedBranchId={selectedBranch}
+                    branches={activeBranches}
+                    branchLockedId={userBranchLock}
+                />
+            );
+           
+            case 'sales-returns': return <WorkshopSalesReturns selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={activeBranches} onTabChange={handleTabChange} />;
             case 'affiliated-suppliers':
                 return (
@@ -319,7 +457,7 @@ export default function WorkshopLayout() {
             case 'corporate-management': return <WorkshopCorporateManagement selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'branches':    return <WorkshopBranches selectedBranchId={selectedBranch} />;
             case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'my-petty-cash': return <WorkshopMyPettyCash />;
+            case 'my-petty-cash': return <WorkshopMyPettyCash selectedBranchId={selectedBranch} />;
             case 'inventory': return (
                 <WorkshopInventory
                     selectedBranchId={selectedBranch}
@@ -340,7 +478,10 @@ export default function WorkshopLayout() {
         }
     };
 
-    const currentLabel = NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
+    const currentLabel =
+        activeTab === 'supplier-ledger'
+            ? 'Supplier Ledger'
+            : NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
     const topbarSubtitle = activeTab === 'catalog-new' ? 'Corporate master catalog' : selectedBranchName;
 
     return (
@@ -352,9 +493,22 @@ export default function WorkshopLayout() {
                 </div>
                 {activeTab !== 'catalog-new' && activeBranches.length > 0 && (
                 <div className="ws-branch-selector">
-                    <select className="ws-branch-select" value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
-                        style={{ background: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.1)', color: '#000000' }}>
-                        {!inventoryBranchOnly ? <option value="all">All Branches</option> : null}
+                    <select
+                        className="ws-branch-select"
+                        value={selectedBranch}
+                        onChange={e => setSelectedBranch(e.target.value)}
+                        disabled={!!userBranchLock}
+                        title={userBranchLock ? 'You are scoped to a single branch by your role' : undefined}
+                        style={{
+                            background: 'rgba(0,0,0,0.06)',
+                            border: '1px solid rgba(0,0,0,0.1)',
+                            color: '#000000',
+                            opacity: userBranchLock ? 0.85 : 1,
+                            cursor: userBranchLock ? 'not-allowed' : 'pointer',
+                        }}
+                    >
+                        {/* Hide "All Branches" when the user is locked to a single branch. */}
+                        {!userBranchLock && !inventoryBranchOnly ? <option value="all">All Branches</option> : null}
                         {activeBranches.map((branch) => (
                             <option key={branch.id} value={branch.id}>{branch.name}</option>
                         ))}
@@ -362,7 +516,7 @@ export default function WorkshopLayout() {
                 </div>
                 )}
                 <nav className="ws-nav">
-                    {NAV_ITEMS.map((item) => {
+                    {visibleNavItems.map((item) => {
                         const hasSub = item.subItems?.length > 0;
                         const isOpen = openMenus[item.id];
                         const isActiveParent = activeTab === item.id || (hasSub && item.subItems.some(s => s.id === activeTab));
@@ -402,9 +556,11 @@ export default function WorkshopLayout() {
                                                         key={sub.id}
                                                         className={`ws-nav-btn ws-nav-sub-btn ${activeTab === sub.id ? 'active' : ''}`}
                                                         onClick={() => handleTabChange(sub.id)}
-                                                        style={{ 
-                                                            padding: '8px 12px', 
-                                                            fontSize: '0.8125rem',
+                                                        style={{
+                                                            padding: '10px 12px',
+                                                            // Bumped from 0.8125rem — sub-items felt like "small print"
+                                                            // and were hard to read; now matches parent nav button.
+                                                            fontSize: '0.875rem',
                                                             background: 'transparent',
                                                             color: '#000000',
                                                             textDecoration: activeTab === sub.id ? 'underline' : 'none',
@@ -413,7 +569,7 @@ export default function WorkshopLayout() {
                                                             textAlign: 'left',
                                                             cursor: 'pointer',
                                                             display: 'block',
-                                                            opacity: activeTab === sub.id ? 1 : 0.6
+                                                            opacity: activeTab === sub.id ? 1 : 0.7
                                                         }}
                                                     >
                                                         {sub.label}

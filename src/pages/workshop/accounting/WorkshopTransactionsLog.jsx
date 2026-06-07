@@ -19,6 +19,16 @@ const fmt = (n) => {
     return x.toLocaleString('en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+function sidebarBranchToFilter(selectedBranchId) {
+    return selectedBranchId && selectedBranchId !== 'all' ? String(selectedBranchId) : '';
+}
+
+function formatFilterUserLabel(u) {
+    const name = u.name || u.email || u.id;
+    const role = u.role ? String(u.role).replace(/_/g, ' ') : '';
+    return role ? `${name} (${role})` : name;
+}
+
 const methodChip = (kind, type) => {
     const label = type === 'PETTY_CASH'
         ? 'Petty cash'
@@ -53,9 +63,10 @@ export default function WorkshopTransactionsLog({
     subtitle,
     emptyHint = 'No transactions in this period.',
     branches = [],
+    selectedBranchId = 'all',
 }) {
     const [method, setMethod] = useState('all');
-    const [branchId, setBranchId] = useState('');
+    const [branchId, setBranchId] = useState(() => sidebarBranchToFilter(selectedBranchId));
     const [userId, setUserId] = useState('');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
@@ -90,8 +101,23 @@ export default function WorkshopTransactionsLog({
     }, [direction, method, branchId, userId, dateFrom, dateTo, search]);
 
     useEffect(() => {
-        listLogFilterUsers().then((res) => setUsers(res?.users ?? [])).catch(() => {});
-    }, []);
+        setBranchId(sidebarBranchToFilter(selectedBranchId));
+    }, [selectedBranchId]);
+
+    const branchScopeForUsers = branchId || undefined;
+
+    useEffect(() => {
+        listLogFilterUsers({ branchId: branchScopeForUsers })
+            .then((res) => {
+                const nextUsers = res?.users ?? [];
+                setUsers(nextUsers);
+                setUserId((prev) => (prev && nextUsers.some((u) => String(u.id) === String(prev)) ? prev : ''));
+            })
+            .catch(() => {
+                setUsers([]);
+                setUserId('');
+            });
+    }, [branchScopeForUsers]);
 
     useEffect(() => { reload(); }, [reload]);
 
@@ -134,7 +160,10 @@ export default function WorkshopTransactionsLog({
                 </div>
                 <div>
                     <label className="form-label">Branch</label>
-                    <select className="form-input-field" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+                    <select className="form-input-field" value={branchId} onChange={(e) => {
+                        setBranchId(e.target.value);
+                        setUserId('');
+                    }}>
                         <option value="">All branches</option>
                         {branches.map((b) => (
                             <option key={b.id} value={b.id}>{b.name}</option>
@@ -146,7 +175,7 @@ export default function WorkshopTransactionsLog({
                     <select className="form-input-field" value={userId} onChange={(e) => setUserId(e.target.value)}>
                         <option value="">All users</option>
                         {users.map((u) => (
-                            <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                            <option key={u.id} value={u.id}>{formatFilterUserLabel(u)}</option>
                         ))}
                     </select>
                 </div>

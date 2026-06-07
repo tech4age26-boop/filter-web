@@ -457,7 +457,66 @@ export const getSalesOrder = (id) =>
 export const getInvoices = ({
     workshopId,
     branchId,
+    corporateAccountId,
     paymentStatus,
+    search,
+    startDate,
+    endDate,
+    limit,
+    offset,
+    corporateOnly,
+    orderStatus,
+} = {}) =>
+    apiFetch(
+        `/super-admin/invoices${qs({
+            workshopId,
+            branchId,
+            corporateAccountId,
+            paymentStatus,
+            search,
+            startDate,
+            endDate,
+            limit,
+            offset,
+            corporateOnly: corporateOnly ? 'true' : undefined,
+            orderStatus,
+        })}`,
+    );
+
+/** Corporate companies (accounts) for the Sales pages' Company filter. */
+export const getSuperAdminCorporateCompanies = ({ workshopId } = {}) =>
+    apiFetch(`/super-admin/corporate-accounts${qs({ workshopId })}`);
+
+export const getInvoice = (id) =>
+    apiFetch(`/super-admin/invoices/${encodeURIComponent(String(id))}`);
+
+// ─── Demo Invoices (sandbox — no journals or workflow) ──────────────────
+
+export const listDemoInvoices = ({ workshopId, branchId, search, limit, offset } = {}) =>
+    apiFetch(`/super-admin/demo-invoices${qs({ workshopId, branchId, search, limit, offset })}`);
+
+export const getDemoInvoice = (id) =>
+    apiFetch(`/super-admin/demo-invoices/${encodeURIComponent(String(id))}`);
+
+export const createDemoInvoice = (body) =>
+    apiFetch('/super-admin/demo-invoices', { method: 'POST', body: JSON.stringify(body) });
+
+export const updateDemoInvoice = (id, body) =>
+    apiFetch(`/super-admin/demo-invoices/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH', body: JSON.stringify(body),
+    });
+
+export const deleteDemoInvoice = (id) =>
+    apiFetch(`/super-admin/demo-invoices/${encodeURIComponent(String(id))}`, {
+        method: 'DELETE',
+    });
+
+/** Super-admin overview of all sales returns (cashier-portal originated). */
+export const getSuperAdminSalesReturns = ({
+    workshopId,
+    branchId,
+    corporateAccountId,
+    status,
     search,
     startDate,
     endDate,
@@ -465,10 +524,11 @@ export const getInvoices = ({
     offset,
 } = {}) =>
     apiFetch(
-        `/super-admin/invoices${qs({
+        `/super-admin/sales-returns${qs({
             workshopId,
             branchId,
-            paymentStatus,
+            corporateAccountId,
+            status,
             search,
             startDate,
             endDate,
@@ -477,8 +537,44 @@ export const getInvoices = ({
         })}`,
     );
 
-export const getInvoice = (id) =>
-    apiFetch(`/super-admin/invoices/${encodeURIComponent(String(id))}`);
+/** Super-admin: one sales return with full line items (detail / credit note). */
+export const getSuperAdminSalesReturn = (id) =>
+    apiFetch(`/super-admin/sales-returns/${encodeURIComponent(String(id))}`);
+
+/** Super-admin → Sales → Receipts: paid monthly-billing receipts. */
+export const getSuperAdminReceipts = ({
+    workshopId,
+    branchId,
+    corporateAccountId,
+    search,
+    startDate,
+    endDate,
+    limit,
+    offset,
+} = {}) =>
+    apiFetch(
+        `/super-admin/receipts${qs({
+            workshopId,
+            branchId,
+            corporateAccountId,
+            search,
+            startDate,
+            endDate,
+            limit,
+            offset,
+        })}`,
+    );
+
+export const approveSuperAdminSalesReturn = (returnId) =>
+    apiFetch(`/super-admin/sales-returns/${encodeURIComponent(String(returnId))}/approve`, {
+        method: 'POST',
+    });
+
+export const rejectSuperAdminSalesReturn = (returnId, rejectionReason) =>
+    apiFetch(`/super-admin/sales-returns/${encodeURIComponent(String(returnId))}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ rejectionReason }),
+    });
 
 // ─── Supplier Invoices (supplier → workshop sales / AR) ───────────────────────
 

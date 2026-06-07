@@ -7,7 +7,8 @@ import {
     Bell, Search, ChevronDown, ChevronRight,
     Shield, Map, Truck, Building, UserCheck, Receipt, ArrowLeftRight, FileSpreadsheet,
     Landmark, FileText, Car, Warehouse, Box, ShoppingCart, UserPlus, Globe, Megaphone, Trophy,
-    Menu, X, Percent, Wrench, GitBranch, Radio, BarChart2, ClipboardList, CreditCard
+    Menu, X, Percent, Wrench, GitBranch, Radio, BarChart2, ClipboardList, CreditCard,
+    FlaskConical,
 } from 'lucide-react';
 import '../styles/AdminLayout.css';
 
@@ -27,6 +28,8 @@ const TRANSLATIONS = {
             'chart-of-accounts': 'Chart of Accounts',
             'cash-bank': 'Cash & Bank',
             'sales-reports': 'Sales Reports', 'sales-orders': 'Sales Orders',
+            'corporate-transactions': 'Corporate Transactions', 'sales-returns': 'Sales Returns',
+            'demo-invoices': 'Demo Invoices',
             transactions: 'Transactions', 'journal-entries': 'Journal Entries', purchases: 'Purchases', expenses: 'Expenses', payments: 'Payments', advances: 'Advances', ledger: 'Ledger',
             'softpos-settlement': 'SoftPOS Settlement',
             marketing: 'Marketing',
@@ -54,6 +57,8 @@ const TRANSLATIONS = {
             'chart-of-accounts': 'دليل الحسابات',
             'cash-bank': 'النقد والبنك',
             'sales-reports': 'تقارير المبيعات', 'sales-orders': 'طلبات المبيعات',
+            'corporate-transactions': 'معاملات الشركات', 'sales-returns': 'مرتجعات المبيعات',
+            'demo-invoices': 'فواتير تجريبية',
             transactions: 'المعاملات', 'journal-entries': 'قيد اليومية', purchases: 'المشتريات', expenses: 'المصروفات', payments: 'المدفوعات', advances: 'السلف', ledger: 'دفتر الأستاذ',
             'softpos-settlement': 'تسوية SoftPOS',
             marketing: 'التسويق',
@@ -79,6 +84,7 @@ const NAV_CONFIG = [
             { label: 'Tax Codes', path: 'tax-codes', icon: Percent },
             { label: 'Marketing', path: 'marketing', icon: Megaphone },
             { label: 'Permissions', path: 'permissions', icon: Shield },
+            { label: 'Demo Invoices', path: 'demo-invoices', icon: FlaskConical },
         ],
     },
     {
@@ -100,7 +106,8 @@ const NAV_CONFIG = [
                 icon: Users,
                 subItems: [
                     { label: 'All Customers', path: 'all-customers' },
-                    { label: 'Corporate Billing', path: 'corporate-billing' },
+                    // TODO: Re-enable when Corporate Billing flow is ready.
+                    // { label: 'Corporate Billing', path: 'corporate-billing' },
                 ],
             },
             { label: 'Suppliers', path: 'suppliers', icon: Truck },
@@ -121,6 +128,8 @@ const NAV_CONFIG = [
                     { label: 'Sales Orders', path: 'sales-orders' },
                     { label: 'Workshop Sales', path: 'workshop-sales' },
                     { label: 'Suppliers & Warehouse Sales', path: 'suppliers-warehouse-sales' },
+                    { label: 'Corporate Transactions', path: 'corporate-transactions' },
+                    { label: 'Sales Returns', path: 'sales-returns' },
                     { label: 'Receipts', path: 'receipts' },
                 ],
             },
@@ -146,29 +155,64 @@ const NAV_CONFIG = [
             { label: 'SoftPOS Settlement', path: 'softpos-settlement', icon: CreditCard },
         ],
     },
-    {
-        section: 'SPECIALIZED',
-        items: [
-            { label: 'Filter POS Portal', path: 'pos-portal', icon: ShoppingCart, externalPath: '/pos' },
-            { label: 'Filter Admin Workshop Portal', path: 'workshop-portal', icon: Wrench, externalPath: '/workshop' },
-            { label: 'Filter Locker Portal', path: 'locker-portal', icon: Box, externalPath: '/locker' },
-            { label: 'Filter Supplier Portal', path: 'supplier-portal', icon: Warehouse, externalPath: '/supplier' },
-            { label: 'Filter Corporate Portal', path: 'corporate-portal', icon: Building, externalPath: '/corporate' },
-            { label: 'Filter Referrer Portal', path: 'referrer-portal', icon: GitBranch, externalPath: '/referrer-portal' },
-            { label: 'Filter Technician Portal', path: 'technician-app', icon: Radio, externalPath: '/technician' },
-        ],
-    },
 ];
 
 const getNavLabel = (path, locale) => TRANSLATIONS[locale]?.nav[path] ?? TRANSLATIONS.en.nav[path] ?? path;
 
-const SidebarNavItem = ({ item, basePath, locale }) => {
+/**
+ * Permission code for a nav item (matches backend `<tabKey>.view`).
+ *   Top-level item: `${path}.view`        e.g. dashboard.view
+ *   Sub item:       `${parent}.${sub}.view` e.g. inventory.master-catalog.view
+ *
+ * Items not listed in the permissions tree (external portal shortcuts,
+ * pages we haven't catalogued yet) return null and stay ungated.
+ */
+const PERMISSION_KEY_FOR = {
+    // CONTROL
+    dashboard: 'dashboard.view',
+    approvals: 'approvals.view',
+    'zone-management': 'zone-management.view',
+    'tier-management': 'tier-management.view',
+    'tax-codes': 'tax-codes.view',
+    marketing: 'marketing.view',
+    permissions: 'permissions.view',
+    // OPERATIONS
+    suppliers: 'suppliers.view',
+    employees: 'employees.view',
+    branches: 'branches.view',
+    workshop: 'workshop.view',
+    // FINANCE top-level
+    'softpos-settlement': 'softpos-settlement.view',
+};
+
+function permissionCodeFor(parentPath, subPath) {
+    if (subPath) {
+        return `${parentPath}.${subPath}.view`;
+    }
+    return PERMISSION_KEY_FOR[parentPath] ?? null;
+}
+
+const SidebarNavItem = ({ item, basePath, locale, hasPermission }) => {
     const [open, setOpen] = useState(false);
     const navigate = useNavigate();
-    const hasSub = item.subItems?.length > 0;
     const parentPath = `${basePath}/${item.path}`;
     const isParentActive = useLocation().pathname.startsWith('/admin/' + item.path);
     const t = TRANSLATIONS[locale] || TRANSLATIONS.en;
+
+    // Filter sub-items the user can't view.
+    const visibleSubItems = (item.subItems ?? []).filter((sub) => {
+        const code = permissionCodeFor(item.path, sub.path);
+        return code ? hasPermission(code) : true;
+    });
+    const hasSub = visibleSubItems.length > 0;
+
+    // For non-sub items, gate the whole item.
+    if (!item.subItems?.length && !item.externalPath) {
+        const code = permissionCodeFor(item.path);
+        if (code && !hasPermission(code)) return null;
+    }
+    // If the item HAS subItems but all were filtered out → hide parent too.
+    if (item.subItems?.length && !hasSub) return null;
 
     if (item.externalPath) {
         return (
@@ -204,7 +248,7 @@ const SidebarNavItem = ({ item, basePath, locale }) => {
                                 exit={{ height: 0, opacity: 0 }}
                                 className="nav-submenu"
                             >
-                                {item.subItems.map((sub) => (
+                                {visibleSubItems.map((sub) => (
                                     <NavLink
                                         key={sub.path}
                                         to={`/admin/${item.path}/${sub.path}`}
@@ -244,7 +288,7 @@ import { useAuth } from '../context/AuthContext';
 export default function AdminLayout() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { logout, user } = useAuth();
+    const { logout, user, hasPermission } = useAuth();
     const [locale, setLocale] = useState(() => localStorage.getItem('portal-locale') || 'en');
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -294,14 +338,35 @@ export default function AdminLayout() {
                     <p className="logo-desc">{t.logoDesc}</p>
                 </div>
                 <nav className="sidebar-nav">
-                    {NAV_CONFIG.map((sec) => (
-                        <div key={sec.section}>
-                            <div className="sidebar-section-label">{t.section[sec.section]}</div>
-                            {sec.items.map((item) => (
-                                <SidebarNavItem key={item.path} item={item} basePath="/admin" locale={locale} />
-                            ))}
-                        </div>
-                    ))}
+                    {NAV_CONFIG.map((sec) => {
+                        // Render section only if at least one visible item remains.
+                        const visibleItems = sec.items.filter((item) => {
+                            if (item.externalPath) return true; // portal shortcuts ungated
+                            if (item.subItems?.length) {
+                                return item.subItems.some((sub) => {
+                                    const code = permissionCodeFor(item.path, sub.path);
+                                    return code ? hasPermission(code) : true;
+                                });
+                            }
+                            const code = permissionCodeFor(item.path);
+                            return code ? hasPermission(code) : true;
+                        });
+                        if (visibleItems.length === 0) return null;
+                        return (
+                            <div key={sec.section}>
+                                <div className="sidebar-section-label">{t.section[sec.section]}</div>
+                                {visibleItems.map((item) => (
+                                    <SidebarNavItem
+                                        key={item.path}
+                                        item={item}
+                                        basePath="/admin"
+                                        locale={locale}
+                                        hasPermission={hasPermission}
+                                    />
+                                ))}
+                            </div>
+                        );
+                    })}
                 </nav>
                 <div className="sidebar-footer">
                     <div

@@ -7,6 +7,7 @@ import {
     addAffiliatedSuppliers,
     updateAffiliatedSupplier,
 } from '../../services/workshopSuppliersApi';
+import { useAuth } from '../../context/AuthContext';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const fmtMoney = (v) =>
@@ -15,9 +16,15 @@ const fmtMoney = (v) =>
         maximumFractionDigits: 2,
     });
 
-function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving }) {
+function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving, selectedBranchId = 'all' }) {
+    // If a specific branch is scoped from the sidebar → pre-fill it and limit
+    // the dropdown to that branch (admin can't accidentally link to another).
+    const isAll = !selectedBranchId || selectedBranchId === 'all';
+    const visibleBranches = isAll
+        ? branches
+        : branches.filter((b) => String(b.id) === String(selectedBranchId));
     const [branchId, setBranchId] = useState(
-        branches?.[0]?.id ? String(branches[0].id) : '',
+        !isAll ? String(selectedBranchId) : (branches?.[0]?.id ? String(branches[0].id) : ''),
     );
     const [search, setSearch] = useState('');
     const [available, setAvailable] = useState([]);
@@ -181,10 +188,11 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                         <select
                             value={branchId}
                             onChange={(e) => setBranchId(e.target.value)}
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
+                            disabled={!isAll}
+                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', opacity: isAll ? 1 : 0.85 }}
                         >
-                            <option value="">— None (workshop-wide) —</option>
-                            {(branches || []).map((b) => (
+                            {isAll && <option value="">— None (workshop-wide) —</option>}
+                            {visibleBranches.map((b) => (
                                 <option key={b.id} value={b.id}>
                                     {b.name}
                                 </option>
@@ -382,6 +390,9 @@ export default function WorkshopAffiliatedSuppliers({
     branches = [],
     onTabChange,
 }) {
+    const { hasPermission } = useAuth();
+    const canCreate = hasPermission('workshop.affiliated-suppliers.create');
+    const canEdit   = hasPermission('workshop.affiliated-suppliers.edit');
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showAdd, setShowAdd] = useState(false);
@@ -445,10 +456,12 @@ export default function WorkshopAffiliatedSuppliers({
                     <RefreshCw size={14} style={{ marginRight: 6 }} />
                     Refresh
                 </button>
-                <button className="btn-portal" onClick={() => setShowAdd(true)}>
-                    <Plus size={14} style={{ marginRight: 6 }} />
-                    Add new supplier
-                </button>
+                {canCreate && (
+                    <button className="btn-portal" onClick={() => setShowAdd(true)}>
+                        <Plus size={14} style={{ marginRight: 6 }} />
+                        Add new supplier
+                    </button>
+                )}
             </div>
 
             <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
@@ -506,11 +519,12 @@ export default function WorkshopAffiliatedSuppliers({
                                     <td style={{ padding: 12 }}>{fmtMoney(r.openingBalance)}</td>
                                     <td style={{ padding: 12 }}>{fmtMoney(r.finalBalance)}</td>
                                     <td style={{ padding: 12, textAlign: 'center' }}>
-                                        <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22 }}>
+                                        <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, opacity: canEdit ? 1 : 0.55, cursor: canEdit ? 'pointer' : 'not-allowed' }} title={canEdit ? undefined : 'No edit permission'}>
                                             <input
                                                 type="checkbox"
                                                 checked={Boolean(r.isActive)}
-                                                onChange={() => onToggleActive(r)}
+                                                onChange={() => { if (canEdit) onToggleActive(r); }}
+                                                disabled={!canEdit}
                                                 style={{ opacity: 0, width: 0, height: 0 }}
                                             />
                                             <span
@@ -566,6 +580,7 @@ export default function WorkshopAffiliatedSuppliers({
             {showAdd && (
                 <AddAffiliatedSupplierModal
                     branches={branches}
+                    selectedBranchId={selectedBranchId}
                     onClose={() => setShowAdd(false)}
                     onSubmit={onAdd}
                     isSaving={savingAdd}
