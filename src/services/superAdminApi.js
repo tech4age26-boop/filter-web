@@ -630,6 +630,24 @@ export const rejectCorporatePaymentApproval = (id, reason) =>
         body: JSON.stringify({ reason }),
     });
 
+// ─── Corporate Billing (Super Admin) ─────────────────────────────────────────
+
+export const getCorporateBillingStatement = ({ corporateAccountId, startDate, endDate, dueDate } = {}) =>
+    apiFetch(
+        `/super-admin/corporate-billing/statement${qs({
+            corporateAccountId,
+            startDate,
+            endDate,
+            dueDate,
+        })}`,
+    );
+
+export const generateCorporateBill = ({ corporateAccountId, startDate, endDate, dueDate }) =>
+    apiFetch('/super-admin/corporate-billing/generate', {
+        method: 'POST',
+        body: JSON.stringify({ corporateAccountId, startDate, endDate, dueDate }),
+    });
+
 /** Same bilingual simplified-tax-invoice shape used by the corporate portal modal. */
 export const getSuperAdminInvoiceView = (id) =>
     apiFetch(`/super-admin/invoices/${encodeURIComponent(String(id))}/view`);

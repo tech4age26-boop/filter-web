@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Search, Package, AlertCircle, Wallet, RefreshCw, History, X, ArrowRightLeft } from 'lucide-react';
+import { Search, Package, AlertCircle, Wallet, RefreshCw, History, X, ArrowRightLeft, FileSpreadsheet, FileText } from 'lucide-react';
 import './Workshop.css';
 
 import { AnimatePresence } from 'framer-motion';
@@ -24,6 +24,24 @@ import WorkshopProductUomEditModal, {
 } from './WorkshopProductUomEditModal';
 import WorkshopUomProfilesTab from './WorkshopUomProfilesTab';
 import { formatStockOnHandDisplay, productEffectiveUom } from './workshopUomUtils';
+import {
+    exportWorkshopTimelineExcel,
+    exportWorkshopTimelinePdf,
+} from './workshopInventoryTimelineExport';
+
+const timelineExportBtnStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '8px 14px',
+    borderRadius: 8,
+    border: '1px solid var(--color-border-light)',
+    background: '#fff',
+    fontSize: '0.8125rem',
+    fontWeight: 700,
+    color: 'var(--color-text-dark)',
+    cursor: 'pointer',
+};
 
 /** Match WorkshopDashboard / WorkshopDepartments response shapes. */
 function extractProducts(res) {
@@ -862,6 +880,22 @@ export default function WorkshopInventory({
         };
     }, [logProduct, productRows, fetchedLogEntries, timelineMeta, adjustmentLogs, isAllBranches, logLoading]);
 
+    const logMergedEntries = useMemo(() => {
+        if (!logProduct) return [];
+        const pid = String(logProduct.id);
+        const localList = adjustmentLogs[pid] || [];
+        if (isAllBranches) {
+            return [...localList].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+        }
+        if (logLoading) return [];
+        return mergeLogEntries(localList, fetchedLogEntries || []);
+    }, [logProduct, adjustmentLogs, isAllBranches, logLoading, fetchedLogEntries]);
+
+    const timelineExportDisabled = logLoading || !logMergedEntries.length;
+    const timelineExportFilename = logProduct
+        ? `timeline-${String(logProduct.name || logProduct.id).replace(/\s+/g, '-')}`
+        : 'timeline';
+
     useEffect(() => {
         if (!logProduct) {
             setAlignOpeningError('');
@@ -958,6 +992,7 @@ export default function WorkshopInventory({
         (async () => {
             try {
                 const res = await getBranchProductInventoryAdjustments(String(selectedBranchId), String(logProduct.id), {
+                    limit: 0,
                     signal: ctrl.signal,
                     workshopId: workshopIdQuery,
                 });
@@ -2726,24 +2761,77 @@ export default function WorkshopInventory({
                                     </div>
                                 ) : null}
                             </div>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    gap: 8,
+                                    marginBottom: 16,
+                                }}
+                            >
+                                <button
+                                    type="button"
+                                    disabled={timelineExportDisabled}
+                                    title={
+                                        logLoading
+                                            ? 'Loading…'
+                                            : !logMergedEntries.length
+                                              ? 'No timeline rows to export'
+                                              : 'Download spreadsheet (.xlsx)'
+                                    }
+                                    style={{
+                                        ...timelineExportBtnStyle,
+                                        opacity: timelineExportDisabled ? 0.5 : 1,
+                                        cursor: timelineExportDisabled ? 'not-allowed' : 'pointer',
+                                    }}
+                                    onClick={() => {
+                                        exportWorkshopTimelineExcel(logProduct, logMergedEntries, {
+                                            branchName: selectedBranchName,
+                                            filenameBase: timelineExportFilename,
+                                        });
+                                    }}
+                                >
+                                    <FileSpreadsheet size={14} aria-hidden /> Excel
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={timelineExportDisabled}
+                                    title={
+                                        logLoading
+                                            ? 'Loading…'
+                                            : !logMergedEntries.length
+                                              ? 'No timeline rows to export'
+                                              : 'Download PDF'
+                                    }
+                                    style={{
+                                        ...timelineExportBtnStyle,
+                                        opacity: timelineExportDisabled ? 0.5 : 1,
+                                        cursor: timelineExportDisabled ? 'not-allowed' : 'pointer',
+                                    }}
+                                    onClick={() => {
+                                        exportWorkshopTimelinePdf(logProduct, logMergedEntries, {
+                                            branchName: selectedBranchName,
+                                            filenameBase: timelineExportFilename,
+                                        });
+                                    }}
+                                >
+                                    <FileText size={14} aria-hidden /> PDF
+                                </button>
+                            </div>
                             {logFetchError && (
                                 <p style={{ margin: '0 0 12px', padding: '10px 12px', background: '#FEF3C7', borderRadius: 8, color: '#92400E', fontSize: '0.8125rem' }}>
                                     {logFetchError} Showing any entries cached in this browser.
                                 </p>
                             )}
                             {(() => {
-                                const localList = adjustmentLogs[logProduct.id] || [];
-                                let merged;
-                                if (isAllBranches) {
-                                    merged = [...localList].sort((a, b) => String(b.at).localeCompare(String(a.at)));
-                                } else if (logLoading) {
+                                const merged = logMergedEntries;
+
+                                if (logLoading && !isAllBranches) {
                                     return (
                                         <p style={{ margin: 0, padding: '40px 0', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
                                             Loading history…
                                         </p>
                                     );
-                                } else {
-                                    merged = mergeLogEntries(localList, fetchedLogEntries || []);
                                 }
 
                                 if (!merged.length) {
