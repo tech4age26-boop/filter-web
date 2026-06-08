@@ -13,7 +13,7 @@ import {
 } from '../services/authApi';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../services/api';
-import { firstVisibleAdminPath } from '../utils/permissions';
+import { firstVisibleAdminPath, workshopLandingPath } from '../utils/permissions';
 
 /**
  * Unified sign-in hub.
@@ -112,7 +112,9 @@ export default function PortalHubPage() {
                 navigate(
                     portalId === 'admin'
                         ? firstVisibleAdminPath(demoUser)
-                        : PORTAL_LANDING[portalId] || `/${portalId}`,
+                        : portalId === 'workshop'
+                          ? workshopLandingPath(demoUser)
+                          : PORTAL_LANDING[portalId] || `/${portalId}`,
                     { replace: true },
                 );
                 setLoading(false);
@@ -157,10 +159,13 @@ export default function PortalHubPage() {
                 apiFetch('/cashier/session/open', { method: 'POST' }).catch(() => {});
             }
 
+            const sessionUser = { ...userData, userType: effectiveUserType };
             navigate(
                 portalId === 'admin'
-                    ? firstVisibleAdminPath({ ...userData, userType: effectiveUserType })
-                    : PORTAL_LANDING[portalId] || `/${portalId}`,
+                    ? firstVisibleAdminPath(sessionUser)
+                    : portalId === 'workshop'
+                      ? workshopLandingPath(sessionUser)
+                      : PORTAL_LANDING[portalId] || `/${portalId}`,
                 { replace: true },
             );
         } catch (err) {

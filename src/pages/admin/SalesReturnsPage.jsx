@@ -22,6 +22,11 @@ import {
 } from '../../services/superAdminApi';
 import { useAuth } from '../../context/AuthContext';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
+import { ExportMenu } from '../../components/admin/SalesExportControls';
+import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
+
+const EXPORT_LIMIT = 5000;
+const round2 = (n) => Number(Number(n ?? 0).toFixed(2));
 
 const num = (v) =>
     `SAR ${Number(v ?? 0).toLocaleString(undefined, {
@@ -65,6 +70,29 @@ function normalizeInvoiceForModal(invoice) {
     };
 }
 
+/** Build {headers, rows} mirroring the on-screen table — used for PDF/Excel export. */
+function buildSalesReturnExportRows(list) {
+    const headers = [
+        'Date / time', 'Credit Note #', 'Invoice #', 'Customer', 'Phone',
+        'Vehicle', 'Cashier', 'Workshop', 'Branch', 'Type', 'Amount', 'Status',
+    ];
+    const rows = (list || []).map((r) => [
+        formatDateTime(r.returnDate ?? r.createdAt),
+        r.creditNoteNo ?? r.returnNo ?? '—',
+        r.invoice?.invoiceNo ?? '—',
+        r.customerName || '—',
+        r.customerPhone || '',
+        r.vehicleNumber || '—',
+        r.cashier?.name || r.createdBy?.name || '—',
+        r.workshop?.name ?? '—',
+        r.branch?.name ?? '—',
+        (r.returnScope || '—').toString().toUpperCase(),
+        round2(r.totalAmount),
+        statusTone(r.status).label,
+    ]);
+    return { headers, rows };
+}
+
 /**
  * Super-admin overview of sales returns originated from the cashier portal.
  * Workshop + Branch filters cascade. Rich columns (customer, vehicle, cashier,
@@ -89,6 +117,7 @@ export default function SalesReturnsPage() {
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
     const [selectedBranchId, setSelectedBranchId] = useState('');
     const [summary, setSummary] = useState(null);
+    const [exporting, setExporting] = useState(false);
 
     const [detail, setDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
@@ -131,6 +160,39 @@ export default function SalesReturnsPage() {
     }, [selectedWorkshopId, selectedBranchId, statusFilter, dateFrom, dateTo]);
 
     useEffect(() => { void load(); }, [load]);
+
+    // Export the FULL filtered set (one bounded re-fetch with the active filters,
+    // including the same server-side search/status/date window).
+    const runExport = useCallback(async (kind) => {
+        setExporting(true);
+        setError('');
+        try {
+            const res = await getSuperAdminSalesReturns({
+                workshopId: selectedWorkshopId || undefined,
+                branchId: selectedBranchId || undefined,
+                status: statusFilter || undefined,
+                search: search.trim() || undefined,
+                startDate: dateFrom || undefined,
+                endDate: dateTo || undefined,
+                limit: EXPORT_LIMIT,
+                offset: 0,
+            });
+            const list = Array.isArray(res?.items) ? res.items : [];
+            const { headers, rows: outRows } = buildSalesReturnExportRows(list);
+            const subtitle = `${outRows.length} return(s)`
+                + (dateFrom || dateTo ? ` · ${dateFrom || '…'} → ${dateTo || '…'}` : '')
+                + (statusFilter ? ` · status: ${statusFilter}` : '');
+            if (kind === 'pdf') {
+                exportRowsToPdf({ title: 'Sales Returns', subtitle, headers, rows: outRows, filenameBase: 'sales-returns' });
+            } else {
+                exportRowsToExcel({ sheetName: 'Sales Returns', headers, rows: outRows, filenameBase: 'sales-returns' });
+            }
+        } catch (e) {
+            setError(e?.message || 'Export failed');
+        } finally {
+            setExporting(false);
+        }
+    }, [selectedWorkshopId, selectedBranchId, statusFilter, search, dateFrom, dateTo]);
 
     useEffect(() => {
         let cancelled = false;
@@ -299,6 +361,12 @@ export default function SalesReturnsPage() {
                             <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#7f1d1d' }}>{loading ? '—' : num(totalAmount)}</div>
                         </div>
                     </div>
+                    <ExportMenu
+                        onPdf={() => runExport('pdf')}
+                        onExcel={() => runExport('excel')}
+                        busy={exporting}
+                        disabled={loading}
+                    />
                     <button
                         type="button"
                         onClick={() => load()}
