@@ -64,60 +64,10 @@ export function clearAuthSession() {
   localStorage.removeItem("adminToken");
 }
 
-        if (!res.ok) {
-            // Expired/invalid token while using supplier portal → send to supplier login (not on login POST itself).
-            if (res.status === 401) {
-                const pathname =
-                    typeof window !== 'undefined' && window.location ? window.location.pathname : '';
-                const hadSession =
-                    typeof localStorage !== 'undefined' && localStorage.getItem('filter_auth_token');
-                if (
-                    hadSession &&
-                    pathname.startsWith('/supplier') &&
-                    !pathname.startsWith('/supplier/login')
-                ) {
-                    localStorage.removeItem('filter_auth_token');
-                    localStorage.removeItem('filter_auth_user');
-                    localStorage.removeItem('filter_auth_workshop');
-                    window.location.replace('/');
-                }
-            }
-
-            const err = await res.json().catch(() => ({}));
-            const detail = {
-                path,
-                method: options.method || 'GET',
-                status: res.status,
-                statusText: res.statusText,
-                response: err,
-                requestBody:
-                    options.body instanceof FormData
-                        ? '[FormData]'
-                        : options.body
-                            ? safeJsonParse(options.body)
-                            : undefined,
-            };
-            if (traceImport) {
-                console.error(`[apiFetch] ${csvImportLabel} — error body`, {
-                    requestId,
-                    ...detail,
-                    msTotal: `${(performance.now() - t0).toFixed(0)}ms`,
-                });
-            }
-            // Keep a full object log to make backend debugging easier.
-            console.error('[apiFetch] Request failed', detail);
-            const msgRaw = err.message;
-            const msgStr = Array.isArray(msgRaw)
-                ? msgRaw.filter(Boolean).map(String).join(' ')
-                : typeof msgRaw === 'string'
-                    ? msgRaw.trim()
-                    : '';
-            throw new Error(
-                msgStr ||
-                (typeof err.error === 'string' ? err.error : '') ||
-                `Request failed: ${res.status} ${res.statusText} (${options.method || 'GET'} ${path})`,
-            );
-        }
+function buildUrl(path) {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return `${BASE_URL}${normalized}`;
+}
 
 function shouldRedirectToLogin() {
   if (typeof window === "undefined") return false;
