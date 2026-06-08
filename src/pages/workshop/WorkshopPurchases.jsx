@@ -1562,7 +1562,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         }
         let cancelled = false;
         setLastPricesLoading(true);
-        getWorkshopSupplierLastPurchasePrices(supId)
+        getWorkshopSupplierLastPurchasePrices(supId, {
+            supplierKind: isSelectedSupplierWorkshopLocal ? 'local' : 'affiliated',
+            branchId: invoiceBranchId ?? undefined,
+        })
             .then((res) => {
                 if (cancelled) return;
                 const list = Array.isArray(res?.prices) ? res.prices : [];
@@ -1583,7 +1586,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         return () => {
             cancelled = true;
         };
-    }, [modalOpen, selectedSupplierRow]);
+    }, [modalOpen, selectedSupplierRow, isSelectedSupplierWorkshopLocal, invoiceBranchId]);
 
     /** Load Box/Liter conversion rules when ordering from an affiliated supplier. */
     useEffect(() => {
