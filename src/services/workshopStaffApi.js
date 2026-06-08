@@ -808,10 +808,17 @@ export const getWorkshopSupplierPurchaseInvoice = (invoiceId) =>
  * supplier per product across prior workshop purchase invoices.
  * Response: `{ success, supplierId, prices: [{ productId, lastUnitPriceExVat, lastUnitPriceInclVat, lastInvoiceId, lastInvoiceNumber, lastIssueDate }] }`
  */
-export const getWorkshopSupplierLastPurchasePrices = (supplierId) =>
-    apiFetch(
-        `/workshop-staff/suppliers/${encodeURIComponent(String(supplierId))}/last-purchase-prices`,
+export const getWorkshopSupplierLastPurchasePrices = (supplierId, opts = {}) => {
+    const params = new URLSearchParams();
+    if (opts.supplierKind === 'local') params.set('supplierKind', 'local');
+    if (opts.branchId != null && String(opts.branchId).trim() !== '') {
+        params.set('branchId', String(opts.branchId).trim());
+    }
+    const qs = params.toString();
+    return apiFetch(
+        `/workshop-staff/suppliers/${encodeURIComponent(String(supplierId))}/last-purchase-prices${qs ? `?${qs}` : ''}`,
     );
+};
 
 /** UOM rules (Box ↔ Liter) for branch products matched to affiliated supplier catalog. */
 export const getWorkshopSupplierProductUomRules = (supplierId, branchId) =>
