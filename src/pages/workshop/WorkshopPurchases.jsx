@@ -62,7 +62,7 @@ import {
 import {
     defaultUomForWarehouseProduct,
     findUomCapsForLine,
-    formatWorkshopPurchaseLineUomHint,
+    parseWorkshopPurchaseLineUomHint,
     isWarehouseUomLine,
     lineUomOptions,
     normUomLabel,
@@ -1265,6 +1265,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     productId: opt.id,
                     item: opt.name,
                     uom: defaultUom,
+                    uomMode: caps && Number(caps.conversionFactor) > 1 ? 'warehouse' : line.uomMode,
                     warehouseUnit: caps?.warehouseUnit ?? null,
                     workshopUnit: caps?.workshopUnit ?? null,
                     conversionFactor: caps?.conversionFactor ?? null,
@@ -1629,9 +1630,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         loadBranchProducts,
     ]);
 
-    /** When UOM rules arrive after product pick, default affiliated lines to warehouse UOM (Box). */
+    /** When UOM rules arrive after product pick, default lines to warehouse UOM (e.g. Box). */
     useEffect(() => {
-        if (!modalOpen || isSelectedSupplierWorkshopLocal) return;
+        if (!modalOpen) return;
         if (!Object.keys(supplierUomByProductId).length && !branchProductOptions.some((o) => o.warehouseUnit)) {
             return;
         }
@@ -1643,7 +1644,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 const caps = findUomCapsForLine(line, supplierUomByProductId, branchProductOptions);
                 if (!caps || !(Number(caps.conversionFactor) > 1)) return line;
                 const whUom = defaultUomForWarehouseProduct(caps, line.uom);
-                if (normUomLabel(line.uom) === normUomLabel(whUom) && line.warehouseUnit) {
+                if (
+                    normUomLabel(line.uom) === normUomLabel(whUom) &&
+                    line.warehouseUnit &&
+                    line.uomMode !== 'workshop'
+                ) {
                     return line;
                 }
                 const opt = branchProductOptions.find((o) => String(o.id) === pid);
@@ -1661,6 +1666,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 const updated = {
                     ...line,
                     uom: whUom,
+                    uomMode: 'warehouse',
+                    uomProfileId: caps.uomProfileId ?? line.uomProfileId ?? null,
                     warehouseUnit: caps.warehouseUnit,
                     workshopUnit: caps.workshopUnit,
                     conversionFactor: caps.conversionFactor,
@@ -1675,7 +1682,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         supplierUomByProductId,
         branchProductOptions,
         modalOpen,
-        isSelectedSupplierWorkshopLocal,
         lastPricesByProductId,
         amountsTaxInclusive,
     ]);
@@ -2840,9 +2846,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             <col style={{ width: showDesc ? '17%' : '21%' }} />
                                             <col style={{ width: showDesc ? '14%' : '18%' }} />
                                             {showDesc ? <col style={{ width: '12%' }} /> : null}
-                                            <col style={{ width: 64 }} />
-                                            <col style={{ width: 64 }} />
-                                            <col style={{ width: 92 }} />
+                                            <col style={{ width: 96 }} />
+                                            <col style={{ width: 72 }} />
+                                            <col style={{ width: 96 }} />
                                             {showDiscount ? <col className="ws-pi-col-discount" style={{ width: 168 }} /> : null}
                                             <col style={{ width: showDiscount ? '8%' : '10%' }} />
                                             <col style={{ width: 84 }} />
@@ -2893,6 +2899,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         </thead>
                                         <tbody>
                                             {lineItems.map((line, idx) => {
+                                                const piLineColumnCount =
+                                                    12 + (showDesc ? 1 : 0) + (showDiscount ? 1 : 0);
                                                 const workingLine = applyDiscountForCalc
                                                     ? line
                                                     : { ...line, discount: 0 };
@@ -2920,12 +2928,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                 const uomOpts = capsRow
                                                     ? lineUomOptions(line, capsRow)
                                                     : [String(line.uom || 'piece').trim() || 'piece'];
-                                                const conversionPreview = formatWorkshopPurchaseLineUomHint(
+                                                const conversionHint = parseWorkshopPurchaseLineUomHint(
                                                     { ...line, price: line.price },
                                                     uomCaps || capsRow,
                                                 );
                                                 return (
-                                                    <tr key={line.id}>
+                                                    <React.Fragment key={line.id}>
+                                                    <tr>
                                                         <td className="ws-pi-td-hash">{idx + 1}</td>
                                                         <td className="ws-pi-td-actions">
                                                             <button
@@ -3139,11 +3148,6 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                 onKeyDown={(e) => handleMathKeyDown(e, line.id, 'qty')}
                                                                 onBlur={(e) => handleMathBlur(e, line.id, 'qty')}
                                                             />
-                                                            {conversionPreview ? (
-                                                                <div className="ws-pi-uom-conversion-hint">
-                                                                    {conversionPreview}
-                                                                </div>
-                                                            ) : null}
                                                         </td>
                                                         <td
                                                             className="ws-pi-td-num ws-pi-price-cell"
@@ -3278,6 +3282,27 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             })()}
                                                         </td>
                                                     </tr>
+                                                    {conversionHint ? (
+                                                        <tr className="ws-pi-conversion-subrow">
+                                                            <td colSpan={2} aria-hidden />
+                                                            <td colSpan={piLineColumnCount - 2}>
+                                                                <div className="ws-pi-uom-conversion-hint">
+                                                                    <span className="ws-pi-uom-conversion-rule">
+                                                                        {conversionHint.rule}
+                                                                    </span>
+                                                                    <span className="ws-pi-uom-conversion-stock">
+                                                                        {conversionHint.stock}
+                                                                    </span>
+                                                                    {conversionHint.prices ? (
+                                                                        <span className="ws-pi-uom-conversion-prices">
+                                                                            {conversionHint.prices}
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ) : null}
+                                                    </React.Fragment>
                                                 );
                                             })}
                                         </tbody>
@@ -3292,7 +3317,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 <div className="pi-hint">
                                     <Zap size={14} /> Tip: By default the unit column is <strong>ex VAT</strong> (15% VAT is
                                     added on each line). Check <strong>Amounts are tax inclusive</strong> to enter
-                                    VAT-inclusive unit prices. Qty, unit price, and discount support math (e.g. 12*5).
+                                    VAT-inclusive unit prices. When a product has a conversion rule (e.g. 1 Box = 12 Liter),
+                                    invoice qty is in the purchase unit and branch stock is updated in the workshop unit.
+                                    Qty, unit price, and discount support math (e.g. 12*5).
                                 </div>
                             </div>
 
