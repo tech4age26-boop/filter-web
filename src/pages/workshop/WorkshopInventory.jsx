@@ -637,17 +637,6 @@ function mapApiRowToInventory(row) {
         merged.criticalStockPoint,
         merged.critical_stock_point,
     );
-    const basePrice = pickNumber(
-        merged.salePriceOverride,
-        merged.sellingPriceOverride,
-        merged.salePriceBeforeVat,
-        merged.sellingPriceBeforeVat,
-        merged.salePrice,
-        merged.sellingPrice,
-        merged.sale_price,
-        merged.purchasePrice,
-        merged.purchase_price,
-    );
     const purchasePrice = pickNumber(
         merged.purchasePriceOverride,
         row?.purchasePriceOverride,
@@ -704,7 +693,6 @@ function mapApiRowToInventory(row) {
             master?.category?.name ||
             row?.categoryName ||
             '—',
-        basePrice,
         purchasePrice,
         openingQty,
         isInfiniteQty,
@@ -2358,8 +2346,9 @@ export default function WorkshopInventory({
                                                 color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase',
                                             }}
+                                            title="Catalog purchase cost per workshop unit (same as inventory value calculation)"
                                         >
-                                            Price
+                                            Purchase price
                                         </th>
                                         <th
                                             style={{
@@ -2583,8 +2572,11 @@ export default function WorkshopInventory({
                                                             );
                                                         })()}
                                                     </td>
-                                                    <td style={{ padding: '16px 24px', textAlign: 'center', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-text-dark)' }}>
-                                                        SAR {item.basePrice?.toLocaleString() || '0'}
+                                                    <td
+                                                        style={{ padding: '16px 24px', textAlign: 'center', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-text-dark)' }}
+                                                        title="Per workshop stock unit (e.g. per Liter when conversion applies)"
+                                                    >
+                                                        {formatSar(item.purchasePrice, { decimals: 2 })}
                                                     </td>
                                                     <td style={{ padding: '16px 24px', textAlign: 'center' }}>
                                                         <span
