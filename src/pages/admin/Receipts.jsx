@@ -8,8 +8,25 @@ import {
     getSuperAdminCorporateCompanies,
 } from '../../services/superAdminApi';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
+import { ExportMenu, DateTimeRange } from '../../components/admin/SalesExportControls';
+import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
 
 const PAGE_SIZE = 50;
+const EXPORT_LIMIT = 5000;
+const round2 = (n) => Number(Number(n ?? 0).toFixed(2));
+
+/** Client-side search predicate — shared by the table filter and export-all. */
+function matchesReceiptSearch(r, q) {
+    if (!q) return true;
+    const hay = [
+        r.receiptNo, r.invoiceNo,
+        r.corporateAccountName, r.customerName,
+        r.workshopName, r.branchName,
+        r.paymentMethod, r.deferredPaymentMethod,
+        r.totalAmount, r.amountPaid,
+    ].map((x) => String(x ?? '').toLowerCase()).join(' ');
+    return hay.includes(q);
+}
 
 const num = (v) =>
     `SAR ${Number(v ?? 0).toLocaleString(undefined, {
@@ -45,6 +62,36 @@ function normalizeInvoiceForModal(invoice) {
     };
 }
 
+/** Build {headers, rows} mirroring the on-screen table — used for PDF/Excel export. */
+function buildReceiptExportRows(list) {
+    const headers = [
+        'Receipt No', 'Payment Date', 'Invoice No', 'Customer',
+        'Workshop', 'Branch', 'Method', 'Total', 'Paid', 'Balance', 'Status',
+    ];
+    const rows = (list || []).map((r) => {
+        const total = Number(r.totalAmount ?? 0);
+        const paid = Number(r.amountPaid ?? total);
+        const balance = r.balance != null ? Number(r.balance) : Math.max(0, total - paid);
+        const isPartial = balance > 0.01 && String(r.paymentStatus).toLowerCase() !== 'paid';
+        const method = (r.paymentMethod || '—').toString().replace(/_/g, ' ');
+        const via = (r.deferredPaymentMethod || 'Monthly Billing').toString().replace(/_/g, ' ');
+        return [
+            r.receiptNo ?? '—',
+            formatDate(r.paymentDate ?? r.issuedAt ?? r.invoiceDate),
+            r.invoiceNo ?? '—',
+            r.corporateAccountName ?? r.customerName ?? '—',
+            r.workshopName ?? '—',
+            r.branchName ?? '—',
+            `${method} (via ${via})`,
+            round2(total),
+            round2(paid),
+            round2(balance),
+            isPartial ? 'Partially Paid' : 'Paid',
+        ];
+    });
+    return { headers, rows };
+}
+
 /**
  * Admin → Sales → Receipts. Monthly-billing invoices that have actually been
  * settled (real, non-phantom payments cover the total). Newest settlement first.
@@ -62,6 +109,9 @@ export default function Receipts() {
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
     const [selectedBranchId, setSelectedBranchId] = useState('');
     const [selectedCompanyId, setSelectedCompanyId] = useState('');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [exporting, setExporting] = useState(false);
     const [summary, setSummary] = useState(null);
     const [invoice, setInvoice] = useState(null);
     const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
@@ -75,6 +125,8 @@ export default function Receipts() {
                 workshopId: selectedWorkshopId || undefined,
                 branchId:   selectedBranchId   || undefined,
                 corporateAccountId: selectedCompanyId || undefined,
+                startDate: dateFrom || undefined,
+                endDate:   dateTo   || undefined,
                 limit: PAGE_SIZE,
                 offset: (page - 1) * PAGE_SIZE,
             });
@@ -93,12 +145,12 @@ export default function Receipts() {
         } finally {
             setLoading(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, page]);
+    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo, page]);
 
     useEffect(() => { void load(); }, [load]);
 
     // Snap back to page 1 when filters change.
-    useEffect(() => { setPage(1); }, [selectedWorkshopId, selectedBranchId, selectedCompanyId]);
+    useEffect(() => { setPage(1); }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo]);
 
     // Companies for the Company filter (scoped to the selected workshop).
     useEffect(() => {
@@ -177,18 +229,42 @@ export default function Receipts() {
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
         if (!q) return rows;
-        return rows.filter((r) => {
-            const hay = [
-                r.receiptNo,
-                r.invoiceNo,
-                r.corporateAccountName, r.customerName,
-                r.workshopName, r.branchName,
-                r.paymentMethod, r.deferredPaymentMethod,
-                r.totalAmount, r.amountPaid,
-            ].map((x) => String(x ?? '').toLowerCase()).join(' ');
-            return hay.includes(q);
-        });
+        return rows.filter((r) => matchesReceiptSearch(r, q));
     }, [rows, search]);
+
+    // Export the FULL filtered set (one bounded re-fetch + same client search).
+    const runExport = useCallback(async (kind) => {
+        setExporting(true);
+        setError('');
+        try {
+            const res = await getSuperAdminReceipts({
+                workshopId: selectedWorkshopId || undefined,
+                branchId:   selectedBranchId   || undefined,
+                corporateAccountId: selectedCompanyId || undefined,
+                startDate: dateFrom || undefined,
+                endDate:   dateTo   || undefined,
+                limit: EXPORT_LIMIT,
+                offset: 0,
+            });
+            const all = Array.isArray(res?.receipts) ? res.receipts
+                : Array.isArray(res?.items) ? res.items
+                : Array.isArray(res) ? res : [];
+            const q = search.trim().toLowerCase();
+            const list = q ? all.filter((r) => matchesReceiptSearch(r, q)) : all;
+            const { headers, rows: outRows } = buildReceiptExportRows(list);
+            const subtitle = `${outRows.length} receipt(s)`
+                + (dateFrom || dateTo ? ` · ${dateFrom || '…'} → ${dateTo || '…'}` : '');
+            if (kind === 'pdf') {
+                exportRowsToPdf({ title: 'Receipts', subtitle, headers, rows: outRows, filenameBase: 'receipts' });
+            } else {
+                exportRowsToExcel({ sheetName: 'Receipts', headers, rows: outRows, filenameBase: 'receipts' });
+            }
+        } catch (e) {
+            setError(e?.message || 'Export failed');
+        } finally {
+            setExporting(false);
+        }
+    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo, search]);
 
     // KPIs across ALL pages via the server `summary`; fall back to the visible
     // rows when a client-side search is narrowing the current page.
@@ -253,14 +329,22 @@ export default function Receipts() {
                         </p>
                     </div>
                 </div>
-                <button
-                    type="button"
-                    onClick={() => load()}
-                    disabled={loading}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid #cbd5e1', background: '#fff', cursor: loading ? 'wait' : 'pointer', fontSize: '0.8125rem', fontWeight: 600 }}
-                >
-                    <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
-                </button>
+                <div style={{ display: 'inline-flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <ExportMenu
+                        onPdf={() => runExport('pdf')}
+                        onExcel={() => runExport('excel')}
+                        busy={exporting}
+                        disabled={loading}
+                    />
+                    <button
+                        type="button"
+                        onClick={() => load()}
+                        disabled={loading}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid #cbd5e1', background: '#fff', cursor: loading ? 'wait' : 'pointer', fontSize: '0.8125rem', fontWeight: 600 }}
+                    >
+                        <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                    </button>
+                </div>
             </header>
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'flex-end' }}>
@@ -297,6 +381,13 @@ export default function Receipts() {
                         ))}
                     </select>
                 </div>
+                <DateTimeRange
+                    from={dateFrom}
+                    to={dateTo}
+                    onFrom={setDateFrom}
+                    onTo={setDateTo}
+                    onClear={() => { setDateFrom(''); setDateTo(''); }}
+                />
                 <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
                     <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                     <input
