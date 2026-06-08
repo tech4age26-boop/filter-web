@@ -1005,7 +1005,20 @@ export function normalizeWorkshopEmployee(raw, role) {
     )
         .toString()
         .toLowerCase();
-    let displayRole = (raw.role ?? raw.userType ?? raw.user_type ?? role ?? '').toString().toLowerCase() || role;
+    // `employeeType` is the authoritative job role on the unified employees
+    // list (cashier / staff / technician). It must rank ABOVE the `role` arg,
+    // which is only the PATCH/DELETE route family ('cashier' covers cashier +
+    // staff). Without it, a `staff` employee falls back to the arg and renders
+    // + prefills as "cashier". Portal/locker rows still win via workshopStaffRole.
+    let displayRole = (
+        raw.role ??
+        raw.userType ??
+        raw.user_type ??
+        raw.employeeType ??
+        raw.employee_type ??
+        role ??
+        ''
+    ).toString().toLowerCase() || role;
     if (workshopStaffRole) {
         displayRole = workshopStaffRole;
     }
@@ -1078,6 +1091,13 @@ export function normalizeWorkshopEmployee(raw, role) {
             user?.permissionRole ??
             user?.permission_role ??
             null,
+        effectiveBranchIds: Array.isArray(raw.effectiveBranchIds)
+            ? raw.effectiveBranchIds.map(String)
+            : Array.isArray(raw.effective_branch_ids)
+              ? raw.effective_branch_ids.map(String)
+              : Array.isArray(raw.permissionRole?.branchIds)
+                ? raw.permissionRole.branchIds.map(String)
+                : [],
         userType:
             raw.userType ??
             raw.user_type ??
