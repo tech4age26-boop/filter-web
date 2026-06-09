@@ -443,25 +443,34 @@ export default function SupplierStockInventory() {
 
     const handleConfirmAdjustment = async () => {
         if (!adjustItem || adjustConfirming) return;
-        const qtyDelta = Number.parseFloat(String(adjustQty).replace(/,/g, '')) || 0;
-        if (qtyDelta <= 0 || !Number.isFinite(qtyDelta)) return;
+        const qtyInput = Number.parseFloat(String(adjustQty).replace(/,/g, ''));
+        if (!Number.isFinite(qtyInput) || qtyInput < 0) return;
+        if (adjustmentType !== 'set' && qtyInput <= 0) return;
         const cf = Number(adjustItem.conversionFactor) || 1;
         const currentWh = Number(adjustItem.warehouseQty) || 0;
         const newWarehouseQty =
-            adjustmentType === 'add'
-                ? currentWh + qtyDelta
-                : Math.max(0, currentWh - qtyDelta);
+            adjustmentType === 'set'
+                ? qtyInput
+                : adjustmentType === 'add'
+                  ? currentWh + qtyInput
+                  : Math.max(0, currentWh - qtyInput);
         const newWorkshopQty = Math.round(newWarehouseQty * cf * 1000) / 1000;
         const savedId = adjustItem.id;
         setAdjustConfirming(true);
         try {
+            const autoNote =
+                adjustmentType === 'set' && newWarehouseQty === 0 && !adjustNotes.trim()
+                    ? 'Stock set to zero'
+                    : adjustmentType === 'set' && !adjustNotes.trim()
+                      ? `Stock set to ${newWarehouseQty} ${adjustItem.warehouseUnit || 'Box'}`
+                      : '';
             await setSupplierStock({
                 supplierProductId: String(adjustItem.id),
                 supplierLocationId: String(
                     adjustItem.locationId || adjustItem.byLocation?.[0]?.supplierLocationId || '',
                 ),
                 currentQuantity: newWarehouseQty,
-                ...(adjustNotes.trim() ? { notes: adjustNotes.trim() } : {}),
+                ...(adjustNotes.trim() || autoNote ? { notes: adjustNotes.trim() || autoNote } : {}),
             });
             setStock((prev) =>
                 prev.map((s) =>
@@ -2212,8 +2221,15 @@ export default function SupplierStockInventory() {
                                     style={{ background: 'var(--color-text-dark)', color: '#fff', border: 'none' }}
                                     disabled={
                                         adjustConfirming ||
-                                        !adjustQty ||
-                                        Number(parseFloat(String(adjustQty))) <= 0
+                                        adjustQty === '' ||
+                                        !Number.isFinite(
+                                            Number.parseFloat(String(adjustQty).replace(/,/g, '')),
+                                        ) ||
+                                        Number.parseFloat(String(adjustQty).replace(/,/g, '')) <
+                                            0 ||
+                                        (adjustmentType !== 'set' &&
+                                            Number.parseFloat(String(adjustQty).replace(/,/g, '')) <=
+                                                0)
                                     }
                                     onClick={handleConfirmAdjustment}
                                 >
@@ -2278,7 +2294,7 @@ export default function SupplierStockInventory() {
                                 >
                                     Adjustment Type
                                 </label>
-                                <div style={{ display: 'flex', gap: 8 }}>
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                                     <button
                                         type="button"
                                         onClick={() => setAdjustmentType('add')}
@@ -2315,6 +2331,28 @@ export default function SupplierStockInventory() {
                                     >
                                         - Remove Stock
                                     </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAdjustmentType('set')}
+                                        style={{
+                                            flex: 1,
+                                            minWidth: 120,
+                                            padding: '10px 14px',
+                                            borderRadius: 8,
+                                            border: '1px solid var(--color-border)',
+                                            background:
+                                                adjustmentType === 'set'
+                                                    ? '#1D4ED8'
+                                                    : '#EFF6FF',
+                                            color:
+                                                adjustmentType === 'set' ? '#fff' : '#1E40AF',
+                                            fontSize: '0.875rem',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        Set stock to
+                                    </button>
                                 </div>
                             </div>
                             <div>
@@ -2327,15 +2365,21 @@ export default function SupplierStockInventory() {
                                         marginBottom: 6,
                                     }}
                                 >
-                                    Quantity ({adjustItem.warehouseUnit || 'Box'}) *
+                                    {adjustmentType === 'set'
+                                        ? `New stock level (${adjustItem.warehouseUnit || 'Box'}) *`
+                                        : `Quantity (${adjustItem.warehouseUnit || 'Box'}) *`}
                                 </label>
                                 <input
                                     type="number"
-                                    min="0.001"
+                                    min={adjustmentType === 'set' ? '0' : '0.001'}
                                     step="any"
                                     value={adjustQty}
                                     onChange={(e) => setAdjustQty(e.target.value)}
-                                    placeholder={`How many ${adjustItem.warehouseUnit || 'Box'}?`}
+                                    placeholder={
+                                        adjustmentType === 'set'
+                                            ? `Enter total ${adjustItem.warehouseUnit || 'Box'} on hand (0 to clear)`
+                                            : `How many ${adjustItem.warehouseUnit || 'Box'}?`
+                                    }
                                     style={{
                                         width: '100%',
                                         padding: '10px 12px',
@@ -2346,15 +2390,19 @@ export default function SupplierStockInventory() {
                                 />
                                 {(() => {
                                     const delta =
-                                        Number.parseFloat(String(adjustQty).replace(/,/g, '')) ||
-                                        0;
-                                    if (!(delta > 0)) return null;
+                                        Number.parseFloat(String(adjustQty).replace(/,/g, '')) ??
+                                        NaN;
+                                    if (!Number.isFinite(delta)) return null;
+                                    if (adjustmentType !== 'set' && !(delta > 0)) return null;
+                                    if (adjustmentType === 'set' && delta < 0) return null;
                                     const cf = Number(adjustItem.conversionFactor) || 1;
                                     const curWh = Number(adjustItem.warehouseQty) || 0;
                                     const newWh =
-                                        adjustmentType === 'add'
-                                            ? curWh + delta
-                                            : Math.max(0, curWh - delta);
+                                        adjustmentType === 'set'
+                                            ? delta
+                                            : adjustmentType === 'add'
+                                              ? curWh + delta
+                                              : Math.max(0, curWh - delta);
                                     const newWs = Math.round(newWh * cf * 1000) / 1000;
                                     const whUnit = adjustItem.warehouseUnit || 'Box';
                                     const wsUnit = adjustItem.unit || 'Liter';
