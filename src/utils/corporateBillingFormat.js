@@ -39,7 +39,9 @@ export function fmtBillingCellAmount(val) {
 
 export function billingStatusBadgeClass(status) {
     const s = String(status ?? '').toLowerCase();
-    if (s === 'paid' || s === 'approved') return 'billing-status-paid';
+    if (s === 'paid' || s === 'approved' || s.includes('auto-generated')) {
+        return 'billing-status-paid';
+    }
     if (s === 'unpaid' || s === 'unapproved') return 'billing-status-unpaid';
     return 'billing-status-neutral';
 }
