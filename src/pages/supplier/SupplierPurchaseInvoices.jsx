@@ -258,15 +258,20 @@ function findPiCapsRow(line, inventoryItems) {
 }
 
 function linePiUomOptions(line, inv) {
-    const opts = [];
     const wu = String(inv?.warehouseUnit ?? '').trim();
     const wsu = String(inv?.workshopUnit ?? '').trim();
-    if (wu) opts.push(wu);
-    if (wsu && normPiUomLabel(wsu) !== normPiUomLabel(wu)) opts.push(wsu);
-    if (opts.length === 0) {
-        return [String(line?.uom ?? 'pcs').trim() || 'pcs'];
-    }
-    return opts;
+    if (wu) return [wu];
+    if (wsu) return [wsu];
+    return [String(line?.uom ?? 'Box').trim() || 'Box'];
+}
+
+/** Purchase invoices always stock-in in warehouse units (Box), never workshop (Liter). */
+function resolvePiLineUnitForApi(line, inv) {
+    const wu = String(inv?.warehouseUnit ?? line?.warehouseUnit ?? '').trim();
+    if (wu) return wu;
+    const wsu = String(inv?.workshopUnit ?? line?.workshopUnitCatalog ?? '').trim();
+    if (wsu) return wsu;
+    return String(line?.uom ?? 'Box').trim() || 'Box';
 }
 
 function formatPiUomConversionPreview(line, inv) {
@@ -922,7 +927,7 @@ export default function SupplierPurchaseInvoices() {
                         catItem.type === 'Stock'
                             ? '1410 - Inventory Asset'
                             : '5100 - Cost of Goods Sold',
-                    uom: catItem.unit || catItem.warehouseUnit || line.uom || 'Box',
+                    uom: catItem.warehouseUnit || catItem.unit || line.uom || 'Box',
                     warehouseUnit: catItem.warehouseUnit ?? line.warehouseUnit ?? null,
                     workshopUnitCatalog:
                         catItem.workshopUnit ?? line.workshopUnitCatalog ?? null,
@@ -1147,7 +1152,7 @@ export default function SupplierPurchaseInvoices() {
             account:
                 item.type === 'Stock' ? '1410 - Inventory Asset' : '5100 - Cost of Goods Sold',
             description: '',
-            uom: item.unit || item.warehouseUnit || 'Box',
+            uom: item.warehouseUnit || item.unit || 'Box',
             warehouseUnit: item.warehouseUnit ?? null,
             workshopUnitCatalog: item.workshopUnit ?? null,
             conversionFactor: item.conversionFactor ?? 1,
@@ -1442,6 +1447,8 @@ export default function SupplierPurchaseInvoices() {
             const qtyNum = parseFloat(String(line.qty).replace(',', '.')) || 0;
             const unitPriceExForApi =
                 qtyNum > 0 ? roundMoney2(fin.lineEx / qtyNum) : 0;
+            const inv = findPiCapsRow(line, catalogItems);
+            const resolvedUnit = resolvePiLineUnitForApi(line, inv);
             return {
                 idx,
                 productName: String(line.item || '').trim(),
@@ -1452,7 +1459,7 @@ export default function SupplierPurchaseInvoices() {
                         ? String(line.supplierProductId).trim()
                         : undefined,
                 qty: qtyNum,
-                unit: String(line.uom || 'pcs').trim() || 'pcs',
+                unit: resolvedUnit,
                 unitPrice: unitPriceExForApi,
                 vatLine: fin.taxAmt,
             };
@@ -2703,7 +2710,7 @@ export default function SupplierPurchaseInvoices() {
                                     const capsRow = findPiCapsRow(line, catalogItems);
                                     const uomOpts = capsRow
                                         ? linePiUomOptions(line, capsRow)
-                                        : [String(line.uom || 'Box').trim() || 'Box'];
+                                        : [String(line.warehouseUnit || line.uom || 'Box').trim() || 'Box'];
                                     const conversionPreview = formatPiUomConversionPreview(
                                         line,
                                         capsRow,
