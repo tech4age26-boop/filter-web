@@ -408,6 +408,30 @@ export function fillSupplierTimelineRunningQty(entries, currentQtyOnHand, produc
     });
 }
 
+/**
+ * Inventory line value in SAR — warehouse qty × warehouse unit price (e.g. boxes × SAR/box).
+ * Never multiply workshop liters by per-box price.
+ */
+export function warehouseStockLineValueSar(row) {
+    if (!row) return 0;
+    const fromApi = row.valueWarehouseSar;
+    if (fromApi != null && Number.isFinite(Number(fromApi))) {
+        return Number(fromApi);
+    }
+    const whQty = Number(row.warehouseQty ?? row.currentBalanceWarehouse ?? 0);
+    const unitPrice = Number(row.price ?? row.warehouseUnitPrice ?? 0);
+    return whQty * unitPrice;
+}
+
+/** Purchase/base price per warehouse unit (Box), from API balances. */
+export function warehouseUnitPriceFromItem(item) {
+    if (!item) return 0;
+    const wh = Number(item.currentBalanceWarehouse ?? item.warehouseQty ?? 0);
+    const val = Number(item.valueWarehouseSar ?? 0);
+    if (wh > 0 && val > 0) return val / wh;
+    return Number(item.price ?? 0);
+}
+
 /** Format warehouse qty with optional workshop equivalent, e.g. "1 Box (12 Liter)". */
 export function formatDualUomQty(qty, warehouseUnit, workshopQty, workshopUnit) {
     const wh = Number(qty);

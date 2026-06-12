@@ -28,6 +28,8 @@ import {
     mapSupplierHistoryToTimelineEntries,
     formatSupplierTimelineSourceRef,
     formatDualUomQty,
+    warehouseStockLineValueSar,
+    warehouseUnitPriceFromItem,
 } from './supplierInventoryTimelineUtils';
 import {
     exportMovementsExcel,
@@ -223,7 +225,7 @@ export default function SupplierStockInventory() {
     const reorderNeededCount = stock.filter(
         (s) => s.reorder != null && s.qty <= s.reorder && s.qty > (s.criticalLevel ?? 0),
     ).length;
-    const inventoryValue = stock.reduce((sum, s) => sum + (s.qty || 0) * (s.price || 0), 0);
+    const inventoryValue = stock.reduce((sum, s) => sum + warehouseStockLineValueSar(s), 0);
     const criticalItems = stock.filter((s) => s.qty <= (s.criticalLevel ?? 0));
 
     const locationSummary = (row) => {
@@ -1087,7 +1089,7 @@ export default function SupplierStockInventory() {
                                     </thead>
                                     <tbody>
                                         {filteredList.map((s) => {
-                                            const value = (s.qty || 0) * (s.price || 0);
+                                            const value = warehouseStockLineValueSar(s);
                                             const isCritical = s.qty <= (s.criticalLevel ?? 0);
                                             return (
                                                 <tr
@@ -1586,7 +1588,8 @@ export default function SupplierStockInventory() {
                                                     }}
                                                 >
                                                     SKU: {p.sku || '—'} · On hand:{' '}
-                                                    {fmtQty(p.warehouseQty)} {p.unit || 'pcs'}
+                                                    {fmtQty(p.warehouseQty)}{' '}
+                                                    {p.warehouseUnit || 'Box'}
                                                 </div>
                                             </li>
                                         ))}
