@@ -443,6 +443,7 @@ export default function SupplierCatalog() {
                 openingQty: '0',
                 stockQty: '0',
                 criticalStockLevel: '',
+                purchasePrice: '',
                 warehouseUnit:
                     existingProduct?.warehouseUnit ||
                     (p.unit === 'piece' || p.unit === 'pcs' ? 'Box' : p.unit || 'Box'),
@@ -462,6 +463,7 @@ export default function SupplierCatalog() {
                 openingQty: prev[id]?.openingQty ?? '0',
                 stockQty: prev[id]?.stockQty ?? '0',
                 criticalStockLevel: prev[id]?.criticalStockLevel ?? '',
+                purchasePrice: prev[id]?.purchasePrice ?? '',
                 warehouseUnit: prev[id]?.warehouseUnit ?? 'Box',
                 workshopUnit: prev[id]?.workshopUnit ?? 'pcs',
                 conversionFactor: prev[id]?.conversionFactor ?? '1',
@@ -525,16 +527,25 @@ export default function SupplierCatalog() {
                 const wasExistingSupplierProduct = !!supplierProductId;
 
                 if (!supplierProductId) {
+                    const purchaseRaw = row.purchasePrice;
+                    const hasCustomPrice =
+                        purchaseRaw !== '' &&
+                        purchaseRaw !== undefined &&
+                        purchaseRaw !== null &&
+                        Number.isFinite(Number(purchaseRaw)) &&
+                        Number(purchaseRaw) >= 0;
+
                     const created = await createSupplierProduct({
                         productName: master.name,
                         sku: master.sku || `MC-${master.id}`,
                         categoryId: master.categoryId ? String(master.categoryId) : undefined,
+                        masterProductId: String(master.id),
                         warehouseUnit,
                         workshopUnit,
                         conversionFactor,
-                        pricePerWarehouseUnit: Number(
-                            master.purchasePrice ?? master.salePrice ?? 0,
-                        ),
+                        ...(hasCustomPrice
+                            ? { pricePerWarehouseUnit: Number(purchaseRaw) }
+                            : { usesCatalogPrice: true, pricePerWarehouseUnit: 0 }),
                         reorderLevel: openingQty,
                         ...(criticalStockAlert !== undefined
                             ? { criticalStockAlert }
@@ -1650,6 +1661,7 @@ export default function SupplierCatalog() {
                                         <th>Warehouse UOM</th>
                                         <th>Workshop UOM</th>
                                         <th>CF (1 wh = ? ws)</th>
+                                        <th>Purchase price (optional)</th>
                                         <th>Opening Qty</th>
                                         <th>Stock Qty</th>
                                         <th>Critical stock level</th>
@@ -1734,6 +1746,33 @@ export default function SupplierCatalog() {
                                                         title="1 warehouse unit = this many workshop units (e.g. 1 Box = 20 Liter)"
                                                         style={{
                                                             width: 72,
+                                                            padding: '6px 8px',
+                                                            borderRadius: 6,
+                                                            border: '1px solid var(--color-border)',
+                                                        }}
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        placeholder={
+                                                            p.purchasePrice != null
+                                                                ? `Catalog: ${Number(p.purchasePrice).toFixed(2)}`
+                                                                : 'Catalog default'
+                                                        }
+                                                        value={row.purchasePrice ?? ''}
+                                                        onChange={(e) =>
+                                                            updateInventoryQty(
+                                                                p.id,
+                                                                'purchasePrice',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        title="Leave blank to use super-admin catalog purchase price"
+                                                        style={{
+                                                            width: 120,
                                                             padding: '6px 8px',
                                                             borderRadius: 6,
                                                             border: '1px solid var(--color-border)',
