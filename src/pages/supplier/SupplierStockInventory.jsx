@@ -22,6 +22,7 @@ import {
 } from '../../services/supplierApi';
 import SupplierProductHistoryDrawer from './accounting/SupplierProductHistoryDrawer';
 import StockProductUomEditModal from './StockProductUomEditModal';
+import StockProductPurchasePriceEditModal from './StockProductPurchasePriceEditModal';
 import {
     mapSupplierHistoryToMovementRegister,
     mapSupplierHistoryToTimelineEntries,
@@ -111,6 +112,7 @@ export default function SupplierStockInventory() {
     const [timelineError, setTimelineError] = useState('');
     const [accountingHistoryProduct, setAccountingHistoryProduct] = useState(null);
     const [uomEditProduct, setUomEditProduct] = useState(null);
+    const [purchasePriceEditProduct, setPurchasePriceEditProduct] = useState(null);
 
     // `stock` is already server-filtered by `search` (name or SKU). Keep a light client filter
     // as a safety net (e.g. if backend returns broader results).
@@ -276,8 +278,19 @@ export default function SupplierStockInventory() {
                       ),
                       criticalLevel: item.criticalAt != null ? Number(item.criticalAt) : 0,
                       reorder: item.reorderAt != null ? Number(item.reorderAt) : 0,
-                      valueWarehouseSar: Number(item.valueWarehouseSar || 0),
-                      price: warehouseUnitPriceFromItem(item),
+                      price:
+                          Number(item.pricePerWarehouseUnit ?? 0) > 0
+                              ? Number(item.pricePerWarehouseUnit)
+                              : Number(item.valueWarehouseSar || 0) > 0 &&
+                                  Number(item.currentBalanceWarehouse || 0) > 0
+                                ? Number(item.valueWarehouseSar) /
+                                  Number(item.currentBalanceWarehouse)
+                                : 0,
+                      usesCatalogPrice: Boolean(item.usesCatalogPrice),
+                      catalogPurchasePrice:
+                          item.catalogPurchasePrice != null
+                              ? Number(item.catalogPurchasePrice)
+                              : null,
                       byLocation: item.byLocation || [],
                       locationId: item.byLocation?.[0]?.supplierLocationId,
                   }))
@@ -1187,19 +1200,42 @@ export default function SupplierStockInventory() {
                                                     </td>
                                                     <td>{s.reorder != null ? fmtQty(s.reorder) : '-'}</td>
                                                     <td>
-                                                        SAR {Number(s.price).toLocaleString()}
-                                                        {s.warehouseUnit ? (
-                                                            <span
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                            <span>
+                                                                SAR {Number(s.price).toLocaleString()} per{' '}
+                                                                {s.warehouseUnit || 'unit'}
+                                                            </span>
+                                                            {s.usesCatalogPrice ? (
+                                                                <span
+                                                                    style={{
+                                                                        fontSize: '0.68rem',
+                                                                        color: '#64748b',
+                                                                        fontWeight: 600,
+                                                                    }}
+                                                                >
+                                                                    From master catalog
+                                                                </span>
+                                                            ) : null}
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setPurchasePriceEditProduct(s);
+                                                                }}
                                                                 style={{
-                                                                    display: 'block',
+                                                                    padding: '2px 0',
+                                                                    border: 'none',
+                                                                    background: 'transparent',
+                                                                    color: '#2563eb',
                                                                     fontSize: '0.7rem',
-                                                                    color: 'var(--color-text-muted)',
-                                                                    fontWeight: 500,
+                                                                    fontWeight: 600,
+                                                                    cursor: 'pointer',
+                                                                    textAlign: 'left',
                                                                 }}
                                                             >
-                                                                per {s.warehouseUnit}
-                                                            </span>
-                                                        ) : null}
+                                                                Edit price
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                     <td>SAR {value.toLocaleString()}</td>
                                                     <td>
@@ -2475,6 +2511,14 @@ export default function SupplierStockInventory() {
                 <StockProductUomEditModal
                     product={uomEditProduct}
                     onClose={() => setUomEditProduct(null)}
+                    onSaved={() => loadStock({ silent: true })}
+                />
+            ) : null}
+
+            {purchasePriceEditProduct ? (
+                <StockProductPurchasePriceEditModal
+                    product={purchasePriceEditProduct}
+                    onClose={() => setPurchasePriceEditProduct(null)}
                     onSaved={() => loadStock({ silent: true })}
                 />
             ) : null}
