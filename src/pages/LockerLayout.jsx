@@ -60,7 +60,8 @@ export default function LockerLayout() {
 
     const activeTab = getActiveTabFromUrl();
     const setActiveTab = (tab) => {
-        navigate(`/locker/${tab}`);
+        const [tabName, query = ''] = String(tab).split('?');
+        navigate(query ? `/locker/${tabName}?${query}` : `/locker/${tabName}`);
     };
 
     const renderContent = () => {
