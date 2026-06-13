@@ -247,6 +247,7 @@ export default function SupplierStockInventory() {
 
     const loadStock = useCallback(async (opts = {}) => {
         const silent = !!opts.silent;
+        const page = Math.max(1, Number(opts.page ?? stockPage) || 1);
         if (!silent) {
             setLoading(true);
         }
@@ -254,7 +255,7 @@ export default function SupplierStockInventory() {
         try {
             const res = await getSupplierInventoryStockBalances({
                 limit: STOCK_PAGE_SIZE,
-                offset: (stockPage - 1) * STOCK_PAGE_SIZE,
+                offset: (page - 1) * STOCK_PAGE_SIZE,
                 historyLimit: 50,
                 search: search.trim() ? search.trim() : undefined,
                 ...(criticalOnly ? { isLowCriticalOnly: true } : {}),
@@ -330,18 +331,24 @@ export default function SupplierStockInventory() {
         }
     }, [search, criticalOnly, stockPage]);
 
-    useEffect(() => {
-        // Reset pagination when search or critical filter changes
-        setStockPage(1);
-    }, [search, criticalOnly]);
+    const searchFilterRef = useRef({ search, criticalOnly });
 
     useEffect(() => {
-        // Debounce search to avoid spamming the API while typing.
+        const prev = searchFilterRef.current;
+        const filterChanged =
+            prev.search !== search || prev.criticalOnly !== criticalOnly;
+        searchFilterRef.current = { search, criticalOnly };
+
+        if (filterChanged && stockPage !== 1) {
+            setStockPage(1);
+        }
+
+        const pageToLoad = filterChanged ? 1 : stockPage;
         const t = setTimeout(() => {
-            loadStock();
+            loadStock({ page: pageToLoad });
         }, 250);
         return () => clearTimeout(t);
-    }, [loadStock, search]);
+    }, [search, criticalOnly, stockPage, loadStock]);
 
     const loadItems = useCallback(async () => {
         setItemsLoading(true);
