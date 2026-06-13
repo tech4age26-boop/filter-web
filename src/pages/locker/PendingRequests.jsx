@@ -1,13 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { DollarSign, RefreshCw, X } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
-
-const fmtSar = (n) =>
-    `SAR ${Number(n || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2,
-    })}`;
+import LockerFilterBar from './LockerFilterBar';
+import { buildLockerFilterQuery, fmtSarWhole } from './lockerFilterUtils';
 
 function rowCashierName(row) {
     return (
@@ -29,8 +25,22 @@ function isPendingStatus(row) {
     return status === 'pending';
 }
 
+const EMPTY_FILTERS = {
+    from: '',
+    to: '',
+    branchId: 'all',
+    cashierId: 'all',
+    minExpected: '',
+    maxExpected: '',
+};
+
 export default function PendingRequests({ onTabChange }) {
     const [rows, setRows] = useState([]);
+    const [summary, setSummary] = useState(null);
+    const [filters, setFilters] = useState(EMPTY_FILTERS);
+    const [appliedFilters, setAppliedFilters] = useState(EMPTY_FILTERS);
+    const [branches, setBranches] = useState([]);
+    const [cashiers, setCashiers] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [forwardModal, setForwardModal] = useState(null);
@@ -40,29 +50,47 @@ export default function PendingRequests({ onTabChange }) {
     const [forwardSubmitting, setForwardSubmitting] = useState(false);
     const [forwardError, setForwardError] = useState('');
 
-    const load = useCallback(async () => {
+    useEffect(() => {
+        Promise.all([
+            apiFetch('/locker/branches').then((r) => r?.branches || []).catch(() => []),
+            apiFetch('/locker/cashiers').then((r) => r?.cashiers || []).catch(() => []),
+        ]).then(([b, c]) => {
+            setBranches(b);
+            setCashiers(c);
+        });
+    }, []);
+
+    const load = useCallback(async (activeFilters = appliedFilters) => {
         setLoading(true);
         setError('');
         try {
             const res = await apiFetch(
-                `/locker/collection-requests${qs({
-                    view: 'supervisor',
-                    status: 'open',
-                    limit: 50,
-                })}`,
+                `/locker/collection-requests${qs(
+                    buildLockerFilterQuery(activeFilters, {
+                        view: 'supervisor',
+                        status: 'open',
+                        limit: 100,
+                    }),
+                )}`,
             );
-            const list = res?.items || res?.rows || res?.data || [];
-            setRows(list);
+            setRows(res?.items || res?.rows || res?.data || []);
+            setSummary(res?.summary || null);
         } catch (e) {
             setError(e?.message || 'Failed to load pending requests');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [appliedFilters]);
 
     useEffect(() => {
-        load();
-    }, [load]);
+        load(appliedFilters);
+    }, [appliedFilters, load]);
+
+    const applyFilters = () => setAppliedFilters({ ...filters });
+    const resetFilters = () => {
+        setFilters(EMPTY_FILTERS);
+        setAppliedFilters(EMPTY_FILTERS);
+    };
 
     const loadOfficers = useCallback(async () => {
         setOfficersLoading(true);
@@ -71,9 +99,7 @@ export default function PendingRequests({ onTabChange }) {
             const res = await apiFetch('/locker/field-officers');
             const list = res?.officers || [];
             setOfficers(list);
-            if (list.length === 1) {
-                setSelectedOfficerId(String(list[0].id));
-            }
+            if (list.length === 1) setSelectedOfficerId(String(list[0].id));
         } catch (e) {
             setForwardError(e?.message || 'Failed to load cash collectors');
         } finally {
@@ -116,11 +142,9 @@ export default function PendingRequests({ onTabChange }) {
                     body: JSON.stringify({ officerUserId: selectedOfficerId }),
                 },
             );
-            if (res?.success === false) {
-                throw new Error(res?.message || 'Failed to forward request');
-            }
+            if (res?.success === false) throw new Error(res?.message || 'Failed to forward request');
             closeForwardModal();
-            await load();
+            await load(appliedFilters);
         } catch (e) {
             setForwardError(e?.message || 'Failed to forward request');
         } finally {
@@ -143,7 +167,7 @@ export default function PendingRequests({ onTabChange }) {
                 </div>
                 <button
                     className="btn-secondary"
-                    onClick={load}
+                    onClick={() => load(appliedFilters)}
                     disabled={loading}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
@@ -152,6 +176,32 @@ export default function PendingRequests({ onTabChange }) {
             </div>
 
             {error ? <div className="wlk-error" style={{ marginBottom: 12 }}>{error}</div> : null}
+
+            <LockerFilterBar
+                filters={filters}
+                onChange={setFilters}
+                onApply={applyFilters}
+                onReset={resetFilters}
+                branches={branches}
+                cashiers={cashiers}
+                showExpectedRange
+                loading={loading}
+            />
+
+            <div className="ws-kpi-grid wlk-summary-kpi" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                <div className="ws-kpi-card">
+                    <div>
+                        <p className="ws-kpi-label">Total Expected (filtered)</p>
+                        <p className="ws-kpi-value">{fmtSarWhole(summary?.totalExpected)}</p>
+                        <p className="ws-kpi-sub">
+                            {summary?.requestCount ?? rows.length} request(s) in range
+                        </p>
+                    </div>
+                    <div className="ws-kpi-icon ws-kpi-icon--yellow">
+                        <DollarSign size={22} />
+                    </div>
+                </div>
+            </div>
 
             <div className="ws-section">
                 <table className="ws-table">
@@ -171,7 +221,7 @@ export default function PendingRequests({ onTabChange }) {
                         {rows.length === 0 ? (
                             <tr>
                                 <td colSpan={8} style={{ textAlign: 'center', padding: 18, color: '#9ca3af' }}>
-                                    No pending requests
+                                    No pending requests match filters
                                 </td>
                             </tr>
                         ) : (
@@ -189,7 +239,7 @@ export default function PendingRequests({ onTabChange }) {
                                         {p.createdAt ? new Date(p.createdAt).toLocaleString() : '—'}
                                     </td>
                                     <td>
-                                        <strong>{fmtSar(p.expectedAmount)}</strong>
+                                        <strong>{fmtSarWhole(p.expectedAmount)}</strong>
                                     </td>
                                     <td>
                                         <span
@@ -280,9 +330,7 @@ export default function PendingRequests({ onTabChange }) {
                         </div>
 
                         {forwardError ? (
-                            <div className="wlk-error" style={{ marginTop: 12 }}>
-                                {forwardError}
-                            </div>
+                            <div className="wlk-error" style={{ marginTop: 12 }}>{forwardError}</div>
                         ) : null}
 
                         <div className="ws-field" style={{ marginTop: 16 }}>
@@ -303,11 +351,6 @@ export default function PendingRequests({ onTabChange }) {
                                 ))}
                             </select>
                         </div>
-
-                        <p style={{ margin: '12px 0 0', color: '#64748b', fontSize: '0.8rem' }}>
-                            The selected collector will see this request in their inbox and collect cash
-                            from the POS cashier.
-                        </p>
 
                         <div
                             style={{
