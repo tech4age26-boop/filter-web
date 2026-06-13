@@ -2055,6 +2055,60 @@
     display: flex;
     justify-content: flex-end;
 }
+
+/* Locker pending / assigned table actions */
+.wlk-action-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 220px;
+}
+.wlk-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    line-height: 1.35;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+    border: 1.5px solid transparent;
+}
+.wlk-action-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.wlk-action-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+.wlk-action-btn--forward {
+    background: #fff;
+    color: #111;
+    border-color: rgba(0, 0, 0, 0.12);
+}
+.wlk-action-btn--forward:hover:not(:disabled) {
+    background: rgba(252, 194, 69, 0.12);
+    border-color: #E0A800;
+}
+.wlk-action-btn--forward:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: #f3f4f6;
+    color: #9ca3af;
+}
+.wlk-action-btn--record {
+    background: var(--gradient-gold);
+    color: #111;
+    border-color: #E0A800;
+}
+.wlk-action-btn--record:hover:not(:disabled) {
+    filter: brightness(1.03);
+}
+
 .spin {
     animation: ws-global-loader-spin 0.8s linear infinite;
 }

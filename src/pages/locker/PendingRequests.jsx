@@ -203,16 +203,10 @@ export default function PendingRequests({ onTabChange }) {
                                         </span>
                                     </td>
                                     <td>
-                                        <div
-                                            style={{
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                                gap: 6,
-                                                minWidth: 210,
-                                            }}
-                                        >
+                                        <div className="wlk-action-group">
                                             <button
                                                 type="button"
+                                                className="wlk-action-btn wlk-action-btn--forward"
                                                 onClick={() => openForwardModal(p)}
                                                 disabled={!isPendingStatus(p)}
                                                 title={
@@ -220,38 +214,15 @@ export default function PendingRequests({ onTabChange }) {
                                                         ? 'Assign to a locker cash collector'
                                                         : 'Already forwarded to a collector'
                                                 }
-                                                style={{
-                                                    padding: '6px 10px',
-                                                    background: isPendingStatus(p) ? '#2563EB' : '#94a3b8',
-                                                    color: '#fff',
-                                                    border: 'none',
-                                                    borderRadius: 8,
-                                                    fontWeight: 700,
-                                                    cursor: isPendingStatus(p) ? 'pointer' : 'not-allowed',
-                                                    fontSize: '0.68rem',
-                                                    lineHeight: 1.3,
-                                                    textAlign: 'left',
-                                                }}
                                             >
-                                                Approve and forward to cash collector
+                                                Approve &amp; forward to collector
                                             </button>
                                             <button
                                                 type="button"
+                                                className="wlk-action-btn wlk-action-btn--record"
                                                 onClick={() => goToRecordCollection(p.id)}
-                                                style={{
-                                                    padding: '6px 10px',
-                                                    background: '#16A34A',
-                                                    color: '#fff',
-                                                    border: 'none',
-                                                    borderRadius: 8,
-                                                    fontWeight: 700,
-                                                    cursor: 'pointer',
-                                                    fontSize: '0.68rem',
-                                                    lineHeight: 1.3,
-                                                    textAlign: 'left',
-                                                }}
                                             >
-                                                Approve and record collection
+                                                Approve &amp; record collection
                                             </button>
                                         </div>
                                     </td>
