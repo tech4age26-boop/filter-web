@@ -227,7 +227,8 @@ function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, on
     );
 }
 
-export default function RecordCollection() {
+export default function RecordCollection({ portalRole = 'supervisor' }) {
+    const isCollector = portalRole === 'collector';
     const [searchParams, setSearchParams] = useSearchParams();
     const requestIdFromUrl = searchParams.get('requestId') || '';
 
@@ -250,8 +251,8 @@ export default function RecordCollection() {
         try {
             const res = await apiFetch(
                 `/locker/collection-requests${qs({
-                    view: 'supervisor',
-                    status: 'open',
+                    view: isCollector ? 'collector' : 'supervisor',
+                    status: isCollector ? 'assigned' : 'open',
                     limit: 100,
                 })}`,
             );
@@ -262,7 +263,7 @@ export default function RecordCollection() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [isCollector]);
 
     const loadDetail = useCallback(async (requestId) => {
         if (!requestId) {
@@ -397,7 +398,9 @@ export default function RecordCollection() {
                 <div>
                     <h2 className="ws-page-title">Record Collection</h2>
                     <p className="ws-page-sub">
-                        Review counter closing, record cash received, and attach proof
+                        {isCollector
+                            ? 'Collect assigned cash from the POS cashier and attach proof'
+                            : 'Review counter closing, record cash received, and attach proof'}
                     </p>
                 </div>
                 <button
@@ -429,6 +432,9 @@ export default function RecordCollection() {
                     }}
                 >
                     <CheckCircle size={14} /> {success.message}
+                    {success.collection?.status === 'pending_approval' ? (
+                        <> · Variance sent to locker supervisor / workshop admin for approval</>
+                    ) : null}
                     {success.collection?.journalId ? (
                         <> · JE #{success.collection.journalId}</>
                     ) : null}
@@ -623,7 +629,7 @@ export default function RecordCollection() {
                             onClick={submit}
                             disabled={submitting}
                         >
-                            {submitting ? 'Recording…' : 'Approve and record collection'}
+                            {submitting ? 'Recording…' : isCollector ? 'Submit collection' : 'Approve and record collection'}
                         </button>
                     </div>
                 ) : null}
