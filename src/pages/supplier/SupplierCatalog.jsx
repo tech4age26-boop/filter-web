@@ -608,6 +608,8 @@ export default function SupplierCatalog() {
                     await updateSupplierProduct(String(supplierProductId), {
                         isActive: true,
                         masterProductId: String(master.id),
+                        productName: master.name,
+                        sku: master.sku || existingMatch?.sku || undefined,
                         warehouseUnit,
                         workshopUnit,
                         conversionFactor,

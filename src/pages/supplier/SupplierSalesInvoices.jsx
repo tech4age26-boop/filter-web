@@ -429,17 +429,20 @@ const SEARCH_MAX_RESULTS = 50;
 function scoreSalesInvoiceSearchItem(item, q) {
     const name = String(item?.name || '').toLowerCase();
     const sku = String(item?.sku || '').toLowerCase();
+    const masterName = String(item?.masterProductName || '').toLowerCase();
+    const masterSku = String(item?.masterProductSku || '').toLowerCase();
+    const hay = `${name} ${sku} ${masterName} ${masterSku}`;
     if (!q) return 0;
-    if (sku === q) return 100;
-    if (name === q) return 95;
-    if (sku.startsWith(q)) return 90;
-    if (name.startsWith(q)) return 85;
-    if (sku.includes(q)) return 70;
-    if (name.includes(q)) return 60;
+    if (sku === q || masterSku === q) return 100;
+    if (name === q || masterName === q) return 95;
+    if (sku.startsWith(q) || masterSku.startsWith(q)) return 90;
+    if (name.startsWith(q) || masterName.startsWith(q)) return 85;
+    if (sku.includes(q) || masterSku.includes(q)) return 70;
+    if (name.includes(q) || masterName.includes(q)) return 60;
     const tokens = q.split(/\s+/).filter((t) => t.length >= 2);
     let hits = 0;
     for (const t of tokens) {
-        if (name.includes(t) || sku.includes(t)) hits += 1;
+        if (hay.includes(t)) hits += 1;
     }
     if (tokens.length && hits === tokens.length) return 50 + hits * 5;
     return 0;
@@ -653,8 +656,10 @@ const lastSaleMeta =
 
     return {
     id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
-    name: item.productName || 'Product',
-    sku: String(item.sku ?? item.barcode ?? '').trim(),
+    name: item.productName || item.masterProductName || 'Product',
+    sku: String(item.sku ?? item.masterProductSku ?? item.barcode ?? '').trim(),
+    masterProductName: item.masterProductName || null,
+    masterProductSku: item.masterProductSku || null,
     price,
     unit: uom,
     warehouseUnit,

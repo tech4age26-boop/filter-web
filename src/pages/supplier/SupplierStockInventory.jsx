@@ -23,6 +23,22 @@ import {
 import SupplierProductHistoryDrawer from './accounting/SupplierProductHistoryDrawer';
 import StockProductUomEditModal from './StockProductUomEditModal';
 import StockProductPurchasePriceEditModal from './StockProductPurchasePriceEditModal';
+
+function stockRowMatchesSearch(row, searchText) {
+    const q = String(searchText || '').trim().toLowerCase();
+    if (!q) return true;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const hay = [
+        row?.name,
+        row?.sku,
+        row?.masterProductName,
+        row?.masterProductSku,
+        row?.masterProductArabicName,
+    ]
+        .map((v) => String(v || '').toLowerCase())
+        .join(' ');
+    return tokens.every((t) => hay.includes(t));
+}
 import {
     mapSupplierHistoryToMovementRegister,
     mapSupplierHistoryToTimelineEntries,
@@ -114,28 +130,16 @@ export default function SupplierStockInventory() {
     const [uomEditProduct, setUomEditProduct] = useState(null);
     const [purchasePriceEditProduct, setPurchasePriceEditProduct] = useState(null);
 
-    // `stock` is already server-filtered by `search` (name or SKU). Keep a light client filter
-    // as a safety net (e.g. if backend returns broader results).
     const filteredList = useMemo(() => {
         const list = stock || [];
         if (!search.trim()) return list;
-        const q = search.toLowerCase().trim();
-        return list.filter(
-            (s) =>
-                (s.name || '').toLowerCase().includes(q) ||
-                (s.sku || '').toLowerCase().includes(q),
-        );
+        return list.filter((s) => stockRowMatchesSearch(s, search));
     }, [stock, search]);
 
     const movementProductOptions = useMemo(() => {
         const list = stock || [];
-        const q = movementProductSearch.trim().toLowerCase();
-        if (!q) return list;
-        return list.filter(
-            (s) =>
-                (s.name || '').toLowerCase().includes(q) ||
-                (s.sku || '').toLowerCase().includes(q),
-        );
+        if (!movementProductSearch.trim()) return list;
+        return list.filter((s) => stockRowMatchesSearch(s, movementProductSearch));
     }, [stock, movementProductSearch]);
 
     const selectedMovementProduct = useMemo(() => {
@@ -265,6 +269,9 @@ export default function SupplierStockInventory() {
                       id: item.productId,
                       sku: item.sku || '-',
                       name: item.productName,
+                      masterProductName: item.masterProductName || null,
+                      masterProductSku: item.masterProductSku || null,
+                      masterProductArabicName: item.masterProductArabicName || null,
                       unit: item.workshopUnit || 'pcs',
                       warehouseUnit: item.warehouseUnit || 'Box',
                       conversionFactor: Number(item.conversionFactor) || 1,
