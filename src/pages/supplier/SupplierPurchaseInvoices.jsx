@@ -10,12 +10,12 @@ import {
     ChevronDown,
     Trash2,
     BookOpen,
-    Edit,
     Package,
     Loader2,
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import RowActionsMenu from '../../components/RowActionsMenu';
 import InlineFormScreen from '../../components/InlineFormScreen';
 import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import SupplierSuperSupplierPurchasesPanel from './SupplierSuperSupplierPurchasesPanel';
@@ -339,12 +339,12 @@ function apStatusLabel(apStatus) {
 
 function apStatusBadgeStyle(apStatus) {
     if (apStatus === 'unpaid') {
-        return { background: '#FEE2E2', color: '#B91C1C', border: '1px solid #FECACA' };
+        return { background: '#B91C1C', color: '#ffffff', border: '1px solid #B91C1C' };
     }
     if (apStatus === 'overpaid') {
-        return { background: '#FFEDD5', color: '#C2410C', border: '1px solid #FED7AA' };
+        return { background: '#C2410C', color: '#ffffff', border: '1px solid #C2410C' };
     }
-    return { background: '#DCFCE7', color: '#15803D', border: '1px solid #BBF7D0' };
+    return { background: '#15803D', color: '#ffffff', border: '1px solid #15803D' };
 }
 
 export default function SupplierPurchaseInvoices() {
@@ -1641,20 +1641,7 @@ export default function SupplierPurchaseInvoices() {
                 </div>
             </header>
 
-            <div
-                role="tablist"
-                aria-label="Purchase sections"
-                style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: 4,
-                    marginBottom: 16,
-                    padding: 4,
-                    background: '#F8FAFC',
-                    borderRadius: 12,
-                    border: '1px solid #E2E8F0',
-                }}
-            >
+            <div role="tablist" aria-label="Purchase sections" className="theme-segmented" style={{ marginBottom: 16 }}>
                 {[
                     { id: 'payables', label: 'Suppliers' },
                     { id: 'super_suppliers', label: 'Super suppliers' },
@@ -1670,17 +1657,7 @@ export default function SupplierPurchaseInvoices() {
                             id={`ap-tab-${t.id}`}
                             aria-controls={`ap-panel-${t.id}`}
                             onClick={() => setApTab(/** @type {ApTabId} */ (t.id))}
-                            style={{
-                                padding: '10px 18px',
-                                borderRadius: 10,
-                                border: active ? '1px solid #CA8A04' : '1px solid transparent',
-                                background: active ? '#FFF9E7' : 'transparent',
-                                color: active ? '#854D0E' : '#475569',
-                                fontWeight: active ? 800 : 600,
-                                fontSize: '0.875rem',
-                                cursor: 'pointer',
-                                transition: 'background 0.15s, color 0.15s',
-                            }}
+                            className={`theme-segmented__btn${active ? ' theme-segmented__btn--active' : ''}`}
                         >
                             {t.label}
                         </button>
@@ -1973,23 +1950,17 @@ export default function SupplierPurchaseInvoices() {
                                                 }}
                                             >
                                                 <label
-                                                    style={{
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: 8,
-                                                        cursor:
-                                                            ssTogglingId === String(ss.id)
-                                                                ? 'wait'
-                                                                : 'pointer',
-                                                        fontSize: '0.8125rem',
-                                                        opacity:
-                                                            ssTogglingId === String(ss.id) ? 0.6 : 1,
-                                                    }}
+                                                    className={`ws-duty-toggle${
+                                                        ssTogglingId === String(ss.id)
+                                                            ? ' ws-duty-toggle--disabled'
+                                                            : ''
+                                                    }`}
                                                     title={
                                                         ss.isActive
                                                             ? 'Set inactive'
                                                             : 'Set active'
                                                     }
+                                                    onClick={(e) => e.stopPropagation()}
                                                 >
                                                     <input
                                                         type="checkbox"
@@ -1998,37 +1969,33 @@ export default function SupplierPurchaseInvoices() {
                                                         onChange={() =>
                                                             handleToggleSuperSupplierActive(ss)
                                                         }
-                                                        style={{ width: 16, height: 16 }}
+                                                        aria-label={
+                                                            ss.isActive
+                                                                ? 'Set inactive'
+                                                                : 'Set active'
+                                                        }
                                                     />
-                                                    {ss.isActive ? 'Active' : 'Inactive'}
+                                                    <span className="ws-toggle-slider" />
                                                 </label>
-                                                <button
-                                                    type="button"
-                                                    className="btn-pi-cancel"
-                                                    style={{ padding: '6px 12px', fontSize: '0.8125rem' }}
-                                                    onClick={() => openEditSuperSupplier(ss)}
-                                                >
-                                                    <Edit size={14} /> Edit
-                                                </button>
-                                                {canDeleteSuperSupplier(ss) ? (
-                                                <button
-                                                    type="button"
-                                                    className="btn-pi-cancel"
-                                                        style={{
-                                                            padding: '6px 12px',
-                                                            fontSize: '0.8125rem',
-                                                            color: '#B91C1C',
-                                                            borderColor: '#FECACA',
-                                                        }}
-                                                        disabled={ssDeletingId === String(ss.id)}
-                                                        onClick={() => handleDeleteSuperSupplier(ss)}
-                                                    >
-                                                        <Trash2 size={14} />{' '}
-                                                        {ssDeletingId === String(ss.id)
-                                                            ? 'Deleting…'
-                                                            : 'Delete'}
-                                                </button>
-                                                ) : null}
+                                                <RowActionsMenu
+                                                    ariaLabel={`Actions for ${ss.name || 'super supplier'}`}
+                                                    items={[
+                                                        {
+                                                            label: 'Edit',
+                                                            onClick: () => openEditSuperSupplier(ss),
+                                                        },
+                                                        {
+                                                            label:
+                                                                ssDeletingId === String(ss.id)
+                                                                    ? 'Deleting…'
+                                                                    : 'Delete',
+                                                            onClick: () => handleDeleteSuperSupplier(ss),
+                                                            disabled: ssDeletingId === String(ss.id),
+                                                            hidden: !canDeleteSuperSupplier(ss),
+                                                            danger: true,
+                                                        },
+                                                    ]}
+                                                />
                                             </div>
                                         </td>
                                     </tr>

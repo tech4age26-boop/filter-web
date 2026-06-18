@@ -204,7 +204,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
         printWindow.document.write(`
             <!DOCTYPE html><html><head><title>${bill.billNo}</title>
             <style>
-                body{font-family:Arial,sans-serif;padding:32px;color:#111827}
+                body{font-family: 'Poppins', sans-serif;padding:32px;color:#111827}
                 h1{font-size:22px;margin:0 0 4px}
                 .sub{font-size:13px;color:#6B7280;margin-bottom:16px}
                 .kpi{font-size:13px;margin:6px 0;font-weight:600}

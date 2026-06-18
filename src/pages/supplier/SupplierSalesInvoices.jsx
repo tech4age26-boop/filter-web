@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import RowActionsMenu from '../../components/RowActionsMenu';
 import InlineFormScreen from '../../components/InlineFormScreen';
 import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import '../../styles/admin/AccountingPage.css';
@@ -2865,44 +2866,29 @@ export default function SupplierSalesInvoices() {
                                                         <span className={mgrStatus.cls}>{mgrStatus.label}</span>
                                                     </td>
                                                     <td className="table-cell mgr-si-cell-actions">
-                                                        <div className="mgr-si-action-icons">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleViewInvoice(inv)}
-                                                                className="mgr-si-icon-btn"
-                                                                title="View"
-                                                            >
-                                                                <Eye size={14} />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                disabled={salesInvoicePdfBusy}
-                                                                onClick={() => handleDownloadInvoice(inv)}
-                                                                className="mgr-si-icon-btn"
-                                                                title="Download PDF"
-                                                            >
-                                                                <Download size={14} />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => openReturnModal(inv)}
-                                                                className="mgr-si-icon-btn mgr-si-icon-btn--return"
-                                                                title="Record return / credit"
-                                                            >
-                                                                <RotateCcw size={14} />
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                disabled={!canEdit}
-                                                                onClick={() => openEditInvoice(inv)}
-                                                                className={`mgr-si-icon-btn mgr-si-icon-btn--edit${
-                                                                    canEdit ? '' : ' mgr-si-icon-btn--disabled'
-                                                                }`}
-                                                                title={isDraft ? 'Edit draft' : 'Edit'}
-                                                            >
-                                                                <Pencil size={14} />
-                                                            </button>
-                                                        </div>
+                                                        <RowActionsMenu
+                                                            ariaLabel={`Actions for invoice ${inv.invoiceNo || inv.id}`}
+                                                            items={[
+                                                                {
+                                                                    label: 'View',
+                                                                    onClick: () => handleViewInvoice(inv),
+                                                                },
+                                                                {
+                                                                    label: 'Download PDF',
+                                                                    onClick: () => handleDownloadInvoice(inv),
+                                                                    disabled: salesInvoicePdfBusy,
+                                                                },
+                                                                {
+                                                                    label: 'Record return / credit',
+                                                                    onClick: () => openReturnModal(inv),
+                                                                },
+                                                                {
+                                                                    label: isDraft ? 'Edit draft' : 'Edit',
+                                                                    onClick: () => openEditInvoice(inv),
+                                                                    disabled: !canEdit,
+                                                                },
+                                                            ]}
+                                                        />
                                                     </td>
                                                 </tr>
                                             );
