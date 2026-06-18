@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import InlineFormScreen from '../../components/InlineFormScreen';
+import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import SupplierSuperSupplierPurchasesPanel from './SupplierSuperSupplierPurchasesPanel';
 import '../../styles/admin/AccountingPage.css';
 import {
@@ -397,6 +399,8 @@ export default function SupplierPurchaseInvoices() {
         /** @type {'create' | 'edit'} */ ('create'),
     );
     const [editingSspPurchaseId, setEditingSspPurchaseId] = useState(null);
+    /** Status of the purchase being edited ('draft' | 'posted' | null for new). */
+    const [editingSspPurchaseStatus, setEditingSspPurchaseStatus] = useState(null);
     const [sspPurchaseEditLoading, setSspPurchaseEditLoading] = useState(false);
 
     const [superSuppliers, setSuperSuppliers] = useState([]);
@@ -1259,6 +1263,7 @@ export default function SupplierPurchaseInvoices() {
         setItemPickerFilter('');
         setSspPurchaseModalMode('create');
         setEditingSspPurchaseId(null);
+        setEditingSspPurchaseStatus(null);
         setSspPurchaseEditLoading(false);
     };
 
@@ -1276,6 +1281,9 @@ export default function SupplierPurchaseInvoices() {
                 setCreateError('Could not load purchase for editing.');
                 return;
             }
+            setEditingSspPurchaseStatus(
+                String(p.status || 'posted').trim().toLowerCase(),
+            );
             setIssueDate((p.purchaseDate || '').toString().slice(0, 10));
             setSuperSupplierId(String(p.superSupplierId ?? ''));
             setRefNo(String(p.vendorRef ?? p.referenceNo ?? '').trim());
@@ -1418,7 +1426,8 @@ export default function SupplierPurchaseInvoices() {
         // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot when landing from Stock Inventory
     }, []);
 
-    const handleCreateInvoice = async () => {
+    const handleCreateInvoice = async (saveMode = 'finalize') => {
+        const isDraftSave = saveMode === 'draft';
         setCreateError('');
         if (!superSupplierId) {
             setCreateError('Select a super supplier from the list.');
@@ -1461,12 +1470,21 @@ export default function SupplierPurchaseInvoices() {
             };
         });
 
-        const bad = normalizedLines.find(
-            (l) => !l.productName || !(l.qty > 0) || l.unitPrice < 0,
-        );
-        if (bad) {
-            setCreateError(`Line ${bad.idx + 1}: product name required, qty > 0, and unit price cannot be negative.`);
-            return;
+        if (isDraftSave) {
+            // Drafts only need at least one named line; finalize enforces the rest.
+            const namedLine = normalizedLines.find((l) => l.productName);
+            if (!namedLine) {
+                setCreateError('Add at least one product name to save a draft.');
+                return;
+            }
+        } else {
+            const bad = normalizedLines.find(
+                (l) => !l.productName || !(l.qty > 0) || l.unitPrice < 0,
+            );
+            if (bad) {
+                setCreateError(`Line ${bad.idx + 1}: product name required, qty > 0, and unit price cannot be negative.`);
+                return;
+            }
         }
 
         const vatAmount = roundMoney2(
@@ -1475,7 +1493,7 @@ export default function SupplierPurchaseInvoices() {
         const subtotalExVat = roundMoney2(
             normalizedLines.reduce((s, l) => s + l.qty * l.unitPrice, 0),
         );
-        if (!(subtotalExVat + vatAmount > 0)) {
+        if (!isDraftSave && !(subtotalExVat + vatAmount > 0)) {
             setCreateError('Invoice total must be greater than zero (check quantities and unit prices).');
             return;
         }
@@ -1530,14 +1548,34 @@ export default function SupplierPurchaseInvoices() {
             freightIn: totals.freightIn,
             invoiceDiscount: totals.invoiceDiscount,
             purchaseFormMeta,
+            // Draft = saved privately, no stock/GL. Finalize posts everything.
+            status: isDraftSave ? 'draft' : 'posted',
         };
 
         setCreateSubmitting(true);
         try {
             if (sspPurchaseModalMode === 'edit' && editingSspPurchaseId) {
                 await updateSupplierSuperSupplierPurchase(editingSspPurchaseId, payload);
+                if (isDraftSave) {
+                    // Stay in the editor so the user can keep refining the draft.
+                    setEditingSspPurchaseStatus('draft');
+                    setSspPanelKey((k) => k + 1);
+                    await loadSuperSuppliers();
+                    return;
+                }
             } else {
-                await createSupplierSuperSupplierPurchase(payload);
+                const res = await createSupplierSuperSupplierPurchase(payload);
+                if (isDraftSave) {
+                    const newId = res?.purchase?.id ?? res?.data?.id ?? null;
+                    if (newId) {
+                        setSspPurchaseModalMode('edit');
+                        setEditingSspPurchaseId(String(newId));
+                        setEditingSspPurchaseStatus('draft');
+                    }
+                    setSspPanelKey((k) => k + 1);
+                    await loadSuperSuppliers();
+                    return;
+                }
             }
             setModalOpen(false);
             resetCreateForm();
@@ -1554,6 +1592,8 @@ export default function SupplierPurchaseInvoices() {
 
     return (
         <div className="purchases-view">
+            {!modalOpen && (
+            <>
             {ssListError ? (
                 <div
                     className="ws-section"
@@ -2015,6 +2055,8 @@ export default function SupplierPurchaseInvoices() {
                     onEditPurchase={openSuperSupplierPurchaseForEdit}
                 />
             </div>
+            </>
+            )}
 
             <AnimatePresence>
                 {addSsOpen && (
@@ -2493,7 +2535,7 @@ export default function SupplierPurchaseInvoices() {
                 )}
 
                 {modalOpen && (
-                    <Modal
+                    <InlineFormScreen
                         title={
                             <div className="pi-modal-title">
                                 <span className="pi-breadcrumb">
@@ -2508,14 +2550,13 @@ export default function SupplierPurchaseInvoices() {
                                 </div>
                             </div>
                         }
-                        onClose={() => {
+                        onBack={() => {
                             if (!createSubmitting && !sspPurchaseEditLoading) {
                                 setModalOpen(false);
                                 resetCreateForm();
                             }
                         }}
-                        width="1350px"
-                        contentClassName="modal-content-purchase"
+                        backLabel="Back to Purchases"
                         footer={
                             <div className="pi-modal-footer">
                                 <div className="pi-footer-left">
@@ -2532,6 +2573,23 @@ export default function SupplierPurchaseInvoices() {
                                     </button>
                                 </div>
                                 <div className="pi-footer-right">
+                                    {(sspPurchaseModalMode === 'create' ||
+                                        editingSspPurchaseStatus === 'draft') && (
+                                        <button
+                                            type="button"
+                                            className="btn-pi-draft"
+                                            disabled={
+                                                createSubmitting ||
+                                                sspPurchaseEditLoading ||
+                                                lineItems.length === 0 ||
+                                                !superSupplierId ||
+                                                (!ssLoading && superSuppliers.length === 0)
+                                            }
+                                            onClick={() => handleCreateInvoice('draft')}
+                                        >
+                                            {createSubmitting ? 'Saving…' : 'Save as Draft'}
+                                        </button>
+                                    )}
                                     <button
                                         type="button"
                                         className="btn-pi-create"
@@ -2542,15 +2600,17 @@ export default function SupplierPurchaseInvoices() {
                                             !superSupplierId ||
                                             (!ssLoading && superSuppliers.length === 0)
                                         }
-                                        onClick={handleCreateInvoice}
+                                        onClick={() => handleCreateInvoice('finalize')}
                                     >
                                         {createSubmitting
                                             ? sspPurchaseModalMode === 'edit'
                                                 ? 'Saving…'
                                                 : 'Creating…'
-                                            : sspPurchaseModalMode === 'edit'
-                                              ? 'Save changes'
-                                              : 'Create Purchase Invoice'}
+                                            : editingSspPurchaseStatus === 'draft'
+                                              ? 'Finalize Invoice'
+                                              : sspPurchaseModalMode === 'edit'
+                                                ? 'Save changes'
+                                                : 'Create Purchase Invoice'}
                                     </button>
                                 </div>
                             </div>
@@ -2747,13 +2807,12 @@ export default function SupplierPurchaseInvoices() {
                                                 <div
                                                     style={{
                                                         display: 'flex',
-                                                        alignItems: 'stretch',
+                                                        alignItems: 'flex-start',
                                                         gap: 4,
                                                         width: '100%',
                                                     }}
                                                 >
-                                                    <input
-                                                        type="text"
+                                                    <AutoGrowTextarea
                                                         className="pi-row-input"
                                                         style={{
                                                             flex: 1,
@@ -3467,7 +3526,7 @@ export default function SupplierPurchaseInvoices() {
                             </div>
                         </div>
                         )}
-                    </Modal>
+                    </InlineFormScreen>
                 )}
             </AnimatePresence>
         </div>

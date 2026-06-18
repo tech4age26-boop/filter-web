@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import InlineFormScreen from '../../components/InlineFormScreen';
+import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import '../../styles/admin/AccountingPage.css';
 import {
     createSupplierInvoice,
@@ -1638,6 +1640,10 @@ export default function SupplierSalesInvoices() {
                 return;
             }
             setEditingInvoiceStatus(inv.status || 'pending_payment');
+            const m =
+                inv.salesInvoiceMeta != null && typeof inv.salesInvoiceMeta === 'object'
+                    ? inv.salesInvoiceMeta
+                    : {};
             const wpiFromMeta =
                 m.workshopPurchaseInvoiceId ?? m.workshop_purchase_invoice_id;
             workshopPurchaseSourceIdRef.current =
@@ -1645,10 +1651,6 @@ export default function SupplierSalesInvoices() {
                     ? String(wpiFromMeta).trim()
                     : null;
             setIssueDate(inv.invoiceDate || issueDate);
-            const m =
-                inv.salesInvoiceMeta != null && typeof inv.salesInvoiceMeta === 'object'
-                    ? inv.salesInvoiceMeta
-                    : {};
             if (m.externalPartyId) {
                 setSelectedCustomerKey(`external:${String(m.externalPartyId)}`);
             } else if (m.affiliatedWorkshopId) {
@@ -2674,6 +2676,8 @@ export default function SupplierSalesInvoices() {
 
     return (
         <div className="mgr-si-page">
+            {!modalOpen && (
+            <>
             <header className="mgr-si-header">
                 <div className="mgr-si-header-top">
                     <div className="mgr-si-breadcrumb">Sales Invoices (AR)</div>
@@ -2943,9 +2947,11 @@ export default function SupplierSalesInvoices() {
                     )}
                 </div>
             </div>
+            </>
+            )}
             <AnimatePresence>
                 {modalOpen && (
-                    <Modal
+                    <InlineFormScreen
                         title={
                             <div className="pi-modal-title">
                                 <span className="pi-breadcrumb">
@@ -2964,9 +2970,8 @@ export default function SupplierSalesInvoices() {
                                 </div>
                             </div>
                         }
-                        onClose={closeInvoiceModal}
-                        width="1350px"
-                        contentClassName="modal-content-purchase"
+                        onBack={closeInvoiceModal}
+                        backLabel="Back to Sales Invoices"
                         footer={
                             <div className="pi-modal-footer">
                                 <div className="pi-footer-left">
@@ -3401,13 +3406,12 @@ export default function SupplierSalesInvoices() {
                                                 <div
                                                     style={{
                                                         display: 'flex',
-                                                        alignItems: 'stretch',
+                                                        alignItems: 'flex-start',
                                                         gap: 4,
                                                         width: '100%',
                                                     }}
                                                 >
-                                                    <input
-                                                        type="text"
+                                                    <AutoGrowTextarea
                                                         className="pi-row-input"
                                                         style={{
                                                             flex: 1,
@@ -4446,7 +4450,7 @@ export default function SupplierSalesInvoices() {
                                 </>
                             )}
                         </div>
-                    </Modal>
+                    </InlineFormScreen>
                 )}
             </AnimatePresence>
             <AnimatePresence>

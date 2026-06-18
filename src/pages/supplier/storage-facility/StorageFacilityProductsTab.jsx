@@ -4,6 +4,7 @@ import { ArrowLeft, FileSpreadsheet, FileText, Link2, Plus, Search } from 'lucid
 import Modal from '../../../components/Modal';
 import SearchableEntityCombobox from './SearchableEntityCombobox';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
+import { useColumnSort, SortableTh } from '../../../components/TableSort';
 
 import StorageUomSelect from './StorageUomSelect';
 import {
@@ -43,6 +44,7 @@ export default function StorageFacilityProductsTab({
     onLoadCatalog,
 }) {
     const sfApi = useStorageFacilityApi();
+    const productSort = useColumnSort();
     const [timelineProductId, setTimelineProductId] = useState(null);
     const [timeline, setTimeline] = useState(null);
     const [timelineLoading, setTimelineLoading] = useState(false);
@@ -462,15 +464,23 @@ export default function StorageFacilityProductsTab({
                     <thead>
                         <tr className="table-header-row">
                             <th className="table-th mgr-si-th-actions">Actions</th>
-                            <th className="table-th">SKU</th>
-                            <th className="table-th">Name</th>
-                            <th className="table-th">Qty</th>
-                            <th className="table-th">Warehouse link</th>
-                            <th className="table-th">Status</th>
+                            <SortableTh className="table-th" label="SKU" columnKey="sku" sortKey={productSort.sortKey} sortDir={productSort.sortDir} onSort={productSort.toggleSort} />
+                            <SortableTh className="table-th" label="Name" columnKey="name" sortKey={productSort.sortKey} sortDir={productSort.sortDir} onSort={productSort.toggleSort} />
+                            <SortableTh className="table-th" label="Qty" columnKey="qty" sortKey={productSort.sortKey} sortDir={productSort.sortDir} onSort={productSort.toggleSort} />
+                            <SortableTh className="table-th" label="Warehouse link" columnKey="whlink" sortKey={productSort.sortKey} sortDir={productSort.sortDir} onSort={productSort.toggleSort} />
+                            <SortableTh className="table-th" label="Status" columnKey="status" sortKey={productSort.sortKey} sortDir={productSort.sortDir} onSort={productSort.toggleSort} />
                         </tr>
                     </thead>
                     <tbody>
-                        {products.map((p) => (
+                        {productSort
+                            .sortRows(products, {
+                                sku: (p) => p.sku || '',
+                                name: (p) => p.name || '',
+                                qty: (p) => Number(p.qtyOnHand ?? 0),
+                                whlink: (p) => p.warehouseProduct?.name || '',
+                                status: (p) => (p.isActive === false ? 'inactive' : 'active'),
+                            })
+                            .map((p) => (
                             <tr
                                 key={p.id}
                                 className={`table-row mgr-sf-ar-customer-row ${!p.isActive ? 'mgr-sf-product-inactive' : ''}`}
