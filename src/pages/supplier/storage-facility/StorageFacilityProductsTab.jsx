@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStorageFacilityApi } from './StorageFacilityPortalContext';
-import { ArrowLeft, FileSpreadsheet, FileText, Link2, Plus, Search } from 'lucide-react';
+import { ArrowLeft, FileSpreadsheet, FileText, Plus, Search } from 'lucide-react';
 import Modal from '../../../components/Modal';
+import RowActionsMenu from '../../../components/RowActionsMenu';
 import SearchableEntityCombobox from './SearchableEntityCombobox';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
 import { useColumnSort, SortableTh } from '../../../components/TableSort';
@@ -489,47 +490,37 @@ export default function StorageFacilityProductsTab({
                                     className="table-cell mgr-si-cell-actions"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    <div className="mgr-sf-product-actions">
-                                        <button
-                                            type="button"
-                                            className="mgr-sf-ar-link-btn"
-                                            onClick={() =>
-                                                setEditProduct({
-                                                    id: p.id,
-                                                    name: p.name,
-                                                    sku: p.sku || '',
-                                                    unit: p.unit || 'pcs',
-                                                    uomProfileId: p.uomProfileId,
-                                                    uomSelect: productUomSelectValue(p, uomProfiles),
-                                                })
-                                            }
-                                        >
-                                            Edit
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="mgr-sf-ar-link-btn"
-                                            onClick={() => toggleActive(p)}
-                                        >
-                                            {p.isActive === false ? 'Activate' : 'Inactive'}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="mgr-sf-ar-link-btn"
-                                            onClick={() => openLinkModal(p)}
-                                            title="Update warehouse catalog link"
-                                        >
-                                            <Link2 size={12} /> Link
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="mgr-sf-ar-link-btn"
-                                            style={{ color: '#dc2626' }}
-                                            onClick={() => handleDelete(p)}
-                                        >
-                                            Delete
-                                        </button>
-                                    </div>
+                                    <RowActionsMenu
+                                        ariaLabel={`Actions for ${p.name || 'product'}`}
+                                        items={[
+                                            {
+                                                label: 'Edit',
+                                                onClick: () =>
+                                                    setEditProduct({
+                                                        id: p.id,
+                                                        name: p.name,
+                                                        sku: p.sku || '',
+                                                        unit: p.unit || 'pcs',
+                                                        uomProfileId: p.uomProfileId,
+                                                        uomSelect: productUomSelectValue(p, uomProfiles),
+                                                    }),
+                                            },
+                                            {
+                                                label: p.isActive === false ? 'Activate' : 'Inactive',
+                                                onClick: () => toggleActive(p),
+                                            },
+                                            {
+                                                label: 'Link',
+                                                title: 'Update warehouse catalog link',
+                                                onClick: () => openLinkModal(p),
+                                            },
+                                            {
+                                                label: 'Delete',
+                                                onClick: () => handleDelete(p),
+                                                danger: true,
+                                            },
+                                        ]}
+                                    />
                                 </td>
                                 <td
                                     className="table-cell"
