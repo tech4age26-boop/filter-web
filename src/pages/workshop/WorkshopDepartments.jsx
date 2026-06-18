@@ -923,14 +923,19 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         const masterId = dept.departmentId || dept.masterId || dept.id;
         const currentlyActive = Boolean(dept.isActive ?? dept.status === 'active');
         const nextActive = !currentlyActive;
-        const msg = nextActive
-            ? `Reactivate "${dept.name}" for this workshop?\n\nLinked categories, products, and services under this department will also be marked active.`
-            : `Deactivate "${dept.name}" for this workshop?\n\nAll categories, products, and services under this department will be marked inactive and hidden from new sales, purchases, and catalog picks.\n\nPast invoices and historical records stay unchanged — nothing is deleted.`;
+        const branchLabel = selectedBranchName || 'this branch';
+        const msg = branchScope
+            ? nextActive
+                ? `Reactivate "${dept.name}" on ${branchLabel} only?\n\nCategories, products, and services under this department on this branch will be marked active. Other branches are not affected.`
+                : `Deactivate "${dept.name}" on ${branchLabel} only?\n\nCategories, products, and services under this department on this branch will be marked inactive.\n\nOther branches stay unchanged. Past invoices are unchanged — nothing is deleted.`
+            : nextActive
+              ? `Reactivate "${dept.name}" for the entire workshop?\n\nLinked categories, products, and services on all branches will be marked active.`
+              : `Deactivate "${dept.name}" for the entire workshop?\n\nAll categories, products, and services under this department will be marked inactive on every branch.\n\nPast invoices and historical records stay unchanged — nothing is deleted.`;
         if (!window.confirm(msg)) return;
         setDeptStatusLoadingId(String(masterId));
         setDeptError('');
         try {
-            await patchWorkshopDepartmentActive(masterId, nextActive);
+            await patchWorkshopDepartmentActive(masterId, nextActive, branchScope || undefined);
             await loadDepartments();
             await loadCategories();
             await loadProducts();
