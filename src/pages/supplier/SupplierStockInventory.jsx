@@ -13,6 +13,7 @@ import {
 import { ShimmerStatStrip, ShimmerTable } from '../../components/supplier/Shimmer';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
+import { useColumnSort, SortableTh } from '../../components/TableSort';
 import {
     fetchAllSupplierProducts,
     getSupplierInventoryStockBalances,
@@ -23,6 +24,7 @@ import {
 import SupplierProductHistoryDrawer from './accounting/SupplierProductHistoryDrawer';
 import StockProductUomEditModal from './StockProductUomEditModal';
 import StockProductPurchasePriceEditModal from './StockProductPurchasePriceEditModal';
+import StockProductCriticalLevelEditModal from './StockProductCriticalLevelEditModal';
 
 function stockRowMatchesSearch(row, searchText) {
     const q = String(searchText || '').trim().toLowerCase();
@@ -129,12 +131,17 @@ export default function SupplierStockInventory() {
     const [accountingHistoryProduct, setAccountingHistoryProduct] = useState(null);
     const [uomEditProduct, setUomEditProduct] = useState(null);
     const [purchasePriceEditProduct, setPurchasePriceEditProduct] = useState(null);
+    const [criticalLevelEditProduct, setCriticalLevelEditProduct] = useState(null);
 
     const filteredList = useMemo(() => {
         const list = stock || [];
         if (!search.trim()) return list;
         return list.filter((s) => stockRowMatchesSearch(s, search));
     }, [stock, search]);
+
+    /** 3-state column sorting for the two inventory tables. */
+    const stockSort = useColumnSort();
+    const itemsSort = useColumnSort();
 
     const movementProductOptions = useMemo(() => {
         const list = stock || [];
@@ -843,15 +850,17 @@ export default function SupplierStockInventory() {
                             <table className="ws-table">
                                 <thead>
                                     <tr>
-                                        <th>Product</th>
-                                        <th>SKU</th>
-                                        <th style={{ textAlign: 'right' }}>Qty (warehouse)</th>
-                                        <th style={{ textAlign: 'right' }}>Qty (workshop)</th>
-                                        <th style={{ textAlign: 'right' }}>Critical</th>
+                                        <SortableTh label="Product" columnKey="product" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
+                                        <SortableTh label="SKU" columnKey="sku" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
+                                        <SortableTh label="Qty (warehouse)" columnKey="qtyWh" align="right" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
+                                        <SortableTh label="Qty (workshop)" columnKey="qtyWs" align="right" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
+                                        <SortableTh label="Critical" columnKey="critical" align="right" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {(inventoryItems || [])
+                                    {(() => {
+                                        const itemsRows = (inventoryItems || [])
                                         .filter((p) => {
                                             const q = search.trim().toLowerCase();
                                             if (!q) return true;
@@ -868,8 +877,27 @@ export default function SupplierStockInventory() {
                                             const wh = Number(warehouseQtyByProductId[pid] ?? 0);
                                             const crit = Number(p?.criticalStockAlert ?? 0);
                                             return crit > 0 && wh <= crit;
-                                        })
-                                        .map((p) => {
+                                        });
+                                        return itemsSort
+                                            .sortRows(itemsRows, {
+                                                product: (p) => p?.name || p?.productName || '',
+                                                sku: (p) => p?.sku || '',
+                                                qtyWh: (p) =>
+                                                    Number(warehouseQtyByProductId[String(p?.id)] ?? 0),
+                                                qtyWs: (p) => {
+                                                    const pid = String(p?.id);
+                                                    const uom = productUomByProductId[pid] || {};
+                                                    const cf =
+                                                        Number(
+                                                            uom.conversionFactor ||
+                                                                p?.conversionFactor ||
+                                                                1,
+                                                        ) || 1;
+                                                    return Number(warehouseQtyByProductId[pid] ?? 0) * cf;
+                                                },
+                                                critical: (p) => Number(p?.criticalStockAlert ?? 0),
+                                            })
+                                            .map((p) => {
                                             const pid = String(p?.id);
                                             const uom = productUomByProductId[pid] || {};
                                             const cf =
@@ -897,9 +925,56 @@ export default function SupplierStockInventory() {
                                                             ? fmtQty(Number(p.criticalStockAlert))
                                                             : '—'}
                                                     </td>
+                                                    <td style={{ whiteSpace: 'nowrap' }}>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setCriticalLevelEditProduct({
+                                                                    id: p.id,
+                                                                    name:
+                                                                        p?.name ||
+                                                                        p?.productName ||
+                                                                        'Product',
+                                                                    sku: p?.sku || '',
+                                                                    warehouseUnit:
+                                                                        uom.warehouseUnit ||
+                                                                        p?.warehouseUnit ||
+                                                                        'Box',
+                                                                    unit:
+                                                                        uom.workshopUnit ||
+                                                                        p?.workshopUnit ||
+                                                                        'pcs',
+                                                                    conversionFactor: cf,
+                                                                    criticalLevel:
+                                                                        p?.criticalStockAlert != null
+                                                                            ? Number(p.criticalStockAlert)
+                                                                            : null,
+                                                                    criticalStockAlert:
+                                                                        p?.criticalStockAlert != null
+                                                                            ? Number(p.criticalStockAlert)
+                                                                            : null,
+                                                                })
+                                                            }
+                                                            style={{
+                                                                padding: '6px 10px',
+                                                                borderRadius: 6,
+                                                                border: '1px solid #e0e7ff',
+                                                                background: '#eef2ff',
+                                                                fontSize: '0.75rem',
+                                                                fontWeight: 600,
+                                                                cursor: 'pointer',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: 4,
+                                                            }}
+                                                        >
+                                                            <Pencil size={12} /> Edit critical
+                                                        </button>
+                                                    </td>
                                                 </tr>
                                             );
-                                        })}
+                                        });
+                                    })()}
                                 </tbody>
                             </table>
                         </div>
@@ -1088,21 +1163,35 @@ export default function SupplierStockInventory() {
                                 <table className="ws-table">
                                     <thead>
                                         <tr>
-                                            <th>Product</th>
-                                            <th>SKU</th>
-                                            <th>Unit</th>
-                                            <th>Stock Qty</th>
-                                            <th>Awaiting Workshop</th>
-                                            <th>Critical Level</th>
-                                            <th>Reorder Level</th>
-                                            <th>Purchase Price</th>
-                                            <th>Value</th>
-                                            <th>Status</th>
+                                            <SortableTh label="Product" columnKey="product" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label="SKU" columnKey="sku" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label="Unit" columnKey="unit" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label="Stock Qty" columnKey="stockQty" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label="Awaiting Workshop" columnKey="awaiting" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label="Critical Level" columnKey="critical" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label="Reorder Level" columnKey="reorder" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label="Purchase Price" columnKey="price" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label="Value" columnKey="value" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label="Status" columnKey="status" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredList.map((s) => {
+                                        {stockSort
+                                            .sortRows(filteredList, {
+                                                product: (s) => s.name,
+                                                sku: (s) => s.sku,
+                                                unit: (s) => s.warehouseUnit || s.unit,
+                                                stockQty: (s) => Number(s.warehouseQty ?? s.qty ?? 0),
+                                                awaiting: (s) => Number(s.pendingWorkshopReceive ?? 0),
+                                                critical: (s) => Number(s.criticalLevel ?? 0),
+                                                reorder: (s) => Number(s.reorder ?? 0),
+                                                price: (s) => Number(s.price ?? 0),
+                                                value: (s) => Number(warehouseStockLineValueSar(s) ?? 0),
+                                                status: (s) =>
+                                                    s.qty <= (s.criticalLevel ?? 0) ? 'critical' : 'ok',
+                                            })
+                                            .map((s) => {
                                             const value = warehouseStockLineValueSar(s);
                                             const isCritical = s.qty <= (s.criticalLevel ?? 0);
                                             return (
@@ -1210,7 +1299,32 @@ export default function SupplierStockInventory() {
                                                         )}
                                                     </td>
                                                     <td>
-                                                        {s.criticalLevel != null ? fmtQty(s.criticalLevel) : '-'}
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                            <span>
+                                                                {s.criticalLevel != null
+                                                                    ? fmtQty(s.criticalLevel)
+                                                                    : '-'}
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setCriticalLevelEditProduct(s);
+                                                                }}
+                                                                style={{
+                                                                    padding: '2px 0',
+                                                                    border: 'none',
+                                                                    background: 'transparent',
+                                                                    color: '#2563eb',
+                                                                    fontSize: '0.7rem',
+                                                                    fontWeight: 600,
+                                                                    cursor: 'pointer',
+                                                                    textAlign: 'left',
+                                                                }}
+                                                            >
+                                                                Edit critical
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                     <td>{s.reorder != null ? fmtQty(s.reorder) : '-'}</td>
                                                     <td>
@@ -1281,6 +1395,29 @@ export default function SupplierStockInventory() {
                                                             title="Edit warehouse / workshop UOM and conversion factor"
                                                         >
                                                             <Pencil size={12} /> Edit UOM
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setCriticalLevelEditProduct(s);
+                                                            }}
+                                                            style={{
+                                                                marginLeft: 6,
+                                                                padding: '6px 10px',
+                                                                borderRadius: 6,
+                                                                border: '1px solid #fecaca',
+                                                                background: '#fef2f2',
+                                                                fontSize: '0.75rem',
+                                                                fontWeight: 600,
+                                                                cursor: 'pointer',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: 4,
+                                                            }}
+                                                            title="Edit critical stock level"
+                                                        >
+                                                            <Pencil size={12} /> Edit critical
                                                         </button>
                                                         <button
                                                             type="button"
@@ -2534,6 +2671,17 @@ export default function SupplierStockInventory() {
                     product={purchasePriceEditProduct}
                     onClose={() => setPurchasePriceEditProduct(null)}
                     onSaved={() => loadStock({ silent: true })}
+                />
+            ) : null}
+
+            {criticalLevelEditProduct ? (
+                <StockProductCriticalLevelEditModal
+                    product={criticalLevelEditProduct}
+                    onClose={() => setCriticalLevelEditProduct(null)}
+                    onSaved={() => {
+                        loadStock({ silent: true });
+                        if (activeTab === 'items') loadItems();
+                    }}
                 />
             ) : null}
         </div>
