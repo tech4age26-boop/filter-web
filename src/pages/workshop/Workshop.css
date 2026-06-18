@@ -2227,6 +2227,9 @@
     padding-top: 8px;
     padding-bottom: 20px;
 }
+.ws-promo-sub-screen .ws-promo-form-body {
+    overflow: visible;
+}
 .ws-promo-form-section {
     margin-bottom: 20px;
     padding-bottom: 18px;
@@ -2392,7 +2395,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 12px 20px;
-    margin-bottom: 10px;
+    padding: 12px 12px 10px;
 }
 .ws-promo-scope-radio {
     display: flex;
@@ -2905,4 +2908,81 @@
     font-size: 0.6875rem;
     font-weight: 500;
     color: #64748b;
+}
+
+/* In-portal sub-screens (modal replacement) */
+.ws-sub-screen {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.ws-sub-screen-inner {
+    width: 100%;
+    max-width: 600px;
+}
+.ws-sub-screen-inner--narrow {
+    max-width: 480px;
+}
+.ws-sub-screen-inner--wide {
+    max-width: 720px;
+}
+.ws-sub-screen-inner--xl {
+    max-width: 960px;
+}
+.ws-sub-screen-inner--full {
+    max-width: none;
+}
+.ws-sub-screen .ws-section {
+    margin-bottom: 0;
+}
+.ws-sub-screen-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: #2563eb;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    width: fit-content;
+}
+.ws-sub-screen-back:hover:not(:disabled) {
+    text-decoration: underline;
+}
+.ws-sub-screen-back:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.ws-sub-screen-header {
+    margin-bottom: 16px;
+}
+.ws-sub-screen-body {
+    flex: 1;
+    min-height: 0;
+}
+.ws-sub-screen-footer {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--color-border-light);
+}
+
+/* Purchase invoice composer inside sub-screen (was modal overlay) */
+.ws-pi-sub-screen .modal-content-purchase {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    box-shadow: none;
+    border: none;
+    border-radius: 12px;
+    overflow: visible;
+}
+.ws-pi-sub-screen .ws-sub-screen-inner--full {
+    width: 100%;
 }
