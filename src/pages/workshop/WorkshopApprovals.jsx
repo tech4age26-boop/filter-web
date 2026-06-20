@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clock, CheckCircle, X, Eye, RefreshCw, FileText } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { apiFetch } from '../../services/api';
@@ -720,7 +721,7 @@ export default function WorkshopApprovals({
                         ) : null}
                         {Array.isArray(siApproveModal.preview?.newProducts) &&
                         siApproveModal.preview.newProducts.length > 0 ? (
-                            <div style={{ overflowX: 'auto' }}>
+                            <WsTableScroll>
                                 <table
                                     style={{
                                         width: '100%',
@@ -776,7 +777,7 @@ export default function WorkshopApprovals({
                                         ))}
                                     </tbody>
                                 </table>
-                            </div>
+                            </WsTableScroll>
                         ) : (
                             <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>
                                 {Array.isArray(siApproveModal.preview?.unresolvedLineNames) &&
@@ -1002,6 +1003,7 @@ export default function WorkshopApprovals({
                 </div>
             </div>
             <div className="ws-section">
+                <WsTableScroll>
                 <table className="ws-table">
                     <thead>
                         <tr>
@@ -1173,6 +1175,7 @@ export default function WorkshopApprovals({
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
             </div>
 
         </div>

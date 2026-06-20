@@ -4,6 +4,7 @@ import { apiFetch } from '../../services/api';
 import { qs, branchScopeParams, unwrapWorkshopBranchListResponse } from '../../services/workshopStaffApi';
 import { getBranchProducts, getBranchServices } from '../../services/workshopCatalogApi';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { useAuth } from '../../context/AuthContext';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 
@@ -856,7 +857,7 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
             </div>
 
             <div className="ws-section" style={{ marginTop: 16 }}>
-                <div style={{ overflowX: 'auto', padding: 16 }}>
+                <WsTableScroll style={{ padding: 16 }}>
                     <table className="ws-table">
                         <thead>
                             <tr>
@@ -927,7 +928,7 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                             )}
                         </tbody>
                     </table>
-                </div>
+                </WsTableScroll>
             </div>
 
         </div>

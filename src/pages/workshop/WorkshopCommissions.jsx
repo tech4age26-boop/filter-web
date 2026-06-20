@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, CheckCircle, Users, Wallet, Calendar, AlertCircle } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import WorkshopCommissionRules from '../../components/commissions/WorkshopCommissionRules';
 import { useAuth } from '../../context/AuthContext';
@@ -775,6 +776,7 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
             </div>
 
             <div className="ws-commissions-table-wrapper">
+                <WsTableScroll>
                 <table className="ws-table">
                     <thead>
                         <tr>
@@ -881,6 +883,7 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
             </div>
 
             {listTotal > PAGE_SIZE && (

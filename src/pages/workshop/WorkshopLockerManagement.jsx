@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import './Workshop.css';
 
 const num = (v) => Number(v ?? 0);
@@ -74,8 +75,49 @@ function Section({ title, count, children, headerRight }) {
                 </h3>
                 {headerRight}
             </div>
-            <div className="wlk-section-body">{children}</div>
+            <div className="wlk-section-body">
+                <WsTableScroll>{children}</WsTableScroll>
+            </div>
         </div>
+    );
+}
+
+function LockerUsersTable({ users, emptyLabel }) {
+    return (
+        <table className="wlk-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Mobile</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {users.length === 0 ? (
+                    <tr>
+                        <td colSpan={4} className="wlk-empty">
+                            {emptyLabel}
+                        </td>
+                    </tr>
+                ) : (
+                    users.map((u) => (
+                        <tr key={u.id}>
+                            <td>{u.name || '—'}</td>
+                            <td>{u.email || '—'}</td>
+                            <td>{u.mobile || '—'}</td>
+                            <td>
+                                {u.isActive ? (
+                                    <StatusPill status="approved" />
+                                ) : (
+                                    <StatusPill status="rejected" />
+                                )}
+                            </td>
+                        </tr>
+                    ))
+                )}
+            </tbody>
+        </table>
     );
 }
 
@@ -233,77 +275,11 @@ export default function WorkshopLockerManagement() {
                     title="Locker supervisors"
                     count={supervisors.length}
                 >
-                    <table className="wlk-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Mobile</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {supervisors.length === 0 ? (
-                                <tr>
-                                    <td colSpan={4} className="wlk-empty">
-                                        No supervisor created yet
-                                    </td>
-                                </tr>
-                            ) : (
-                                supervisors.map((u) => (
-                                    <tr key={u.id}>
-                                        <td>{u.name || '—'}</td>
-                                        <td>{u.email || '—'}</td>
-                                        <td>{u.mobile || '—'}</td>
-                                        <td>
-                                            {u.isActive ? (
-                                                <StatusPill status="approved" />
-                                            ) : (
-                                                <StatusPill status="rejected" />
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+                    <LockerUsersTable users={supervisors} emptyLabel="No supervisor created yet" />
                 </Section>
 
                 <Section title="Collection officers" count={collectors.length}>
-                    <table className="wlk-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Mobile</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {collectors.length === 0 ? (
-                                <tr>
-                                    <td colSpan={4} className="wlk-empty">
-                                        No collectors created yet
-                                    </td>
-                                </tr>
-                            ) : (
-                                collectors.map((u) => (
-                                    <tr key={u.id}>
-                                        <td>{u.name || '—'}</td>
-                                        <td>{u.email || '—'}</td>
-                                        <td>{u.mobile || '—'}</td>
-                                        <td>
-                                            {u.isActive ? (
-                                                <StatusPill status="approved" />
-                                            ) : (
-                                                <StatusPill status="rejected" />
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+                    <LockerUsersTable users={collectors} emptyLabel="No collectors created yet" />
                 </Section>
             </div>
 

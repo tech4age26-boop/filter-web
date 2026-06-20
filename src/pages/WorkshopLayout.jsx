@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { Building2, LogOut, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Building2, LogOut, AlertTriangle, ChevronDown, ChevronRight, Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     NAV_ITEMS,
@@ -207,6 +207,7 @@ export default function WorkshopLayout() {
     }, [location.pathname, location.search]);
 
     const handleTabChange = (tabId, state = null) => {
+        setIsMobileMenuOpen(false);
         setActiveTab(tabId);
         setTabState(state);
         
@@ -242,6 +243,11 @@ export default function WorkshopLayout() {
     };
 
     const [openMenus, setOpenMenus] = useState({ accounting: activeTab.startsWith('acc-') });
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+    useEffect(() => {
+        setIsMobileMenuOpen(false);
+    }, [location.pathname, location.search]);
 
     const toggleMenu = (id) => {
         setOpenMenus(prev => ({ ...prev, [id]: !prev[id] }));
@@ -533,8 +539,16 @@ export default function WorkshopLayout() {
     const topbarSubtitle = activeTab === 'catalog-new' ? 'Corporate master catalog' : selectedBranchName;
 
     return (
-        <div className="workshop-layout">
-            <aside className="ws-sidebar">
+        <div className={`workshop-layout${isMobileMenuOpen ? ' mobile-menu-open' : ''}`}>
+            {isMobileMenuOpen && (
+                <button
+                    type="button"
+                    className="ws-sidebar-overlay"
+                    aria-label="Close navigation menu"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                />
+            )}
+            <aside className={`ws-sidebar${isMobileMenuOpen ? ' open' : ''}`}>
                 <div className="ws-logo">
                     <div className="ws-logo-icon"><Building2 size={20}/></div>
                     <div><p className="ws-logo-title">Filter Admin Workshop</p><p className="ws-logo-sub">Portal</p></div>
@@ -637,7 +651,21 @@ export default function WorkshopLayout() {
             </aside>
             <div className="ws-main">
                 <header className="ws-topbar">
-                    <div><p className="ws-topbar-title">{currentLabel}</p><p className="ws-topbar-sub">{topbarSubtitle}</p></div>
+                    <div className="ws-topbar-left">
+                        <button
+                            type="button"
+                            className="ws-mobile-menu-toggle"
+                            onClick={() => setIsMobileMenuOpen((open) => !open)}
+                            aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+                            aria-expanded={isMobileMenuOpen}
+                        >
+                            {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+                        </button>
+                        <div>
+                            <p className="ws-topbar-title">{currentLabel}</p>
+                            <p className="ws-topbar-sub">{topbarSubtitle}</p>
+                        </div>
+                    </div>
                     <div className="ws-topbar-right">
                         {dashboardLowStockCount > 0 && (
                             <button className="ws-alert-badge" onClick={() => setActiveTab('departments')}>

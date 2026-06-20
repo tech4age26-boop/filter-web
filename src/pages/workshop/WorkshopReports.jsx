@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { RefreshCw, MoreVertical } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Modal from '../../components/Modal';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTextBlock, ShimmerTable } from '../../components/supplier/Shimmer';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import { apiFetch } from '../../services/api';
@@ -396,7 +397,7 @@ function KpiProofTable({ headers, rows, emptyMessage }) {
         return <p className="ws-kpi-proof-note">{emptyMessage}</p>;
     }
     return (
-        <div className="ws-kpi-proof-scroll">
+        <WsTableScroll bodyClassName="ws-kpi-proof-scroll">
             <table className="ws-table ws-kpi-proof-table">
                 <thead>
                     <tr>
@@ -415,7 +416,7 @@ function KpiProofTable({ headers, rows, emptyMessage }) {
                     ))}
                 </tbody>
             </table>
-        </div>
+        </WsTableScroll>
     );
 }
 
@@ -1549,7 +1550,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </div>
                         <div className="ws-chart-container">
                             <h4 className="ws-chart-title">Daily Revenue</h4>
-                            <div style={{ width: '100%', height: 300 }}>
+                            <div className="ws-chart-canvas">
                                 <ResponsiveContainer>
                                     <BarChart
                                         data={filteredDailyRevenue}
@@ -1580,6 +1581,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             </div>
                         </div>
                         <div className="ws-report-table-wrapper">
+                            <WsTableScroll>
                             <table className="ws-table">
                                 <thead>
                                     <tr>
@@ -1622,6 +1624,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     )}
                                 </tbody>
                             </table>
+                            </WsTableScroll>
                         </div>
                     </div>
                 )}
@@ -1640,7 +1643,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </div>
                         <div className="ws-chart-container">
                             <h4 className="ws-chart-title">Revenue by Technician</h4>
-                            <div style={{ width: '100%', height: 300 }}>
+                            <div className="ws-chart-canvas">
                                 <ResponsiveContainer>
                                     <BarChart
                                         data={filteredByTechnician}
@@ -1671,6 +1674,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             </div>
                         </div>
                         <div className="ws-report-table-wrapper">
+                            <WsTableScroll>
                             <table className="ws-table">
                                 <thead>
                                     <tr>
@@ -1711,6 +1715,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     )}
                                 </tbody>
                             </table>
+                            </WsTableScroll>
                         </div>
                     </div>
                 )}
@@ -1728,6 +1733,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             />
                         </div>
                         <div className="ws-report-table-wrapper">
+                        <WsTableScroll>
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -1781,6 +1787,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                         </div>
                     </>
                 )}
@@ -1826,6 +1833,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             </p>
                         )}
                         <div className="ws-report-table-wrapper">
+                        <WsTableScroll>
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -1877,6 +1885,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                         </div>
                     </>
                 )}
@@ -1894,6 +1903,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             />
                         </div>
                         <div className="ws-report-table-wrapper">
+                        <WsTableScroll>
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -1934,6 +1944,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                         </div>
                     </>
                 )}
@@ -1951,6 +1962,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             />
                         </div>
                         <div className="ws-report-table-wrapper">
+                        <WsTableScroll>
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -1991,6 +2003,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                         </div>
                     </>
                 )}
@@ -2008,6 +2021,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             />
                         </div>
                         <div className="ws-report-table-wrapper">
+                        <WsTableScroll>
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -2057,18 +2071,18 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                         </div>
                     </>
                 )}
 
                 {activeTab === 'recent_orders' && (
                     <>
-                        <div className="ws-report-tab-toolbar" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <div className="ws-report-tab-toolbar ws-report-orders-toolbar">
                             <select
                                 value={ordersPaymentMethod}
                                 onChange={(e) => setOrdersPaymentMethod(e.target.value)}
-                                className="ws-report-tab-search"
-                                style={{ maxWidth: 200, minWidth: 160 }}
+                                className="ws-report-tab-select"
                                 aria-label="Filter by payment method"
                             >
                                 <option value="">All payment methods</option>
@@ -2088,7 +2102,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 value={ordersSearchInput}
                                 onChange={(e) => setOrdersSearchInput(e.target.value)}
                                 aria-label="Search orders"
-                                style={{ flex: 1, minWidth: 220 }}
                             />
                         </div>
                         {ordersListError ? (
@@ -2107,7 +2120,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             </div>
                         ) : null}
                         <div className="ws-report-table-wrapper ws-report-table-wrapper--actions">
-                        <table className="ws-table">
+                            <WsTableScroll>
+                            <table className="ws-table">
                             <thead>
                                 <tr>
                                     <th>INVOICE / ORDER</th>
@@ -2207,6 +2221,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 )}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                         </div>
                         {ordersTotal > 0 && (
                             <div className="ws-report-pagination">
@@ -2299,6 +2314,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     ) : recentOrderDetails ? (
                         <div className="ws-order-details-modal-body">
                             <div className="ws-report-table-wrapper">
+                                <WsTableScroll>
                                 <table className="ws-table">
                                     <tbody>
                                         <tr>
@@ -2345,11 +2361,12 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         <tr><th>CUSTOMER TYPE</th><td>{recentOrderDetails.customerType ?? '—'}</td></tr>
                                     </tbody>
                                 </table>
+                                </WsTableScroll>
                             </div>
                             {Array.isArray(recentOrderDetails.jobsDetail) && recentOrderDetails.jobsDetail.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
                                     <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Jobs</p>
-                                    <div className="ws-order-details-table-scroll">
+                                    <WsTableScroll bodyClassName="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
@@ -2413,13 +2430,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 ))}
                                             </tbody>
                                         </table>
-                                    </div>
+                                    </WsTableScroll>
                                 </div>
                             ) : null}
                             {Array.isArray(recentOrderDetails.lineItems) && recentOrderDetails.lineItems.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
                                     <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Line items</p>
-                                    <div className="ws-order-details-table-scroll">
+                                    <WsTableScroll bodyClassName="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
@@ -2452,7 +2469,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 ))}
                                             </tbody>
                                         </table>
-                                    </div>
+                                    </WsTableScroll>
                                 </div>
                             ) : null}
                         </div>

@@ -10,6 +10,7 @@ import {
 } from '../../services/workshopStaffApi';
 import { useAuth } from '../../context/AuthContext';
 import './Workshop.css';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 
 function statusTone(status) {
     const s = String(status || '').toLowerCase();
@@ -151,7 +152,7 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
                 size="xl"
                 maxWidth="900px"
                 footer={(
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, width: '100%' }}>
+                    <div className="ws-sr-print-footer">
                         <button type="button" className="mc-btn-ghost" onClick={() => setPrintOpen(false)}>Close</button>
                         <button type="button" className="mc-btn-primary" onClick={handlePrint}>
                             <Printer size={16} /> Print
@@ -176,12 +177,12 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
                 size="xl"
                 maxWidth="860px"
             >
-                <div className="ws-section" style={{ padding: 20 }}>
+                <div className="ws-section ws-sr-detail-panel">
                     {detailLoading ? (
-                        <p style={{ padding: 24, textAlign: 'center' }}>Loading…</p>
+                        <p className="ws-sr-detail-loading">Loading…</p>
                     ) : (
                         <>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, fontSize: '0.875rem' }}>
+                            <div className="ws-sr-detail-meta">
                                 <div><strong>Credit note:</strong> {detail.creditNoteNo || detail.returnNo}</div>
                                 <div><strong>Invoice:</strong> {detail.invoiceNo}</div>
                                 <div><strong>Customer:</strong> {detail.customerName} · {detail.customerPhone || '—'}</div>
@@ -192,7 +193,8 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
                                 <div><strong>Date:</strong> {fmtDt(detail.returnDate || detail.createdAt)}</div>
                             </div>
 
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem', marginBottom: 16 }}>
+                            <WsTableScroll className="ws-sr-detail-table-wrap">
+                            <table className="ws-sr-detail-table">
                                 <thead>
                                     <tr style={{ background: '#F9FAFB' }}>
                                         <th style={{ padding: 10, textAlign: 'left' }}>Product / service</th>
@@ -212,10 +214,11 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
                                     ))}
                                 </tbody>
                             </table>
+                            </WsTableScroll>
 
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                            <div className="ws-sr-detail-actions">
                                 {digitalInvoiceUrl ? (
-                                    <a href={digitalInvoiceUrl} target="_blank" rel="noopener noreferrer" className="mc-btn-ghost" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
+                                    <a href={digitalInvoiceUrl} target="_blank" rel="noopener noreferrer" className="mc-btn-ghost ws-sr-detail-link">
                                         <ExternalLink size={16} /> View digital invoice
                                     </a>
                                 ) : null}
@@ -231,64 +234,21 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
     }
 
     return (
-        <div className="ws-page" style={{ padding: '24px 32px' }}>
-            <style>{`
-              .ws-sr-kpi {
-                background: #fff;
-                border: 1px solid var(--color-border-light);
-                border-radius: 12px;
-                padding: 14px 16px;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-                min-width: 220px;
-              }
-              .ws-sr-kpi-label {
-                font-size: 0.72rem;
-                font-weight: 800;
-                color: var(--color-text-muted);
-                text-transform: uppercase;
-                letter-spacing: 0.04em;
-              }
-              .ws-sr-kpi-value {
-                margin-top: 4px;
-                font-size: 1.25rem;
-                font-weight: 900;
-                color: #111827;
-              }
-              .ws-sr-table thead th {
-                position: sticky;
-                top: 0;
-                background: #F9FAFB;
-                z-index: 1;
-              }
-              .ws-sr-row:hover {
-                background: #FFFBEB;
-              }
-              .ws-sr-pill {
-                padding: 4px 10px;
-                border-radius: 999px;
-                font-size: 0.72rem;
-                font-weight: 900;
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
-                white-space: nowrap;
-              }
-            `}</style>
-
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 320px' }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 10, background: '#FFF7ED', border: '1px solid #FED7AA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="ws-sales-returns">
+            <div className="ws-sr-header">
+                <div className="ws-sr-header-main">
+                    <div className="ws-sr-header-icon">
                         <RotateCcw size={18} color="#9A3412" />
                     </div>
-                    <div style={{ flex: 1 }}>
-                        <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: '#111827' }}>Sales Returns</h1>
-                        <p style={{ margin: '4px 0 0', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
+                    <div>
+                        <h1 className="ws-sr-title">Sales Returns</h1>
+                        <p className="ws-sr-subtitle">
                             {selectedBranchName} · filter by date, invoice, branch, and cashier.
                         </p>
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <div className="ws-sr-header-stats">
                     <div className="ws-sr-kpi">
                         <div className="ws-sr-kpi-label">Shown returns</div>
                         <div className="ws-sr-kpi-value">{loading ? '—' : shownCount.toLocaleString()}</div>
@@ -297,60 +257,57 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
                         <div className="ws-sr-kpi-label">Shown amount</div>
                         <div className="ws-sr-kpi-value">SAR {loading ? '—' : fmtMoney(shownAmount)}</div>
                     </div>
-                    <button type="button" className="mc-btn-ghost" onClick={load} disabled={loading} style={{ height: 40, alignSelf: 'stretch' }}>
+                    <button type="button" className="mc-btn-ghost ws-sr-refresh-btn" onClick={load} disabled={loading}>
                         <RefreshCw size={16} style={{ opacity: loading ? 0.5 : 1 }} /> Refresh
                     </button>
                 </div>
             </div>
 
-            <div className="ws-section" style={{ marginBottom: 18 }}>
-                <div style={{ padding: 16 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 12, alignItems: 'end' }}>
-                        <div style={{ gridColumn: 'span 3', minWidth: 200 }}>
-                            <label style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>From</label>
+            <div className="ws-section ws-sr-filters">
+                <div className="ws-sr-filters-inner">
+                    <div className="ws-sr-filter-grid">
+                        <div className="ws-sr-filter-field">
+                            <label>From</label>
                             <input
                                 type="datetime-local"
                                 className="mc-filter-select"
                                 value={dateFrom}
                                 onChange={(e) => setDateFrom(e.target.value)}
-                                style={{ width: '100%' }}
                             />
                         </div>
-                        <div style={{ gridColumn: 'span 3', minWidth: 200 }}>
-                            <label style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>To</label>
+                        <div className="ws-sr-filter-field">
+                            <label>To</label>
                             <input
                                 type="datetime-local"
                                 className="mc-filter-select"
                                 value={dateTo}
                                 onChange={(e) => setDateTo(e.target.value)}
-                                style={{ width: '100%' }}
                             />
                         </div>
-                        <div style={{ gridColumn: 'span 2', minWidth: 160 }}>
-                            <label style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>Status</label>
-                            <select className="mc-filter-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: '100%' }}>
+                        <div className="ws-sr-filter-field">
+                            <label>Status</label>
+                            <select className="mc-filter-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                                 <option value="completed">Approved</option>
                                 <option value="pending">Pending</option>
                                 <option value="rejected">Rejected</option>
                                 <option value="">All</option>
                             </select>
                         </div>
-                        <div style={{ gridColumn: 'span 3', minWidth: 240 }}>
-                            <label style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>Invoice #</label>
-                            <div style={{ position: 'relative' }}>
-                                <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                        <div className="ws-sr-filter-field ws-sr-filter-field--invoice">
+                            <label>Invoice #</label>
+                            <div className="ws-sr-invoice-search">
+                                <Search size={16} className="ws-sr-invoice-search-icon" />
                                 <input
                                     type="text"
                                     className="mc-filter-select"
-                                    style={{ paddingLeft: 36, width: '100%' }}
                                     placeholder="Search invoice number…"
                                     value={invoiceNo}
                                     onChange={(e) => setInvoiceNo(e.target.value)}
                                 />
                             </div>
                         </div>
-                        <div style={{ gridColumn: 'span 1', minWidth: 150, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                            <button type="button" className="mc-btn-primary" onClick={load} disabled={loading} style={{ width: '100%', height: 40 }}>
+                        <div className="ws-sr-filter-field ws-sr-filter-field--apply">
+                            <button type="button" className="mc-btn-primary ws-sr-apply-btn" onClick={load} disabled={loading}>
                                 {loading ? 'Loading…' : 'Apply'}
                             </button>
                         </div>
@@ -358,10 +315,11 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
                 </div>
             </div>
 
-            {error ? <p style={{ color: '#B91C1C', marginBottom: 16 }}>{error}</p> : null}
+            {error ? <p className="ws-sr-error">{error}</p> : null}
 
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--color-border-light)', overflow: 'hidden' }}>
-                <table className="ws-sr-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+            <div className="ws-sr-table-wrap">
+                <WsTableScroll>
+                <table className="ws-sr-table">
                     <thead>
                         <tr style={{ background: '#F9FAFB', textAlign: 'left' }}>
                             <th style={{ padding: '12px 16px' }}>Date / time</th>
@@ -431,9 +389,10 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
             </div>
             {!loading && total > rows.length ? (
-                <p style={{ marginTop: 12, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Showing {rows.length} of {total}</p>
+                <p className="ws-sr-pagination-note">Showing {rows.length} of {total}</p>
             ) : null}
 
         </div>

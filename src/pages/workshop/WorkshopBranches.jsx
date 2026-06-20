@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, Key, Plus, MapPin, Phone, Mail, Users, Edit, RefreshCw } from 'lucide-react';
 import Modal from '../../components/Modal';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 import { apiFetch } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -353,15 +354,38 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
     return (
         <div>
             <div className="ws-page-header">
-                <div><h2 className="ws-page-title">Branches & Access Control</h2><p className="ws-page-sub">Manage branch portals and grant Branch Admin permissions{selectedBranchId && selectedBranchId !== 'all' ? ` · filtered to one branch` : ''}</p></div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                    <button className="btn-portal-outline" onClick={() => { loadBranches(); loadEmployeesCount(); }} disabled={isLoading}><RefreshCw size={15}/>{isLoading ? 'Refreshing...' : 'Refresh'}</button>
+                <div>
+                    <h2 className="ws-page-title">Branches & Access Control</h2>
+                    <p className="ws-page-sub">
+                        Manage branch portals and grant Branch Admin permissions
+                        {selectedBranchId && selectedBranchId !== 'all' ? ' · filtered to one branch' : ''}
+                    </p>
+                </div>
+                <div className="ws-page-header-actions">
+                    <button
+                        type="button"
+                        className="btn-portal-outline"
+                        onClick={() => { loadBranches(); loadEmployeesCount(); }}
+                        disabled={isLoading}
+                    >
+                        <RefreshCw size={15} />
+                        {isLoading ? 'Refreshing...' : 'Refresh'}
+                    </button>
                     {hasPermission('workshop.branches.access-permissions.edit') && (
-                        <button className="btn-portal-outline" onClick={() => setShowAccessForm(true)}><Key size={15}/> Grant Access</button>
+                        <button type="button" className="btn-portal-outline" onClick={() => setShowAccessForm(true)}>
+                            <Key size={15} />
+                            Grant Access
+                        </button>
                     )}
                     {hasPermission('workshop.branches.branch-portals.view') && hasPermission('workshop.branches.access-permissions.edit') && (
-                        <button className="btn-portal" onClick={() => { setEditBranch(null); setShowBranchForm(true); }} disabled={isSavingBranch}>
-                            <Plus size={15}/> {isSavingBranch ? 'Creating...' : 'New Branch'}
+                        <button
+                            type="button"
+                            className="btn-portal"
+                            onClick={() => { setEditBranch(null); setShowBranchForm(true); }}
+                            disabled={isSavingBranch}
+                        >
+                            <Plus size={15} />
+                            {isSavingBranch ? 'Creating...' : 'New Branch'}
                         </button>
                     )}
                 </div>
@@ -499,6 +523,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                             <button className="btn-portal" style={{ background: '#D97706', color: '#fff' }} onClick={() => setShowAccessForm(true)}><Key size={15}/> Grant Branch Access</button>
                         </div>
                     ) : (
+                        <WsTableScroll>
                         <table className="ws-table">
                             <thead><tr><th>Branch</th><th>Permitted Sections</th><th>Description</th></tr></thead>
                             <tbody>
@@ -520,6 +545,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                                 })}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                     )}
                 </div>
             )}

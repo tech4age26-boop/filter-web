@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from 'react-dom';
 import { Plus, BarChart3, AlertTriangle, Calendar, Zap, Trash2 } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { useAuth } from '../../context/AuthContext';
 
 const PURCHASES_TABS = [
@@ -3666,7 +3667,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             {invoicesError}
                         </div>
                     )}
-                    <div style={{ overflowX: 'auto' }}>
+                    <WsTableScroll>
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -3766,7 +3767,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 )}
                             </tbody>
                         </table>
-                    </div>
+                    </WsTableScroll>
                 </div>
             )}
             {activeTab === 'price_report' && (
@@ -3807,6 +3808,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             </select>
                         </div>
                     </div>
+                    <WsTableScroll>
                     <table className="ws-table">
                         <thead>
                             <tr>
@@ -3852,6 +3854,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             )}
                         </tbody>
                     </table>
+                    </WsTableScroll>
                 </div>
             )}
 
