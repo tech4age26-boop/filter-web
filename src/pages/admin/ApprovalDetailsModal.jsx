@@ -1498,6 +1498,35 @@ function CorporatePriceQuotationBody({ data }) {
     );
 }
 
+function MarketingBudgetRequestBody({ data }) {
+    const row = data ?? {};
+    const currency = row.currencyCode ?? row.currency_code ?? 'SAR';
+    const amount = Number(row.amount ?? 0);
+    const money = (v) => fmtMoney(v, currency);
+
+    return (
+        <>
+            <Section title="Top-up request">
+                <KVGrid>
+                    <Field label="Request number" kind="id" value={row.requestNumber ?? row.request_number} />
+                    <Field label="Status" value={row.status} />
+                    <Field label="Amount" value={money(amount)} />
+                    <Field label="Source account" value={row.sourceAccountName ?? row.source_account_name} />
+                    <Field label="Source register id" kind="id" value={row.sourceAccountId ?? row.source_account_id} />
+                    <Field label="Purpose" value={row.purpose} span2 />
+                    <Field label="Requested by" value={row.requestedBy ?? row.requested_by ?? row.requestedByName ?? row.requested_by_name} />
+                    <Field label="Submitted" kind="date" value={row.createdAt ?? row.created_at} />
+                    <Field label="Approved by" value={row.approvedByName ?? row.approved_by_name ?? row.approvedBy ?? row.approved_by} />
+                    <Field label="Approved at" kind="date" value={row.approvedAt ?? row.approved_at} />
+                    <Field label="Rejected by" value={row.rejectedByName ?? row.rejected_by_name ?? row.rejectedBy ?? row.rejected_by} />
+                    <Field label="Rejected at" kind="date" value={row.rejectedAt ?? row.rejected_at} />
+                    <Field label="Rejection reason" value={row.rejectionReason ?? row.rejection_reason} span2 />
+                </KVGrid>
+            </Section>
+        </>
+    );
+}
+
 function renderBody(entityType, data) {
     switch (entityType) {
         case 'workshop_registration':  return <WorkshopBody data={data} />;
@@ -1513,6 +1542,8 @@ function renderBody(entityType, data) {
             return <CorporatePriceQuotationBody data={data} />;
         case 'corporate_walk_in_booking':
             return <CorporateWalkInBookingBody data={data} />;
+        case 'marketing_budget_request':
+            return <MarketingBudgetRequestBody data={data} />;
         default:                       return <RawObjectBody data={data} />;
     }
 }

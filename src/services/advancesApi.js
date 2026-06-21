@@ -1,4 +1,8 @@
 import { apiFetch } from './api';
+import {
+    mergeAccountingScopeBody,
+    mergeAccountingScopeParams,
+} from '../utils/accountingWorkshopScope';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -16,7 +20,7 @@ const parseArr = (res) => {
 
 function withQuery(path, params = {}) {
     const query = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
+    Object.entries(mergeAccountingScopeParams(params)).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
             query.set(key, String(value));
         }
@@ -25,19 +29,25 @@ function withQuery(path, params = {}) {
     return qs ? `${path}?${qs}` : path;
 }
 
-export const getStats = () => apiFetch('/advances-global/stats');
+export const getStats = () => apiFetch(withQuery('/advances-global/stats', {}));
 export const getAdvances = (params = {}) =>
     apiFetch(withQuery('/advances-global', params)).then(parseArr);
 export const createAdvance = (body) =>
-    apiFetch('/advances-global', { method: 'POST', body: JSON.stringify(body) });
+    apiFetch('/advances-global', { method: 'POST', body: JSON.stringify(mergeAccountingScopeBody(body)) });
 export const bulkCreateAdvances = (body) =>
-    apiFetch('/advances-global/bulk', { method: 'POST', body: JSON.stringify(body) });
+    apiFetch('/advances-global/bulk', { method: 'POST', body: JSON.stringify(mergeAccountingScopeBody(body)) });
 export const getSalaryPayments = (params = {}) =>
     apiFetch(withQuery('/advances-global/salary-payments', params)).then(parseArr);
 export const createSalaryPayment = (body) =>
-    apiFetch('/advances-global/salary-payments', { method: 'POST', body: JSON.stringify(body) });
+    apiFetch('/advances-global/salary-payments', {
+        method: 'POST',
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
+    });
 export const bulkCreateSalaryPayments = (body) =>
-    apiFetch('/advances-global/salary-payments/bulk', { method: 'POST', body: JSON.stringify(body) });
+    apiFetch('/advances-global/salary-payments/bulk', {
+        method: 'POST',
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
+    });
 export const getEmployeeLedger = (employeeId) =>
     apiFetch(`/advances-global/employee-ledger/${encodeURIComponent(employeeId)}`);
 
@@ -63,7 +73,10 @@ export const getSalaryPayrollPreview = (params = {}) =>
     apiFetch(withQuery('/workshop-staff/salary-payroll/preview', params));
 
 export const postWorkshopSalaryPayroll = (body) =>
-    apiFetch('/workshop-staff/salary-payroll', { method: 'POST', body: JSON.stringify(body) });
+    apiFetch('/workshop-staff/salary-payroll', {
+        method: 'POST',
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
+    });
 
 export const getRecentWorkshopSalaryPayroll = (params = {}) =>
     apiFetch(withQuery('/workshop-staff/salary-payroll/recent', params));

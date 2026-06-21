@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Loader2, RefreshCw, Plus, Trash2, Edit2, Eye, X, FileText, Search,
 } from 'lucide-react';
@@ -365,8 +365,6 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
     // Picker state
     const [pickerOpen, setPickerOpen] = useState(false);
     const [pickerKind, setPickerKind] = useState('product'); // 'product' | 'service'
-    const [pickerQuery, setPickerQuery] = useState('');
-    const [pickerDeptId, setPickerDeptId] = useState('');
 
     // Load existing data if editing.
     useEffect(() => {
@@ -484,24 +482,28 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
 
     const handleAddItem = (kind) => {
         setPickerKind(kind);
-        setPickerQuery('');
-        setPickerDeptId('');
         setPickerOpen(true);
     };
 
-    const handlePickItem = (item) => {
-        setItems((prev) => [...prev, {
-            tempId: `n-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            itemType: item.itemType,
-            departmentId: item.departmentId,
-            productId: item.itemType === 'product' ? item.id : null,
-            serviceId: item.itemType === 'service' ? item.id : null,
-            name: item.name,
-            qty: 1,
-            unitPrice: Number(item.price ?? 0),
-            vatMode: 'inclusive',
-            vatPercent: 15,
-        }]);
+    const handlePickItems = (picked) => {
+        if (!picked?.length) return;
+        setItems((prev) => [
+            ...prev,
+            ...picked.map((item) => ({
+                tempId: `n-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                itemType: item.itemType,
+                departmentId: item.departmentId,
+                productId: item.itemType === 'product' ? item.id : null,
+                serviceId: item.itemType === 'service' ? item.id : null,
+                name: item.name,
+                arabicName: item.arabicName ?? '',
+                qty: 1,
+                unitPrice: Number(item.price ?? 0),
+                vatMode: 'inclusive',
+                vatPercent: 15,
+                itemDiscount: 0,
+            })),
+        ]);
         setPickerOpen(false);
     };
 
@@ -835,11 +837,7 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
                         kind={pickerKind}
                         items={pickerKind === 'product' ? catalogProducts : catalogServices}
                         departments={departments}
-                        query={pickerQuery}
-                        setQuery={setPickerQuery}
-                        deptId={pickerDeptId}
-                        setDeptId={setPickerDeptId}
-                        onPick={handlePickItem}
+                        onAddItems={handlePickItems}
                         onClose={() => setPickerOpen(false)}
                     />
                 )}
@@ -850,63 +848,232 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
 
 /* ───────── Master catalog item picker ─────────────────────────────────── */
 
-function ItemPicker({ kind, items, departments, query, setQuery, deptId, setDeptId, onPick, onClose }) {
+function catalogItemKey(it) {
+    return `${it.itemType}-${it.id}`;
+}
+
+function ItemPicker({ kind, items, departments, onAddItems, onClose }) {
+    const [query, setQuery] = useState('');
+    const [deptId, setDeptId] = useState('');
+    const [selected, setSelected] = useState(() => new Set());
+    const [highlightIdx, setHighlightIdx] = useState(0);
+    const searchRef = useRef(null);
+    const rowRefs = useRef([]);
+
+    useEffect(() => {
+        setQuery('');
+        setDeptId('');
+        setSelected(new Set());
+        setHighlightIdx(0);
+        const t = setTimeout(() => searchRef.current?.focus(), 0);
+        return () => clearTimeout(t);
+    }, [kind]);
+
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
         return items.filter((it) => {
             if (deptId && String(it.departmentId) !== deptId) return false;
             if (!q) return true;
-            return String(it.name ?? '').toLowerCase().includes(q);
+            const name = String(it.name ?? '').toLowerCase();
+            const dept = String(it.departmentName ?? '').toLowerCase();
+            const ar = String(it.arabicName ?? '').toLowerCase();
+            return name.includes(q) || dept.includes(q) || ar.includes(q);
         });
     }, [items, query, deptId]);
 
+    useEffect(() => {
+        setHighlightIdx((i) => {
+            if (filtered.length === 0) return 0;
+            return Math.min(i, filtered.length - 1);
+        });
+    }, [filtered]);
+
+    useEffect(() => {
+        const el = rowRefs.current[highlightIdx];
+        if (el?.scrollIntoView) {
+            el.scrollIntoView({ block: 'nearest' });
+        }
+    }, [highlightIdx, filtered.length]);
+
+    const toggleKey = (key) => {
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    const toggleAllVisible = () => {
+        const keys = filtered.map(catalogItemKey);
+        const allSelected = keys.length > 0 && keys.every((k) => selected.has(k));
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (allSelected) keys.forEach((k) => next.delete(k));
+            else keys.forEach((k) => next.add(k));
+            return next;
+        });
+    };
+
+    const addSelected = () => {
+        const picked = filtered.filter((it) => selected.has(catalogItemKey(it)));
+        if (picked.length) onAddItems(picked);
+        else onClose();
+    };
+
+    const handleSearchKeyDown = (e) => {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setHighlightIdx((i) => Math.min(i + 1, Math.max(filtered.length - 1, 0)));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setHighlightIdx((i) => Math.max(i - 1, 0));
+        } else if (e.key === 'Enter' && filtered[highlightIdx]) {
+            e.preventDefault();
+            toggleKey(catalogItemKey(filtered[highlightIdx]));
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            onClose();
+        }
+    };
+
+    const visibleKeys = filtered.map(catalogItemKey);
+    const allVisibleSelected =
+        visibleKeys.length > 0 && visibleKeys.every((k) => selected.has(k));
+    const someVisibleSelected = visibleKeys.some((k) => selected.has(k));
+
     return (
-        <div style={{ ...modalBackdrop, zIndex: 200 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ ...modalCard, width: 'min(700px, 100%)', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ ...modalBackdrop, zIndex: 200 }} onClick={onClose}>
+            <div
+                onClick={(e) => e.stopPropagation()}
+                style={{ ...modalCard, width: 'min(760px, 100%)', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
+            >
                 <div style={modalHeader}>
                     <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, textTransform: 'capitalize' }}>
-                        Pick {kind} from master catalog
+                        Pick {kind === 'product' ? 'products' : 'services'} from master catalog
                     </h3>
                     <button type="button" onClick={onClose} style={modalCloseBtn}><X size={18} /></button>
                 </div>
-                <div style={{ padding: 16, display: 'flex', gap: 10 }}>
-                    <select value={deptId} onChange={(e) => setDeptId(e.target.value)} style={{ ...selectStyle, minWidth: 180 }}>
+
+                <div style={{ padding: '12px 16px', display: 'flex', flexWrap: 'wrap', gap: 10, borderBottom: '1px solid #e2e8f0' }}>
+                    <select
+                        value={deptId}
+                        onChange={(e) => setDeptId(e.target.value)}
+                        style={{ ...selectStyle, minWidth: 200, flex: '1 1 180px' }}
+                        aria-label="Filter by department"
+                    >
                         <option value="">All departments</option>
                         {departments.map((d) => (
                             <option key={d.id} value={d.id}>{d.name}</option>
                         ))}
                     </select>
-                    <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search…" style={{ ...inputStyle, flex: 1 }} />
+                    <div style={{ position: 'relative', flex: '2 1 240px' }}>
+                        <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                        <input
+                            ref={searchRef}
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            onKeyDown={handleSearchKeyDown}
+                            placeholder="Search by name or department…"
+                            style={{ ...inputStyle, paddingLeft: 36 }}
+                            aria-label="Search catalog"
+                        />
+                    </div>
                 </div>
-                <div style={{ overflow: 'auto', flex: 1, padding: '0 16px 16px' }}>
+
+                <p style={{ margin: 0, padding: '8px 16px', fontSize: '0.75rem', color: '#64748b' }}>
+                    Type to filter · Arrow ↑↓ to move · Enter or click to select · Add multiple items at once
+                </p>
+
+                <div style={{ overflow: 'auto', flex: 1, padding: '0 16px' }}>
                     {filtered.length === 0 ? (
-                        <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>No items match.</div>
+                        <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>No items match your search.</div>
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
-                            <thead style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                            <thead style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
                                 <tr>
+                                    <th style={{ padding: 8, width: 36 }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={allVisibleSelected}
+                                            ref={(el) => {
+                                                if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected;
+                                            }}
+                                            onChange={toggleAllVisible}
+                                            aria-label="Select all visible"
+                                        />
+                                    </th>
                                     <th style={{ padding: 8, textAlign: 'left' }}>Name</th>
                                     <th style={{ padding: 8, textAlign: 'left' }}>Department</th>
                                     <th style={{ padding: 8, textAlign: 'right' }}>Price</th>
-                                    <th style={{ padding: 8 }}></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map((it) => (
-                                    <tr key={`${it.itemType}-${it.id}`} style={{ borderTop: '1px solid #f1f5f9' }}>
-                                        <td style={{ padding: 8, fontWeight: 700 }}>{it.name}</td>
-                                        <td style={{ padding: 8, color: '#64748b' }}>{it.departmentName ?? '—'}</td>
-                                        <td style={{ padding: 8, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{num(it.price)}</td>
-                                        <td style={{ padding: 8, textAlign: 'right' }}>
-                                            <button type="button" onClick={() => onPick(it)} style={btnSmall}>
-                                                <Plus size={12} /> Add
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {filtered.map((it, idx) => {
+                                    const key = catalogItemKey(it);
+                                    const isSelected = selected.has(key);
+                                    const isHighlight = idx === highlightIdx;
+                                    return (
+                                        <tr
+                                            key={key}
+                                            ref={(el) => { rowRefs.current[idx] = el; }}
+                                            style={{
+                                                borderTop: '1px solid #f1f5f9',
+                                                background: isHighlight ? '#fffbeb' : isSelected ? '#f0fdf4' : 'transparent',
+                                                cursor: 'pointer',
+                                            }}
+                                            onClick={() => toggleKey(key)}
+                                            onMouseEnter={() => setHighlightIdx(idx)}
+                                        >
+                                            <td style={{ padding: 8 }} onClick={(e) => e.stopPropagation()}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => toggleKey(key)}
+                                                    aria-label={`Select ${it.name}`}
+                                                />
+                                            </td>
+                                            <td style={{ padding: 8, fontWeight: 700 }}>{it.name}</td>
+                                            <td style={{ padding: 8, color: '#64748b' }}>{it.departmentName ?? '—'}</td>
+                                            <td style={{ padding: 8, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{num(it.price)}</td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     )}
+                </div>
+
+                <div style={{
+                    padding: '12px 16px',
+                    borderTop: '1px solid #e2e8f0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                }}>
+                    <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
+                        {selected.size > 0
+                            ? `${selected.size} item(s) selected`
+                            : `${filtered.length} shown`}
+                    </span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+                        <button
+                            type="button"
+                            onClick={addSelected}
+                            disabled={selected.size === 0}
+                            style={{
+                                ...btnPrimary,
+                                opacity: selected.size === 0 ? 0.5 : 1,
+                                cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+                            }}
+                        >
+                            <Plus size={14} />
+                            Add selected ({selected.size})
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -921,10 +1088,13 @@ function ItemPicker({ kind, items, departments, query, setQuery, deptId, setDept
  * 'inclusive' by default — unitPrice is treated as VAT-inclusive.
  */
 function mapDemoToInvoice(demo) {
+    const invoiceDate = demo.invoiceDate ?? demo.issuedAt ?? null;
+    const issuedAt = demo.issuedAt ?? demo.invoiceDate ?? null;
     return {
+        isDemo: true,
         invoiceNo: demo.invoiceNo,
-        invoiceDate: demo.invoiceDate,
-        issuedAt: demo.issuedAt ?? demo.invoiceDate,
+        invoiceDate,
+        issuedAt,
         plateNo: demo.vehiclePlate ?? '',
         odometerReading: demo.odometerReading,
         nextOilChangeKm: demo.nextOilChangeKm,

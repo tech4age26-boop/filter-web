@@ -541,6 +541,42 @@
     color: var(--color-text-muted);
 }
 
+.ws-filter-combobox {
+    min-width: 200px;
+}
+
+.ws-filter-combobox .pi-search-box input {
+    padding: 10px 14px 10px 36px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    font-size: 0.875rem;
+    min-width: 200px;
+}
+
+.ws-datetime-range {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ws-datetime-range-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.ws-datetime-range-sep {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+}
+
+.ws-datetime-picker input {
+    width: 185px;
+    min-width: 185px;
+}
+
 .ws-filter-actions { display: flex; align-items: center; gap: 12px; }
 
 .ws-btn-clear {

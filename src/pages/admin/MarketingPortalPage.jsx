@@ -22,6 +22,8 @@ const SUB_TABS = [
     { id: 'promotions',           label: 'Promotions',           path: 'promotions',           permission: 'marketing.promotions.view' },
     { id: 'promo-codes',          label: 'Promo Codes',          path: 'promo-codes',          permission: 'marketing.promo-codes.view' },
     { id: 'referral-management',  label: 'Referral Management',  path: 'referral-management',  permission: 'marketing.referral-management.view' },
+    { id: 'marketing-wallet',     label: 'Marketing Wallet',     path: 'marketing-wallet',     permission: 'marketing.referral-management.view' },
+    { id: 'budget-optimizer',     label: 'Budget Optimizer',     path: 'budget-optimizer',     permission: 'marketing.dashboard.view' },
     { id: 'referral-types-rules', label: 'Referral Types + Rules', path: 'referral-types-rules', permission: 'marketing.referral-types-rules.view' },
     { id: 'loyalty-programs',     label: 'Loyalty Programs',     path: 'loyalty-programs',     permission: 'marketing.loyalty-programs.view' },
     { id: 'customer-insights',    label: 'Customer Insights',    path: 'customer-insights',    permission: 'marketing.customer-insights.view' },
@@ -101,7 +103,7 @@ export default function MarketingPortalPage() {
                             })}
                         </select>
                     </label>
-                    {!isDashboard && !isInsights && currentTab.id !== 'referral-codes' && currentTab.id !== 'referral-management' && currentTab.id !== 'referral-types-rules' && (
+                    {!isDashboard && !isInsights && currentTab.id !== 'referral-codes' && currentTab.id !== 'referral-management' && currentTab.id !== 'marketing-wallet' && currentTab.id !== 'referral-types-rules' && currentTab.id !== 'promotions' && currentTab.id !== 'promo-codes' && currentTab.id !== 'loyalty-programs' && (
                         <button
                             type="button"
                             className="btn-portal"

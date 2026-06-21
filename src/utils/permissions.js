@@ -123,6 +123,9 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/accounting/chart-of-accounts',     permission: 'accounting.chart-of-accounts.view' },
     { path: '/admin/accounting/cash-bank',             permission: 'accounting.cash-bank.view' },
     { path: '/admin/accounting/commissions',           permission: 'accounting.commissions.view' },
+    { path: '/admin/accounting/workshop-commissions', permission: 'accounting.commissions.view' },
+    { path: '/admin/accounting/salary-payroll',       permission: 'accounting.commissions.view' },
+    { path: '/admin/accounting/employee-ledger',     permission: 'accounting.commissions.view' },
     { path: '/admin/accounting/referral-commissions-rm', permission: 'accounting.referral-commissions-rm.view' },
     { path: '/admin/accounting/transactions',          permission: 'accounting.transactions.view' },
     { path: '/admin/accounting/journal-entries',       permission: 'accounting.journal-entries.view' },
@@ -169,8 +172,24 @@ const WORKSHOP_ACC_TAB_SLUG = {
     'acc-payments': 'payments',
     'acc-advances': 'advances',
     'acc-payroll': 'payroll',
-    'acc-approvals': 'approvals',
     'acc-ledger': 'ledger',
+};
+
+const STAFF_APP_TAB_SLUG = {
+    'sap-overview': 'overview',
+    'sap-users': 'users',
+    'sap-approvals': 'approvals',
+    'sap-wallets': 'wallets',
+    'sap-expenses': 'expenses',
+    'sap-requests': 'requests',
+    'sap-purchase-orders': 'purchase-orders',
+    'sap-tasks': 'tasks',
+    'sap-leave': 'leave',
+    'sap-salary-advances': 'salary-advances',
+    'sap-chat': 'chat',
+    'sap-notifications': 'notifications',
+    'sap-approval-limits': 'approval-limits',
+    'sap-settings': 'settings',
 };
 
 /** Map a workshop sidebar tab id to its URL path. */
@@ -178,6 +197,10 @@ export function workshopTabToPath(tabId) {
     if (tabId.startsWith('acc-')) {
         const slug = WORKSHOP_ACC_TAB_SLUG[tabId] || 'cash-bank';
         return `/workshop/accounting/${slug}`;
+    }
+    if (tabId.startsWith('sap-')) {
+        const slug = STAFF_APP_TAB_SLUG[tabId] || 'overview';
+        return `/workshop/staff-app/${slug}`;
     }
     return `/workshop/${tabId}`;
 }

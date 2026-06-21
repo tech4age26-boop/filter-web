@@ -25,7 +25,7 @@ import {
     createSupplierInvoice,
     deleteSupplierInvoice,
     getSupplierInvoice,
-    fetchAllSupplierStockBalanceItems,
+    getSupplierInventoryStockBalances,
     getSupplierSalesInvoiceCustomerBranches,
     listSupplierInvoices,
     listSupplierInvoiceReturns,
@@ -429,28 +429,6 @@ const CASH_ACCOUNTS = ['Main Cash', 'Bank — Al Rajhi', 'Bank — SNB'];
 const SEARCH_QUICK_PICK = 15;
 const SEARCH_MAX_RESULTS = 50;
 
-function scoreSalesInvoiceSearchItem(item, q) {
-    const name = String(item?.name || '').toLowerCase();
-    const sku = String(item?.sku || '').toLowerCase();
-    const masterName = String(item?.masterProductName || '').toLowerCase();
-    const masterSku = String(item?.masterProductSku || '').toLowerCase();
-    const hay = `${name} ${sku} ${masterName} ${masterSku}`;
-    if (!q) return 0;
-    if (sku === q || masterSku === q) return 100;
-    if (name === q || masterName === q) return 95;
-    if (sku.startsWith(q) || masterSku.startsWith(q)) return 90;
-    if (name.startsWith(q) || masterName.startsWith(q)) return 85;
-    if (sku.includes(q) || masterSku.includes(q)) return 70;
-    if (name.includes(q) || masterName.includes(q)) return 60;
-    const tokens = q.split(/\s+/).filter((t) => t.length >= 2);
-    let hits = 0;
-    for (const t of tokens) {
-        if (hay.includes(t)) hits += 1;
-    }
-    if (tokens.length && hits === tokens.length) return 50 + hits * 5;
-    return 0;
-}
-
 function roundMoney2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -659,10 +637,8 @@ const lastSaleMeta =
 
     return {
     id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
-    name: item.productName || item.masterProductName || 'Product',
-    sku: String(item.sku ?? item.masterProductSku ?? item.barcode ?? '').trim(),
-    masterProductName: item.masterProductName || null,
-    masterProductSku: item.masterProductSku || null,
+    name: item.productName || 'Product',
+    sku: String(item.sku ?? item.barcode ?? '').trim(),
     price,
     unit: uom,
     warehouseUnit,
@@ -974,27 +950,16 @@ export default function SupplierSalesInvoices() {
     const workshopPurchasePrefillRef = useRef(null);
 
     const getSearchSuggestions = (query) => {
-        const items = inventoryItems;
+        const items = [...inventoryItems].sort((a, b) =>
+            String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+                sensitivity: 'base',
+            }),
+        );
         const q = query.trim().toLowerCase();
-        if (!q) {
-            return [...items]
-                .sort((a, b) =>
-                    String(a.name || '').localeCompare(String(b.name || ''), undefined, {
-                        sensitivity: 'base',
-                    }),
-                )
-                .slice(0, SEARCH_QUICK_PICK);
-        }
+        if (!q) return items.slice(0, SEARCH_QUICK_PICK);
         return items
-            .map((item) => ({ item, score: scoreSalesInvoiceSearchItem(item, q) }))
-            .filter((x) => x.score > 0)
-            .sort(
-                (a, b) =>
-                    b.score - a.score ||
-                    String(a.item.name || '').localeCompare(String(b.item.name || '')),
-            )
-            .slice(0, SEARCH_MAX_RESULTS)
-            .map((x) => x.item);
+            .filter((i) => String(i.name || '').toLowerCase().includes(q))
+            .slice(0, SEARCH_MAX_RESULTS);
     };
 
     const applySearchQuery = (value) => {
@@ -2317,11 +2282,8 @@ export default function SupplierSalesInvoices() {
             setListLoading(true);
             setListError('');
             try {
-                const [stockRows, branchesRes, invRes] = await Promise.all([
-                    fetchAllSupplierStockBalanceItems({ historyLimit: 1 }).catch((se) => {
-                        console.error('Supplier stock catalog load failed:', se);
-                        return [];
-                    }),
+                const [stockRes, branchesRes, invRes] = await Promise.all([
+                    getSupplierInventoryStockBalances({ limit: 200 }),
                     getSupplierSalesInvoiceCustomerBranches().catch((be) => {
                         console.error('Supplier customer-branches failed:', be);
                         return { __error: be, branches: [] };
@@ -2337,8 +2299,8 @@ export default function SupplierSalesInvoices() {
 
                 if (cancelled) return;
 
-                const stockItems = Array.isArray(stockRows)
-                    ? stockRows.map((raw) => normalizeStockCatalogRow(raw))
+                const stockItems = Array.isArray(stockRes?.items)
+                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw))
                     : [];
 
                 let branchesErr = '';
@@ -2399,7 +2361,7 @@ export default function SupplierSalesInvoices() {
     useEffect(() => {
         if (!modalOpen || !inventoryInitialLoadDone) return undefined;
         let cancelled = false;
-        const params = { historyLimit: 1 };
+        const params = { limit: 200 };
         const bid = selectedCustomer?.branchId ? String(selectedCustomer.branchId) : '';
         if (bid) {
             params.branchId = bid;
@@ -2407,10 +2369,10 @@ export default function SupplierSalesInvoices() {
         const run = async () => {
             setLastSaleStockRefreshing(true);
             try {
-                const stockRows = await fetchAllSupplierStockBalanceItems(params);
+                const stockRes = await getSupplierInventoryStockBalances(params);
                 if (cancelled) return;
-                const normalized = Array.isArray(stockRows)
-                    ? stockRows.map((raw) => normalizeStockCatalogRow(raw))
+                const normalized = Array.isArray(stockRes?.items)
+                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw))
                     : [];
                 setInventoryItems((prev) => mergeInventoryLists(normalized, INVENTORY_ITEMS));
                 setLineItems((prev) =>

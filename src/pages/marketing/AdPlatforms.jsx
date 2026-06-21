@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  X,
   RefreshCw,
   Link2,
   Unlink,
@@ -15,325 +14,13 @@ import {
 } from 'lucide-react';
 import {
   marketingChangeAdPlatformStatus,
-  marketingCreateAdPlatform,
   marketingListAdPlatforms,
   marketingSyncAdPlatform,
-  marketingUpdateAdPlatform,
 } from '../../services/superAdminMarketingApi';
 import './MarketingUniversal.css';
-
-const PLATFORM_DEFINITIONS = [
-  {
-    key: 'meta',
-    title: 'Meta Ads',
-    subtitle: 'Meta / Facebook ads integration',
-    iconType: 'meta',
-    color: '#0ea5e9',
-    fields: [
-      {
-        name: 'accountId',
-        label: 'Account Id',
-        placeholder: 'Enter account id...',
-        required: true,
-      },
-      {
-        name: 'accessToken',
-        label: 'Access Token',
-        placeholder: 'Enter access token...',
-        required: true,
-      },
-      {
-        name: 'adAccountId',
-        label: 'Ad Account Id',
-        placeholder: 'Enter ad account id...',
-        required: false,
-      },
-    ],
-  },
-  {
-    key: 'google_ads',
-    title: 'Google Ads',
-    subtitle: 'Google ads integration',
-    iconType: 'google',
-    color: '#334155',
-    fields: [
-      {
-        name: 'customerId',
-        label: 'Customer Id',
-        placeholder: 'Enter customer id...',
-        required: true,
-      },
-      {
-        name: 'developerToken',
-        label: 'Developer Token',
-        placeholder: 'Enter developer token...',
-        required: true,
-      },
-      {
-        name: 'clientId',
-        label: 'Client Id',
-        placeholder: 'Enter client id...',
-        required: true,
-      },
-      {
-        name: 'clientSecret',
-        label: 'Client Secret',
-        placeholder: 'Enter client secret...',
-        required: true,
-      },
-      {
-        name: 'refreshToken',
-        label: 'Refresh Token',
-        placeholder: 'Enter refresh token...',
-        required: true,
-      },
-    ],
-  },
-  {
-    key: 'tiktok',
-    title: 'TikTok Ads',
-    subtitle: 'TikTok ads integration',
-    iconType: 'tiktok',
-    color: '#7c3aed',
-    fields: [
-      {
-        name: 'appId',
-        label: 'App Id',
-        placeholder: 'Enter app id...',
-        required: true,
-      },
-      {
-        name: 'secret',
-        label: 'Secret',
-        placeholder: 'Enter secret...',
-        required: true,
-      },
-      {
-        name: 'advertiserId',
-        label: 'Advertiser Id',
-        placeholder: 'Enter advertiser id...',
-        required: true,
-      },
-      {
-        name: 'accessToken',
-        label: 'Access Token',
-        placeholder: 'Enter access token...',
-        required: true,
-      },
-    ],
-  },
-  {
-    key: 'snapchat',
-    title: 'Snapchat Ads',
-    subtitle: 'Snapchat ads integration',
-    iconType: 'snapchat',
-    color: '#111827',
-    fields: [
-      {
-        name: 'clientId',
-        label: 'Client Id',
-        placeholder: 'Enter client id...',
-        required: true,
-      },
-      {
-        name: 'clientSecret',
-        label: 'Client Secret',
-        placeholder: 'Enter client secret...',
-        required: true,
-      },
-      {
-        name: 'adAccountId',
-        label: 'Ad Account Id',
-        placeholder: 'Enter ad account id...',
-        required: true,
-      },
-    ],
-  },
-  {
-    key: 'google_analytics',
-    title: 'Google Analytics',
-    subtitle: 'Google analytics integration',
-    iconType: 'analytics',
-    color: '#16a34a',
-    fields: [
-      {
-        name: 'measurementId',
-        label: 'Measurement Id',
-        placeholder: 'Enter measurement id...',
-        required: true,
-      },
-      {
-        name: 'apiSecret',
-        label: 'Api Secret',
-        placeholder: 'Enter api secret...',
-        required: true,
-      },
-      {
-        name: 'propertyId',
-        label: 'Property Id',
-        placeholder: 'Enter property id...',
-        required: true,
-      },
-    ],
-  },
-];
-
-const EMPTY_FORM = {};
-
-function humanize(value) {
-  return String(value || '')
-    .replace(/_/g, ' ')
-    .replace(/-/g, ' ')
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ');
-}
-
-function normalizePlatform(row) {
-  return {
-    id: String(row.id || ''),
-    platform: row.platform || row.provider || 'other',
-    accountName:
-      row.accountName ||
-      row.account_name ||
-      row.platformName ||
-      row.name ||
-      'Ad Account',
-    accountId: row.accountId || row.account_id || '',
-    maskedToken:
-      row.maskedToken ||
-      row.masked_token ||
-      row.accessToken ||
-      row.token ||
-      '',
-    status: row.status || 'disconnected',
-    connected: Boolean(row.connected) || row.status === 'connected',
-    autoSync: Boolean(row.autoSync ?? row.auto_sync),
-    syncStatus: row.syncStatus || row.sync_status || 'not_synced',
-    lastSyncAt: row.lastSyncAt || row.last_sync_at || '',
-    notes: row.notes || '',
-  };
-}
-
-function extractPlatforms(payload) {
-  const rows = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.platforms)
-      ? payload.platforms
-      : Array.isArray(payload?.adPlatforms)
-        ? payload.adPlatforms
-        : Array.isArray(payload?.data)
-          ? payload.data
-          : Array.isArray(payload?.data?.platforms)
-            ? payload.data.platforms
-            : Array.isArray(payload?.data?.adPlatforms)
-              ? payload.data.adPlatforms
-              : [];
-
-  return rows.map(normalizePlatform);
-}
-
-function formatTime(value) {
-  if (!value) return 'Never';
-
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return 'Never';
-
-  return d.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function getCredentialSummary(definition, form) {
-  if (definition.key === 'meta') {
-    return {
-      accountId: form.accountId || '',
-      accessToken: form.accessToken || '',
-      adAccountId: form.adAccountId || '',
-    };
-  }
-
-  if (definition.key === 'google_ads') {
-    return {
-      customerId: form.customerId || '',
-      developerToken: form.developerToken || '',
-      clientId: form.clientId || '',
-      clientSecret: form.clientSecret || '',
-      refreshToken: form.refreshToken || '',
-    };
-  }
-
-  if (definition.key === 'tiktok') {
-    return {
-      appId: form.appId || '',
-      secret: form.secret || '',
-      advertiserId: form.advertiserId || '',
-      accessToken: form.accessToken || '',
-    };
-  }
-
-  if (definition.key === 'snapchat') {
-    return {
-      clientId: form.clientId || '',
-      clientSecret: form.clientSecret || '',
-      adAccountId: form.adAccountId || '',
-    };
-  }
-
-  return {
-    measurementId: form.measurementId || '',
-    apiSecret: form.apiSecret || '',
-    propertyId: form.propertyId || '',
-  };
-}
-
-function buildPayload(definition, form, autoSync) {
-  const credentials = getCredentialSummary(definition, form);
-
-  const accountId =
-    credentials.accountId ||
-    credentials.customerId ||
-    credentials.advertiserId ||
-    credentials.adAccountId ||
-    credentials.measurementId ||
-    credentials.propertyId ||
-    '';
-
-  const token =
-    credentials.accessToken ||
-    credentials.developerToken ||
-    credentials.refreshToken ||
-    credentials.clientSecret ||
-    credentials.secret ||
-    credentials.apiSecret ||
-    '';
-
-  return {
-    platform: definition.key,
-    provider: definition.key,
-    platformName: definition.title,
-    name: definition.title,
-    accountName: definition.title,
-    accountId,
-    accessToken: token,
-    token,
-    refreshToken: credentials.refreshToken || undefined,
-    status: 'connected',
-    autoSync: Boolean(autoSync),
-    spendLimit: 0,
-    currencyCode: 'SAR',
-    notes: JSON.stringify(
-      {
-        source: 'marketing_portal_ad_platform_modal',
-        credentials,
-      },
-      null,
-      2,
-    ),
-  };
-}
+import { useLocation, useNavigate } from 'react-router-dom';
+import { marketingSectionPath } from './marketingRouteUtils';
+import { PLATFORM_DEFINITIONS, extractPlatforms } from './adPlatformShared';
 
 const PlatformIcon = ({ definition }) => {
   if (definition.iconType === 'meta') {
@@ -386,15 +73,15 @@ const Toggle = ({ enabled, onClick }) => (
 );
 
 export const AdPlatforms = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const listPath = marketingSectionPath(location.pathname, 'ad-platforms');
+
   const [platforms, setPlatforms] = useState([]);
   const [logs, setLogs] = useState([]);
   const [autoSync, setAutoSync] = useState(false);
 
-  const [activeDefinition, setActiveDefinition] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
-
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [actionLoading, setActionLoading] = useState('');
   const [error, setError] = useState('');
 
@@ -457,65 +144,8 @@ export const AdPlatforms = () => {
     loadPlatforms();
   }, []);
 
-  const updateForm = (field, value) => {
-    setForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
-
-  const openConfigureModal = (definition) => {
-    setActiveDefinition(definition);
-    setForm({});
-  };
-
-  const closeModal = () => {
-    if (saving) return;
-    setActiveDefinition(null);
-    setForm({});
-  };
-
-  const validateForm = () => {
-    if (!activeDefinition) return false;
-
-    const missing = activeDefinition.fields.find(
-      (field) => field.required && !String(form[field.name] || '').trim(),
-    );
-
-    if (missing) {
-      alert(`${missing.label} is required.`);
-      return false;
-    }
-
-    return true;
-  };
-
-  const handleSaveConnection = async (event) => {
-    event.preventDefault();
-
-    if (!validateForm()) return;
-
-    const existing = platformMap.get(activeDefinition.key);
-    const payload = buildPayload(activeDefinition, form, autoSync);
-
-    try {
-      setSaving(true);
-
-      if (existing?.id) {
-        await marketingUpdateAdPlatform(existing.id, payload);
-      } else {
-        await marketingCreateAdPlatform(payload);
-      }
-
-      addLog(`${activeDefinition.title} connected`);
-
-      closeModal();
-      await loadPlatforms();
-    } catch (err) {
-      alert(err?.message || 'Failed to connect platform.');
-    } finally {
-      setSaving(false);
-    }
+  const openConfigurePage = (definition) => {
+    navigate(`${listPath}/${definition.key}/configure`);
   };
 
   const handleDisconnect = async (definition) => {
@@ -544,7 +174,7 @@ export const AdPlatforms = () => {
     const existing = platformMap.get(definition.key);
 
     if (!existing?.id) {
-      openConfigureModal(definition);
+      openConfigurePage(definition);
       return;
     }
 
@@ -677,7 +307,7 @@ export const AdPlatforms = () => {
                   <button
                     type="button"
                     title="Configure"
-                    onClick={() => openConfigureModal(definition)}
+                    onClick={() => openConfigurePage(definition)}
                     disabled={busy}
                   >
                     <Settings size={13} />
@@ -712,7 +342,7 @@ export const AdPlatforms = () => {
                   <button
                     type="button"
                     className="adp-connect-btn"
-                    onClick={() => openConfigureModal(definition)}
+                    onClick={() => openConfigurePage(definition)}
                     disabled={busy}
                   >
                     <Link2 size={13} />
@@ -751,69 +381,6 @@ export const AdPlatforms = () => {
           )}
         </div>
       </section>
-
-      {activeDefinition ? (
-        <div className="adp-modal-overlay">
-          <div className="adp-modal-card">
-            <div className="adp-modal-header">
-              <div>
-                <PlatformIcon definition={activeDefinition} />
-                <h2>Configure {activeDefinition.title}</h2>
-              </div>
-
-              <button type="button" onClick={closeModal}>
-                <X size={17} />
-              </button>
-            </div>
-
-            <div className="adp-modal-alert">
-              Enter your {activeDefinition.title} API credentials. These are stored
-              locally for metric sync.
-            </div>
-
-            <form onSubmit={handleSaveConnection}>
-              {activeDefinition.fields.map((field, index) => (
-                <div className="adp-form-group" key={field.name}>
-                  <label>{field.label}</label>
-                  <input
-                    autoFocus={index === 0}
-                    type={
-                      /token|secret|password|apiSecret|developerToken/i.test(
-                        field.name,
-                      )
-                        ? 'password'
-                        : 'text'
-                    }
-                    value={form[field.name] || ''}
-                    onChange={(event) => updateForm(field.name, event.target.value)}
-                    placeholder={field.placeholder}
-                  />
-                </div>
-              ))}
-
-              <div className="adp-modal-footer">
-                <button
-                  type="button"
-                  className="adp-cancel-btn"
-                  onClick={closeModal}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  className="adp-save-btn"
-                  disabled={saving}
-                >
-                  <RefreshCw size={13} className={saving ? 'adp-spin' : ''} />
-                  {saving ? 'Saving...' : 'Save & Connect'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
 
       <style>
         {`

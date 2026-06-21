@@ -18,6 +18,7 @@ export const NAV_GROUPS = [
         { id: 'stock', label: 'Stock Inventory', icon: Warehouse },
         { id: 'stock_alerts', label: 'Workshop Alerts', icon: AlertTriangle },
         { id: 'employees', label: 'Staff & Roles', icon: Users },
+        { id: 'staff_app', label: 'Staff App Management', icon: UserCircle2 },
     ]},
     { label: 'STORAGE FACILITY', items: [
         { id: 'storage_facility', label: 'Storage brands', icon: Boxes },

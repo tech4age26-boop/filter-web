@@ -4,6 +4,7 @@ import {
     listLogFilterUsers,
     listPettyCashExpensesLog,
 } from '../../../services/accountingLogsApi';
+import { useHqAdminBooksScope } from '../../../hooks/useHqAdminBooksScope';
 import '../../../styles/admin/AccountingPage.css';
 
 const fmt = (n) => {
@@ -23,6 +24,7 @@ function formatFilterUserLabel(u) {
 }
 
 export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 'all' }) {
+    const { isAdminHqBooks } = useHqAdminBooksScope();
     const [branchId, setBranchId] = useState(() => sidebarBranchToFilter(selectedBranchId));
     const [userId, setUserId] = useState('');
     const [dateFrom, setDateFrom] = useState('');
@@ -39,7 +41,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
         setError('');
         try {
             const res = await listPettyCashExpensesLog({
-                branchId: branchId || undefined,
+                ...(isAdminHqBooks ? {} : { branchId: branchId || undefined }),
                 userId: userId || undefined,
                 dateFrom: dateFrom || undefined,
                 dateTo: dateTo || undefined,
@@ -53,13 +55,15 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
         } finally {
             setLoading(false);
         }
-    }, [branchId, userId, dateFrom, dateTo, search]);
+    }, [branchId, userId, dateFrom, dateTo, search, isAdminHqBooks]);
 
     useEffect(() => {
-        setBranchId(sidebarBranchToFilter(selectedBranchId));
-    }, [selectedBranchId]);
+        if (!isAdminHqBooks) {
+            setBranchId(sidebarBranchToFilter(selectedBranchId));
+        }
+    }, [selectedBranchId, isAdminHqBooks]);
 
-    const branchScopeForUsers = branchId || undefined;
+    const branchScopeForUsers = isAdminHqBooks ? undefined : (branchId || undefined);
 
     useEffect(() => {
         listLogFilterUsers({ branchId: branchScopeForUsers })
@@ -81,12 +85,16 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
         [rows],
     );
 
+    const colSpan = isAdminHqBooks ? 6 : 7;
+
     return (
         <div className="accounting-page module-container">
             <header className="cash-bank-header">
                 <h2 className="cash-bank-title"><Wallet size={20} style={{ marginRight: 8 }} />Expenses</h2>
                 <p className="cash-bank-desc">
-                    Approved petty-cash expense requests across all users and branches.
+                    {isAdminHqBooks
+                        ? 'Platform HQ expense approvals — not scoped to workshop branches.'
+                        : 'Approved petty-cash expense requests across all users and branches.'}
                 </p>
             </header>
 
@@ -102,6 +110,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                 borderRadius: 12,
                 border: '1px solid #E2E8F0',
             }}>
+                {!isAdminHqBooks ? (
                 <div>
                     <label className="form-label">Branch</label>
                     <select className="form-input-field" value={branchId} onChange={(e) => {
@@ -114,6 +123,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                         ))}
                     </select>
                 </div>
+                ) : null}
                 <div>
                     <label className="form-label">User</label>
                     <select className="form-input-field" value={userId} onChange={(e) => setUserId(e.target.value)}>
@@ -133,24 +143,20 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                 </div>
                 <div>
                     <label className="form-label">Search</label>
-                    <input type="text" className="form-input-field" value={search} onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Category / description…" />
+                    <input type="search" className="form-input-field" placeholder="Category / description…" value={search} onChange={(e) => setSearch(e.target.value)} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                    <button type="button" className="btn-portal" onClick={reload} disabled={loading}>
+                    <button type="button" className="btn-submit btn-dark" onClick={reload} disabled={loading}>
                         <Filter size={14} style={{ marginRight: 6 }} /> Apply
                     </button>
                 </div>
             </section>
 
-            <div className="cash-bank-stats" style={{ marginBottom: 12 }}>
-                <div className="cash-bank-stat-card">
-                    <div className="cash-bank-stat-icon"><Wallet size={24} /></div>
-                    <div>
-                        <p className="cash-bank-stat-label">Total Approved</p>
-                        <p className="cash-bank-stat-value">SAR {fmt(totalAmount)}</p>
-                        <p className="cash-bank-stat-meta">{rows.length} of {total} rows</p>
-                    </div>
+            <div className="cash-bank-stat-card" style={{ marginBottom: 16, maxWidth: 280 }}>
+                <div>
+                    <p className="cash-bank-stat-label">Total approved</p>
+                    <p className="cash-bank-stat-value">SAR {fmt(totalAmount)}</p>
+                    <p className="cash-bank-stat-meta">{rows.length} of {total} rows</p>
                 </div>
             </div>
 
@@ -168,21 +174,21 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                             <th className="table-th">Amount</th>
                             <th className="table-th">Category</th>
                             <th className="table-th">User</th>
-                            <th className="table-th">Branch</th>
+                            {!isAdminHqBooks ? <th className="table-th">Branch</th> : null}
                             <th className="table-th">Approved by</th>
                             <th className="table-th">Description</th>
                         </tr>
                     </thead>
                     <tbody>
                         {rows.length === 0 ? (
-                            <tr><td colSpan={7} className="table-cell table-empty">No expenses found.</td></tr>
+                            <tr><td colSpan={colSpan} className="table-cell table-empty">{loading ? 'Loading…' : 'No expenses found.'}</td></tr>
                         ) : rows.map((r) => (
                             <tr key={r.id}>
                                 <td className="table-cell">{r.approvedAt ? new Date(r.approvedAt).toLocaleDateString() : '—'}</td>
                                 <td className="table-cell">SAR {fmt(r.amount)}</td>
                                 <td className="table-cell">{r.category?.name ?? '—'}</td>
                                 <td className="table-cell">{r.requestedBy?.name ?? r.requestedBy?.email ?? '—'}</td>
-                                <td className="table-cell">{r.branch?.name ?? '—'}</td>
+                                {!isAdminHqBooks ? <td className="table-cell">{r.branch?.name ?? '—'}</td> : null}
                                 <td className="table-cell">{r.approvedBy?.name ?? '—'}</td>
                                 <td className="table-cell" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {r.description ?? '—'}

@@ -16,6 +16,10 @@ import {
     fmtBillingMoney,
     fmtPeriodLabel,
 } from '../../utils/corporateBillingFormat';
+import {
+    exportCorporateGeneratedBillPdf,
+    formatLedgerTypeShort,
+} from '../../utils/corporateArLedgerExport';
 
 const num = (v) => `SAR ${fmtBillingMoney(v)}`;
 const fmtCell = fmtBillingCellAmount;
@@ -72,6 +76,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
     const [proofNotes, setProofNotes] = useState('');
     const [paySubmitting, setPaySubmitting] = useState(false);
     const [payError, setPayError] = useState('');
+    const [pdfExporting, setPdfExporting] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -194,7 +199,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
         void handleProofPay();
     };
 
-    const printBill = (bill, statement) => {
+    const downloadBillPdf = async (bill, statement, ledgerStatement) => {
         if (!bill) return;
         const period = fmtBillPeriod(bill);
         const rows = statement?.rows ?? [];
@@ -237,6 +242,9 @@ export default function BillGenerated({ onWalletBalanceChange }) {
 
     const activeBill = detail ?? bills.find((b) => b.id === expandedId);
     const activeStatement = detail?.statement;
+    const activeLedger = detail?.ledgerStatement;
+    const ledgerLines = activeLedger?.lines ?? [];
+    const ledgerSum = activeLedger?.summary ?? activeBill?.kpis ?? {};
 
     return (
         <div>
@@ -316,7 +324,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                             <div style={{ padding: 24, textAlign: 'center' }}>
                                                 <Loader2 className="spin" size={24} />
                                             </div>
-                                        ) : activeStatement ? (
+                                        ) : activeLedger?.lines?.length || activeStatement?.rows?.length ? (
                                             <>
                                                 <div
                                                     style={{
@@ -326,59 +334,116 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                                         margin: '16px 0',
                                                     }}
                                                 >
-                                                    {[
-                                                        ['Invoice Amount', bill.kpis?.totalInvoiceAmount],
-                                                        ['Sales Return', bill.kpis?.totalSalesReturn],
-                                                        ['Receipts', bill.kpis?.totalReceipts],
-                                                        ['Balance (due)', bill.kpis?.balance],
-                                                    ].map(([label, val]) => (
-                                                        <div key={label} style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
-                                                            <div style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 700 }}>{label}</div>
-                                                            <div style={{ fontWeight: 800, marginTop: 4, color: label.includes('Balance') ? '#b91c1c' : '#0f172a' }}>{num(val)}</div>
-                                                            {label.includes('Balance') && Number(bill.kpis?.totalUnpaidInvoices ?? 0) > 0.05 ? (
-                                                                <div style={{ fontSize: '0.68rem', color: '#b91c1c', marginTop: 4, fontWeight: 600 }}>
-                                                                    Unpaid invoices: {num(bill.kpis?.totalUnpaidInvoices)}
-                                                                </div>
-                                                            ) : null}
-                                                        </div>
-                                                    ))}
+                                                    {activeLedger?.lines?.length ? (
+                                                        [
+                                                            ['Opening', ledgerSum.openingBalance],
+                                                            ['Invoices', ledgerSum.totalInvoiceAmount],
+                                                            ['Receipts', ledgerSum.totalReceipts],
+                                                            ['Discounts', ledgerSum.totalDiscounts],
+                                                            ['Returns', ledgerSum.totalSalesReturns],
+                                                            ['Closing', ledgerSum.closingBalance],
+                                                        ].map(([label, val]) => (
+                                                            <div key={label} style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                                                                <div style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 700 }}>{label}</div>
+                                                                <div style={{ fontWeight: 800, marginTop: 4 }}>{num(val)}</div>
+                                                            </div>
+                                                        ))
+                                                    ) : (
+                                                        [
+                                                            ['Invoice Amount', bill.kpis?.totalInvoiceAmount],
+                                                            ['Sales Return', bill.kpis?.totalSalesReturn],
+                                                            ['Receipts', bill.kpis?.totalReceipts],
+                                                            ['Balance (due)', bill.kpis?.balance],
+                                                        ].map(([label, val]) => (
+                                                            <div key={label} style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                                                                <div style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 700 }}>{label}</div>
+                                                                <div style={{ fontWeight: 800, marginTop: 4, color: label.includes('Balance') ? '#b91c1c' : '#0f172a' }}>{num(val)}</div>
+                                                            </div>
+                                                        ))
+                                                    )}
                                                 </div>
 
                                                 <div style={{ overflowX: 'auto', marginBottom: 16 }}>
-                                                    <table className="ws-table" style={{ minWidth: 720 }}>
-                                                        <thead>
-                                                            <tr>
-                                                                <th>Date</th>
-                                                                <th>Ref No</th>
-                                                                <th>Vehicle Number</th>
-                                                                <th>Workshop / Branch</th>
-                                                                <th>Type</th>
-                                                                <th>Status</th>
-                                                                <th style={{ textAlign: 'right' }}>Invoice</th>
-                                                                <th style={{ textAlign: 'right' }}>Return</th>
-                                                                <th style={{ textAlign: 'right' }}>Receipt</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {(activeStatement.rows ?? []).map((r, idx) => (
-                                                                <tr key={`${r.refNo}-${idx}`}>
-                                                                    <td>{r.date}</td>
-                                                                    <td>{r.refNo}</td>
-                                                                    <td>{r.vehicleNumber}</td>
-                                                                    <td>{r.workshopBranch}</td>
-                                                                    <td>{r.type}</td>
-                                                                    <td>
-                                                                        <span className={`billing-status-badge ${billingStatusBadgeClass(r.status)}`}>
-                                                                            {r.status ?? '—'}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td style={{ textAlign: 'right' }}>{fmtCell(r.invoiceAmount)}</td>
-                                                                    <td style={{ textAlign: 'right' }}>{fmtCell(r.salesReturn)}</td>
-                                                                    <td style={{ textAlign: 'right' }}>{fmtCell(r.receipts)}</td>
+                                                    {activeLedger?.lines?.length ? (
+                                                        <table className="ws-table" style={{ minWidth: 960 }}>
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>Date</th>
+                                                                    <th>Inv No.</th>
+                                                                    <th>Vehicle</th>
+                                                                    <th>Products &amp; Services</th>
+                                                                    <th>Type</th>
+                                                                    <th style={{ textAlign: 'right' }}>Excl VAT</th>
+                                                                    <th style={{ textAlign: 'right' }}>VAT</th>
+                                                                    <th style={{ textAlign: 'right' }}>Incl VAT</th>
+                                                                    <th style={{ textAlign: 'right' }}>Balance</th>
                                                                 </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
+                                                            </thead>
+                                                            <tbody>
+                                                                <tr>
+                                                                    <td colSpan={8}><strong>Opening balance</strong></td>
+                                                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{num(ledgerSum.openingBalance)}</td>
+                                                                </tr>
+                                                                {ledgerLines.map((row) => (
+                                                                    <tr key={row.id}>
+                                                                        <td>{row.date}</td>
+                                                                        <td>{row.invoiceNo}</td>
+                                                                        <td>{row.vehicleNo}</td>
+                                                                        <td>
+                                                                            <div>{row.productsServicesEn ?? row.productsServices}</div>
+                                                                            {row.productsServicesAr ? (
+                                                                                <div style={{ fontSize: 12, color: '#64748b', direction: 'rtl' }}>{row.productsServicesAr}</div>
+                                                                            ) : null}
+                                                                        </td>
+                                                                        <td>{formatLedgerTypeShort(row.type)}</td>
+                                                                        <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceExclVat)}</td>
+                                                                        <td style={{ textAlign: 'right' }}>{fmtCell(row.vat15)}</td>
+                                                                        <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceInclusiveVat)}</td>
+                                                                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{num(row.runningBalance)}</td>
+                                                                    </tr>
+                                                                ))}
+                                                                <tr>
+                                                                    <td colSpan={8}><strong>Closing balance</strong></td>
+                                                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{num(ledgerSum.closingBalance)}</td>
+                                                                </tr>
+                                                            </tbody>
+                                                        </table>
+                                                    ) : (
+                                                        <table className="ws-table" style={{ minWidth: 720 }}>
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>Date</th>
+                                                                    <th>Ref No</th>
+                                                                    <th>Vehicle Number</th>
+                                                                    <th>Workshop / Branch</th>
+                                                                    <th>Type</th>
+                                                                    <th>Status</th>
+                                                                    <th style={{ textAlign: 'right' }}>Invoice</th>
+                                                                    <th style={{ textAlign: 'right' }}>Return</th>
+                                                                    <th style={{ textAlign: 'right' }}>Receipt</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {(activeStatement.rows ?? []).map((r, idx) => (
+                                                                    <tr key={`${r.refNo}-${idx}`}>
+                                                                        <td>{r.date}</td>
+                                                                        <td>{r.refNo}</td>
+                                                                        <td>{r.vehicleNumber}</td>
+                                                                        <td>{r.workshopBranch}</td>
+                                                                        <td>{r.type}</td>
+                                                                        <td>
+                                                                            <span className={`billing-status-badge ${billingStatusBadgeClass(r.status)}`}>
+                                                                                {r.status ?? '—'}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td style={{ textAlign: 'right' }}>{fmtCell(r.invoiceAmount)}</td>
+                                                                        <td style={{ textAlign: 'right' }}>{fmtCell(r.salesReturn)}</td>
+                                                                        <td style={{ textAlign: 'right' }}>{fmtCell(r.receipts)}</td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    )}
                                                 </div>
 
                                                 <div
@@ -393,9 +458,10 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                                     <button
                                                         type="button"
                                                         className="btn-portal-outline"
-                                                        onClick={() => printBill(bill, activeStatement)}
+                                                        disabled={pdfExporting}
+                                                        onClick={() => downloadBillPdf(activeBill, activeStatement, activeLedger)}
                                                     >
-                                                        <Download size={16} /> Download PDF
+                                                        <Download size={16} /> {pdfExporting ? 'Generating…' : 'Download Bill PDF'}
                                                     </button>
                                                     {(bill.status === 'pending' || bill.status === 'rejected') &&
                                                     Number(bill.kpis?.balance ?? 0) > 0.05 ? (

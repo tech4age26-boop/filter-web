@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Shield, X, Wallet, Landmark, Banknote, Settings, Trash2, Calendar, FileText, ArrowLeftRight, Search, Filter, CreditCard, DollarSign, Book, CheckCircle, Eye, Printer, AlertTriangle, ChevronDown, ShoppingCart, Zap, Users, UserPlus, Clock, Activity, Coins, BookOpen, Save, Percent, Calculator, RefreshCw } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import AccountDetailModal from '../../components/AccountDetailModal';
-import WorkshopCOAView from '../../components/accounting/WorkshopCOAView';
+import WorkshopCOAManager from '../../components/accounting/WorkshopCOAManager';
 import { apiFetch } from '../../services/api';
 import {
   listWorkshopCashBankAccounts,
@@ -41,6 +41,9 @@ import WorkshopExpensesLog from './accounting/WorkshopExpensesLog';
 import WorkshopPayroll from './accounting/WorkshopPayroll';
 import WorkshopAdvances from './accounting/WorkshopAdvances';
 import WorkshopLedgerView from './accounting/WorkshopLedgerView';
+import CashBankRegisterPanel from '../../components/accounting/CashBankRegisterPanel';
+import CoaAccountSearchCombobox, { CashBankAccountSearchCombobox } from '../../components/accounting/CoaAccountSearchCombobox';
+import { useHqAdminBooksScope } from '../../hooks/useHqAdminBooksScope';
 import '../../styles/admin/AccountingPage.css';
 
 const CASH_BANK_TABS = ['All Accounts', 'Cash', 'Bank', 'Petty Cash'];
@@ -83,6 +86,7 @@ function normalizeWorkshopCashBankRow(raw) {
     kindLabel,
     isSystem,
     coaLink,
+    coaAccountId: raw.coaAccountId != null ? String(raw.coaAccountId) : (coa?.id != null ? String(coa.id) : ''),
     posLinkLabel,
     posTerminalId,
     openingBalance: Number(raw.openingBalance ?? 0),
@@ -241,7 +245,7 @@ const COA_TRANSACTION_MAPPING_OPTIONS = [
 ];
 
 function ChartOfAccountsView() {
-    return <WorkshopCOAView />;
+    return <WorkshopCOAManager />;
 }
 
 const PAYEE_TYPES = ['Supplier', 'Employee', 'Customer', 'Other'];
@@ -294,6 +298,7 @@ function buildRowsFromVoucherPool(makeBlank, pool, count = 2) {
 }
 
 function TransactionEntryView({ branches = [] }) {
+    const { isAdminHqBooks } = useHqAdminBooksScope();
     const [activeTab, setActiveTab] = useState('Payments');
     const [paymentsRows, setPaymentsRows] = useState(() => buildRowsFromVoucherPool(blankPaymentRow, ['PE0001', 'PE0002']));
     const [receiptsRows, setReceiptsRows] = useState(() => buildRowsFromVoucherPool(blankReceiptRow, ['RV0001', 'RV0002']));
@@ -378,10 +383,11 @@ function TransactionEntryView({ branches = [] }) {
     // Whenever Paid From Account changes, sync the branch field with the
     // register's branch so the user doesn't need to set it twice.
     useEffect(() => {
+        if (isAdminHqBooks) return;
         if (!paidFromAccountId) return;
         const acc = cashBankAccounts.find((a) => String(a.id) === String(paidFromAccountId));
         if (acc?.branchId) setHeaderBranchId(String(acc.branchId));
-    }, [paidFromAccountId, cashBankAccounts]);
+    }, [paidFromAccountId, cashBankAccounts, isAdminHqBooks]);
 
     const reloadRecent = useCallback(async (tab) => {
         try {
@@ -488,7 +494,7 @@ function TransactionEntryView({ branches = [] }) {
         try {
             const res = await createAcctPayments({
                 date: headerDate,
-                branchId: headerBranchId || undefined,
+                ...(isAdminHqBooks ? {} : { branchId: headerBranchId || undefined }),
                 generalNote: generalNote || undefined,
                 cashBankAccountId: paidFromAccountId,
                 rows: valid.map((r) => ({
@@ -528,7 +534,7 @@ function TransactionEntryView({ branches = [] }) {
         try {
             const res = await createAcctReceipts({
                 date: headerDate,
-                branchId: headerBranchId || undefined,
+                ...(isAdminHqBooks ? {} : { branchId: headerBranchId || undefined }),
                 generalNote: generalNote || undefined,
                 cashBankAccountId: paidFromAccountId,
                 rows: valid.map((r) => ({
@@ -568,7 +574,7 @@ function TransactionEntryView({ branches = [] }) {
         try {
             const res = await createAcctJournalEntry({
                 date: headerDate,
-                branchId: headerBranchId || undefined,
+                ...(isAdminHqBooks ? {} : { branchId: headerBranchId || undefined }),
                 description: journalMemo || undefined,
                 lines: lines.map((l) => ({
                     accountId: l.accountId,
@@ -625,16 +631,11 @@ function TransactionEntryView({ branches = [] }) {
     };
 
     const renderAccountSelect = (row, update, options) => (
-        <select
-            className="table-input-field"
+        <CoaAccountSearchCombobox
+            accounts={options}
             value={row.accountId}
-            onChange={(e) => update(row.id, { accountId: e.target.value })}
-        >
-            <option value="">Select account…</option>
-            {options.map((o) => (
-                <option key={o.id} value={o.id}>{o.label}</option>
-            ))}
-        </select>
+            onChange={(accountId) => update(row.id, { accountId })}
+        />
     );
 
     const formatRecentDate = (d) => {
@@ -647,7 +648,11 @@ function TransactionEntryView({ branches = [] }) {
             <header className="trans-entry-header">
                 <div>
                     <h2 className="trans-entry-title">Transaction Entry</h2>
-                    <p className="trans-entry-subtitle">Record payments, receipts, and journal entries</p>
+                    <p className="trans-entry-subtitle">
+                        {isAdminHqBooks
+                            ? 'Record Platform HQ payments, receipts, and journal entries (not linked to workshop branches).'
+                            : 'Record payments, receipts, and journal entries'}
+                    </p>
                 </div>
             </header>
 
@@ -664,6 +669,7 @@ function TransactionEntryView({ branches = [] }) {
                             />
                         </div>
                     </div>
+                    {!isAdminHqBooks ? (
                     <div className="form-group">
                         <label className="form-label">Branch</label>
                         <select
@@ -677,6 +683,7 @@ function TransactionEntryView({ branches = [] }) {
                             ))}
                         </select>
                     </div>
+                    ) : null}
                     <div className="form-group">
                         <label className="form-label">General Note</label>
                         <input
@@ -694,18 +701,12 @@ function TransactionEntryView({ branches = [] }) {
                                 <span>{paidFromLabel}</span>
                             </div>
                         </label>
-                        <select
-                            className="form-input-field"
+                        <CashBankAccountSearchCombobox
+                            accounts={cashBankAccounts}
                             value={paidFromAccountId}
-                            onChange={(e) => setPaidFromAccountId(e.target.value)}
-                        >
-                            <option value="">{cashBankPlaceholder}</option>
-                            {cashBankAccounts.map((a) => (
-                                <option key={a.id} value={a.id}>
-                                    {a.name} ({a.type}) — SAR {Number(a.currentBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </option>
-                            ))}
-                        </select>
+                            onChange={setPaidFromAccountId}
+                            placeholder={cashBankPlaceholder}
+                        />
                     </div>
                 </div>
             </div>
@@ -749,7 +750,7 @@ function TransactionEntryView({ branches = [] }) {
                 )}
                 <div className="trans-table-header-info">
                     {activeTab === 'Payments' && <span>Payments — Dr: Payable/Expense | Cr: Cash/Bank - <small>Tab on last field adds new row automatically</small></span>}
-                    {activeTab === 'Receipts' && <span>Receipts — Dr: Cash/Bank | Cr: Receivable/Revenue <small>— Tab on last field adds new row automatically</small></span>}
+                    {activeTab === 'Receipts' && <span>Receipts — Dr: Cash/Bank | Cr: Receivable/Revenue/Equity <small>— Tab on last field adds new row automatically</small></span>}
                     {activeTab === 'Journal Entry' && null}
                 </div>
                 <div className="premium-table-container">
@@ -769,7 +770,7 @@ function TransactionEntryView({ branches = [] }) {
                                     <th style={{ width: '150px' }}>Date</th>
                                     <th style={{ width: '150px' }}>Type</th>
                                     <th>{activeTab === 'Payments' ? 'Payee (To)' : 'Received From'}</th>
-                                    <th>{activeTab === 'Payments' ? 'Account Dr — Payable/Expense' : 'Account Cr — Receivable/Revenue'}</th>
+                                    <th>{activeTab === 'Payments' ? 'Account Dr — Payable/Expense/Equity' : 'Account Cr — Receivable/Revenue/Equity'}</th>
                                     <th style={{ width: '120px' }}>Amount (SAR)</th>
                                     <th>Reference</th>
                                     <th>Notes</th>
@@ -1906,6 +1907,9 @@ function PurchasesView({ taxes }) {
     );
 }
 function CashBankView({ branches = [] }) {
+    const { isAdminHqBooks } = useHqAdminBooksScope();
+    const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [accountTab, setAccountTab] = useState('All Accounts');
     const [accounts, setAccounts] = useState([]);
     const [accountsLoading, setAccountsLoading] = useState(false);
@@ -1935,6 +1939,7 @@ function CashBankView({ branches = [] }) {
     const [migrationMsg, setMigrationMsg] = useState('');
     const [branchDefaults, setBranchDefaults] = useState({});
     const [branchDefaultsMsg, setBranchDefaultsMsg] = useState('');
+    const [registerView, setRegisterView] = useState(null);
 
     const loadAccounts = useCallback(async () => {
         setAccountsLoading(true);
@@ -1976,6 +1981,27 @@ function CashBankView({ branches = [] }) {
     useEffect(() => {
         loadPosTerminals();
     }, [loadPosTerminals]);
+
+    const urlCoaAccountId = searchParams.get('coaAccountId') || '';
+
+    useEffect(() => {
+        if (!urlCoaAccountId || accountsLoading || accounts.length === 0) return;
+        const match = accounts.find(
+            (a) => String(a.coaAccountId) === String(urlCoaAccountId),
+        );
+        if (!match) return;
+        const type = uiCashBankTypeToApi(match.type);
+        setRegisterView({
+            registerType: type,
+            coaAccountId: match.coaAccountId || '',
+            accountName: match.name || '',
+        });
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete('coaAccountId');
+            return next;
+        }, { replace: true });
+    }, [urlCoaAccountId, accounts, accountsLoading, setSearchParams]);
 
     useEffect(() => {
         if (!newPosTerminalId) return;
@@ -2027,6 +2053,10 @@ function CashBankView({ branches = [] }) {
     };
 
     const openNewAccountModal = () => {
+        if (isAdminHqBooks) {
+            navigate('/admin/accounting/cash-bank/new');
+            return;
+        }
         setSaveError('');
         setNewPosTerminalId('');
         setNewAccountOpen(true);
@@ -2065,7 +2095,19 @@ function CashBankView({ branches = [] }) {
         }
     };
 
+    const openRegisterForAccount = (a) => {
+        const type = uiCashBankTypeToApi(a.type);
+        setRegisterView({
+            type,
+            coaAccountId: a.coaAccountId || '',
+        });
+    };
+
     const openEdit = (a) => {
+        if (isAdminHqBooks) {
+            navigate(`/admin/accounting/cash-bank/${encodeURIComponent(a.id)}/edit`);
+            return;
+        }
         let bid = a.branchId != null && String(a.branchId).trim() !== '' ? String(a.branchId) : '';
         if (!bid && a.branch) {
             const match = branches.find((b) => b.name === a.branch);
@@ -2165,13 +2207,24 @@ function CashBankView({ branches = [] }) {
         }
     };
 
+    if (registerView) {
+        return (
+            <CashBankRegisterPanel
+                registerType={registerView.type}
+                initialCoaAccountId={registerView.coaAccountId || ''}
+                onClose={() => setRegisterView(null)}
+            />
+        );
+    }
+
     return (
         <div className="cash-bank-view">
             <header className="cash-bank-header">
                 <h2 className="cash-bank-title">Cash, Bank & Petty Cash</h2>
                 <p className="cash-bank-desc">
-                    Manage registers and balances. Each account is linked automatically to Chart of Accounts (Current Asset).
-                    Optionally link a register to one SoftPOS terminal for settlements, or keep it shared. Use internal transfer to move funds between registers.
+                    {isAdminHqBooks
+                        ? 'Manage Platform HQ registers and balances. Each account is linked automatically to Chart of Accounts (Current Asset). Use internal transfer to move funds between HQ registers — not tied to workshop branches.'
+                        : 'Manage registers and balances. Each account is linked automatically to Chart of Accounts (Current Asset). Optionally link a register to one SoftPOS terminal for settlements, or keep it shared. Use internal transfer to move funds between registers.'}
                 </p>
             </header>
             {accountsError ? (
@@ -2180,30 +2233,45 @@ function CashBankView({ branches = [] }) {
                 </p>
             ) : null}
             <div className="cash-bank-stats">
-                <div className="cash-bank-stat-card">
+                <button
+                    type="button"
+                    className="cash-bank-stat-card cash-bank-stat-card--clickable"
+                    onClick={() => setRegisterView({ type: 'CASH' })}
+                    title="Open Cash register"
+                >
                     <div className="cash-bank-stat-icon"><Banknote size={24} /></div>
                     <div>
                         <p className="cash-bank-stat-label">Cash on Hand</p>
                         <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.cash)}</p>
-                        <p className="cash-bank-stat-meta">{stats.nCash} accounts</p>
+                        <p className="cash-bank-stat-meta">{stats.nCash} accounts · Click to open register</p>
                     </div>
-                </div>
-                <div className="cash-bank-stat-card">
+                </button>
+                <button
+                    type="button"
+                    className="cash-bank-stat-card cash-bank-stat-card--clickable"
+                    onClick={() => setRegisterView({ type: 'BANK' })}
+                    title="Open Bank register"
+                >
                     <div className="cash-bank-stat-icon"><Landmark size={24} /></div>
                     <div>
                         <p className="cash-bank-stat-label">Bank Balance</p>
                         <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.bank)}</p>
-                        <p className="cash-bank-stat-meta">{stats.nBank} accounts</p>
+                        <p className="cash-bank-stat-meta">{stats.nBank} accounts · Click to open register</p>
                     </div>
-                </div>
-                <div className="cash-bank-stat-card">
+                </button>
+                <button
+                    type="button"
+                    className="cash-bank-stat-card cash-bank-stat-card--clickable"
+                    onClick={() => setRegisterView({ type: 'PETTY_CASH' })}
+                    title="Open Petty Cash register"
+                >
                     <div className="cash-bank-stat-icon"><Wallet size={24} /></div>
                     <div>
                         <p className="cash-bank-stat-label">Petty Cash</p>
                         <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.petty)}</p>
-                        <p className="cash-bank-stat-meta">{stats.nPetty} accounts</p>
+                        <p className="cash-bank-stat-meta">{stats.nPetty} accounts · Click to open register</p>
                     </div>
-                </div>
+                </button>
             </div>
             <div className="cash-bank-tabs">
                 {CASH_BANK_TABS.map((t) => (
@@ -2222,6 +2290,7 @@ function CashBankView({ branches = [] }) {
                     <RefreshCw size={16} style={{ marginRight: 6, opacity: accountsLoading ? 0.5 : 1 }} />
                     Refresh
                 </button>
+                {!isAdminHqBooks ? (
                 <button
                     type="button"
                     className="btn-portal-outline"
@@ -2244,8 +2313,9 @@ function CashBankView({ branches = [] }) {
                     <Zap size={16} style={{ marginRight: 6 }} />
                     {migratingV3 ? 'Migrating…' : 'Run cash-flow migration'}
                 </button>
+                ) : null}
             </div>
-            {migrationMsg ? (
+            {!isAdminHqBooks && migrationMsg ? (
                 <p className="form-help-text" style={{ color: '#0E7C66', margin: '6px 0 0' }}>{migrationMsg}</p>
             ) : null}
 
@@ -2343,7 +2413,7 @@ function CashBankView({ branches = [] }) {
                 </div>
             </section>
 
-            {branches.length > 0 ? (
+            {!isAdminHqBooks && branches.length > 0 ? (
                 <section
                     className="cash-bank-branch-defaults"
                     style={{
@@ -2439,8 +2509,8 @@ function CashBankView({ branches = [] }) {
                             <th className="table-th">Account</th>
                             <th className="table-th">Kind</th>
                             <th className="table-th">Type</th>
-                            <th className="table-th">Branch</th>
-                            <th className="table-th">POS / SoftPOS</th>
+                            {!isAdminHqBooks ? <th className="table-th">Branch</th> : null}
+                            {!isAdminHqBooks ? <th className="table-th">POS / SoftPOS</th> : null}
                             <th className="table-th">COA Link</th>
                             <th className="table-th">Opening Balance</th>
                             <th className="table-th">Current Balance</th>
@@ -2451,22 +2521,27 @@ function CashBankView({ branches = [] }) {
                     <tbody>
                         {accountsLoading ? (
                             <tr>
-                                <td colSpan={10} className="table-cell table-empty">Loading accounts…</td>
+                                <td colSpan={isAdminHqBooks ? 8 : 10} className="table-cell table-empty">Loading accounts…</td>
                             </tr>
                         ) : visibleAccounts.length === 0 ? (
                             <tr>
-                                <td colSpan={10} className="table-cell table-empty">No accounts found</td>
+                                <td colSpan={isAdminHqBooks ? 8 : 10} className="table-cell table-empty">No accounts found</td>
                             </tr>
                         ) : (
                             visibleAccounts.map((a) => (
-                                <tr key={a.id}>
+                                <tr
+                                    key={a.id}
+                                    className="cash-bank-account-row--clickable"
+                                    onClick={() => openRegisterForAccount(a)}
+                                    title="Open register for this account"
+                                >
                                     <td className="table-cell cell-main-text">{a.name}</td>
                                     <td className="table-cell">
                                         <span className={`status-badge ${a.isSystem ? 'status-pending' : 'status-completed'}`}>{a.kindLabel}</span>
                                     </td>
                                     <td className="table-cell">{a.type}</td>
-                                    <td className="table-cell">{a.branch}</td>
-                                    <td className="table-cell">{a.posLinkLabel}</td>
+                                    {!isAdminHqBooks ? <td className="table-cell">{a.branch}</td> : null}
+                                    {!isAdminHqBooks ? <td className="table-cell">{a.posLinkLabel}</td> : null}
                                     <td className="table-cell">{a.coaLink}</td>
                                     <td className="table-cell">SAR {formatSarAmount(a.openingBalance)}</td>
                                     <td className="table-cell">SAR {formatSarAmount(a.currentBalance)}</td>
@@ -2475,7 +2550,7 @@ function CashBankView({ branches = [] }) {
                                         {a.isSystem ? (
                                             <span className="form-help-text" title="System registers cannot be edited from this UI — their balance is driven by GL.">System</span>
                                         ) : (
-                                            <button type="button" className="btn-edit-zone" onClick={() => openEdit(a)}>Edit</button>
+                                            <button type="button" className="btn-edit-zone" onClick={(e) => { e.stopPropagation(); openEdit(a); }}>Edit</button>
                                         )}
                                     </td>
                                 </tr>
@@ -2485,6 +2560,7 @@ function CashBankView({ branches = [] }) {
                 </table>
             </section>
 
+            {!isAdminHqBooks ? (
             <AnimatePresence>
                 {newAccountOpen && (
                     <Modal
@@ -2699,6 +2775,7 @@ function CashBankView({ branches = [] }) {
                     </Modal>
                 )}
             </AnimatePresence>
+            ) : null}
         </div>
     );
 }
@@ -2920,6 +2997,7 @@ function ExpensesView() {
 }
 
 function GeneralJournalView() {
+    const { isAdminHqBooks } = useHqAdminBooksScope();
     const [viewJEOpen, setViewJEOpen] = useState(false);
     const [selectedJE, setSelectedJE] = useState(null);
     const [entries, setEntries] = useState([]);
@@ -3104,7 +3182,11 @@ function GeneralJournalView() {
         <div className="general-journal-view">
             <header className="journal-header">
                 <h2 className="journal-title">General Journal</h2>
-                <p className="journal-subtitle">General journal transaction log — entries recorded via Transaction Entry</p>
+                <p className="journal-subtitle">
+                    {isAdminHqBooks
+                        ? 'Platform HQ general journal — entries posted in HQ books only.'
+                        : 'General journal transaction log — entries recorded via Transaction Entry'}
+                </p>
             </header>
 
             <div className="journal-stats">

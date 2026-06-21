@@ -87,6 +87,18 @@ function hexToBytes(hex) {
     return out;
 }
 
+/** ZATCA tag 3 timestamp — uses printed invoice date for backdated invoices. */
+function invoiceDateToZatcaTimestamp(invoiceDate, issuedAt) {
+    const raw = invoiceDate ?? issuedAt;
+    if (!raw) return new Date();
+    const s = String(raw).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        return new Date(`${s}T12:00:00.000Z`);
+    }
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
 /**
  * Build ZATCA Phase-2 TLV (9 tags) as base64.
  * Returns null when required Phase-1 fields are missing.
@@ -145,11 +157,12 @@ export function buildZatcaQrTlvBase64(opts) {
     const va = String(opts.vatAmount || '').trim();
     if (!s || !v || !t || !va) return null;
 
-    const ts = new Date(opts.timestampUtc).toISOString();
+    const ts = new Date(opts.timestampUtc);
+    const iso = Number.isNaN(ts.getTime()) ? new Date().toISOString() : ts.toISOString();
     const chunks = [];
     writeTlvText(chunks, 1, s);
     writeTlvText(chunks, 2, v);
-    writeTlvText(chunks, 3, ts);
+    writeTlvText(chunks, 3, iso);
     writeTlvText(chunks, 4, t);
     writeTlvText(chunks, 5, va);
     return concatTlv(chunks);
@@ -159,12 +172,12 @@ export async function buildZatcaPhase2QrPayloadFromInvoice({
     sellerName,
     vatNumber,
     invoiceDate,
+    issuedAt,
     invoiceNumber,
     grandTotal,
     vatAmount,
 }) {
-    const dateRaw = invoiceDate ? new Date(invoiceDate) : new Date();
-    const timestampUtc = Number.isNaN(dateRaw.getTime()) ? new Date() : dateRaw;
+    const timestampUtc = invoiceDateToZatcaTimestamp(invoiceDate, issuedAt);
     return buildZatcaPhase2QrTlvBase64({
         sellerName,
         vatNumber,
@@ -184,11 +197,11 @@ export function buildZatcaPhase1QrPayloadFromInvoice({
     sellerName,
     vatNumber,
     invoiceDate,
+    issuedAt,
     grandTotal,
     vatAmount,
 }) {
-    const dateRaw = invoiceDate ? new Date(invoiceDate) : new Date();
-    const timestampUtc = Number.isNaN(dateRaw.getTime()) ? new Date() : dateRaw;
+    const timestampUtc = invoiceDateToZatcaTimestamp(invoiceDate, issuedAt);
     return buildZatcaQrTlvBase64({
         sellerName,
         vatNumber,

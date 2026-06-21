@@ -18,7 +18,7 @@ import {
   thermalInvoiceQrPayload,
   thermalR2,
 } from '../../../utils/thermalInvoiceTotals';
-import { buildZatcaPhase2QrPayloadFromInvoice } from '../../../utils/zatcaQr';
+import { buildZatcaPhase1QrPayloadFromInvoice } from '../../../utils/zatcaQr';
 import './CashierTaxInvoiceView.css';
 
 function dash(s) {
@@ -68,20 +68,17 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Real invoices with a public link keep their URL QR. Otherwise (e.g.
-      // demo invoices) build a ZATCA Phase-2 TLV QR (tags 1–9) whose timestamp
-      // is the INVOICE date (not the creation date) — so a scan shows the date
-      // printed on the invoice. Tags 6–9 are base64 text (clean), with the
-      // cryptographic stamp values still placeholders until real ZATCA signing
-      // is integrated. Falls back to the plain text payload if seller VAT
-      // details are missing.
+      // Public invoice URL QR when available. Otherwise ZATCA Phase-1 TLV (tags 1–5)
+      // — scannable on standard ZATCA apps. Timestamp uses the printed invoice date
+      // (not row creation time) for backdated demo / sandbox invoices.
       let payload = resolveInvoicePublicQrUrl(invoice);
       if (!payload) {
-        payload = await buildZatcaPhase2QrPayloadFromInvoice({
+        const vatNo = sellerVatRegistration(invoice);
+        payload = buildZatcaPhase1QrPayloadFromInvoice({
           sellerName: invoice.workshop?.name || invoice.workshopName || 'FILTER',
-          vatNumber: sellerVatRegistration(invoice),
+          vatNumber: vatNo,
           invoiceDate: invoice.invoiceDate || invoice.issuedAt,
-          invoiceNumber: invoice.invoiceNo,
+          issuedAt: invoice.issuedAt,
           grandTotal: totals.totalInvoiceAmount,
           vatAmount: totals.vatAmount,
         });
@@ -90,7 +87,11 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice }) {
         payload = thermalInvoiceQrPayload(invoice, totals.totalInvoiceAmount);
       }
       try {
-        const url = await QRCode.toDataURL(payload, { width: 112, margin: 1, errorCorrectionLevel: 'M' });
+        const url = await QRCode.toDataURL(payload, {
+          width: 132,
+          margin: 2,
+          errorCorrectionLevel: 'M',
+        });
         if (!cancelled) setQrDataUrl(url);
       } catch {
         if (!cancelled) setQrDataUrl('');

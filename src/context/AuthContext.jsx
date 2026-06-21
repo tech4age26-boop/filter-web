@@ -109,7 +109,31 @@ export const AuthProvider = ({ children }) => {
             login, logout, loading,
             permissions, hasPermission,
         }}>
-            {!loading && children}
+            {loading ? (
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: '100vh',
+                        background: '#F5F5F7',
+                        color: '#111',
+                    }}
+                >
+                    <div
+                        style={{
+                            width: 32,
+                            height: 32,
+                            border: '3px solid #FCC245',
+                            borderTopColor: 'transparent',
+                            borderRadius: '50%',
+                            animation: 'spin 0.8s linear infinite',
+                        }}
+                    />
+                </div>
+            ) : (
+                children
+            )}
         </AuthContext.Provider>
     );
 };

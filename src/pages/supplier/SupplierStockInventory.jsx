@@ -47,8 +47,6 @@ import {
     mapSupplierHistoryToTimelineEntries,
     formatSupplierTimelineSourceRef,
     formatDualUomQty,
-    warehouseStockLineValueSar,
-    warehouseUnitPriceFromItem,
 } from './supplierInventoryTimelineUtils';
 import {
     exportMovementsExcel,
@@ -134,10 +132,17 @@ export default function SupplierStockInventory() {
     const [purchasePriceEditProduct, setPurchasePriceEditProduct] = useState(null);
     const [criticalLevelEditProduct, setCriticalLevelEditProduct] = useState(null);
 
+    // `stock` is already server-filtered by `search` (name or SKU). Keep a light client filter
+    // as a safety net (e.g. if backend returns broader results).
     const filteredList = useMemo(() => {
         const list = stock || [];
         if (!search.trim()) return list;
-        return list.filter((s) => stockRowMatchesSearch(s, search));
+        const q = search.toLowerCase().trim();
+        return list.filter(
+            (s) =>
+                (s.name || '').toLowerCase().includes(q) ||
+                (s.sku || '').toLowerCase().includes(q),
+        );
     }, [stock, search]);
 
     /** 3-state column sorting for the two inventory tables. */
@@ -146,8 +151,13 @@ export default function SupplierStockInventory() {
 
     const movementProductOptions = useMemo(() => {
         const list = stock || [];
-        if (!movementProductSearch.trim()) return list;
-        return list.filter((s) => stockRowMatchesSearch(s, movementProductSearch));
+        const q = movementProductSearch.trim().toLowerCase();
+        if (!q) return list;
+        return list.filter(
+            (s) =>
+                (s.name || '').toLowerCase().includes(q) ||
+                (s.sku || '').toLowerCase().includes(q),
+        );
     }, [stock, movementProductSearch]);
 
     const selectedMovementProduct = useMemo(() => {
@@ -237,7 +247,7 @@ export default function SupplierStockInventory() {
     const reorderNeededCount = stock.filter(
         (s) => s.reorder != null && s.qty <= s.reorder && s.qty > (s.criticalLevel ?? 0),
     ).length;
-    const inventoryValue = stock.reduce((sum, s) => sum + warehouseStockLineValueSar(s), 0);
+    const inventoryValue = stock.reduce((sum, s) => sum + (s.qty || 0) * (s.price || 0), 0);
     const criticalItems = stock.filter((s) => s.qty <= (s.criticalLevel ?? 0));
 
     const locationSummary = (row) => {
@@ -259,7 +269,6 @@ export default function SupplierStockInventory() {
 
     const loadStock = useCallback(async (opts = {}) => {
         const silent = !!opts.silent;
-        const page = Math.max(1, Number(opts.page ?? stockPage) || 1);
         if (!silent) {
             setLoading(true);
         }
@@ -267,7 +276,7 @@ export default function SupplierStockInventory() {
         try {
             const res = await getSupplierInventoryStockBalances({
                 limit: STOCK_PAGE_SIZE,
-                offset: (page - 1) * STOCK_PAGE_SIZE,
+                offset: (stockPage - 1) * STOCK_PAGE_SIZE,
                 historyLimit: 50,
                 search: search.trim() ? search.trim() : undefined,
                 ...(criticalOnly ? { isLowCriticalOnly: true } : {}),
@@ -277,9 +286,6 @@ export default function SupplierStockInventory() {
                       id: item.productId,
                       sku: item.sku || '-',
                       name: item.productName,
-                      masterProductName: item.masterProductName || null,
-                      masterProductSku: item.masterProductSku || null,
-                      masterProductArabicName: item.masterProductArabicName || null,
                       unit: item.workshopUnit || 'pcs',
                       warehouseUnit: item.warehouseUnit || 'Box',
                       conversionFactor: Number(item.conversionFactor) || 1,
@@ -295,18 +301,11 @@ export default function SupplierStockInventory() {
                       criticalLevel: item.criticalAt != null ? Number(item.criticalAt) : 0,
                       reorder: item.reorderAt != null ? Number(item.reorderAt) : 0,
                       price:
-                          Number(item.pricePerWarehouseUnit ?? 0) > 0
-                              ? Number(item.pricePerWarehouseUnit)
-                              : Number(item.valueWarehouseSar || 0) > 0 &&
-                                  Number(item.currentBalanceWarehouse || 0) > 0
-                                ? Number(item.valueWarehouseSar) /
-                                  Number(item.currentBalanceWarehouse)
-                                : 0,
-                      usesCatalogPrice: Boolean(item.usesCatalogPrice),
-                      catalogPurchasePrice:
-                          item.catalogPurchasePrice != null
-                              ? Number(item.catalogPurchasePrice)
-                              : null,
+                          Number(item.valueWarehouseSar || 0) > 0 &&
+                          Number(item.currentBalanceWarehouse || 0) > 0
+                              ? Number(item.valueWarehouseSar) /
+                                Number(item.currentBalanceWarehouse)
+                              : 0,
                       byLocation: item.byLocation || [],
                       locationId: item.byLocation?.[0]?.supplierLocationId,
                   }))
@@ -346,24 +345,18 @@ export default function SupplierStockInventory() {
         }
     }, [search, criticalOnly, stockPage]);
 
-    const searchFilterRef = useRef({ search, criticalOnly });
+    useEffect(() => {
+        // Reset pagination when search or critical filter changes
+        setStockPage(1);
+    }, [search, criticalOnly]);
 
     useEffect(() => {
-        const prev = searchFilterRef.current;
-        const filterChanged =
-            prev.search !== search || prev.criticalOnly !== criticalOnly;
-        searchFilterRef.current = { search, criticalOnly };
-
-        if (filterChanged && stockPage !== 1) {
-            setStockPage(1);
-        }
-
-        const pageToLoad = filterChanged ? 1 : stockPage;
+        // Debounce search to avoid spamming the API while typing.
         const t = setTimeout(() => {
-            loadStock({ page: pageToLoad });
+            loadStock();
         }, 250);
         return () => clearTimeout(t);
-    }, [search, criticalOnly, stockPage, loadStock]);
+    }, [loadStock, search]);
 
     const loadItems = useCallback(async () => {
         setItemsLoading(true);
@@ -1392,8 +1385,7 @@ export default function SupplierStockInventory() {
                                                     }}
                                                 >
                                                     SKU: {p.sku || '—'} · On hand:{' '}
-                                                    {fmtQty(p.warehouseQty)}{' '}
-                                                    {p.warehouseUnit || 'Box'}
+                                                    {fmtQty(p.warehouseQty)} {p.unit || 'pcs'}
                                                 </div>
                                             </li>
                                         ))}

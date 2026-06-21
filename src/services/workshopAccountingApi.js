@@ -1,8 +1,12 @@
 import { apiFetch } from './api';
+import {
+    mergeAccountingScopeBody,
+    mergeAccountingScopeParams,
+} from '../utils/accountingWorkshopScope';
 
 function withQuery(path, params = {}) {
     const query = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
+    Object.entries(mergeAccountingScopeParams(params)).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
             query.set(key, String(value));
         }
@@ -33,24 +37,22 @@ export const previewNextVouchers = (prefix = 'PE', count = 2) =>
         }),
     );
 
-// ---- Create ---------------------------------------------------------------
-
 export const createPayments = (body) =>
     apiFetch('/workshop-accounting/payments', {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
     });
 
 export const createReceipts = (body) =>
     apiFetch('/workshop-accounting/receipts', {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
     });
 
 export const createJournalEntry = (body) =>
     apiFetch('/workshop-accounting/journal-entries', {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
     });
 
 // ---- Logs -----------------------------------------------------------------
@@ -59,18 +61,18 @@ export const listPayments = (params = {}) =>
     apiFetch(withQuery('/workshop-accounting/payments', params));
 
 export const getPaymentsSummary = () =>
-    apiFetch('/workshop-accounting/payments/summary');
+    apiFetch(withQuery('/workshop-accounting/payments/summary', {}));
 
 export const listRecentPayments = (limit = 10) =>
     apiFetch(withQuery('/workshop-accounting/payments/recent', { limit }));
 
 export const approvePayment = (id) =>
-    apiFetch(`/workshop-accounting/payments/${encodeURIComponent(id)}/approve`, {
+    apiFetch(withQuery(`/workshop-accounting/payments/${encodeURIComponent(id)}/approve`, {}), {
         method: 'PATCH',
     });
 
 export const rejectPayment = (id) =>
-    apiFetch(`/workshop-accounting/payments/${encodeURIComponent(id)}/reject`, {
+    apiFetch(withQuery(`/workshop-accounting/payments/${encodeURIComponent(id)}/reject`, {}), {
         method: 'PATCH',
     });
 
@@ -78,18 +80,18 @@ export const listReceipts = (params = {}) =>
     apiFetch(withQuery('/workshop-accounting/receipts', params));
 
 export const getReceiptsSummary = () =>
-    apiFetch('/workshop-accounting/receipts/summary');
+    apiFetch(withQuery('/workshop-accounting/receipts/summary', {}));
 
 export const listRecentReceipts = (limit = 10) =>
     apiFetch(withQuery('/workshop-accounting/receipts/recent', { limit }));
 
 export const approveReceipt = (id) =>
-    apiFetch(`/workshop-accounting/receipts/${encodeURIComponent(id)}/approve`, {
+    apiFetch(withQuery(`/workshop-accounting/receipts/${encodeURIComponent(id)}/approve`, {}), {
         method: 'PATCH',
     });
 
 export const rejectReceipt = (id) =>
-    apiFetch(`/workshop-accounting/receipts/${encodeURIComponent(id)}/reject`, {
+    apiFetch(withQuery(`/workshop-accounting/receipts/${encodeURIComponent(id)}/reject`, {}), {
         method: 'PATCH',
     });
 
@@ -97,4 +99,4 @@ export const listJournalEntries = (params = {}) =>
     apiFetch(withQuery('/workshop-accounting/journal-entries', params));
 
 export const getJournalEntry = (id) =>
-    apiFetch(`/workshop-accounting/journal-entries/${encodeURIComponent(id)}`);
+    apiFetch(withQuery(`/workshop-accounting/journal-entries/${encodeURIComponent(id)}`, {}));

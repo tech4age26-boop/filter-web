@@ -8,6 +8,14 @@ const fmtMoney = (v) =>
         maximumFractionDigits: 2,
     });
 
+/** jsPDF built-in fonts cannot render Arabic/RTL — avoid garbled PDF headings. */
+function pdfAsciiOrFallback(text, fallback = '') {
+    const s = String(text || '').trim();
+    if (!s) return fallback;
+    if (/[^\u0020-\u007E]/.test(s)) return fallback;
+    return s;
+}
+
 function buildFileBase({ header }) {
     const safe = (s) => String(s || '').replace(/[^\w-]+/g, '_').replace(/_+/g, '_');
     const supplier = safe(header?.supplierName || 'supplier');
@@ -351,11 +359,11 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.text(header?.companyName || 'Supplier', margin, cursorY + 16);
+    doc.text(pdfAsciiOrFallback(header?.companyName, 'FILTER'), margin, cursorY + 16);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
-    doc.text(accountLabel, margin, cursorY + 38);
+    doc.text(pdfAsciiOrFallback(accountLabel, 'Account Ledger'), margin, cursorY + 38);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
@@ -450,9 +458,9 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
             : {
                   0: { cellWidth: 70 },
                   1: { cellWidth: 'auto' },
-                  2: { cellWidth: 75, halign: 'right' },
-                  3: { cellWidth: 75, halign: 'right' },
-                  4: { cellWidth: 85, halign: 'right' },
+                  2: { cellWidth: 75, halign: 'left' },
+                  3: { cellWidth: 75, halign: 'left' },
+                  4: { cellWidth: 85, halign: 'left' },
               },
         didParseCell(data) {
             const last = data.row.index === body.length - 1;

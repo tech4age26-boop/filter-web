@@ -224,6 +224,10 @@ b {
   background: var(--color-primary);
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 /* ===== Sidebar selected tab — global (supplier / workshop / admin) ===== */
 .workshop-layout .ws-sidebar .ws-nav-btn.active,
 .workshop-layout .ws-sidebar .ws-nav-sub-btn.active,

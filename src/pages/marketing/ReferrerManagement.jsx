@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BarChart3,
   Users,
@@ -21,19 +22,17 @@ import {
   CalendarDays,
   NotebookTabs,
   Scale,
-  X,
   ChevronDown,
   RefreshCw,
   Trash2,
 } from 'lucide-react';
 import {
-  marketingCreateReferrer,
   marketingDeleteReferrer,
   marketingGetReferralCommissionsDashboard,
   marketingGetReferralManagementDashboard,
   marketingListReferrers,
-  marketingUpdateReferrer,
 } from '../../services/superAdminMarketingApi';
+import { marketingSectionPath } from './marketingRouteUtils';
 import './MarketingUniversal.css';
 
 const tabs = [
@@ -50,19 +49,6 @@ const journalTabs = [
   { id: 'ledger', label: 'Referrer Ledger', icon: BookOpen },
   { id: 'pl', label: 'P&L Summary', icon: Scale },
 ];
-
-const initialReferrerForm = {
-  id: '',
-  fullName: '',
-  category: 'Individual',
-  mobile: '',
-  email: '',
-  nationalId: '',
-  status: 'Active',
-  bankName: '',
-  iban: '',
-  notes: '',
-};
 
 function formatSar(value) {
   const n = Number(value);
@@ -327,23 +313,12 @@ const TextAreaField = ({ label, value, onChange, placeholder = '' }) => (
   </div>
 );
 
-const ModalShell = ({ title, children, onClose }) => (
-  <div className="mk-ref-modal-overlay">
-    <div className="mk-ref-modal">
-      <div className="mk-ref-modal-header">
-        <h3>{title}</h3>
-
-        <button type="button" onClick={onClose} className="mk-ref-modal-close">
-          <X size={18} strokeWidth={2.2} />
-        </button>
-      </div>
-
-      {children}
-    </div>
-  </div>
-);
-
 export const ReferrerManagement = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const basePath = marketingSectionPath(location.pathname, 'referrer-management');
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [journalTab, setJournalTab] = useState('entries');
 
@@ -356,35 +331,15 @@ export const ReferrerManagement = () => {
   const [journalEntries] = useState([]);
 
   const [loading, setLoading] = useState(false);
-  const [savingReferrer, setSavingReferrer] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState('');
   const [error, setError] = useState('');
 
-  const [showReferrerModal, setShowReferrerModal] = useState(false);
-  const [showRuleModal, setShowRuleModal] = useState(false);
-  const [showPayoutModal, setShowPayoutModal] = useState(false);
-
-  const [referrerForm, setReferrerForm] = useState(initialReferrerForm);
-
-  const [ruleForm, setRuleForm] = useState({
-    referrer: 'All Referrers',
-    category: 'All Categories',
-    customerType: 'All Customers',
-    service: '',
-    commissionType: 'Percentage (%)',
-    value: '0',
-    effectiveFrom: '',
-    effectiveTo: '',
-    notes: '',
-  });
-
-  const [payoutForm, setPayoutForm] = useState({
-    referrer: '',
-    amount: '',
-    method: 'Bank Transfer',
-    coa: '',
-    notes: '',
-  });
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && tabs.some((item) => item.id === tab)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   const loadReferrerManagement = useCallback(async () => {
     setLoading(true);
@@ -489,73 +444,9 @@ export const ReferrerManagement = () => {
     );
   }, [trackerSearch, referrals]);
 
-  const openCreateReferrer = () => {
-    setReferrerForm(initialReferrerForm);
-    setShowReferrerModal(true);
-  };
+  const openCreateReferrer = () => navigate(`${basePath}/referrers/new`);
 
-  const openEditReferrer = (item) => {
-    setReferrerForm({
-      id: item.id,
-      fullName: item.name || '',
-      category: humanize(item.type || 'Individual'),
-      mobile: item.mobile || '',
-      email: item.email || '',
-      nationalId: item.nationalId || '',
-      status: humanize(item.status || 'Active'),
-      bankName: item.bankName || '',
-      iban: item.iban || '',
-      notes: item.notes || '',
-    });
-
-    setShowReferrerModal(true);
-  };
-
-  const closeReferrerModal = () => {
-    setReferrerForm(initialReferrerForm);
-    setShowReferrerModal(false);
-  };
-
-  const buildReferrerPayload = () => ({
-    name: referrerForm.fullName.trim(),
-    fullName: referrerForm.fullName.trim(),
-    category: referrerForm.category,
-    type: referrerForm.category,
-    mobile: referrerForm.mobile.trim() || undefined,
-    phone: referrerForm.mobile.trim() || undefined,
-    email: referrerForm.email.trim() || undefined,
-    nationalId: referrerForm.nationalId.trim() || undefined,
-    bankName: referrerForm.bankName.trim() || undefined,
-    iban: referrerForm.iban.trim() || undefined,
-    status: normalizeStatus(referrerForm.status),
-    notes: referrerForm.notes.trim() || undefined,
-  });
-
-  const saveReferrer = async () => {
-    if (!referrerForm.fullName.trim()) {
-      alert('Full name is required.');
-      return;
-    }
-
-    try {
-      setSavingReferrer(true);
-
-      const payload = buildReferrerPayload();
-
-      if (referrerForm.id) {
-        await marketingUpdateReferrer(referrerForm.id, payload);
-      } else {
-        await marketingCreateReferrer(payload);
-      }
-
-      closeReferrerModal();
-      await loadReferrerManagement();
-    } catch (err) {
-      alert(err?.message || 'Failed to save referrer.');
-    } finally {
-      setSavingReferrer(false);
-    }
-  };
+  const openEditReferrer = (item) => navigate(`${basePath}/referrers/${item.id}/edit`);
 
   const deleteReferrer = async (item) => {
     if (!window.confirm(`Delete ${item.name}?`)) return;
@@ -795,7 +686,7 @@ export const ReferrerManagement = () => {
           </p>
         </div>
 
-        <button type="button" className="mk-ref-primary-btn" onClick={() => setShowRuleModal(true)}>
+        <button type="button" className="mk-ref-primary-btn" onClick={() => navigate(`${basePath}/rules/new`)}>
           <Plus size={15} strokeWidth={2.4} />
           Add Rule
         </button>
@@ -846,7 +737,7 @@ export const ReferrerManagement = () => {
           </p>
         </div>
 
-        <button type="button" className="mk-ref-primary-btn" onClick={() => setShowPayoutModal(true)}>
+        <button type="button" className="mk-ref-primary-btn" onClick={() => navigate(`${basePath}/payouts/new`)}>
           <Plus size={15} strokeWidth={2.4} />
           New Payout Request
         </button>
@@ -1042,251 +933,6 @@ export const ReferrerManagement = () => {
       {activeTab === 'payout' && renderPayout()}
       {activeTab === 'journals' && renderJournals()}
 
-      {showReferrerModal && (
-        <ModalShell
-          title={referrerForm.id ? 'Edit Referrer' : 'Add New Referrer'}
-          onClose={closeReferrerModal}
-        >
-          <div className="mk-ref-form-grid">
-            <InputField
-              label="Full Name"
-              required
-              value={referrerForm.fullName}
-              onChange={(value) => setReferrerForm((prev) => ({ ...prev, fullName: value }))}
-              placeholder="John Doe"
-            />
-
-            <SelectField
-              label="Category"
-              required
-              value={referrerForm.category}
-              onChange={(value) => setReferrerForm((prev) => ({ ...prev, category: value }))}
-              options={['Individual', 'Corporate', 'Technician', 'Employee']}
-            />
-
-            <InputField
-              label="Mobile"
-              value={referrerForm.mobile}
-              onChange={(value) => setReferrerForm((prev) => ({ ...prev, mobile: value }))}
-              placeholder="+966..."
-            />
-
-            <InputField
-              label="Email"
-              value={referrerForm.email}
-              onChange={(value) => setReferrerForm((prev) => ({ ...prev, email: value }))}
-            />
-
-            <InputField
-              label="National ID"
-              value={referrerForm.nationalId}
-              onChange={(value) => setReferrerForm((prev) => ({ ...prev, nationalId: value }))}
-            />
-
-            <SelectField
-              label="Status"
-              value={referrerForm.status}
-              onChange={(value) => setReferrerForm((prev) => ({ ...prev, status: value }))}
-              options={['Active', 'Inactive']}
-            />
-
-            <InputField
-              label="Bank Name"
-              value={referrerForm.bankName}
-              onChange={(value) => setReferrerForm((prev) => ({ ...prev, bankName: value }))}
-            />
-
-            <InputField
-              label="IBAN"
-              value={referrerForm.iban}
-              onChange={(value) => setReferrerForm((prev) => ({ ...prev, iban: value }))}
-              placeholder="SA..."
-            />
-
-            <TextAreaField
-              label="Notes"
-              value={referrerForm.notes}
-              onChange={(value) => setReferrerForm((prev) => ({ ...prev, notes: value }))}
-            />
-          </div>
-
-          <div className="mk-ref-modal-actions">
-            <button
-              type="button"
-              className="mk-ref-secondary-btn"
-              onClick={closeReferrerModal}
-              disabled={savingReferrer}
-            >
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              className="mk-ref-primary-btn"
-              onClick={saveReferrer}
-              disabled={savingReferrer}
-            >
-              {savingReferrer ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </ModalShell>
-      )}
-
-      {showRuleModal && (
-        <ModalShell title="New Commission Rule" onClose={() => setShowRuleModal(false)}>
-          <div className="mk-ref-form-grid">
-            <SelectField
-              label="Specific Referrer (optional)"
-              value={ruleForm.referrer}
-              onChange={(value) => setRuleForm((prev) => ({ ...prev, referrer: value }))}
-              options={[
-                { label: 'All Referrers', value: 'All Referrers' },
-                ...referrersData.map((item) => ({
-                  label: item.name,
-                  value: item.id,
-                })),
-              ]}
-            />
-
-            <SelectField
-              label="Referrer Category"
-              value={ruleForm.category}
-              onChange={(value) => setRuleForm((prev) => ({ ...prev, category: value }))}
-              options={['All Categories', 'Individual', 'Corporate', 'Technician', 'Employee']}
-            />
-
-            <SelectField
-              label="Customer Type"
-              value={ruleForm.customerType}
-              onChange={(value) => setRuleForm((prev) => ({ ...prev, customerType: value }))}
-              options={['All Customers']}
-            />
-
-            <InputField
-              label="Service (optional)"
-              value={ruleForm.service}
-              onChange={(value) => setRuleForm((prev) => ({ ...prev, service: value }))}
-              placeholder="Oil Change, Car Wash..."
-            />
-
-            <SelectField
-              label="Commission Type"
-              value={ruleForm.commissionType}
-              onChange={(value) => setRuleForm((prev) => ({ ...prev, commissionType: value }))}
-              options={['Percentage (%)']}
-            />
-
-            <InputField
-              label="Value (%)"
-              value={ruleForm.value}
-              onChange={(value) => setRuleForm((prev) => ({ ...prev, value }))}
-              placeholder="0"
-            />
-
-            <InputField
-              label="Effective From"
-              value={ruleForm.effectiveFrom}
-              onChange={(value) => setRuleForm((prev) => ({ ...prev, effectiveFrom: value }))}
-              placeholder="mm/dd/yyyy"
-            />
-
-            <InputField
-              label="Effective To"
-              value={ruleForm.effectiveTo}
-              onChange={(value) => setRuleForm((prev) => ({ ...prev, effectiveTo: value }))}
-              placeholder="mm/dd/yyyy"
-            />
-
-            <TextAreaField
-              label="Notes"
-              value={ruleForm.notes}
-              onChange={(value) => setRuleForm((prev) => ({ ...prev, notes: value }))}
-            />
-          </div>
-
-          <div className="mk-ref-modal-actions">
-            <button type="button" className="mk-ref-secondary-btn" onClick={() => setShowRuleModal(false)}>
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              className="mk-ref-primary-btn"
-              onClick={() => {
-                alert('Commission rule save endpoint is not exposed yet.');
-                setShowRuleModal(false);
-              }}
-            >
-              Save Rule
-            </button>
-          </div>
-        </ModalShell>
-      )}
-
-      {showPayoutModal && (
-        <ModalShell title="New Payout Request" onClose={() => setShowPayoutModal(false)}>
-          <div className="mk-ref-form-grid">
-            <SelectField
-              label="Referrer"
-              required
-              value={payoutForm.referrer}
-              onChange={(value) => setPayoutForm((prev) => ({ ...prev, referrer: value }))}
-              options={[
-                { label: 'Select referrer...', value: '' },
-                ...payableSummary.map((item) => ({
-                  label: `${item.name} - ${formatSar(item.available)}`,
-                  value: item.id,
-                })),
-              ]}
-            />
-
-            <InputField
-              label="Amount (SAR)"
-              required
-              value={payoutForm.amount}
-              onChange={(value) => setPayoutForm((prev) => ({ ...prev, amount: value }))}
-              placeholder="0.00"
-            />
-
-            <SelectField
-              label="Payment Method"
-              value={payoutForm.method}
-              onChange={(value) => setPayoutForm((prev) => ({ ...prev, method: value }))}
-              options={['Bank Transfer', 'Cash', 'Cheque']}
-            />
-
-            <SelectField
-              label="Payment Account (COA)"
-              value={payoutForm.coa}
-              onChange={(value) => setPayoutForm((prev) => ({ ...prev, coa: value }))}
-              options={[{ label: 'Select account...', value: '' }]}
-            />
-
-            <TextAreaField
-              label="Notes"
-              value={payoutForm.notes}
-              onChange={(value) => setPayoutForm((prev) => ({ ...prev, notes: value }))}
-            />
-          </div>
-
-          <div className="mk-ref-modal-actions">
-            <button type="button" className="mk-ref-secondary-btn" onClick={() => setShowPayoutModal(false)}>
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              className="mk-ref-primary-btn"
-              onClick={() => {
-                alert('Payout create/process endpoint is not exposed yet.');
-                setShowPayoutModal(false);
-              }}
-            >
-              Create Request
-            </button>
-          </div>
-        </ModalShell>
-      )}
     </div>
   );
 };

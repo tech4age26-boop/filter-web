@@ -78,17 +78,99 @@ export const marketingSubmitPromotionApproval = (id, body = {}) =>
     method: "PATCH",
     body: JSON.stringify(body),
   });
+
+export const marketingApprovePromotion = (id, body = {}) =>
+  apiFetch(`${ROOT}/promotions/${encodeURIComponent(String(id))}/approve`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const marketingRejectPromotion = (id, body = {}) =>
+  apiFetch(`${ROOT}/promotions/${encodeURIComponent(String(id))}/reject`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
 export const marketingListPromotions = (params = {}) =>
   apiFetch(`${ROOT}/promotions${qs(params)}`);
 
 export const marketingGetPromotion = (id) =>
   apiFetch(`${ROOT}/promotions/${encodeURIComponent(String(id))}`);
 
+export const marketingGetPromotionReport = async (id) => {
+  const encodedId = encodeURIComponent(String(id));
+
+  try {
+    return await apiFetch(`${ROOT}/promotions/${encodedId}/report`);
+  } catch (error) {
+    const message = String(error?.message || '');
+    const isMissingRoute =
+      message.includes('Cannot GET') ||
+      message.includes('404') ||
+      message.toLowerCase().includes('not found');
+
+    if (!isMissingRoute) {
+      throw error;
+    }
+
+    return apiFetch(`${ROOT}/promotions/${encodedId}?report=true`);
+  }
+};
+
+export const marketingGetPromotionAutoReport = async (id) => {
+  const encodedId = encodeURIComponent(String(id));
+
+  try {
+    return await apiFetch(`${ROOT}/promotions/${encodedId}/auto-report`);
+  } catch (error) {
+    const message = String(error?.message || '');
+    const isMissingRoute =
+      message.includes('Cannot GET') ||
+      message.includes('404') ||
+      message.toLowerCase().includes('not found');
+
+    if (!isMissingRoute) {
+      throw error;
+    }
+
+    return apiFetch(`${ROOT}/promotions/${encodedId}?autoReport=true`);
+  }
+};
+
 export const marketingUpdatePromotion = (id, body) =>
   apiFetch(`${ROOT}/promotions/${encodeURIComponent(String(id))}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
+
+export const marketingSetPromotionActivation = async (id, active) => {
+  const payload = {
+    status: active ? 'active' : 'inactive',
+    isActive: active,
+    showOnPosInvoice: active,
+  };
+
+  try {
+    return await apiFetch(
+      `${ROOT}/promotions/${encodeURIComponent(String(id))}/activation`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ active }),
+      }
+    );
+  } catch (error) {
+    const message = String(error?.message || '');
+    const isMissingRoute =
+      message.includes('Cannot PATCH') ||
+      message.includes('404') ||
+      message.toLowerCase().includes('not found');
+
+    if (!isMissingRoute) {
+      throw error;
+    }
+
+    return marketingUpdatePromotion(id, payload);
+  }
+};
 
 export const marketingDeletePromotion = (id) =>
   apiFetch(`${ROOT}/promotions/${encodeURIComponent(String(id))}`, {
@@ -246,6 +328,26 @@ export const marketingLookupReferralMarketingSettings = (body) =>
 export const marketingUpsertReferralMarketingSettings = (body) =>
   apiFetch(`${ROOT}/referral-marketing/settings`, {
     method: 'PUT',
+    body: JSON.stringify(body),
+  });
+
+export const marketingListReferralCommissions = (params) =>
+  apiFetch(`${ROOT}/referral-commissions${qs(params)}`);
+
+export const marketingCreateReferralCommission = (body) =>
+  apiFetch(`${ROOT}/referral-commissions`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const marketingMatureReferralCommission = (id) =>
+  apiFetch(`${ROOT}/referral-commissions/${encodeURIComponent(String(id))}/mature`, {
+    method: 'POST',
+  });
+
+export const marketingPayReferralCommission = (id, body = {}) =>
+  apiFetch(`${ROOT}/referral-commissions/${encodeURIComponent(String(id))}/pay`, {
+    method: 'POST',
     body: JSON.stringify(body),
   });
 
