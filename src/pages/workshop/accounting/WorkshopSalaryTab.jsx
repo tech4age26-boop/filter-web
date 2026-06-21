@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Save, RefreshCw, Users, Banknote } from 'lucide-react';
+import SearchableEntityCombobox from '../../../components/SearchableEntityCombobox';
 import {
     getRecentWorkshopSalaryPayroll,
     getSalaryPayrollPreview,
@@ -48,6 +49,7 @@ const defaultPeriod = () => {
 const emptyRow = () => ({
     key: `row-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     employeeSelectKey: '',
+    employeeSearchDraft: '',
     employeeRecordId: '',
     recordType: 'employee',
     userId: '',
@@ -72,7 +74,11 @@ function netPayable(row) {
     return Math.max(basic + comm - adv - pen, 0);
 }
 
-export default function WorkshopSalaryTab({ branchFilter = '' }) {
+export default function WorkshopSalaryTab({
+    branchFilter = '',
+    workshopId = '',
+    allBranches = false,
+}) {
     const [period, setPeriod] = useState(defaultPeriod());
     const [paymentDate, setPaymentDate] = useState(todayIso());
     const [payFromAccountId, setPayFromAccountId] = useState('');
@@ -86,10 +92,17 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
     const [error, setError] = useState('');
     const previewSeqRef = useRef({});
 
-    const branchParams = useMemo(
-        () => (branchFilter ? { branchId: branchFilter } : {}),
-        [branchFilter],
-    );
+    const scopeParams = useMemo(() => {
+        const p = {};
+        if (branchFilter) p.branchId = branchFilter;
+        if (workshopId) {
+            p.workshopId = workshopId;
+            if (!branchFilter && allBranches) p.allBranches = 'true';
+        }
+        return p;
+    }, [branchFilter, workshopId, allBranches]);
+
+    const branchParams = scopeParams;
 
     const staffBySelectKey = useMemo(
         () => indexWorkshopStaffBySelectValue(employees),
@@ -169,11 +182,30 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
         setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
     };
 
-    const handleEmployeeChange = (idx, selectKey) => {
+    const employeeComboboxOptions = useMemo(
+        () =>
+            sortedEmployees.map((e) => {
+                const selectKey = workshopStaffSelectValue(e);
+                const typeLabel =
+                    e.recordType && e.recordType !== 'employee'
+                        ? String(e.recordType).replace(/_/g, ' ')
+                        : 'Employee';
+                const branch = e.branch?.name;
+                return {
+                    id: selectKey,
+                    label: e.name || 'Employee',
+                    subtitle: [typeLabel, branch].filter(Boolean).join(' · '),
+                };
+            }),
+        [sortedEmployees],
+    );
+
+    const handleEmployeeChange = (idx, selectKey, label = '') => {
         const parsed = parseWorkshopStaffSelectValue(selectKey);
         const emp = staffBySelectKey[selectKey];
         setRow(idx, {
             employeeSelectKey: selectKey,
+            employeeSearchDraft: label || emp?.name || '',
             employeeRecordId: parsed.id,
             recordType: parsed.recordType,
             userId: emp?.userId || '',
@@ -283,6 +315,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                 paymentDate,
                 payFromAccountId: String(payFromAccountId),
                 rows: payloadRows,
+                ...(workshopId ? { workshopId } : {}),
             });
             const saved = Number(res?.saved ?? payloadRows.length);
             const received = Number(res?.received ?? payloadRows.length);
@@ -360,21 +393,21 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
                         <div>
                             <label className="form-label">Employee / Technician *</label>
-                            <select
-                                className="form-input-field"
+                            <SearchableEntityCombobox
+                                options={employeeComboboxOptions}
                                 value={r.employeeSelectKey}
-                                onChange={(e) => handleEmployeeChange(idx, e.target.value)}
-                            >
-                                <option value="">Select…</option>
-                                {sortedEmployees.map((e) => {
-                                    const selectKey = workshopStaffSelectValue(e);
-                                    return (
-                                    <option key={selectKey} value={selectKey}>
-                                        {e.name}{e.branch?.name ? ` (${e.branch.name})` : ''}
-                                    </option>
-                                    );
-                                })}
-                            </select>
+                                displayText={r.employeeSearchDraft || ''}
+                                entityLabel="employee"
+                                placeholder="Type employee name… (↑↓ keys)"
+                                emptyHint="No employees match this search"
+                                onDisplayTextChange={(text) => {
+                                    setRow(idx, { employeeSearchDraft: text });
+                                    if (!text.trim()) {
+                                        handleEmployeeChange(idx, '', '');
+                                    }
+                                }}
+                                onSelect={(opt) => handleEmployeeChange(idx, opt.id, opt.label)}
+                            />
                         </div>
                         {r.employeeSelectKey ? (
                             <>

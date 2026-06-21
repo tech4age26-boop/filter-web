@@ -1,29 +1,36 @@
 import { BASE_URL } from './api';
 
-export async function adminLogin(email, password) {
-    const res = await fetch(`${BASE_URL}/auth/admin/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'accept': '*/*' },
-        body: JSON.stringify({ email, password }),
-    });
+async function authRequest(path, options = {}) {
+    let res;
+    try {
+        res = await fetch(`${BASE_URL}${path}`, options);
+    } catch {
+        throw new Error(
+            `Cannot reach API at ${BASE_URL}. Start the backend: cd filter_backend → npm run start:dev`,
+        );
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-        throw new Error(data.message || `Login failed: ${res.status}`);
+        const msg = data.message || data.error || `Request failed: ${res.status}`;
+        throw new Error(typeof msg === 'string' ? msg : `Request failed: ${res.status}`);
     }
-    return data; // contains token
+    return data;
+}
+
+export async function adminLogin(email, password) {
+    return authRequest('/auth/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
+        body: JSON.stringify({ email, password }),
+    });
 }
 
 export async function corporateLogin(email, password) {
-    const res = await fetch(`${BASE_URL}/auth/corporate/login`, {
+    return authRequest('/auth/corporate/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'accept': '*/*' },
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
         body: JSON.stringify({ email, password }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-        throw new Error(data.message || `Corporate Login failed: ${res.status}`);
-    }
-    return data;
 }
 
 /**
@@ -33,16 +40,11 @@ export async function corporateLogin(email, password) {
  * approved branches are used inside this session (e.g. POS branch, staff assignment).
  */
 export async function workshopLogin(email, password) {
-    const res = await fetch(`${BASE_URL}/auth/workshop/login`, {
+    return authRequest('/auth/workshop/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'accept': '*/*' },
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
         body: JSON.stringify({ email, password }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-        throw new Error(data.message || `Workshop Login failed: ${res.status}`);
-    }
-    return data;
 }
 
 /**
@@ -86,55 +88,39 @@ export async function lockerLogout(token) {
 }
 
 export async function cashierLogin(email, password) {
-    const res = await fetch(`${BASE_URL}/auth/cashier/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'accept': '*/*' },
-        body: JSON.stringify({ email, password }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-        throw new Error(data.message || `Cashier Login failed: ${res.status}`);
-    }
-    return data;
-}
-
-export async function marketingLogin(email, password) {
-    const res = await fetch(`${BASE_URL}/auth/marketing/login`, {
+    return authRequest('/auth/cashier/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', accept: '*/*' },
         body: JSON.stringify({ email, password }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.success === false) {
-        throw new Error(data.message || `Marketing login failed: ${res.status}`);
+}
+
+export async function marketingLogin(email, password) {
+    const data = await authRequest('/auth/marketing/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
+        body: JSON.stringify({ email, password }),
+    });
+    if (data.success === false) {
+        throw new Error(data.message || 'Marketing login failed');
     }
     return data;
 }
 
 export async function technicianLogin(email, password) {
-    const res = await fetch(`${BASE_URL}/auth/technician/login`, {
+    return authRequest('/auth/technician/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'accept': '*/*' },
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
         body: JSON.stringify({ email, password }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-        throw new Error(data.message || `Technician login failed: ${res.status}`);
-    }
-    return data;
 }
 
 export async function supplierLogin(mobileOrEmail, password) {
-    const res = await fetch(`${BASE_URL}/auth/supplier/login`, {
+    return authRequest('/auth/supplier/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'accept': '*/*' },
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
         body: JSON.stringify({ mobileOrEmail, password }),
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-        throw new Error(data.message || `Supplier Login failed: ${res.status}`);
-    }
-    return data;
 }
 
 export async function corporateRegister(body) {

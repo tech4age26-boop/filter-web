@@ -91,7 +91,11 @@ const EMPTY_FORM = {
     permissionRoleId: '',
 };
 
-export default function WorkshopEmployees({ selectedBranchId = 'all', branches: branchesProp = [] }) {
+export default function WorkshopEmployees({
+    selectedBranchId = 'all',
+    branches: branchesProp = [],
+    workshopId = null,
+}) {
     const { hasPermission } = useAuth();
     const canCreate = hasPermission('workshop.employees.create');
     const canEdit   = hasPermission('workshop.employees.edit');
@@ -227,6 +231,7 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
             // list and the table-level filter takes over.
             const { employees: rows } = await loadWorkshopEmployeesCombined({
                 branchId: selectedBranchId,
+                ...(workshopId ? { workshopId: String(workshopId) } : {}),
             });
             setEmployees(rows);
         } catch (e) {
@@ -235,7 +240,7 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, workshopId]);
 
     useEffect(() => {
         loadEmployees();
@@ -263,17 +268,19 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
         });
     }, [employees, selectedBranchId, selectedBranchName]);
 
+    const catalogScope = workshopId ? { workshopId: String(workshopId) } : {};
+
     const loadWorkshopDepartmentCatalog = useCallback(async () => {
         try {
             const isAll = !selectedBranchId || selectedBranchId === 'all';
             const res = isAll
-                ? await getMyDepartments()
-                : await getBranchDepartments(String(selectedBranchId));
+                ? await getMyDepartments({ ...catalogScope })
+                : await getBranchDepartments(String(selectedBranchId), { ...catalogScope });
             setWorkshopDepartments(parseWorkshopDepartmentsResponse(res));
         } catch {
             setWorkshopDepartments([]);
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, catalogScope.workshopId]);
 
     useEffect(() => {
         loadWorkshopDepartmentCatalog();
@@ -286,7 +293,7 @@ export default function WorkshopEmployees({ selectedBranchId = 'all', branches: 
             return undefined;
         }
         let cancelled = false;
-        getBranchDepartments(String(form.branchId))
+        getBranchDepartments(String(form.branchId), { ...catalogScope })
             .then((res) => {
                 if (cancelled) return;
                 setTeamLeaderDepartments(parseWorkshopDepartmentsResponse(res));

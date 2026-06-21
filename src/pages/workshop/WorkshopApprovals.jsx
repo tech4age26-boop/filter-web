@@ -6,6 +6,7 @@ import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplie
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { apiFetch } from '../../services/api';
 import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn } from '../../services/workshopStaffApi';
+import { approveExpenseRequest, rejectExpenseRequest } from '../../services/employeeExpenseApi';
 import { useAuth } from '../../context/AuthContext';
 
 function isSalesReturnRow(row) {
@@ -68,30 +69,22 @@ function mapSupplierInvoiceToPrintableDetail(inv) {
                 : 'unpaid',
         notes: inv.internalNotes ?? '',
         description: inv.deliveryNoteUrl ?? '',
-        items: items.map((it) => {
-            const lineUnit =
-                it.unit != null && String(it.unit).trim() !== ''
-                    ? String(it.unit).trim()
-                    : 'Box';
-            return {
-                id: it.id,
-                productName: it.productName,
-                product_name: it.productName,
-                qty: it.qty,
-                quantity: it.qty,
-                unit: lineUnit,
-                uom: lineUnit,
-                qtyWorkshop: it.qtyWorkshop ?? null,
-                workshopUnit: it.workshopUnit ?? null,
-                unitPrice: it.unitPrice,
-                unit_price: it.unitPrice,
-                unitPriceExVat: it.unitPrice,
-                vatRate: it.vatRate,
-                vat_rate: it.vatRate,
-                lineTotal: it.lineTotal,
-                line_total: it.lineTotal,
-            };
-        }),
+        items: items.map((it) => ({
+            id: it.id,
+            productName: it.productName,
+            product_name: it.productName,
+            qty: it.qty,
+            quantity: it.qty,
+            unit: 'piece',
+            uom: 'piece',
+            unitPrice: it.unitPrice,
+            unit_price: it.unitPrice,
+            unitPriceExVat: it.unitPrice,
+            vatRate: it.vatRate,
+            vat_rate: it.vatRate,
+            lineTotal: it.lineTotal,
+            line_total: it.lineTotal,
+        })),
     };
 }
 
@@ -157,7 +150,9 @@ export default function WorkshopApprovals({
     branches = [],
     /** When set, user is locked to one branch — supplier invoices are scoped to it. */
     branchLockedId = null,
+    workshopId = null,
 }) {
+    const expenseScope = workshopId ? { workshopId: String(workshopId) } : {};
     const { hasPermission } = useAuth();
     /** Per-type approval helpers — fall back to parent codes for backward compat. */
     const canViewType = useCallback((row) => {
@@ -212,7 +207,10 @@ export default function WorkshopApprovals({
         setIsLoading(true);
         setLoadError('');
         try {
-            const pettyQs = pettyCashListQuery(queueFilter, selectedBranchId);
+            const pettyQs = {
+                ...pettyCashListQuery(queueFilter, selectedBranchId),
+                ...expenseScope,
+            };
             const loadSupplierInvoices =
                 queueFilter === 'all' || queueFilter === 'pending';
 
@@ -229,6 +227,7 @@ export default function WorkshopApprovals({
                               limit: 100,
                               offset: 0,
                               ...supplierBranchScope,
+                              ...expenseScope,
                           })}`,
                       ).catch(() => null)
                     : Promise.resolve(null),
@@ -238,6 +237,7 @@ export default function WorkshopApprovals({
                           limit: 100,
                           offset: 0,
                           ...branchScopeParams(selectedBranchId),
+                          ...expenseScope,
                       }).catch(() => null)
                     : Promise.resolve(null),
             ]);
@@ -450,7 +450,11 @@ export default function WorkshopApprovals({
         if (row.status !== 'pending') return;
         setActionLoadingId(`approve-${id}`);
         try {
-            await apiFetch(`/workshop-staff/petty-cash/${id}/approve`, { method: 'POST' });
+            if (isTopUpRequest(row) || isExpenseRequest(row)) {
+                await approveExpenseRequest(id, {}, expenseScope);
+            } else {
+                await apiFetch(`/workshop-staff/petty-cash/${id}/approve`, { method: 'POST' });
+            }
             await loadApprovals();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (error) {
@@ -503,10 +507,14 @@ export default function WorkshopApprovals({
         const id = rejectDialog.id;
         setActionLoadingId(`reject-${id}`);
         try {
-            await apiFetch(`/workshop-staff/petty-cash/${id}/reject`, {
-                method: 'POST',
-                body: JSON.stringify({ rejectionReason: rejectReason.trim() }),
-            });
+            if (isTopUpRequest(rejectDialog) || isExpenseRequest(rejectDialog)) {
+                await rejectExpenseRequest(id, { rejectionReason: rejectReason.trim() }, expenseScope);
+            } else {
+                await apiFetch(`/workshop-staff/petty-cash/${id}/reject`, {
+                    method: 'POST',
+                    body: JSON.stringify({ rejectionReason: rejectReason.trim() }),
+                });
+            }
             setRejectDialog(null);
             setRejectReason('');
             await loadApprovals();

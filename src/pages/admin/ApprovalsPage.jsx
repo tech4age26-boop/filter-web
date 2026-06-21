@@ -9,6 +9,7 @@ import {
     list as listApprovals,
     approve as approveApi,
     reject as rejectApi,
+    details as fetchApprovalDetails,
     getWalkInSettings,
     updateWalkInSettings,
 } from '../../services/approvalsApi';
@@ -26,6 +27,15 @@ import {
     approveSuperAdminSalesReturn,
     rejectSuperAdminSalesReturn,
 } from '../../services/superAdminApi';
+import {
+    marketingApproveBudgetRequest,
+    marketingApprovePromotion,
+    marketingGetPromotion,
+    marketingListBudgetRequests,
+    marketingListPromotions,
+    marketingRejectBudgetRequest,
+    marketingRejectPromotion,
+} from '../../services/superAdminMarketingApi';
 import Modal from '../../components/Modal';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
@@ -47,12 +57,162 @@ const APPROVAL_TYPE_TO_PERMISSION_SUFFIX = {
     corporate_walk_in_booking: 'corporate-walk-in-booking',
     corporate_payment_approval: 'corporate-payment-proof',
     sales_return: 'sales-return',
+    marketing_budget_request: 'marketing-budget-request',
+    marketing_promotion: 'marketing-promotion',
 };
 
 function approvalPermission(entityType, action) {
     const suffix = APPROVAL_TYPE_TO_PERMISSION_SUFFIX[entityType];
     if (!suffix) return null; // unknown type → no gate (open)
     return `approvals.${suffix}.${action}`;
+}
+
+function hasAnyGranularApprovalTypePermission(hasPermission, action = 'view') {
+    return Object.values(APPROVAL_TYPE_TO_PERMISSION_SUFFIX).some((suffix) =>
+        hasPermission(`approvals.${suffix}.${action}`),
+    );
+}
+
+function approvalTypeAllowed(hasPermission, entityType, action) {
+    const code = approvalPermission(entityType, action);
+    if (!code) return true;
+    const parentCode = action === 'view' ? 'approvals.view' : `approvals.${action}`;
+    if (hasPermission(parentCode) && !hasAnyGranularApprovalTypePermission(hasPermission, action)) {
+        return true;
+    }
+    return hasPermission(code);
+}
+
+function unwrapMarketingBudgetRequests(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.budgetRequests)) return payload.budgetRequests;
+    if (Array.isArray(payload?.requests)) return payload.requests;
+    if (Array.isArray(payload?.items)) return payload.items;
+    if (Array.isArray(payload?.data?.budgetRequests)) return payload.data.budgetRequests;
+    if (Array.isArray(payload?.data?.requests)) return payload.data.requests;
+    return [];
+}
+
+function unwrapMarketingPromotions(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.promotions)) return payload.promotions;
+    if (Array.isArray(payload?.items)) return payload.items;
+    if (Array.isArray(payload?.data?.promotions)) return payload.data.promotions;
+    if (Array.isArray(payload?.data?.items)) return payload.data.items;
+    return [];
+}
+
+function normalizePromotionWorkflowStatus(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+}
+
+function promotionMatchesApprovalTab(promotion, tabStatus) {
+    const workflowStatus = normalizePromotionWorkflowStatus(promotion?.status);
+
+    if (tabStatus === 'pending') {
+        return workflowStatus === 'pending_approval';
+    }
+
+    if (tabStatus === 'rejected') {
+        return workflowStatus === 'rejected';
+    }
+
+    if (tabStatus === 'approved') {
+        return ['approved', 'active', 'inactive', 'scheduled'].includes(workflowStatus);
+    }
+
+    // All tab — only promotions that entered the approval workflow (not private drafts).
+    return workflowStatus !== 'draft';
+}
+
+function mapMarketingPromotionRow(r) {
+    const discountValue = Number(r.discountValue ?? r.value ?? 0);
+    const discountType = String(r.discountType ?? '').toLowerCase();
+    const discountLabel =
+        discountType === 'percentage'
+            ? `${discountValue}%`
+            : `SAR ${discountValue.toLocaleString(undefined, {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 2,
+            })}`;
+
+    const promoStatus = normalizePromotionWorkflowStatus(r.status);
+    const approvalStatus =
+        promoStatus === 'pending_approval'
+            ? 'pending'
+            : promoStatus === 'rejected'
+              ? 'rejected'
+              : 'approved';
+
+    return {
+        id: String(r.id),
+        entityType: 'marketing_promotion',
+        type: 'marketing_promotion',
+        typeLabel: 'Marketing promotion',
+        status: approvalStatus,
+        title: `Marketing promotion · ${r.name ?? r.promotionName ?? r.id}`,
+        meta: {
+            promotionName: r.name ?? r.promotionName,
+            promoType: r.promoType ?? r.promotionType,
+            marketingStrategy: r.marketingStrategy,
+            discountType: r.discountType,
+            discountValue,
+            discountLabel,
+            code: r.code,
+            startAt: r.startAt ?? r.startDate,
+            endAt: r.endAt ?? r.endDate,
+            promotionStatus: promoStatus,
+        },
+        submittedBy:
+            r.createdByName ??
+            r.createdBy ??
+            r.submittedBy ??
+            r.submitted_by ??
+            null,
+        reviewer: r.approvedByName ?? r.rejectedByName ?? null,
+        date: r.createdAt ?? r.created_at ?? '',
+        reference: r.code ?? '',
+        raw: r,
+    };
+}
+
+function approvalItemKey(item) {
+    if (!item) return '';
+    return `${item.entityType ?? 'unknown'}:${item.id}`;
+}
+
+function mapMarketingBudgetRequestRow(r) {
+    const amount = Number(r.amount ?? 0);
+    const currency = r.currencyCode ?? r.currency_code ?? 'SAR';
+    return {
+        id: String(r.id),
+        entityType: 'marketing_budget_request',
+        type: 'marketing_budget_request',
+        typeLabel: 'Marketing wallet top-up',
+        status: r.status ?? 'pending',
+        title: `Marketing wallet top-up · ${r.requestNumber ?? r.request_number ?? r.id}`,
+        meta: {
+            requestNumber: r.requestNumber ?? r.request_number,
+            amount,
+            currencyCode: currency,
+            purpose: r.purpose,
+            sourceAccountId: r.sourceAccountId ?? r.source_account_id,
+            sourceAccountName: r.sourceAccountName ?? r.source_account_name,
+            rejectionReason: r.rejectionReason ?? r.rejection_reason,
+            amountLabel: `${amount.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            })} ${currency}`,
+        },
+        submittedBy: r.requestedByName ?? r.requested_by_name ?? r.requestedBy ?? r.requested_by,
+        reviewer: r.approvedByName ?? r.approved_by_name ?? r.rejectedByName ?? r.rejected_by_name,
+        date: r.createdAt ?? r.created_at ?? '',
+        reference: r.requestNumber ?? r.request_number ?? '',
+        raw: r,
+    };
 }
 
 const ENTITY_TYPES = [
@@ -67,6 +227,8 @@ const ENTITY_TYPES = [
     { value: 'corporate_walk_in_booking', label: 'Corporate walk-in booking' },
     { value: 'corporate_payment_approval', label: 'Corporate payment proof' },
     { value: 'sales_return', label: 'POS sales return' },
+    { value: 'marketing_budget_request', label: 'Marketing wallet top-up' },
+    { value: 'marketing_promotion', label: 'Marketing promotion' },
     { value: 'technician_registration', label: 'Technician' },
 ];
 
@@ -264,6 +426,18 @@ function buildMetaChips(item) {
             push('Method', m.paymentMethod);
             push('Total', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
             if (m.rejectionReason) push('Reason', m.rejectionReason);
+            break;
+        case 'marketing_budget_request':
+            push('Amount', m.amountLabel ?? (m.amount != null ? `SAR ${m.amount}` : null));
+            push('Purpose', m.purpose);
+            push('Source', m.sourceAccountName);
+            push('Request', m.requestNumber);
+            break;
+        case 'marketing_promotion':
+            push('Discount', m.discountLabel);
+            push('Type', m.promoType);
+            push('Strategy', m.marketingStrategy);
+            push('Code', m.code);
             break;
         default:
             break;
@@ -517,6 +691,289 @@ function normalizeInvoiceForModal(invoice) {
         workshop: invoice.workshop || srcOrder.workshop,
         paymentMethod: invoice.paymentMethod || invoice.payments?.[0]?.method,
     };
+}
+
+/** Marketing wallet top-up detail for Super Admin Approvals. */
+function MarketingBudgetRequestDetailsModal({ id, item, onClose, onApprove, onReject }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr('');
+        fetchApprovalDetails('marketing_budget_request', id)
+            .then((res) => {
+                if (!cancelled) setData(res);
+            })
+            .catch((e) => {
+                if (!cancelled) setErr(e?.message || 'Could not load request details');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [id]);
+
+    const row = data ?? item?.raw ?? item ?? {};
+    const currency = row.currencyCode ?? row.currency_code ?? item?.meta?.currencyCode ?? 'SAR';
+    const amount = Number(row.amount ?? item?.meta?.amount ?? 0);
+    const requestNumber = row.requestNumber ?? row.request_number ?? item?.meta?.requestNumber ?? `#${id}`;
+    const status = String(row.status ?? item?.status ?? 'pending').toLowerCase();
+
+    const money = (v) =>
+        `${currency} ${Number(v || 0).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        })}`;
+
+    return (
+        <Modal
+            title={`Marketing wallet top-up · ${requestNumber}`}
+            onClose={onClose}
+            width={720}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
+                    {status === 'pending' && (
+                        <>
+                            {onReject && (
+                                <button type="button" className="btn-reject" onClick={onReject}>
+                                    <X size={16} /> Reject
+                                </button>
+                            )}
+                            {onApprove && (
+                                <button type="button" className="btn-approve" onClick={onApprove}>
+                                    <Check size={16} /> Approve
+                                </button>
+                            )}
+                        </>
+                    )}
+                </>
+            )}
+        >
+            {loading ? (
+                <div style={{ padding: 24, textAlign: 'center' }}>
+                    <Loader size={20} className="spin" /> Loading…
+                </div>
+            ) : err ? (
+                <p style={{ color: '#b91c1c' }}>{err}</p>
+            ) : (
+                <div>
+                    <div style={{ marginBottom: 14 }}>
+                        <span className={`status-badge status-${status}`}>{status}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Amount</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700, fontSize: '1.125rem' }}>{money(amount)}</p>
+                        </div>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Source account</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>
+                                {row.sourceAccountName ?? row.source_account_name ?? item?.meta?.sourceAccountName ?? '—'}
+                            </p>
+                            {(row.sourceAccountId ?? row.source_account_id ?? item?.meta?.sourceAccountId) && (
+                                <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                                    Register #{row.sourceAccountId ?? row.source_account_id ?? item?.meta?.sourceAccountId}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Purpose</p>
+                        <p style={{ margin: '6px 0 0', fontSize: '0.9375rem' }}>
+                            {row.purpose ?? item?.meta?.purpose ?? '—'}
+                        </p>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Requested by</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                {row.requestedBy ?? row.requested_by ?? row.requestedByName ?? row.requested_by_name ?? item?.submittedBy ?? '—'}
+                            </p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                {formatDate(row.createdAt ?? row.created_at ?? item?.date)}
+                            </p>
+                        </div>
+                        {(row.approvedBy ?? row.approved_by ?? row.approvedByName ?? row.rejectedBy ?? row.rejected_by) && (
+                            <div>
+                                <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
+                                    {row.rejectedBy ?? row.rejected_by ? 'Rejected by' : 'Approved by'}
+                                </p>
+                                <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                    {row.approvedByName ?? row.approved_by_name ?? row.approvedBy ?? row.approved_by
+                                        ?? row.rejectedByName ?? row.rejected_by_name ?? row.rejectedBy ?? row.rejected_by}
+                                </p>
+                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                    {formatDate(row.approvedAt ?? row.approved_at ?? row.rejectedAt ?? row.rejected_at)}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                    {(row.rejectionReason ?? row.rejection_reason ?? item?.meta?.rejectionReason) && (
+                        <div style={{ padding: 10, background: '#fef2f2', borderRadius: 10, fontSize: '0.875rem', color: '#991b1b' }}>
+                            <strong>Rejection reason:</strong>{' '}
+                            {row.rejectionReason ?? row.rejection_reason ?? item?.meta?.rejectionReason}
+                        </div>
+                    )}
+                </div>
+            )}
+        </Modal>
+    );
+}
+
+/** Marketing promotion detail for Super Admin Approvals. */
+function MarketingPromotionDetailsModal({ id, item, onClose, onApprove, onReject }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr('');
+        fetchApprovalDetails('marketing_promotion', id)
+            .catch(() => null)
+            .then((res) => {
+                if (cancelled) return;
+                if (res) {
+                    setData(res);
+                    return;
+                }
+                return marketingGetPromotion(id).then((promoRes) => {
+                    if (!cancelled) {
+                        const promotion =
+                            promoRes?.promotion ??
+                            promoRes?.data ??
+                            promoRes?.item ??
+                            promoRes;
+                        setData({
+                            promotion,
+                            name: promotion?.name,
+                            promoType: promotion?.promoType ?? promotion?.promotionType,
+                            marketingStrategy: promotion?.marketingStrategy,
+                            discountValue: promotion?.discountValue ?? promotion?.value,
+                            discountLabel: item?.meta?.discountLabel,
+                            status:
+                                normalizePromotionWorkflowStatus(promotion?.status) ===
+                                'pending_approval'
+                                    ? 'pending'
+                                    : normalizePromotionWorkflowStatus(promotion?.status) ===
+                                        'rejected'
+                                      ? 'rejected'
+                                      : 'approved',
+                            startAt: promotion?.startAt ?? promotion?.startDate,
+                            endAt: promotion?.endAt ?? promotion?.endDate,
+                            code: promotion?.code,
+                            description: promotion?.description,
+                        });
+                    }
+                });
+            })
+            .catch((e) => {
+                if (!cancelled) setErr(e?.message || 'Could not load promotion details');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [id]);
+
+    const row = data ?? item?.raw ?? item ?? {};
+    const promotion = row.promotion ?? row;
+    const name = promotion.name ?? promotion.promotionName ?? item?.title ?? `Promotion #${id}`;
+    const status = String(row.status ?? item?.status ?? 'pending').toLowerCase();
+    const discountLabel =
+        row.discountLabel ??
+        item?.meta?.discountLabel ??
+        (promotion.discountValue != null ? String(promotion.discountValue) : '—');
+
+    return (
+        <Modal
+            title={`Marketing promotion · ${name}`}
+            onClose={onClose}
+            width={760}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
+                    {status === 'pending' && (
+                        <>
+                            {onReject && (
+                                <button type="button" className="btn-reject" onClick={onReject}>
+                                    <X size={16} /> Reject
+                                </button>
+                            )}
+                            {onApprove && (
+                                <button type="button" className="btn-approve" onClick={onApprove}>
+                                    <Check size={16} /> Approve
+                                </button>
+                            )}
+                        </>
+                    )}
+                </>
+            )}
+        >
+            {loading ? (
+                <div style={{ padding: 24, textAlign: 'center' }}>
+                    <Loader size={20} className="spin" /> Loading…
+                </div>
+            ) : err ? (
+                <p style={{ color: '#b91c1c' }}>{err}</p>
+            ) : (
+                <div>
+                    <div style={{ marginBottom: 14 }}>
+                        <span className={`status-badge status-${status}`}>{status}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Discount</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700, fontSize: '1.125rem' }}>{discountLabel}</p>
+                        </div>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Promotion type</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>
+                                {promotion.promoType ?? promotion.promotionType ?? row.promoType ?? '—'}
+                            </p>
+                        </div>
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Strategy</p>
+                        <p style={{ margin: '6px 0 0', fontSize: '0.9375rem' }}>
+                            {promotion.marketingStrategy ?? row.marketingStrategy ?? '—'}
+                        </p>
+                    </div>
+                    {promotion.description && (
+                        <div style={{ marginBottom: 14 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Description</p>
+                            <p style={{ margin: '6px 0 0', fontSize: '0.9375rem' }}>{promotion.description}</p>
+                        </div>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Valid from</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                {formatDate(promotion.startAt ?? promotion.startDate ?? row.startAt)}
+                            </p>
+                        </div>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Valid until</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                {formatDate(promotion.endAt ?? promotion.endDate ?? row.endAt)}
+                            </p>
+                        </div>
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Promo code</p>
+                        <p style={{ margin: '6px 0 0', fontSize: '0.9375rem', fontFamily: 'monospace' }}>
+                            {promotion.code ?? row.code ?? '—'}
+                        </p>
+                    </div>
+                </div>
+            )}
+        </Modal>
+    );
 }
 
 /** Proof preview for a Corporate Payment Approval — fetches base64 image, shows full detail. */
@@ -1109,16 +1566,23 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
      * specific per-type permissions enable fine-grained gating.
      */
     const canViewType = useCallback((entityType) => {
-        const code = approvalPermission(entityType, 'view');
-        return code ? hasPermission(code) : true;
+        return approvalTypeAllowed(hasPermission, entityType, 'view');
     }, [hasPermission]);
     const canApproveType = useCallback((entityType) => {
         const code = approvalPermission(entityType, 'approve');
-        return code ? hasPermission(code) : hasPermission('approvals.approve');
+        if (!code) return hasPermission('approvals.approve');
+        if (hasPermission('approvals.approve') && !hasAnyGranularApprovalTypePermission(hasPermission, 'approve')) {
+            return true;
+        }
+        return hasPermission(code);
     }, [hasPermission]);
     const canRejectType = useCallback((entityType) => {
         const code = approvalPermission(entityType, 'reject');
-        return code ? hasPermission(code) : hasPermission('approvals.reject');
+        if (!code) return hasPermission('approvals.reject');
+        if (hasPermission('approvals.reject') && !hasAnyGranularApprovalTypePermission(hasPermission, 'reject')) {
+            return true;
+        }
+        return hasPermission(code);
     }, [hasPermission]);
 
     const visibleEntityTypes = useMemo(
@@ -1205,14 +1669,20 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             !entityTypeFilter || entityTypeFilter === 'corporate_payment_approval';
         const wantSalesReturns =
             !entityTypeFilter || entityTypeFilter === 'sales_return';
+        const wantMarketingTopups =
+            !entityTypeFilter || entityTypeFilter === 'marketing_budget_request';
+        const wantMarketingPromotions =
+            !entityTypeFilter || entityTypeFilter === 'marketing_promotion';
 
-        // When the filter is narrowed to corporate_payment_approval, skip the
-        // standard approvals endpoint entirely (it doesn't know that entityType).
-        const stdReq = entityTypeFilter === 'corporate_payment_approval' || entityTypeFilter === 'sales_return'
+        // When the filter is narrowed to a type handled by a dedicated API, skip std approvals.
+        const stdReq = entityTypeFilter === 'corporate_payment_approval' || entityTypeFilter === 'sales_return' || entityTypeFilter === 'marketing_budget_request' || entityTypeFilter === 'marketing_promotion'
             ? Promise.resolve([])
-            : listApprovals({ status, entityType: entityTypeFilter }).then(
-                (data) => unwrapApprovalsListResponse(data).map(normalizeItem),
-            );
+            : listApprovals({ status, entityType: entityTypeFilter })
+                .then((data) => unwrapApprovalsListResponse(data).map(normalizeItem))
+                .catch((err) => {
+                    console.error('Standard approvals load failed:', err);
+                    return [];
+                });
         const cpaReq = wantPaymentApprovals
             ? listCorporatePaymentApprovals({
                   status: status ?? 'all',
@@ -1295,10 +1765,44 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                   .catch(() => [])
             : Promise.resolve([]);
 
-        Promise.all([stdReq, cpaReq, srReq])
-            .then(([stdItems, cpaItems, srItems]) => {
+        const mbrStatus = status ?? 'all';
+        const mbrReq = wantMarketingTopups && canViewType('marketing_budget_request')
+            ? marketingListBudgetRequests({
+                  status: mbrStatus,
+                  limit: 100,
+                  offset: 0,
+              })
+                  .then((res) => unwrapMarketingBudgetRequests(res).map(mapMarketingBudgetRequestRow))
+                  .catch(() => [])
+            : Promise.resolve([]);
+
+        const mprReq = wantMarketingPromotions && canViewType('marketing_promotion')
+            ? marketingListPromotions({
+                  status: 'all',
+                  limit: 200,
+                  offset: 0,
+              })
+                  .then((res) =>
+                      unwrapMarketingPromotions(res)
+                          .filter((row) => promotionMatchesApprovalTab(row, status))
+                          .map(mapMarketingPromotionRow),
+                  )
+                  .catch((err) => {
+                      console.error('Marketing promotions approval load failed:', err);
+                      return [];
+                  })
+            : Promise.resolve([]);
+
+        Promise.all([stdReq, cpaReq, srReq, mbrReq, mprReq])
+            .then(([stdItems, cpaItems, srItems, mbrItems, mprItems]) => {
                 if (cancelled) return;
-                const merged = [...srItems, ...cpaItems, ...stdItems];
+                const seen = new Set();
+                const merged = [...mprItems, ...mbrItems, ...srItems, ...cpaItems, ...stdItems].filter((item) => {
+                    const key = `${item.entityType}:${item.id}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
                 setItems(merged);
             })
             .catch((err) => {
@@ -1311,17 +1815,20 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         return () => { cancelled = true; };
     }, [currentTab, entityTypeFilter, reloadTick, canViewType]);
 
-    const removeFromList = useCallback((id) => {
-        setItems((prev) => prev.filter((i) => i.id !== id));
+    const removeFromList = useCallback((item) => {
+        const key = approvalItemKey(item);
+        setItems((prev) => prev.filter((i) => approvalItemKey(i) !== key));
     }, []);
 
     const isCorporatePriceQuotation = (et) =>
         et === 'corporate_price_quotation' || et === 'corporate_price_quotations';
     const isCorporatePaymentApproval = (et) => et === 'corporate_payment_approval';
     const isSalesReturnApproval = (et) => et === 'sales_return';
+    const isMarketingBudgetRequest = (et) => et === 'marketing_budget_request';
+    const isMarketingPromotion = (et) => et === 'marketing_promotion';
 
     const handleApproveConfirm = async (item, remarksOrPayload) => {
-        setActionLoading(item.id);
+        setActionLoading(approvalItemKey(item));
         try {
             const payload =
                 typeof remarksOrPayload === 'string'
@@ -1331,14 +1838,23 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 await approveCorporatePaymentApproval(item.id);
             } else if (isSalesReturnApproval(item.entityType)) {
                 await approveSuperAdminSalesReturn(item.id);
+            } else if (isMarketingBudgetRequest(item.entityType)) {
+                await marketingApproveBudgetRequest(item.id, {
+                    notes: payload.remarks ?? payload.notes,
+                });
+            } else if (isMarketingPromotion(item.entityType)) {
+                await marketingApprovePromotion(item.id, {
+                    notes: payload.remarks ?? payload.notes,
+                });
             } else if (isCorporatePriceQuotation(item.entityType)) {
                 await approveSuperAdminCorporatePriceQuotation(item.id);
             } else {
                 await approveApi(item.entityType, item.id, payload);
             }
-            removeFromList(item.id);
+            removeFromList(item);
             setApproveTarget(null);
             setDetailsTarget(null);
+            setReloadTick((t) => t + 1);
             showToast('Request approved.');
         } catch (err) {
             showToast(`Approve failed: ${err.message}`, 'error');
@@ -1348,20 +1864,25 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     };
 
     const handleRejectConfirm = async (item, reason) => {
-        setActionLoading(item.id);
+        setActionLoading(approvalItemKey(item));
         try {
             if (isCorporatePaymentApproval(item.entityType)) {
                 await rejectCorporatePaymentApproval(item.id, reason);
             } else if (isSalesReturnApproval(item.entityType)) {
                 await rejectSuperAdminSalesReturn(item.id, reason);
+            } else if (isMarketingBudgetRequest(item.entityType)) {
+                await marketingRejectBudgetRequest(item.id, { rejectionReason: reason });
+            } else if (isMarketingPromotion(item.entityType)) {
+                await marketingRejectPromotion(item.id, { reason: reason ?? '' });
             } else if (isCorporatePriceQuotation(item.entityType)) {
                 await rejectSuperAdminCorporatePriceQuotation(item.id, { reason });
             } else {
                 await rejectApi(item.entityType, item.id, reason);
             }
-            removeFromList(item.id);
+            removeFromList(item);
             setRejectTarget(null);
             setDetailsTarget(null);
+            setReloadTick((t) => t + 1);
             showToast('Request rejected.');
         } catch (err) {
             showToast(`Reject failed: ${err.message}`, 'error');
@@ -1409,6 +1930,9 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 return <DollarSign size={14} />;
             case 'sales_return':
                 return <RefreshCcw size={14} />;
+            case 'marketing_promotion':
+            case 'marketing_budget_request':
+                return <Tag size={14} />;
             default:
                 return <FileText size={14} />;
         }
@@ -1593,20 +2117,20 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                                 <button
                                                     type="button"
                                                     className="btn-approve"
-                                                    disabled={actionLoading === item.id}
+                                                    disabled={actionLoading === approvalItemKey(item)}
                                                     onClick={() => setApproveTarget(item)}
                                                 >
-                                                    {actionLoading === item.id ? <Loader size={14} className="spin" /> : <Check size={16} />} Approve
+                                                    {actionLoading === approvalItemKey(item) ? <Loader size={14} className="spin" /> : <Check size={16} />} Approve
                                                 </button>
                                             )}
                                             {allowReject && (
                                                 <button
                                                     type="button"
                                                     className="btn-reject"
-                                                    disabled={actionLoading === item.id}
+                                                    disabled={actionLoading === approvalItemKey(item)}
                                                     onClick={() => setRejectTarget(item)}
                                                 >
-                                                    {actionLoading === item.id ? <Loader size={14} className="spin" /> : <X size={16} />} Reject
+                                                    {actionLoading === approvalItemKey(item) ? <Loader size={14} className="spin" /> : <X size={16} />} Reject
                                                 </button>
                                             )}
                                         </>
@@ -1656,14 +2180,36 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 />
             )}
 
+            {detailsTarget && detailsTarget.entityType === 'marketing_budget_request' && (
+                <MarketingBudgetRequestDetailsModal
+                    id={detailsTarget.id}
+                    item={detailsTarget.item}
+                    onClose={() => setDetailsTarget(null)}
+                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
+                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
+                />
+            )}
+
+            {detailsTarget && detailsTarget.entityType === 'marketing_promotion' && (
+                <MarketingPromotionDetailsModal
+                    id={detailsTarget.id}
+                    item={detailsTarget.item}
+                    onClose={() => setDetailsTarget(null)}
+                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
+                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
+                />
+            )}
+
             {detailsTarget
                 && detailsTarget.entityType !== 'corporate_payment_approval'
-                && detailsTarget.entityType !== 'sales_return' && (
+                && detailsTarget.entityType !== 'sales_return'
+                && detailsTarget.entityType !== 'marketing_budget_request'
+                && detailsTarget.entityType !== 'marketing_promotion' && (
                 <ApprovalDetailsModal
                     entityType={detailsTarget.entityType}
                     id={detailsTarget.id}
                     onClose={() => setDetailsTarget(null)}
-                    actionDisabled={actionLoading === detailsTarget.id}
+                    actionDisabled={actionLoading === approvalItemKey(detailsTarget.item ?? { entityType: detailsTarget.entityType, id: detailsTarget.id })}
                     canApprove={canApproveType(detailsTarget.entityType)}
                     canReject={canRejectType(detailsTarget.entityType)}
                     onApprove={(data) => {
@@ -1710,14 +2256,14 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             {approveTarget && approveTarget.entityType === 'corporate_registration' ? (
                 <CorporateApproveModal
                     item={approveTarget}
-                    busy={actionLoading === approveTarget.id}
+                    busy={actionLoading === approvalItemKey(approveTarget)}
                     onCancel={() => setApproveTarget(null)}
                     onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
                 />
             ) : approveTarget ? (
                 <ApproveModal
                     item={approveTarget}
-                    busy={actionLoading === approveTarget.id}
+                    busy={actionLoading === approvalItemKey(approveTarget)}
                     onCancel={() => setApproveTarget(null)}
                     onConfirm={(remarks) => handleApproveConfirm(approveTarget, remarks)}
                 />
@@ -1726,7 +2272,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             {rejectTarget && (
                 <RejectModal
                     item={rejectTarget}
-                    busy={actionLoading === rejectTarget.id}
+                    busy={actionLoading === approvalItemKey(rejectTarget)}
                     onCancel={() => setRejectTarget(null)}
                     onConfirm={(reason) => handleRejectConfirm(rejectTarget, reason)}
                 />

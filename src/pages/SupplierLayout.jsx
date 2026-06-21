@@ -25,7 +25,9 @@ import SupplierNonAffiliatedCustomers from './supplier/SupplierNonAffiliatedCust
 import SupplierCashBank from './supplier/SupplierCashBank';
 import SupplierExpenses from './supplier/SupplierExpenses';
 import SupplierAccountingPage from './supplier/SupplierAccountingPage';
+import SupplierAccountLedgerPage from './supplier/accounting/SupplierAccountLedgerPage';
 import SupplierStorageFacility from './supplier/storage-facility/SupplierStorageFacility';
+import SupplierStaffAppPage from './supplier/SupplierStaffAppPage';
 import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { getSupplierProfile, getSupplierReceivables } from '../services/supplierApi';
@@ -167,6 +169,10 @@ export default function SupplierLayout() {
         : NAV_GROUPS;
 
     const renderContent = () => {
+        if (/^\/supplier\/accounting\/ledger\/[^/]+/.test(location.pathname)) {
+            return <SupplierAccountLedgerPage />;
+        }
+
         if (activeTab.startsWith('accounting_')) {
             return <SupplierAccountingPage activeSubTab={activeTab} />;
         }
@@ -178,6 +184,7 @@ export default function SupplierLayout() {
             case 'stock_alerts': return <SupplierWorkshopAlerts/>;
             case 'catalog': return <SupplierCatalog/>;
             case 'employees': return <SupplierEmployeesPage/>;
+            case 'staff_app': return <SupplierStaffAppPage/>;
             case 'sales_invoices': return <SupplierSalesInvoices/>;
             case 'affiliated_workshops': return <SupplierAffiliatedWorkshops/>;
             case 'nonaffiliated_customers': return <SupplierNonAffiliatedCustomers/>;

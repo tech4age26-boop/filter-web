@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 import { MapPin, Pencil, Plus, Trash2 } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
-
+import {
+    createStorageLocation,
+    deleteStorageLocation,
+    listStorageLocations,
+    updateStorageLocation,
+} from '../../../services/storageFacilityApi';
 
 const KIND_LABEL = {
     brand_storage: 'Brand storage',
@@ -11,7 +15,6 @@ const KIND_LABEL = {
 };
 
 export default function StorageFacilityLocationsTab({ brandId }) {
-    const sfApi = useStorageFacilityApi();
     const [locations, setLocations] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -24,7 +27,7 @@ export default function StorageFacilityLocationsTab({ brandId }) {
         setLoading(true);
         setErr('');
         try {
-            const res = await sfApi.listStorageLocations(brandId);
+            const res = await listStorageLocations(brandId);
             setLocations(res?.locations ?? []);
         } catch (e) {
             setErr(e?.message || 'Failed to load locations');
@@ -60,12 +63,12 @@ export default function StorageFacilityLocationsTab({ brandId }) {
         setBusy(true);
         try {
             if (editing) {
-                await sfApi.updateStorageLocation(brandId, editing.id, {
+                await updateStorageLocation(brandId, editing.id, {
                     name: form.name.trim(),
                     code: form.code.trim() || undefined,
                 });
             } else {
-                await sfApi.createStorageLocation(brandId, {
+                await createStorageLocation(brandId, {
                     name: form.name.trim(),
                     code: form.code.trim() || undefined,
                 });
@@ -86,7 +89,7 @@ export default function StorageFacilityLocationsTab({ brandId }) {
         }
         if (!window.confirm(`Delete location "${loc.name}"?`)) return;
         try {
-            await sfApi.deleteStorageLocation(brandId, loc.id);
+            await deleteStorageLocation(brandId, loc.id);
             await load();
         } catch (ex) {
             window.alert(ex?.message || 'Could not delete');

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Book, Filter, RefreshCw, Search } from 'lucide-react';
 import { getAccountLedger, getAccountsList } from '../../../services/ledgerApi';
+import { useHqAdminBooksScope } from '../../../hooks/useHqAdminBooksScope';
 import '../../../styles/admin/AccountingPage.css';
 
 const fmt = (n) => {
@@ -10,6 +11,7 @@ const fmt = (n) => {
 };
 
 export default function WorkshopLedgerView() {
+    const { isAdminHqBooks } = useHqAdminBooksScope();
     const [accounts, setAccounts] = useState([]);
     const [accountId, setAccountId] = useState('');
     const [search, setSearch] = useState('');
@@ -82,7 +84,9 @@ export default function WorkshopLedgerView() {
             <header className="cash-bank-header">
                 <h2 className="cash-bank-title"><Book size={20} style={{ marginRight: 8 }} />General Ledger</h2>
                 <p className="cash-bank-desc">
-                    Pick a COA account to see every journal line touching it, with a running balance.
+                    {isAdminHqBooks
+                        ? 'Platform HQ Chart of Accounts — pick an account to view its ledger (no branch scope).'
+                        : 'Pick a COA account to see every journal line touching it, with a running balance.'}
                 </p>
             </header>
 

@@ -11,6 +11,24 @@ export function money(value, currency = 'SAR', { showSymbol = true } = {}) {
     return `${currency} ${formatted}`;
 }
 
+/**
+ * Signed net balance for a COA row from its closing debit/credit columns
+ * (trial-balance style: only one side is non-zero per account).
+ */
+export function coaNetBalance(accountType, debit, credit) {
+    const rd = Number(debit) || 0;
+    const rc = Number(credit) || 0;
+    const normalDebit = accountType === 'ASSET' || accountType === 'EXPENSE';
+    return normalDebit ? rd - rc : rc - rd;
+}
+
+/** Format COA balance column — zero nets render as em dash. */
+export function formatCoaBalance(accountType, debit, credit, currency = 'SAR') {
+    const net = coaNetBalance(accountType, debit, credit);
+    if (Math.abs(net) < 0.005) return '—';
+    return money(net, currency);
+}
+
 /** Format a date or ISO string as `YYYY-MM-DD`. */
 export function fmtDate(value) {
     if (!value) return '—';

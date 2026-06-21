@@ -7,21 +7,14 @@ import {
     Plus,
     Trash2,
 } from 'lucide-react';
-import Modal from '../../../components/Modal';
 import {
     createSupplierAccount,
     deleteSupplierAccount,
-    getSupplierAccountLedger,
     getSupplierAccounts,
     getSupplierAccountsTree,
     unwrapSupplierAccountingList,
     updateSupplierAccount,
 } from '../../../services/supplierAccountingApi';
-import {
-    exportAccountLedgerExcel,
-    exportAccountLedgerPdf,
-} from '../../../utils/supplierLedgerExport';
-import AccountLedgerStatement from './AccountLedgerStatement';
 import {
     ACCOUNT_SUBTYPES_BY_TYPE,
     ACCOUNT_TYPES,
@@ -39,9 +32,9 @@ import {
     primaryBtnStyle,
     startOfMonthISO,
     todayISO,
+    coaNetBalance,
+    formatCoaBalance,
 } from './SupplierAccountingShared';
-
-/** Roll up child `closingDebit` / `closingCredit` onto parent COA rows (no direct parent postings). */
 function buildRollupMap(nodes) {
     const map = new Map();
     function walk(node) {
@@ -351,249 +344,6 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
     );
 }
 
-function derivePartyFilterKey(party) {
-    if (party?.externalPartyId) {
-        return `external:${party.externalPartyId}`;
-    }
-    if (party?.partyType && party?.partyId) {
-        return `${party.partyType}:${party.partyId}`;
-    }
-    return '';
-}
-
-function partyQueryFromFilterKey(key) {
-    if (!key) return {};
-    if (key.startsWith('external:')) {
-        return { externalPartyId: key.slice(9) };
-    }
-    const idx = key.indexOf(':');
-    if (idx > 0) {
-        return {
-            partyType: key.slice(0, idx),
-            partyId: key.slice(idx + 1),
-        };
-    }
-    return {};
-}
-
-/** Cash/bank child accounts may not have isCashEquivalent set on the row itself. */
-function isBankCashLedgerAccount(account, accountsById) {
-    if (!account) return false;
-    if (account.isCashEquivalent) return true;
-    if (account.seedKey === 'CASH' || account.seedKey === 'BANK') return true;
-    let pid = account.parentId ? String(account.parentId) : '';
-    const seen = new Set();
-    while (pid && !seen.has(pid)) {
-        seen.add(pid);
-        const parent = accountsById?.get(pid);
-        if (!parent) break;
-        if (parent.isCashEquivalent) return true;
-        if (parent.seedKey === 'CASH' || parent.seedKey === 'BANK') return true;
-        pid = parent.parentId ? String(parent.parentId) : '';
-    }
-    return false;
-}
-
-function AccountLedgerModal({ context, onClose, allAccounts = [] }) {
-    const account = context?.account;
-    const initialParty = context?.partyFilter;
-    const accountsById = useMemo(() => {
-        const m = new Map();
-        for (const a of allAccounts || []) {
-            if (a?.id != null) m.set(String(a.id), a);
-        }
-        return m;
-    }, [allAccounts]);
-    const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState('');
-    const [data, setData] = useState(null);
-    const loadSeqRef = useRef(0);
-    const isCashLedger = useMemo(
-        () =>
-            data?.isCashLedger === true ||
-            isBankCashLedgerAccount(account, accountsById),
-        [data?.isCashLedger, account, accountsById],
-    );
-    const [dateFrom, setDateFrom] = useState(startOfMonthISO());
-    const [dateTo, setDateTo] = useState(todayISO());
-    const [partyFilterKey, setPartyFilterKey] = useState(() =>
-        derivePartyFilterKey(initialParty),
-    );
-    const [offsetAccountFilterId, setOffsetAccountFilterId] = useState('');
-
-    useEffect(() => {
-        setPartyFilterKey(derivePartyFilterKey(initialParty));
-        setOffsetAccountFilterId('');
-    }, [
-        account?.id,
-        initialParty?.partyType,
-        initialParty?.partyId,
-        initialParty?.externalPartyId,
-    ]);
-
-    const filterOptions = data?.filterOptions ?? { parties: [], offsetAccounts: [] };
-
-    const ledgerQueryBase = useMemo(() => {
-        const partyQ = partyQueryFromFilterKey(partyFilterKey);
-        return {
-            dateFrom: dateFrom || undefined,
-            dateTo: dateTo || undefined,
-            ...partyQ,
-            offsetAccountId: offsetAccountFilterId || undefined,
-        };
-    }, [dateFrom, dateTo, partyFilterKey, offsetAccountFilterId]);
-
-    const load = useCallback(async () => {
-        if (!account?.id) return;
-        const seq = ++loadSeqRef.current;
-        setLoading(true);
-        setErr('');
-        try {
-            const res = await getSupplierAccountLedger(account.id, {
-                ...ledgerQueryBase,
-                limit: 2000,
-            });
-            if (seq !== loadSeqRef.current) return;
-            const root = res?.data && typeof res.data === 'object' ? res.data : res;
-            setData(root);
-        } catch (e) {
-            if (seq !== loadSeqRef.current) return;
-            setErr(e?.message || 'Failed to load ledger');
-        } finally {
-            if (seq === loadSeqRef.current) setLoading(false);
-        }
-    }, [account?.id, ledgerQueryBase]);
-
-    useEffect(() => {
-        setDateFrom(startOfMonthISO());
-        setDateTo(todayISO());
-    }, [account?.id]);
-
-    useEffect(() => {
-        void load();
-    }, [load]);
-
-    async function fetchLedgerForExport() {
-        const res = await getSupplierAccountLedger(account.id, {
-            ...ledgerQueryBase,
-            limit: 10000,
-        });
-        return res?.data && typeof res.data === 'object' ? res.data : res;
-    }
-
-    function buildExportHeader(root) {
-        return {
-            ...(root?.header || {}),
-            accountCode: root?.header?.accountCode || account?.code || '',
-            accountName: root?.header?.accountName || account?.name || '',
-            accountType: root?.header?.accountType || account?.type || '',
-            companyName: root?.header?.companyName || undefined,
-            from: root?.header?.from || dateFrom || undefined,
-            to: root?.header?.to || dateTo || undefined,
-            currencyCode: root?.header?.currencyCode || 'SAR',
-        };
-    }
-
-    async function onExportPdf() {
-        if (!account?.id) return;
-        setErr('');
-        try {
-            const root = await fetchLedgerForExport();
-            exportAccountLedgerPdf({
-                header: buildExportHeader(root),
-                openingBalance: root?.openingBalance,
-                rows: root?.rows ?? [],
-                totals: root?.totals,
-            });
-        } catch (e) {
-            setErr(e?.message || 'PDF export failed');
-        }
-    }
-
-    async function onExportExcel() {
-        if (!account?.id) return;
-        setErr('');
-        try {
-            const root = await fetchLedgerForExport();
-            exportAccountLedgerExcel({
-                header: buildExportHeader(root),
-                openingBalance: root?.openingBalance,
-                rows: root?.rows ?? [],
-                totals: root?.totals,
-            });
-        } catch (e) {
-            setErr(e?.message || 'Excel export failed');
-        }
-    }
-
-    function clearRange() {
-        setDateFrom(startOfMonthISO());
-        setDateTo(todayISO());
-        setPartyFilterKey('');
-        setOffsetAccountFilterId('');
-    }
-
-    if (!account) return null;
-
-    const title = 'Account Ledger';
-    const partyLabel = data?.header?.partyLabel || null;
-    const accountLabel =
-        data?.header?.accountCode || account.code
-            ? `[${data?.header?.accountCode || account.code}] ${data?.header?.accountName || account.name}${partyLabel ? ` · ${partyLabel}` : ''}`
-            : `${data?.header?.accountName || account.name}${partyLabel ? ` · ${partyLabel}` : ''}`;
-    const periodFrom = data?.header?.from || dateFrom || '—';
-    const periodTo = data?.header?.to || dateTo || '—';
-    const currentBalance =
-        data?.currentBalance ??
-        (account.type === 'EQUITY' || account.type === 'LIABILITY' || account.type === 'INCOME'
-            ? Number(account.closingCredit || 0) - Number(account.closingDebit || 0)
-            : Number(account.closingDebit || 0) - Number(account.closingCredit || 0));
-
-    return (
-        <Modal
-            title={title}
-            onClose={onClose}
-            width={isCashLedger ? 1120 : 960}
-            footer={
-                <button type="button" className="btn-portal-outline" onClick={onClose}>
-                    Close
-                </button>
-            }
-        >
-            <AccountLedgerStatement
-                loading={loading}
-                error={err}
-                accountLabel={accountLabel}
-                accountLabelCaption="Ledger account"
-                currentBalanceText={money(currentBalance)}
-                companyName={data?.header?.companyName}
-                periodFrom={periodFrom}
-                periodTo={periodTo}
-                openingBalance={data?.openingBalance ?? 0}
-                rows={data?.rows ?? []}
-                totals={data?.totals}
-                dateFrom={dateFrom}
-                dateTo={dateTo}
-                onDateFromChange={setDateFrom}
-                onDateToChange={setDateTo}
-                onApply={() => void load()}
-                onClear={clearRange}
-                onExportPdf={() => void onExportPdf()}
-                onExportExcel={() => void onExportExcel()}
-                exportDisabled={!data || loading}
-                showCashLedgerColumns={isCashLedger}
-                counterpartyColumnLabel="Paid to / Received from"
-                offsetAccountColumnLabel="Expense / AR account"
-                filterOptions={filterOptions}
-                partyFilterKey={partyFilterKey}
-                onPartyFilterKeyChange={setPartyFilterKey}
-                offsetAccountFilterId={offsetAccountFilterId}
-                onOffsetAccountFilterIdChange={setOffsetAccountFilterId}
-            />
-        </Modal>
-    );
-}
-
 export default function SupplierCOAManager() {
     const navigate = useNavigate();
     const [accounts, setAccounts] = useState([]);
@@ -605,9 +355,26 @@ export default function SupplierCOAManager() {
     const [filterType, setFilterType] = useState('');
     const [creating, setCreating] = useState(false);
     const [editing, setEditing] = useState(null);
-    const [ledgerFor, setLedgerFor] = useState(null);
     const [searchParams, setSearchParams] = useSearchParams();
     const coaLedgerQueryConsumed = useRef(false);
+
+    const navigateToAccountLedger = useCallback((account, partyFilter = {}) => {
+        if (!account?.id) return;
+        if (account?.seedKey === 'VAT_OUTPUT') {
+            navigate('/supplier/accounting/vat');
+            return;
+        }
+        const params = new URLSearchParams();
+        if (partyFilter.partyType) params.set('partyType', partyFilter.partyType);
+        if (partyFilter.partyId) params.set('partyId', partyFilter.partyId);
+        if (partyFilter.externalPartyId) {
+            params.set('externalPartyId', partyFilter.externalPartyId);
+        }
+        const qs = params.toString();
+        navigate(
+            `/supplier/accounting/ledger/${encodeURIComponent(account.id)}${qs ? `?${qs}` : ''}`,
+        );
+    }, [navigate]);
 
     useEffect(() => {
         const seed = (searchParams.get('openLedgerSeed') || '').trim();
@@ -624,10 +391,7 @@ export default function SupplierCOAManager() {
             const acc = accounts.find((a) => a.seedKey === seed);
             if (!acc) return;
             coaLedgerQueryConsumed.current = true;
-            setLedgerFor({
-                account: acc,
-                partyFilter: { partyType, partyId, externalPartyId },
-            });
+            navigateToAccountLedger(acc, { partyType, partyId, externalPartyId });
             setSearchParams({}, { replace: true });
             return;
         }
@@ -635,10 +399,10 @@ export default function SupplierCOAManager() {
             const acc = accounts.find((a) => String(a.id) === openAccountId);
             if (!acc) return;
             coaLedgerQueryConsumed.current = true;
-            setLedgerFor({ account: acc, partyFilter: {} });
+            navigateToAccountLedger(acc, {});
             setSearchParams({}, { replace: true });
         }
-    }, [accounts, searchParams, setSearchParams]);
+    }, [accounts, searchParams, setSearchParams, navigateToAccountLedger]);
 
     const reload = useCallback(async () => {
         setLoading(true);
@@ -706,11 +470,7 @@ export default function SupplierCOAManager() {
     }
 
     function openAccountLedger(account, partyFilter = {}) {
-        if (account?.seedKey === 'VAT_OUTPUT') {
-            navigate('/supplier/accounting/vat');
-            return;
-        }
-        setLedgerFor({ account, partyFilter });
+        navigateToAccountLedger(account, partyFilter);
     }
 
     function renderRow(a, depth = 0) {
@@ -721,7 +481,6 @@ export default function SupplierCOAManager() {
             (roll?.hasChildren ?? false);
         let rd = roll ? roll.rollupDebit : Number(a.closingDebit) || 0;
         let rc = roll ? roll.rollupCredit : Number(a.closingCredit) || 0;
-        const normalDebit = a.type === 'ASSET' || a.type === 'EXPENSE';
         const isVatPayable = a.seedKey === 'VAT_OUTPUT';
         const isRetainedEarnings = a.seedKey === 'RETAINED_EARNINGS' || a.computedFromPl;
         if (isRetainedEarnings && a.cumulativeNetIncome != null) {
@@ -736,16 +495,13 @@ export default function SupplierCOAManager() {
                 }
             }
         }
-        const balance = isVatPayable
-            ? Number(a.netZatcaPayable ?? (normalDebit ? rd : rc))
-            : normalDebit
-              ? rd
-              : rc;
+        const vatBalance = isVatPayable
+            ? Number(a.netZatcaPayable ?? coaNetBalance(a.type, rd, rc))
+            : null;
         const canOpenLedger = !hasChildren;
         const partyRows = (a.partyBalances || []).map((pb, idx) => {
             const pbd = Number(pb.closingDebit) || 0;
             const pbc = Number(pb.closingCredit) || 0;
-            const pbBal = normalDebit ? pbd : pbc;
             return (
                 <tr
                     key={`${a.id}-party-${idx}`}
@@ -764,7 +520,7 @@ export default function SupplierCOAManager() {
                     <td style={{ color: '#94A3B8' }}>—</td>
                     <td style={{ textAlign: 'right' }}>{Number(pbd) > 0 ? money(pbd) : '—'}</td>
                     <td style={{ textAlign: 'right' }}>{Number(pbc) > 0 ? money(pbc) : '—'}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{money(pbBal)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatCoaBalance(a.type, pbd, pbc)}</td>
                     <td style={{ textAlign: 'right' }}>
                         {canOpenLedger ? (
                             <button
@@ -824,7 +580,11 @@ export default function SupplierCOAManager() {
                 <td>{String(a.subType || '').replace(/_/g, ' ') || '—'}</td>
                 <td style={{ textAlign: 'right' }}>{Number(rd) > 0 ? money(rd) : '—'}</td>
                 <td style={{ textAlign: 'right' }}>{Number(rc) > 0 ? money(rc) : '—'}</td>
-                <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(balance)}</td>
+                <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                    {isVatPayable
+                        ? (Math.abs(vatBalance) < 0.005 ? '—' : money(vatBalance))
+                        : formatCoaBalance(a.type, rd, rc)}
+                </td>
                 <td style={{ textAlign: 'right' }}>
                     <button type="button" style={outlineBtnStyle} onClick={() => setEditing(a)} title="Edit">
                         <Pencil size={14} />
@@ -922,14 +682,6 @@ export default function SupplierCOAManager() {
                     </div>
                 )}
             </AcctCard>
-
-            {ledgerFor ? (
-                <AccountLedgerModal
-                    context={ledgerFor}
-                    allAccounts={accounts}
-                    onClose={() => setLedgerFor(null)}
-                />
-            ) : null}
         </div>
     );
 }

@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 import { Plus } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
-
+import {
+    createStorageSupplier,
+    listStorageSuppliers,
+    updateStorageSupplier,
+} from '../../../services/storageFacilityApi';
 
 export default function StorageFacilitySuppliersTab({ brandId }) {
-    const sfApi = useStorageFacilityApi();
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -24,7 +26,7 @@ export default function StorageFacilitySuppliersTab({ brandId }) {
         setLoading(true);
         setErr('');
         try {
-            const res = await sfApi.listStorageSuppliers(brandId);
+            const res = await listStorageSuppliers(brandId);
             setRows(Array.isArray(res?.suppliers) ? res.suppliers : []);
         } catch (e) {
             setErr(e?.message || 'Failed to load suppliers');
@@ -43,7 +45,7 @@ export default function StorageFacilitySuppliersTab({ brandId }) {
         if (!form.name.trim()) return;
         setSaving(true);
         try {
-            await sfApi.createStorageSupplier(brandId, form);
+            await createStorageSupplier(brandId, form);
             setAddOpen(false);
             setForm({ name: '', code: '', contactPerson: '', email: '', mobile: '' });
             await load();
@@ -57,7 +59,7 @@ export default function StorageFacilitySuppliersTab({ brandId }) {
     const toggleActive = async (row) => {
         const next = row.isActive === false;
         try {
-            await sfApi.updateStorageSupplier(brandId, row.id, { isActive: next });
+            await updateStorageSupplier(brandId, row.id, { isActive: next });
             await load();
         } catch (ex) {
             window.alert(ex?.message || 'Update failed');

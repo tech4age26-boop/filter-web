@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 import {
     ArrowDownCircle,
     ArrowUpCircle,
@@ -11,7 +10,7 @@ import {
     TrendingUp,
 } from 'lucide-react';
 import { ShimmerStatStrip, ShimmerTable } from '../../../components/supplier/Shimmer';
-
+import { listStorageMovements } from '../../../services/storageFacilityApi';
 import RecordBulkStockMovementModal from './RecordBulkStockMovementModal';
 import {
     exportStorageMovementsExcel,
@@ -120,7 +119,6 @@ export default function StorageFacilityMovementsTab({
     products,
     onReload,
 }) {
-    const sfApi = useStorageFacilityApi();
     const [movements, setMovements] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -146,7 +144,7 @@ export default function StorageFacilityMovementsTab({
         setLoading(true);
         setErr('');
         try {
-            const res = await sfApi.listStorageMovements(brandId, { limit: 500 });
+            const res = await listStorageMovements(brandId, { limit: 500 });
             setMovements(Array.isArray(res?.movements) ? res.movements : []);
         } catch (e) {
             setErr(e?.message || 'Failed to load movements');

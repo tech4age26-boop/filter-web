@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useStorageFacilityAccountingApi } from '../StorageFacilityPortalContext';
-
+import { getBrandProfitLoss } from '../../../../services/storageFacilityAccountingApi';
 import {
     AcctCard,
     AcctEmpty,
@@ -39,7 +38,6 @@ function StatementSection({ title, rows, totalLabel, total }) {
 }
 
 export default function StorageBrandIncomeStatementTab({ brandId }) {
-    const accountingApi = useStorageFacilityAccountingApi();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -52,7 +50,7 @@ export default function StorageBrandIncomeStatementTab({ brandId }) {
         setLoading(true);
         setErr('');
         try {
-            const res = await accountingApi.getBrandProfitLoss(brandId, { dateFrom, dateTo });
+            const res = await getBrandProfitLoss(brandId, { dateFrom, dateTo });
             setData(res);
         } catch (e) {
             setErr(e?.message || 'Failed to load income statement');

@@ -132,7 +132,7 @@ export default function CashBankView({ readOnly = false }) {
                 getSummary(),
                 getAccounts(),
                 getBranches(),
-                getCoaAccounts({ type: 'ASSET' }),
+                getCoaAccounts({ type: 'ASSET', leafOnly: true }),
             ]);
             setSummary({
                 cashTotal: Number(summaryRes.cashTotal || 0),

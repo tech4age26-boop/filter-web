@@ -408,28 +408,25 @@ export function fillSupplierTimelineRunningQty(entries, currentQtyOnHand, produc
     });
 }
 
-/**
- * Inventory line value in SAR — warehouse qty × warehouse unit price (e.g. boxes × SAR/box).
- * Never multiply workshop liters by per-box price.
- */
-export function warehouseStockLineValueSar(row) {
-    if (!row) return 0;
-    const fromApi = row.valueWarehouseSar;
-    if (fromApi != null && Number.isFinite(Number(fromApi))) {
-        return Number(fromApi);
-    }
-    const whQty = Number(row.warehouseQty ?? row.currentBalanceWarehouse ?? 0);
-    const unitPrice = Number(row.price ?? row.warehouseUnitPrice ?? 0);
-    return whQty * unitPrice;
-}
-
-/** Purchase/base price per warehouse unit (Box), from API balances. */
+/** Unit price (SAR) per warehouse unit for API stock balance rows. */
 export function warehouseUnitPriceFromItem(item) {
     if (!item) return 0;
-    const wh = Number(item.currentBalanceWarehouse ?? item.warehouseQty ?? 0);
-    const val = Number(item.valueWarehouseSar ?? 0);
-    if (wh > 0 && val > 0) return val / wh;
-    return Number(item.price ?? 0);
+    const explicit = item.unitPriceWarehouseSar ?? item.warehouseUnitPrice ?? item.basePrice;
+    if (explicit != null && Number.isFinite(Number(explicit))) return Number(explicit);
+    const qtyWh = Number(item.currentBalanceWarehouse ?? item.warehouseQty) || 0;
+    const valueWh = Number(item.valueWarehouseSar);
+    if (qtyWh > 0 && Number.isFinite(valueWh)) return valueWh / qtyWh;
+    return Number(item.purchasePrice ?? item.price ?? 0) || 0;
+}
+
+/** Line value (SAR) for a stock row using warehouse qty × unit price. */
+export function warehouseStockLineValueSar(row) {
+    if (!row) return 0;
+    const valueWh = Number(row.valueWarehouseSar);
+    if (Number.isFinite(valueWh)) return valueWh;
+    const qtyWh = Number(row.warehouseQty ?? row.qty) || 0;
+    const price = Number(row.price) || warehouseUnitPriceFromItem(row);
+    return qtyWh * price;
 }
 
 /** Format warehouse qty with optional workshop equivalent, e.g. "1 Box (12 Liter)". */

@@ -7,8 +7,8 @@ const qs = (params = {}) => {
     return `?${search}`;
 };
 
-export const listExpenseCategories = () =>
-    apiFetch('/employee-expense/categories');
+export const listExpenseCategories = (params = {}) =>
+    apiFetch(`/employee-expense/categories${qs(params)}`);
 
 export const getMyExpenseRequests = (params = {}) =>
     apiFetch(`/employee-expense/my${qs(params)}`);
@@ -25,8 +25,8 @@ export const listWorkshopPettyCashWallets = (params = {}) =>
 export const getStaffPettyCashWallet = (userId, params = {}) =>
     apiFetch(`/employee-expense/workshop-petty-cash/${encodeURIComponent(String(userId))}${qs(params)}`);
 
-export const listExpenseIssuanceTargets = () =>
-    apiFetch('/employee-expense/issuance-targets');
+export const listExpenseIssuanceTargets = (params = {}) =>
+    apiFetch(`/employee-expense/issuance-targets${qs(params)}`);
 
 export const submitFundRequest = (body) =>
     apiFetch('/employee-expense/fund-request', {
@@ -40,8 +40,8 @@ export const submitExpense = (body) =>
         body: JSON.stringify(body ?? {}),
     });
 
-export const issuePettyCash = (body) =>
-    apiFetch('/employee-expense/issue', {
+export const issuePettyCash = (body, params = {}) =>
+    apiFetch(`/employee-expense/issue${qs(params)}`, {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
     });
@@ -55,14 +55,14 @@ export const addExpenseMessage = (id, body) =>
         body: JSON.stringify(body ?? {}),
     });
 
-export const approveExpenseRequest = (id, body = {}) =>
-    apiFetch(`/employee-expense/${encodeURIComponent(String(id))}/approve`, {
+export const approveExpenseRequest = (id, body = {}, params = {}) =>
+    apiFetch(`/employee-expense/${encodeURIComponent(String(id))}/approve${qs(params)}`, {
         method: 'POST',
         body: JSON.stringify(body),
     });
 
-export const rejectExpenseRequest = (id, body) =>
-    apiFetch(`/employee-expense/${encodeURIComponent(String(id))}/reject`, {
+export const rejectExpenseRequest = (id, body, params = {}) =>
+    apiFetch(`/employee-expense/${encodeURIComponent(String(id))}/reject${qs(params)}`, {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
     });

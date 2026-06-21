@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
     CreditCard,
     RefreshCw,
@@ -27,6 +28,11 @@ import {
     updateSoftPosRule,
     updateSoftPosTerminal,
 } from '../../services/softPosApi';
+import {
+    previewSettlement,
+    listSettlements,
+    generateSettlement,
+} from '../../services/settlementApi';
 import { useAuth } from '../../context/AuthContext';
 
 const SAR = (n) => `SAR ${(Number(n) || 0).toFixed(2)}`;
@@ -35,6 +41,7 @@ const TABS = [
     { key: 'transactions', label: 'Transactions',        icon: Receipt,         permission: 'softpos-settlement.transactions.view' },
     { key: 'terminals',    label: 'Terminals',           icon: CreditCard,      permission: 'softpos-settlement.terminals.view' },
     { key: 'batches',      label: 'Settlement Batches',  icon: ArrowDownToLine, permission: 'softpos-settlement.batches.view' },
+    { key: 'hqsettlement', label: 'HQ Settlement',       icon: Banknote,        permission: 'softpos-settlement.batches.view' },
     { key: 'rules',        label: 'Bank Rules',          icon: Settings,        permission: 'softpos-settlement.rules.view' },
     { key: 'refunds',      label: 'Refunds',             icon: RefreshCw,       permission: 'softpos-settlement.refunds.view' },
 ];
@@ -93,6 +100,8 @@ function pickArr(res, key = 'items') {
 
 export default function SoftPosSettlement() {
     const { hasPermission } = useAuth();
+    const [searchParams] = useSearchParams();
+    const tabFromUrl = searchParams.get('tab') || '';
     const visibleTabs = TABS.filter((t) => hasPermission(t.permission));
     const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.key ?? 'transactions');
     const [stats, setStats] = useState(null);
@@ -106,6 +115,13 @@ export default function SoftPosSettlement() {
             setActiveTab(visibleTabs[0].key);
         }
     }, [visibleTabs, activeTab]);
+
+    useEffect(() => {
+        if (!tabFromUrl) return;
+        if (visibleTabs.some((t) => t.key === tabFromUrl)) {
+            setActiveTab(tabFromUrl);
+        }
+    }, [tabFromUrl, visibleTabs]);
 
     useEffect(() => {
         let cancelled = false;
@@ -230,6 +246,7 @@ export default function SoftPosSettlement() {
             {activeTab === 'transactions' && hasPermission('softpos-settlement.transactions.view') && <TransactionsTab onError={setError} />}
             {activeTab === 'terminals'    && hasPermission('softpos-settlement.terminals.view')    && <TerminalsTab onError={setError} />}
             {activeTab === 'batches'      && hasPermission('softpos-settlement.batches.view')      && <BatchesTab onError={setError} />}
+            {activeTab === 'hqsettlement' && hasPermission('softpos-settlement.batches.view')      && <HqSettlementTab onError={setError} />}
             {activeTab === 'rules'        && hasPermission('softpos-settlement.rules.view')        && <RulesTab onError={setError} />}
             {activeTab === 'refunds'      && hasPermission('softpos-settlement.refunds.view')      && <RefundsTab onError={setError} />}
             {visibleTabs.length === 0 && (
@@ -1381,6 +1398,244 @@ function RefundsTab({ onError }) {
                         )}
                     </tbody>
                 </table>
+            </div>
+        </div>
+    );
+}
+
+// ===== HQ Settlement (net HQ-owes vs workshop-owes → payout voucher) =====
+function HqSettlementTab({ onError }) {
+    const firstOfMonth = new Date();
+    firstOfMonth.setDate(1);
+    const [form, setForm] = useState({
+        workshopId: '',
+        periodStart: firstOfMonth.toISOString().slice(0, 10),
+        periodEnd: new Date().toISOString().slice(0, 10),
+    });
+    const [preview, setPreview] = useState(null);
+    const [loadingPreview, setLoadingPreview] = useState(false);
+    const [generating, setGenerating] = useState(false);
+    const [statements, setStatements] = useState([]);
+    const [reload, setReload] = useState(0);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await listSettlements({ limit: 100 });
+                if (!cancelled) setStatements(Array.isArray(res) ? res : []);
+            } catch (err) {
+                if (!cancelled) onError(err?.message || 'Failed to load settlements');
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [reload]);
+
+    const runPreview = async () => {
+        if (!form.workshopId) {
+            onError('Workshop ID is required');
+            return;
+        }
+        setLoadingPreview(true);
+        setPreview(null);
+        try {
+            const res = await previewSettlement(form);
+            setPreview(res);
+        } catch (err) {
+            onError(err?.message || 'Preview failed');
+        } finally {
+            setLoadingPreview(false);
+        }
+    };
+
+    const runGenerate = async () => {
+        if (!form.workshopId) {
+            onError('Workshop ID is required');
+            return;
+        }
+        if (!window.confirm('Generate settlement and post the clearing journals?')) return;
+        setGenerating(true);
+        try {
+            await generateSettlement(form);
+            setPreview(null);
+            setReload((x) => x + 1);
+        } catch (err) {
+            onError(err?.message || 'Generate failed');
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    return (
+        <div style={{ display: 'grid', gap: 16 }}>
+            <div style={card}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Net Settlement</div>
+                <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: 13 }}>
+                    Nets what HQ owes the workshop (SoftPOS net, corporate share, commission payouts)
+                    against what the workshop owes HQ (franchise fees), then posts the payout voucher
+                    and clears the inter-company accounts on both ledgers.
+                </p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <input
+                        placeholder="Workshop ID"
+                        value={form.workshopId}
+                        onChange={(e) => setForm((p) => ({ ...p, workshopId: e.target.value }))}
+                        style={{ ...inputStyle, width: 160 }}
+                    />
+                    <input
+                        type="date"
+                        value={form.periodStart}
+                        onChange={(e) => setForm((p) => ({ ...p, periodStart: e.target.value }))}
+                        style={{ ...inputStyle, width: 170 }}
+                    />
+                    <input
+                        type="date"
+                        value={form.periodEnd}
+                        onChange={(e) => setForm((p) => ({ ...p, periodEnd: e.target.value }))}
+                        style={{ ...inputStyle, width: 170 }}
+                    />
+                    <button type="button" style={btn} onClick={runPreview} disabled={loadingPreview}>
+                        {loadingPreview ? 'Loading...' : 'Preview'}
+                    </button>
+                    <button type="button" style={btnPrimary} onClick={runGenerate} disabled={generating}>
+                        {generating ? 'Posting...' : 'Generate & Post'}
+                    </button>
+                </div>
+
+                {preview && (
+                    <div style={{ marginTop: 16 }}>
+                        <div
+                            style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(3, 1fr)',
+                                gap: 12,
+                                marginBottom: 12,
+                            }}
+                        >
+                            <SummaryCard
+                                label="HQ owes workshop"
+                                value={SAR(preview.hqOwesWorkshop)}
+                                icon={<ArrowDownToLine size={18} color="#16a34a" />}
+                                color="#16a34a"
+                            />
+                            <SummaryCard
+                                label="Workshop owes HQ"
+                                value={SAR(preview.workshopOwesHq)}
+                                icon={<ArrowDownToLine size={18} color="#dc2626" />}
+                                color="#dc2626"
+                            />
+                            <SummaryCard
+                                label={
+                                    preview.netToWorkshop >= 0
+                                        ? 'Net payout to workshop'
+                                        : 'Net to collect from workshop'
+                                }
+                                value={SAR(Math.abs(preview.netToWorkshop))}
+                                icon={<Banknote size={18} color="#D4A017" />}
+                                color="#D4A017"
+                            />
+                        </div>
+                        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>
+                            {preview.entryCount} open entr{preview.entryCount === 1 ? 'y' : 'ies'} in period
+                        </div>
+                        {Array.isArray(preview.entries) && preview.entries.length > 0 && (
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ background: '#fafafa' }}>
+                                        {['Direction', 'Source', 'Description', 'Amount'].map((h) => (
+                                            <th
+                                                key={h}
+                                                style={{
+                                                    textAlign: 'left',
+                                                    padding: '6px 8px',
+                                                    fontSize: 11,
+                                                    color: '#6b7280',
+                                                    borderBottom: '1px solid #e5e7eb',
+                                                    textTransform: 'uppercase',
+                                                }}
+                                            >
+                                                {h}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {preview.entries.map((e) => (
+                                        <tr key={e.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                                            <td style={{ padding: '6px 8px', fontSize: 12 }}>
+                                                {e.direction === 'hq_owes_workshop' ? 'HQ → Workshop' : 'Workshop → HQ'}
+                                            </td>
+                                            <td style={{ padding: '6px 8px', fontSize: 12 }}>{e.source}</td>
+                                            <td style={{ padding: '6px 8px', fontSize: 12 }}>{e.description || '—'}</td>
+                                            <td style={{ padding: '6px 8px', fontSize: 12, fontWeight: 600 }}>{SAR(e.amount)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            <div style={card}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div style={{ fontWeight: 700 }}>Settlement Statements</div>
+                    <button type="button" style={btn} onClick={() => setReload((x) => x + 1)}>
+                        Refresh
+                    </button>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr style={{ background: '#fafafa' }}>
+                                {['Voucher', 'Workshop', 'Period', 'HQ Owes', 'WS Owes', 'Net', 'Status', 'Paid'].map((h) => (
+                                    <th
+                                        key={h}
+                                        style={{
+                                            textAlign: 'left',
+                                            padding: '8px 10px',
+                                            fontSize: 11,
+                                            color: '#6b7280',
+                                            borderBottom: '1px solid #e5e7eb',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: 1,
+                                        }}
+                                    >
+                                        {h}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {statements.length === 0 ? (
+                                <tr>
+                                    <td colSpan={8} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+                                        No settlement statements yet.
+                                    </td>
+                                </tr>
+                            ) : (
+                                statements.map((s) => (
+                                    <tr key={s.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                                        <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>{s.voucherNo || s.id}</td>
+                                        <td style={{ padding: '8px 10px', fontSize: 13 }}>{s.workshopName || s.workshopId}</td>
+                                        <td style={{ padding: '8px 10px', fontSize: 12 }}>
+                                            {s.periodStart} → {s.periodEnd}
+                                        </td>
+                                        <td style={{ padding: '8px 10px', fontSize: 13, color: '#16a34a' }}>{SAR(s.hqOwesWorkshop)}</td>
+                                        <td style={{ padding: '8px 10px', fontSize: 13, color: '#dc2626' }}>{SAR(s.workshopOwesHq)}</td>
+                                        <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>{SAR(s.netToWorkshop)}</td>
+                                        <td style={{ padding: '8px 10px', fontSize: 12 }}>{s.status}</td>
+                                        <td style={{ padding: '8px 10px', fontSize: 12 }}>
+                                            {s.paidAt ? new Date(s.paidAt).toLocaleDateString() : '—'}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );

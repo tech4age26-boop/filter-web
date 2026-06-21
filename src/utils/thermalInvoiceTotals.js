@@ -280,6 +280,7 @@ export function normalizeCashierInvoice(raw) {
 
   return {
     ...raw,
+    isDemo: Boolean(raw.isDemo),
     id: raw.id,
     invoiceNo: raw.invoiceNo || raw.invoice_no || raw.number,
     invoiceDate: raw.invoiceDate || raw.invoice_date || raw.date,
@@ -324,8 +325,14 @@ export function branchRibbonSegments(invoice) {
   return [];
 }
 
+/** Platform HQ VAT — fallback for demo invoices when branch/workshop VAT is unset. */
+const FILTER_PLATFORM_VAT = '311120967500003';
+
 export function sellerVatRegistration(invoice) {
   const b = String(invoice.branchVatId || '').trim();
   if (b) return b;
-  return String(invoice.workshopTaxId || '').trim();
+  const w = String(invoice.workshopTaxId || '').trim();
+  if (w) return w;
+  if (invoice?.isDemo) return FILTER_PLATFORM_VAT;
+  return '';
 }
