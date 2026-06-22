@@ -172,14 +172,12 @@ const WORKSHOP_ACC_TAB_SLUG = {
     'acc-payments': 'payments',
     'acc-advances': 'advances',
     'acc-payroll': 'payroll',
+    'acc-approvals': 'approvals',
     'acc-ledger': 'ledger',
 };
 
 const STAFF_APP_TAB_SLUG = {
     'sap-overview': 'overview',
-    'sap-users': 'users',
-    'sap-approvals': 'approvals',
-    'sap-wallets': 'wallets',
     'sap-expenses': 'expenses',
     'sap-requests': 'requests',
     'sap-purchase-orders': 'purchase-orders',
@@ -188,7 +186,6 @@ const STAFF_APP_TAB_SLUG = {
     'sap-salary-advances': 'salary-advances',
     'sap-chat': 'chat',
     'sap-notifications': 'notifications',
-    'sap-approval-limits': 'approval-limits',
     'sap-settings': 'settings',
 };
 

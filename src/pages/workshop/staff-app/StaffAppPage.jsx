@@ -1,10 +1,6 @@
 import React from 'react';
 import { STAFF_APP_NAV_ITEMS } from './constants';
 import StaffAppOverview from './StaffAppOverview';
-import WorkshopEmployees from '../WorkshopEmployees';
-import WorkshopApprovals from '../WorkshopApprovals';
-import WorkshopPettyCashManagement from '../WorkshopPettyCashManagement';
-import WorkshopApprovalLimits from '../accounting/WorkshopApprovalLimits';
 import StaffAppExpenses from './StaffAppExpenses';
 import StaffAppRequests from './StaffAppRequests';
 import StaffAppPurchaseOrders from './StaffAppPurchaseOrders';
@@ -34,31 +30,6 @@ export default function StaffAppPage({
                         onNavigate={onNavigate}
                     />
                 );
-            case 'sap-users':
-                return (
-                    <WorkshopEmployees
-                        selectedBranchId={selectedBranchId}
-                        branches={branches}
-                        workshopId={workshopId}
-                    />
-                );
-            case 'sap-approvals':
-                return (
-                    <WorkshopApprovals
-                        selectedBranchId={selectedBranchId}
-                        branches={branches}
-                        branchLockedId={branchLockedId}
-                        workshopId={workshopId}
-                    />
-                );
-            case 'sap-wallets':
-                return (
-                    <WorkshopPettyCashManagement
-                        selectedBranchId={selectedBranchId}
-                        branches={branches}
-                        workshopId={workshopId}
-                    />
-                );
             case 'sap-expenses':
                 return <StaffAppExpenses selectedBranchId={selectedBranchId} branches={branches} />;
             case 'sap-requests':
@@ -75,8 +46,6 @@ export default function StaffAppPage({
                 return <StaffAppChat selectedBranchId={selectedBranchId} />;
             case 'sap-notifications':
                 return <StaffAppNotifications selectedBranchId={selectedBranchId} />;
-            case 'sap-approval-limits':
-                return <WorkshopApprovalLimits />;
             case 'sap-settings':
                 return <StaffAppSettings />;
             default:

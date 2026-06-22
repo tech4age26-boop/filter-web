@@ -188,6 +188,10 @@ function App() {
               <Route path="branches" element={<BranchesPage />} />
               <Route path="workshop" element={<WorkshopManagementPage />} />
               <Route path="staff-app" element={<AdminStaffAppPage />} />
+              <Route path="staff-app/users" element={<Navigate to="/admin/employees" replace />} />
+              <Route path="staff-app/approvals" element={<Navigate to="/admin/approvals" replace />} />
+              <Route path="staff-app/wallets" element={<Navigate to="/admin/staff-app" replace />} />
+              <Route path="staff-app/approval-limits" element={<Navigate to="/admin/accounting/expenses" replace />} />
               <Route path="staff-app/:subTab" element={<AdminStaffAppPage />} />
 
               <Route

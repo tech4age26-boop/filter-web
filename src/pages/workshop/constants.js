@@ -19,8 +19,11 @@ export const NAV_ITEMS = [
     { id: 'reports', label: 'Reports & Analytics', icon: BarChart3, permission: 'workshop.reports.view' },
     { id: 'pos-monitoring', label: 'POS Monitoring', icon: Monitor, permission: 'workshop.pos-monitoring.view' },
 
-    // Added from main branch
     { id: 'locker-management', label: 'Locker Management', icon: Lock, permission: 'workshop.locker-management.view' },
+
+    { id: 'employees', label: 'Employees & Technicians', icon: Users, permission: 'workshop.employees.view' },
+    { id: 'approvals', label: 'Approvals Queue', icon: CheckCircle, permission: 'workshop.approvals.view', badge: true },
+    { id: 'my-petty-cash', label: 'My Petty Cash', icon: Wallet, permission: 'workshop.my-petty-cash.view' },
 
     {
         id: 'staff-app',
@@ -50,8 +53,9 @@ export const NAV_ITEMS = [
             { id: 'acc-payments', label: 'Payments', permission: 'workshop.accounting.payments.view' },
             { id: 'acc-advances', label: 'Advances', permission: 'workshop.accounting.advances.view' },
 
-            // Added from main branch
             { id: 'acc-payroll', label: 'Payroll Run', permission: 'workshop.accounting.payroll.view' },
+
+            { id: 'acc-approvals', label: 'Approval Limits', permission: 'workshop.accounting.approval-limits.view' },
 
             { id: 'acc-ledger', label: 'Ledger', permission: 'workshop.accounting.ledger.view' },
         ],

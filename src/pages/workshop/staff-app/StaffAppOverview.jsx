@@ -31,10 +31,10 @@ export default function StaffAppOverview({ selectedBranchId = 'all', onNavigate 
     const stats = data?.counts ?? data ?? {};
 
     const cards = [
-        { key: 'pendingApprovals', label: 'Pending approvals', tab: 'sap-approvals' },
+        { key: 'pendingApprovals', label: 'Pending approvals', tab: 'approvals' },
         { key: 'openRequests', label: 'Open requests', tab: 'sap-requests' },
-        { key: 'walletFloat', label: 'Total wallet float (SAR)', tab: 'sap-wallets', format: (v) => Number(v || 0).toLocaleString('en-SA', { minimumFractionDigits: 2 }) },
-        { key: 'appUsers', label: 'App users', tab: 'sap-users' },
+        { key: 'walletFloat', label: 'Total wallet float (SAR)', tab: 'my-petty-cash', format: (v) => Number(v || 0).toLocaleString('en-SA', { minimumFractionDigits: 2 }) },
+        { key: 'appUsers', label: 'App users', tab: 'employees' },
         { key: 'pendingLeave', label: 'Pending leave', tab: 'sap-leave' },
         { key: 'openTasks', label: 'Open tasks', tab: 'sap-tasks' },
     ];
