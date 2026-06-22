@@ -3198,9 +3198,13 @@
     border-bottom: none;
 }
 
-.pi-result-item:hover,
+.pi-result-item:hover {
+    background: #fff8f1;
+}
+
 .pi-result-item.selected {
     background: #fff8f1;
+    box-shadow: inset 3px 0 0 #f97316;
 }
 
 .pi-result-info {

@@ -497,6 +497,35 @@ function applyLineTotals(line, amountsTaxInclusive) {
     };
 }
 
+/**
+ * Stock catalog sale price is VAT-inclusive (workshop unit). Invoice last-sale history is ex-VAT.
+ */
+function resolveCatalogLineUnitPrice(catalogItem, amountsTaxInclusive, taxCode = 'VAT 15%') {
+    const rate = TAXES.find((t) => t.code === taxCode)?.rate ?? 0.15;
+    const cf = Math.max(0.0001, Number(catalogItem.conversionFactor) || 1);
+    const wh = catalogItem.warehouseUnit || catalogItem.unit || 'Box';
+    const lineUom = catalogItem.unit || wh;
+    const isWh = normUomLabel(lineUom) === normUomLabel(wh);
+
+    const catalogInclWs = Number(catalogItem.catalogSalePrice ?? 0);
+    if (catalogInclWs > 0) {
+        const inclAtLineUom = isWh ? roundMoney2(catalogInclWs * cf) : catalogInclWs;
+        if (amountsTaxInclusive) return inclAtLineUom;
+        return roundMoney2(inclAtLineUom / (1 + rate));
+    }
+
+    if (catalogItem.hasInvoiceSaleHistory && Number(catalogItem.lastPrice) > 0) {
+        const exWorkshop = Number(catalogItem.lastPrice);
+        const exAtLineUom = isWh ? roundMoney2(exWorkshop * cf) : exWorkshop;
+        if (amountsTaxInclusive) return roundMoney2(exAtLineUom * (1 + rate));
+        return exAtLineUom;
+    }
+
+    const fallback = Number(catalogItem.price) || 0;
+    if (amountsTaxInclusive && fallback > 0) return roundMoney2(fallback * (1 + rate));
+    return fallback;
+}
+
 /** Stored `unitPrice` is exclusive per unit after line discount — rebuild list price for the form. */
 function reconstructSalesInvoiceUnitPriceInput(it, amountsTaxInclusive, taxCode) {
     const rate =
@@ -579,14 +608,20 @@ function normalizeStockCatalogRow(item) {
               ? Math.max(0, unitCostWh)
               : 0;
     const uom = warehouseUnit;
+    const catalogSalePrice =
+        item.salePrice != null && Number(item.salePrice) > 0
+            ? Number(item.salePrice)
+            : 0;
     const costHint =
         qtyWh > 0
             ? `Warehouse stock: ${qtyWh} ${warehouseUnit} • Unit cost SAR ${unitCostWh.toLocaleString(undefined, { maximumFractionDigits: 4 })} / ${warehouseUnit}`
             : 'No warehouse stock — you can still enter qty/price; save may be blocked if over stock.';
     const listHint =
-        Number.isFinite(suggestedWh) && suggestedWh > 0
-            ? `Suggested list SAR ${suggestedWh.toFixed(2)} / ${warehouseUnit} (invoice default)`
-            : '';
+        catalogSalePrice > 0
+            ? `Stock sales price SAR ${roundMoney2(catalogSalePrice * conversionFactor).toFixed(2)} / ${warehouseUnit} incl. VAT`
+            : Number.isFinite(suggestedWh) && suggestedWh > 0
+              ? `Suggested list SAR ${suggestedWh.toFixed(2)} / ${warehouseUnit} (invoice default)`
+              : '';
     const stockHint = [listHint, costHint].filter(Boolean).join(' · ');
 
 /** `stock-balances` row `productId` is supplier_products.id — POST as supplierProductId for workshop catalog resolution. */
@@ -616,6 +651,16 @@ const lastSalePriceNum = hasPreviousSale
     ? Number(lastSaleRaw.unitPrice ?? 0)
     : 0;
 
+const displaySalePrice =
+    hasPreviousSale && lastSalePriceNum > 0
+        ? lastSalePriceNum
+        : catalogSalePrice > 0
+          ? catalogSalePrice
+          : lastSalePriceNum;
+
+const hasSalePriceHint =
+    (hasPreviousSale && lastSalePriceNum > 0) || catalogSalePrice > 0;
+
 const saleDateRaw = String(lastSaleRaw?.invoiceDate || '').trim();
 
 const buyerWorkshop = String(lastSaleRaw?.buyerWorkshopName || '').trim();
@@ -630,7 +675,9 @@ const buyerLabel =
 const lastSaleMeta =
     hasPreviousSale && (saleDateRaw || buyerLabel)
         ? [saleDateRaw, buyerLabel].filter(Boolean).join(' • ')
-        : '';
+        : catalogSalePrice > 0
+          ? 'Stock sales price'
+          : '';
 
 /** Workshop-side sellable qty cap (aligned with supplier stock-balances payload). */
     const stockQtyWorkshop = Number(item.currentBalanceWorkshop ?? NaN);
@@ -653,9 +700,11 @@ const lastSaleMeta =
                 ? stockQtyWorkshop
                 : null,
 
-    lastPrice: lastSalePriceNum,
+    lastPrice: displaySalePrice,
     lastSaleMeta,
-    hasPreviousSale,
+    hasPreviousSale: hasSalePriceHint,
+    hasInvoiceSaleHistory: hasPreviousSale,
+    catalogSalePrice,
 
     itemType: 'Product',
     stockHint,
@@ -835,7 +884,7 @@ export default function SupplierSalesInvoices() {
     const [showLineNum, setShowLineNum] = useState(false);
     const [showDesc, setShowDesc] = useState(false);
     const [showDiscount, setShowDiscount] = useState(false);
-    const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(false);
+    const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(true);
     const amountsTaxInclusiveRef = useRef(amountsTaxInclusive);
     amountsTaxInclusiveRef.current = amountsTaxInclusive;
     const [freightCharges, setFreightCharges] = useState('0');
@@ -859,7 +908,9 @@ export default function SupplierSalesInvoices() {
         useState('');
     const customerSearchWrapRef = useRef(null);
     const invoiceLineSearchWrapRef = useRef(null);
+    const invoiceLineSearchListRef = useRef(null);
     const lineItemPickerWrapRef = useRef(null);
+    const lineItemPickerListRef = useRef(null);
     /** Current text in the line item field while picker is open — saved to the line on close. */
     const itemPickerInputRef = useRef('');
     const [itemPickerLineId, setItemPickerLineId] = useState(null);
@@ -1111,7 +1162,7 @@ export default function SupplierSalesInvoices() {
 
     const addItemToLines = useCallback((item) => {
         const lineId = nextLineId();
-        const unitPrice = Number(item.price) || 0;
+        const unitPrice = resolveCatalogLineUnitPrice(item, amountsTaxInclusive);
         const hasPrev = !!item.hasPreviousSale;
         const lastSaleAmt = hasPrev ? Number(item.lastPrice ?? 0) : 0;
         const catId =
@@ -1191,12 +1242,23 @@ export default function SupplierSalesInvoices() {
     };
 
     const handleKeyDown = (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!showDropdown) {
+                openInvoiceLineSearch();
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                setSelectedIndex((i) =>
+                    i < searchResults.length - 1 ? i + 1 : i,
+                );
+            } else {
+                setSelectedIndex((i) => (i > 0 ? i - 1 : i));
+            }
+            return;
+        }
         if (!showDropdown) return;
-        if (e.key === 'ArrowDown') {
-            setSelectedIndex((i) => (i < searchResults.length - 1 ? i + 1 : i));
-        } else if (e.key === 'ArrowUp') {
-            setSelectedIndex((i) => (i > 0 ? i - 1 : i));
-        } else if (e.key === 'Enter' && selectedIndex >= 0 && searchResults[selectedIndex]) {
+        if (e.key === 'Enter' && selectedIndex >= 0 && searchResults[selectedIndex]) {
             e.preventDefault();
             addItemToLines(searchResults[selectedIndex]);
         } else if (e.key === 'Escape') {
@@ -1289,7 +1351,7 @@ export default function SupplierSalesInvoices() {
         setShowLineNum(false);
         setShowDesc(false);
         setShowDiscount(false);
-        setAmountsTaxInclusive(false);
+        setAmountsTaxInclusive(true);
         setFreightCharges('0');
         setInvoiceDiscountValue('0');
         setInvoiceDiscountMode('fixed_sar');
@@ -2174,7 +2236,7 @@ export default function SupplierSalesInvoices() {
     }, [modalOpen, customerPickerOpen]);
 
     const applyCatalogItemToLine = (lineId, catalogItem) => {
-        const unitPrice = Number(catalogItem.price) || 0;
+        const unitPrice = resolveCatalogLineUnitPrice(catalogItem, amountsTaxInclusive);
         const hasPrev = !!catalogItem.hasPreviousSale;
         const lastSaleAmt = hasPrev ? Number(catalogItem.lastPrice ?? 0) : 0;
         const catId =
@@ -2227,6 +2289,7 @@ export default function SupplierSalesInvoices() {
     };
 
     const handleLineItemPickerKeyDown = (e, line) => {
+        if (itemPickerLineId !== line.id) return;
         const suggestions = getSearchSuggestions(itemPickerFilter);
         if (e.key === 'ArrowDown') {
             e.preventDefault();
@@ -2272,6 +2335,29 @@ export default function SupplierSalesInvoices() {
     useEffect(() => {
         setItemPickerSelectedIndex(0);
     }, [itemPickerFilter, itemPickerLineId]);
+
+    useEffect(() => {
+        if (!modalOpen || itemPickerLineId == null) return;
+        focusLineField(itemPickerLineId, 'item');
+    }, [modalOpen, itemPickerLineId, focusLineField]);
+
+    useEffect(() => {
+        if (!showDropdown || !invoiceLineSearchListRef.current) return;
+        const el = invoiceLineSearchListRef.current.querySelector(
+            `[data-pick-idx="${selectedIndex}"]`,
+        );
+        el?.scrollIntoView({ block: 'nearest' });
+    }, [selectedIndex, showDropdown]);
+
+    useEffect(() => {
+        if (!modalOpen || itemPickerLineId == null || !lineItemPickerListRef.current) {
+            return;
+        }
+        const el = lineItemPickerListRef.current.querySelector(
+            `[data-pick-idx="${itemPickerSelectedIndex}"]`,
+        );
+        el?.scrollIntoView({ block: 'nearest' });
+    }, [modalOpen, itemPickerLineId, itemPickerSelectedIndex]);
 
     useEffect(() => {
         let cancelled = false;
@@ -3519,7 +3605,10 @@ export default function SupplierSalesInvoices() {
                                                 </div>
                                                 {itemPickerLineId ===
                                                 line.id ? (
-                                                    <div className="pi-search-results pi-line-item-picker-results">
+                                                    <div
+                                                        ref={lineItemPickerListRef}
+                                                        className="pi-search-results pi-line-item-picker-results"
+                                                    >
                                                         {(() => {
                                                             const pickerRows =
                                                                 getSearchSuggestions(
@@ -3533,6 +3622,7 @@ export default function SupplierSalesInvoices() {
                                                                     ) => (
                                                                         <div
                                                                             key={`${line.id}-${String(invItem.id)}-${i}`}
+                                                                            data-pick-idx={i}
                                                                             className={`pi-result-item ${
                                                                                 itemPickerSelectedIndex ===
                                                                                 i
@@ -4082,7 +4172,7 @@ export default function SupplierSalesInvoices() {
                                                             fontWeight: 500,
                                                         }}
                                                     >
-                                                        No previous sale in selected workshop
+                                                        No previous sale or stock sales price set
                                                     </span>
                                                 );
                                             })()}
@@ -4138,11 +4228,15 @@ export default function SupplierSalesInvoices() {
                                             />
                                         </div>
                                         {showDropdown ? (
-                                            <div className="pi-search-results">
+                                            <div
+                                                ref={invoiceLineSearchListRef}
+                                                className="pi-search-results"
+                                            >
                                                 {searchResults.length > 0 ? (
                                                     searchResults.map((item, index) => (
                                                         <div
                                                             key={`${item.id}-${item.name}`}
+                                                            data-pick-idx={index}
                                                             className={`pi-result-item ${
                                                                 selectedIndex === index
                                                                     ? 'selected'

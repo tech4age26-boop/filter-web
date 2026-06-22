@@ -379,7 +379,9 @@ export default function SupplierPurchaseInvoices() {
     const [showDropdown, setShowDropdown] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
     const piSearchWrapRef = useRef(null);
+    const piSearchListRef = useRef(null);
     const lineItemPickerWrapRef = useRef(null);
+    const lineItemPickerListRef = useRef(null);
     const itemPickerInputRef = useRef('');
     const [itemPickerLineId, setItemPickerLineId] = useState(null);
     const [itemPickerInput, setItemPickerInput] = useState('');
@@ -889,6 +891,29 @@ export default function SupplierPurchaseInvoices() {
         focusLineField(pending.lineId, pending.fieldName);
     }, [lineItems.length, focusLineField]);
 
+    useEffect(() => {
+        if (!modalOpen || itemPickerLineId == null) return;
+        focusLineField(itemPickerLineId, 'item');
+    }, [modalOpen, itemPickerLineId, focusLineField]);
+
+    useEffect(() => {
+        if (!showDropdown || !piSearchListRef.current) return;
+        const el = piSearchListRef.current.querySelector(
+            `[data-pick-idx="${selectedIndex}"]`,
+        );
+        el?.scrollIntoView({ block: 'nearest' });
+    }, [selectedIndex, showDropdown]);
+
+    useEffect(() => {
+        if (!modalOpen || itemPickerLineId == null || !lineItemPickerListRef.current) {
+            return;
+        }
+        const el = lineItemPickerListRef.current.querySelector(
+            `[data-pick-idx="${itemPickerSelectedIndex}"]`,
+        );
+        el?.scrollIntoView({ block: 'nearest' });
+    }, [modalOpen, itemPickerLineId, itemPickerSelectedIndex]);
+
     const lastPurchaseHintForLine = useCallback(
         (line) => {
             if (line.supplierProductId) {
@@ -1098,6 +1123,7 @@ export default function SupplierPurchaseInvoices() {
     };
 
     const handleLineItemPickerKeyDown = (e, line) => {
+        if (itemPickerLineId !== line.id) return;
         const suggestions = getSearchSuggestionsPi(itemPickerFilter);
         if (e.key === 'ArrowDown') {
             e.preventDefault();
@@ -1182,14 +1208,23 @@ export default function SupplierPurchaseInvoices() {
     };
 
     const handleKeyDown = (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!showDropdown) {
+                openPiLineSearch();
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                setSelectedIndex((i) =>
+                    i < searchResults.length - 1 ? i + 1 : i,
+                );
+            } else {
+                setSelectedIndex((i) => (i > 0 ? i - 1 : i));
+            }
+            return;
+        }
         if (!showDropdown) return;
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            setSelectedIndex((i) => (i < searchResults.length - 1 ? i + 1 : i));
-        } else if (e.key === 'ArrowUp') {
-            e.preventDefault();
-            setSelectedIndex((i) => (i > 0 ? i - 1 : i));
-        } else if (e.key === 'Enter' && selectedIndex >= 0 && searchResults[selectedIndex]) {
+        if (e.key === 'Enter' && selectedIndex >= 0 && searchResults[selectedIndex]) {
             e.preventDefault();
             addItemToLines(searchResults[selectedIndex]);
         } else if (e.key === 'Escape') {
@@ -2845,6 +2880,7 @@ export default function SupplierPurchaseInvoices() {
                                                 </div>
                                                 {itemPickerLineId === line.id ? (
                                                     <div
+                                                        ref={lineItemPickerListRef}
                                                         className="pi-search-results"
                                                         style={{
                                                             position: 'absolute',
@@ -2864,6 +2900,7 @@ export default function SupplierPurchaseInvoices() {
                                                                 pickerRows.map((invItem, i) => (
                                                                     <div
                                                                         key={`${line.id}-${String(invItem.id)}-${i}`}
+                                                                        data-pick-idx={i}
                                                                         className={`pi-result-item${
                                                                             itemPickerSelectedIndex === i
                                                                                 ? ' selected'
@@ -3345,11 +3382,15 @@ export default function SupplierPurchaseInvoices() {
                                             />
                                         </div>
                                         {showDropdown ? (
-                                            <div className="pi-search-results">
+                                            <div
+                                                ref={piSearchListRef}
+                                                className="pi-search-results"
+                                            >
                                                 {searchResults.length > 0 ? (
                                                     searchResults.map((item, index) => (
                                                         <div
                                                             key={String(item.id)}
+                                                            data-pick-idx={index}
                                                             className={`pi-result-item ${selectedIndex === index ? 'selected' : ''}`}
                                                             onClick={() => addItemToLines(item)}
                                                             onMouseEnter={() => setSelectedIndex(index)}
