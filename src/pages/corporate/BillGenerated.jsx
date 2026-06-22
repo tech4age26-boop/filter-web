@@ -201,18 +201,43 @@ export default function BillGenerated({ onWalletBalanceChange }) {
 
     const downloadBillPdf = async (bill, statement, ledgerStatement) => {
         if (!bill) return;
-        setPdfExporting(true);
-        try {
-            await exportCorporateGeneratedBillPdf({
-                bill,
-                statement,
-                ledgerStatement,
-            });
-        } catch (e) {
-            setError(e?.message || 'PDF download failed');
-        } finally {
-            setPdfExporting(false);
-        }
+        const period = fmtBillPeriod(bill);
+        const rows = statement?.rows ?? [];
+        const kpis = bill.kpis ?? statement?.kpis ?? {};
+        const printWindow = window.open('', '_blank', 'width=900,height=700');
+        if (!printWindow) return;
+        printWindow.document.write(`
+            <!DOCTYPE html><html><head><title>${bill.billNo}</title>
+            <style>
+                body{font-family: 'Poppins', sans-serif;padding:32px;color:#111827}
+                h1{font-size:22px;margin:0 0 4px}
+                .sub{font-size:13px;color:#6B7280;margin-bottom:16px}
+                .kpi{font-size:13px;margin:6px 0;font-weight:600}
+                table{width:100%;border-collapse:collapse;margin-top:16px;font-size:12px}
+                th,td{padding:8px 6px;border-bottom:1px solid #E5E7EB;text-align:left}
+                .num{text-align:right}
+            </style></head><body>
+            <h1>Corporate Billing Statement</h1>
+            <p class="sub">${bill.billNo}</p>
+            <p class="sub">Billing for the period of ${period}</p>
+            <p class="sub">Due date: ${bill.dueDate}</p>
+            <div class="kpi">Total Invoice Amount: ${num(kpis.totalInvoiceAmount)}</div>
+            <div class="kpi">Sales Return: ${num(kpis.totalSalesReturn)}</div>
+            <div class="kpi">Receipts: ${num(kpis.totalReceipts)}</div>
+            <div class="kpi">Balance (amount due): ${num(kpis.balance)}</div>
+            ${Number(kpis.totalUnpaidInvoices ?? 0) > 0.05 ? `<div class="kpi">Unpaid invoices: ${num(kpis.totalUnpaidInvoices)}</div>` : ''}
+            <table><thead><tr>
+                <th>Date</th><th>Ref No</th><th>Vehicle Number</th><th>Workshop / Branch</th><th>Type</th><th>Status</th>
+                <th class="num">Invoice</th><th class="num">Return</th><th class="num">Receipt</th>
+            </tr></thead><tbody>
+            ${rows.map((r) => `<tr>
+                <td>${r.date}</td><td>${r.refNo}</td><td>${r.vehicleNumber}</td><td>${r.workshopBranch}</td><td>${r.type}</td><td>${r.status ?? '—'}</td>
+                <td class="num">${fmtCell(r.invoiceAmount)}</td><td class="num">${fmtCell(r.salesReturn)}</td><td class="num">${fmtCell(r.receipts)}</td>
+            </tr>`).join('')}
+            </tbody></table>
+            </body></html>`);
+        printWindow.document.close();
+        printWindow.onload = () => { printWindow.focus(); printWindow.print(); };
     };
 
     const activeBill = detail ?? bills.find((b) => b.id === expandedId);
