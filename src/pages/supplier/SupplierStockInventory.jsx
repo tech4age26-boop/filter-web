@@ -25,6 +25,7 @@ import {
 import SupplierProductHistoryDrawer from './accounting/SupplierProductHistoryDrawer';
 import StockProductUomEditModal from './StockProductUomEditModal';
 import StockProductPurchasePriceEditModal from './StockProductPurchasePriceEditModal';
+import StockProductSalesPriceEditModal from './StockProductSalesPriceEditModal';
 import StockProductCriticalLevelEditModal from './StockProductCriticalLevelEditModal';
 
 function stockRowMatchesSearch(row, searchText) {
@@ -47,6 +48,7 @@ import {
     mapSupplierHistoryToTimelineEntries,
     formatSupplierTimelineSourceRef,
     formatDualUomQty,
+    warehouseStockLineValueSar,
 } from './supplierInventoryTimelineUtils';
 import {
     exportMovementsExcel,
@@ -130,6 +132,7 @@ export default function SupplierStockInventory() {
     const [accountingHistoryProduct, setAccountingHistoryProduct] = useState(null);
     const [uomEditProduct, setUomEditProduct] = useState(null);
     const [purchasePriceEditProduct, setPurchasePriceEditProduct] = useState(null);
+    const [salesPriceEditProduct, setSalesPriceEditProduct] = useState(null);
     const [criticalLevelEditProduct, setCriticalLevelEditProduct] = useState(null);
 
     // `stock` is already server-filtered by `search` (name or SKU). Keep a light client filter
@@ -306,6 +309,22 @@ export default function SupplierStockInventory() {
                               ? Number(item.valueWarehouseSar) /
                                 Number(item.currentBalanceWarehouse)
                               : 0,
+                      salePrice: (() => {
+                          const sp =
+                              item.salePrice != null && Number(item.salePrice) > 0
+                                  ? Number(item.salePrice)
+                                  : null;
+                          return sp;
+                      })(),
+                      salePriceWarehouse: (() => {
+                          const sp =
+                              item.salePrice != null && Number(item.salePrice) > 0
+                                  ? Number(item.salePrice)
+                                  : null;
+                          if (sp == null) return null;
+                          const cf = Number(item.conversionFactor) || 1;
+                          return Math.round(sp * Math.max(0.0001, cf) * 100) / 100;
+                      })(),
                       byLocation: item.byLocation || [],
                       locationId: item.byLocation?.[0]?.supplierLocationId,
                   }))
@@ -941,7 +960,7 @@ export default function SupplierStockInventory() {
 
                     {loading ? (
                         <div className="ws-section">
-                            <ShimmerTable rows={10} columns={10} />
+                            <ShimmerTable rows={10} columns={11} />
                         </div>
                     ) : (
                         <div className="ws-section">
@@ -957,6 +976,7 @@ export default function SupplierStockInventory() {
                                             <SortableTh label="Critical Level" columnKey="critical" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
                                             <SortableTh label="Reorder Level" columnKey="reorder" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
                                             <SortableTh label="Purchase Price" columnKey="price" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label="Sales Price" columnKey="salePrice" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
                                             <SortableTh label="Value" columnKey="value" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
                                             <SortableTh label="Status" columnKey="status" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
                                             <th>Actions</th>
@@ -973,6 +993,7 @@ export default function SupplierStockInventory() {
                                                 critical: (s) => Number(s.criticalLevel ?? 0),
                                                 reorder: (s) => Number(s.reorder ?? 0),
                                                 price: (s) => Number(s.price ?? 0),
+                                                salePrice: (s) => Number(s.salePrice ?? 0),
                                                 value: (s) => Number(warehouseStockLineValueSar(s) ?? 0),
                                                 status: (s) =>
                                                     s.qty <= (s.criticalLevel ?? 0) ? 'critical' : 'ok',
@@ -1112,6 +1133,46 @@ export default function SupplierStockInventory() {
                                                             ) : null}
                                                         </div>
                                                     </td>
+                                                    <td>
+                                                        <div
+                                                            style={{
+                                                                display: 'flex',
+                                                                flexDirection: 'column',
+                                                                gap: 4,
+                                                            }}
+                                                        >
+                                                            <span>
+                                                                {s.salePrice != null &&
+                                                                Number(s.salePrice) > 0
+                                                                    ? `SAR ${Number(s.salePrice).toLocaleString()} per ${s.unit || 'unit'}`
+                                                                    : '—'}
+                                                            </span>
+                                                            {s.salePrice != null &&
+                                                            Number(s.salePrice) > 0 &&
+                                                            s.salePriceWarehouse != null &&
+                                                            Number(s.salePriceWarehouse) > 0 &&
+                                                            String(s.warehouseUnit || '')
+                                                                .trim()
+                                                                .toLowerCase() !==
+                                                                String(s.unit || '')
+                                                                    .trim()
+                                                                    .toLowerCase() ? (
+                                                                <span
+                                                                    style={{
+                                                                        fontSize: '0.68rem',
+                                                                        color: '#64748b',
+                                                                        fontWeight: 600,
+                                                                    }}
+                                                                >
+                                                                    SAR{' '}
+                                                                    {Number(
+                                                                        s.salePriceWarehouse,
+                                                                    ).toLocaleString()}{' '}
+                                                                    per {s.warehouseUnit || 'unit'}
+                                                                </span>
+                                                            ) : null}
+                                                        </div>
+                                                    </td>
                                                     <td>SAR {value.toLocaleString()}</td>
                                                     <td>
                                                         <span
@@ -1125,8 +1186,12 @@ export default function SupplierStockInventory() {
                                                             ariaLabel={`Actions for ${s.name || 'product'}`}
                                                             items={[
                                                                 {
-                                                                    label: 'Edit price',
+                                                                    label: 'Edit purchase price',
                                                                     onClick: () => setPurchasePriceEditProduct(s),
+                                                                },
+                                                                {
+                                                                    label: 'Edit sales price',
+                                                                    onClick: () => setSalesPriceEditProduct(s),
                                                                 },
                                                                 {
                                                                     label: 'Edit critical level',
@@ -2316,6 +2381,33 @@ export default function SupplierStockInventory() {
                     product={purchasePriceEditProduct}
                     onClose={() => setPurchasePriceEditProduct(null)}
                     onSaved={() => loadStock({ silent: true })}
+                />
+            ) : null}
+
+            {salesPriceEditProduct ? (
+                <StockProductSalesPriceEditModal
+                    product={salesPriceEditProduct}
+                    onClose={() => setSalesPriceEditProduct(null)}
+                    onSaved={(saved) => {
+                        const productId = salesPriceEditProduct?.id;
+                        if (productId && saved?.salePrice != null) {
+                            setStock((prev) =>
+                                prev.map((row) =>
+                                    String(row.id) === String(productId)
+                                        ? {
+                                              ...row,
+                                              salePrice: Number(saved.salePrice),
+                                              salePriceWarehouse:
+                                                  saved.salePriceWarehouse != null
+                                                      ? Number(saved.salePriceWarehouse)
+                                                      : row.salePriceWarehouse,
+                                          }
+                                        : row,
+                                ),
+                            );
+                        }
+                        loadStock({ silent: true });
+                    }}
                 />
             ) : null}
 
