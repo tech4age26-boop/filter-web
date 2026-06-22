@@ -1,53 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Search, X, Check, RefreshCw, Users } from 'lucide-react';
 import { apiFetch } from '../../../services/api';
-
-// Mirrors Flutter reference PosTechnician._parseSlotsUsed — tolerant to whichever
-// key the backend version exposes: flat slotsUsed/totalSlots, nested slots{active/total},
-// or legacy aliases.
-const firstInt = (obj, keys) => {
-    for (const k of keys) {
-        const v = obj?.[k];
-        if (v === undefined || v === null) continue;
-        const n = parseInt(String(v), 10);
-        if (!Number.isNaN(n)) return n;
-    }
-    return -1;
-};
-
-const parseSlotsUsed = (t) => {
-    const root = t?.slotsUsed;
-    if (root !== undefined && root !== null) {
-        const n = parseInt(String(root), 10);
-        if (!Number.isNaN(n)) return Math.max(0, n);
-    }
-    if (t?.slots && typeof t.slots === 'object') {
-        const n = firstInt(t.slots, ['active', 'used', 'inUse', 'in_use', 'assigned', 'current', 'count', 'busy']);
-        if (n >= 0) return n;
-    }
-    const alt = firstInt(t || {}, ['activeSlots', 'assignedJobs', 'activeJobs']);
-    if (alt >= 0) return alt;
-    return 0;
-};
-
-const parseTotalSlots = (t) => {
-    const root = t?.totalSlots;
-    if (root !== undefined && root !== null) {
-        const n = parseInt(String(root), 10);
-        if (!Number.isNaN(n) && n > 0) return n;
-    }
-    if (t?.slots && typeof t.slots === 'object') {
-        const n = firstInt(t.slots, ['total', 'max', 'capacity', 'limit', 'maxSlots']);
-        if (n > 0) return n;
-    }
-    return 3; // same default as reference
-};
-
-const parseStatus = (t) => {
-    // Reference reads from technicianStatus → status → onlineStatus in that order
-    const s = t?.technicianStatus?.status ?? t?.status?.status ?? t?.onlineStatus ?? t?.status;
-    return typeof s === 'string' ? s.toLowerCase() : 'offline';
-};
+import {
+    normalizeCashierTechniciansList,
+    unwrapCashierTechniciansResponse,
+    parseTechnicianStatus,
+    parseTechnicianSlotsUsed,
+    parseTechnicianTotalSlots,
+} from '../../../utils/cashierTechnicians.util';
 
 const parseAssignable = (t, statusLower) => {
     const raw = t?.assignable;
@@ -105,8 +65,7 @@ export default function TechnicianAssignmentModal({
                 const query = deptId ? `?departmentId=${deptId}` : '';
                 const url = `/cashier/technicians${query}`;
                 const res = await apiFetch(url);
-                const data = Array.isArray(res) ? res : (res.technicians || res.data || []);
-                setTechnicians(data);
+                setTechnicians(normalizeCashierTechniciansList(unwrapCashierTechniciansResponse(res)));
             } catch (err) {
                 console.error('Fetch Techs Error:', err);
                 if (err.message?.includes('supplier_id')) {
@@ -125,9 +84,9 @@ export default function TechnicianAssignmentModal({
     // Normalize once — consistent shape for the rest of the component.
     const normalizedTechs = useMemo(() => technicians.map(t => {
         const id = t.employeeId || t.id || t.userId || t.employee?.id || t.user?.id || t.technician?.id || '';
-        const statusLower = parseStatus(t);
-        const slotsUsed = parseSlotsUsed(t);
-        const totalSlots = parseTotalSlots(t);
+        const statusLower = parseTechnicianStatus(t);
+        const slotsUsed = parseTechnicianSlotsUsed(t);
+        const totalSlots = parseTechnicianTotalSlots(t);
         return {
             ...t,
             _id: String(id),

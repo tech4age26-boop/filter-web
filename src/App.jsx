@@ -270,7 +270,14 @@ function App() {
               <Route path="referrer-management" element={<ReferrerManagement />} />
             </Route>
 
-            <Route path="/pos/*" element={<POSLayout />} />
+            <Route
+              path="/pos/*"
+              element={
+                <ProtectedRoute requiredType="cashier_user">
+                  <POSLayout />
+                </ProtectedRoute>
+              }
+            />
 
             <Route
               path="/workshop/*"

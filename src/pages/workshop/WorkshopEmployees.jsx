@@ -563,6 +563,10 @@ export default function WorkshopEmployees({
             alert('Assign a super-admin–approved branch (required for cashiers, staff, and portal roles).');
             return;
         }
+        if (asTechnician && !editing && !form.branchId) {
+            alert('Select the branch where this technician works — they only appear on POS for cashiers at that branch.');
+            return;
+        }
         if (asTechnician && !form.workshop_duty && !form.oncall_available) {
             alert('Select at least one technician type: Workshop and/or On-Call.');
             return;

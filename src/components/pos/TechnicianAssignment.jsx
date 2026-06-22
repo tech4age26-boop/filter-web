@@ -1,24 +1,34 @@
 import { useState, useEffect } from 'react';
 import { Wrench, X, Zap, CheckCircle2, AlertTriangle, Radio, Users, Clock } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import {
+    normalizeCashierTechniciansList,
+    unwrapCashierTechniciansResponse,
+} from '../../utils/cashierTechnicians.util';
 
 export default function TechnicianAssignment({ open, onClose, onAssign, orderInfo, departmentId, standalone }) {
     const [techs, setTechs] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [fetchError, setFetchError] = useState('');
     const [selected, setSelected] = useState(null);
 
     useEffect(() => {
         if (!open && !standalone) return;
         setLoading(true);
         setSelected(null);
+        setFetchError('');
         const url = departmentId
             ? `/cashier/technicians?departmentId=${departmentId}`
             : '/cashier/technicians';
         apiFetch(url)
-            .then(d => setTechs(d.technicians || d.data || d || []))
+            .then((d) => {
+                const rows = normalizeCashierTechniciansList(unwrapCashierTechniciansResponse(d));
+                setTechs(rows);
+            })
             .catch((err) => {
                 console.warn('TechnicianAssignment fetch failed:', err.message);
                 setTechs([]);
+                setFetchError(err.message || 'Could not load technicians. Sign in with a cashier account for this branch.');
             })
             .finally(() => setLoading(false));
     }, [open, departmentId, standalone]);
@@ -58,7 +68,7 @@ export default function TechnicianAssignment({ open, onClose, onAssign, orderInf
                         </div>
                         <div>
                             <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8', fontWeight: 900, letterSpacing: 1.5 }}>ON DUTY / ACTIVE</p>
-                            <p style={{ margin: 0, fontSize: '1.8rem', fontWeight: 900, color: '#1E2124' }}>{techs.filter(t => (t.status || '').toLowerCase() !== 'offline').length}</p>
+                            <p style={{ margin: 0, fontSize: '1.8rem', fontWeight: 900, color: '#1E2124' }}>{techs.filter(t => t.status !== 'offline').length}</p>
                         </div>
                     </div>
                 </div>
@@ -68,19 +78,23 @@ export default function TechnicianAssignment({ open, onClose, onAssign, orderInf
                         {[1, 2, 3, 4, 5, 6].map(i => <div key={i} style={{ height: 120, borderRadius: 24, background: '#fff', border: '1.5px solid #f1f5f9', animation: 'pulse 1.5s infinite' }} />)}
                     </div>
                 ) : techs.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '100px 0', opacity: 0.4 }}>
-                        <AlertTriangle size={64} style={{ marginBottom: 20 }} />
-                        <h3 style={{ fontWeight: 900, margin: 0 }}>No Personnel Found</h3>
-                        <p style={{ fontWeight: 600 }}>Technicians assigned to this workshop will appear here.</p>
+                    <div style={{ textAlign: 'center', padding: '100px 0', opacity: fetchError ? 1 : 0.4 }}>
+                        <AlertTriangle size={64} style={{ marginBottom: 20, color: fetchError ? '#f59e0b' : undefined }} />
+                        <h3 style={{ fontWeight: 900, margin: 0 }}>{fetchError ? 'Could Not Load Personnel' : 'No Personnel Found'}</h3>
+                        <p style={{ fontWeight: 600, maxWidth: 420, margin: '12px auto 0' }}>
+                            {fetchError
+                                || 'Active technicians for this POS branch appear here. Add or approve them under Workshop → Employees & Technicians (same branch as this cashier).'}
+                        </p>
                     </div>
                 ) : (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
                         {techs.map(tech => {
                             const empId = tech.employeeId || tech.id;
-                            const name = tech.employeeName || tech.name || tech.fullName || 'Technician';
-                            const dept = tech.departmentName || tech.department?.name || 'General Workshop';
+                            const name = tech.employeeName || tech.name || 'Technician';
+                            const dept = tech.departmentName || 'General Workshop';
                             const phone = tech.mobile || tech.phone || '–';
-                            const commission = tech.commissionPercentage || tech.commissionPercent || tech.commission || 0;
+                            const commission = tech.commissionPercent || tech.commission || 0;
+                            const status = (tech.status || 'offline').toLowerCase();
                             
                             return (
                                 <div key={empId} style={{ background: '#fff', borderRadius: 24, padding: 20, border: '1.5px solid #f1f5f9', display: 'flex', gap: 16, transition: '0.2s', boxShadow: '0 4px 12px rgba(0,0,0,0.02)' }} className="tech-card">
@@ -95,7 +109,7 @@ export default function TechnicianAssignment({ open, onClose, onAssign, orderInf
                                             width: 20, 
                                             height: 20, 
                                             borderRadius: '50%', 
-                                            background: (tech.status || '').toLowerCase() === 'busy' ? '#FB923C' : (tech.status || '').toLowerCase() === 'offline' ? '#94A3B8' : '#10B981', 
+                                            background: status === 'busy' ? '#FB923C' : status === 'offline' ? '#94A3B8' : '#10B981', 
                                             border: '3px solid #fff' 
                                         }} />
                                     </div>
@@ -169,16 +183,19 @@ export default function TechnicianAssignment({ open, onClose, onAssign, orderInf
                     ) : techs.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '60px 0' }}>
                             <AlertTriangle size={48} color="#f59e0b" style={{ opacity: 0.3, marginBottom: 16 }} />
-                            <p style={{ margin: 0, fontWeight: 900, color: '#1E2124' }}>No Availability</p>
-                            <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>All technicians are currently offline or busy.</p>
+                            <p style={{ margin: 0, fontWeight: 900, color: '#1E2124' }}>{fetchError ? 'Could Not Load Staff' : 'No Availability'}</p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>
+                                {fetchError || 'No active technicians for this branch. Add them in Workshop → Employees & Technicians.'}
+                            </p>
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                             {techs.map(tech => {
                                 const isSelected = selected?.id === (tech.employeeId || tech.id);
                                 const empId = tech.employeeId || tech.id;
-                                const name = tech.employeeName || tech.name || tech.fullName || 'Technician';
-                                const commission = tech.commissionPercentage || tech.commissionPercent || tech.commission || 0;
+                                const name = tech.employeeName || tech.name || 'Technician';
+                                const commission = tech.commissionPercent || tech.commission || 0;
+                                const status = (tech.status || 'offline').toLowerCase();
                                 
                                 return (
                                     <button key={empId} onClick={() => setSelected({ ...tech, id: empId, name, commission })}
@@ -190,7 +207,7 @@ export default function TechnicianAssignment({ open, onClose, onAssign, orderInf
                                             <div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                     <p style={{ margin: 0, fontWeight: 900, fontSize: '1rem', color: '#1E2124' }}>{name}</p>
-                                                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: (tech.status || '').toLowerCase() === 'busy' ? '#FB923C' : (tech.status || '').toLowerCase() === 'offline' ? '#94A3B8' : '#10B981' }} />
+                                                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: status === 'busy' ? '#FB923C' : status === 'offline' ? '#94A3B8' : '#10B981' }} />
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
                                                     <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: isSelected ? '#B48A14' : '#94a3b8' }}>
