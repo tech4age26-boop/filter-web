@@ -675,13 +675,15 @@ export default function WorkshopLayout() {
                         <div className="ws-online-badge"><div className="ws-online-dot"/> Online</div>
                     </div>
                 </header>
-                <main className="ws-content">
-                    {apiLoading && (
-                        <div className="ws-global-loader" role="status" aria-live="polite">
-                            <div className="ws-global-loader__spinner" />
-                            <span>Loading...</span>
+                {apiLoading && (
+                    <div className="ws-global-loader" role="status" aria-live="polite">
+                        <div className="ws-global-loader__inner">
+                            <div className="ws-global-loader__spinner" aria-hidden="true" />
+                            <span className="ws-global-loader__text">Loading...</span>
                         </div>
-                    )}
+                    </div>
+                )}
+                <main className="ws-content">
                     {renderContent()}
                 </main>
             </div>
