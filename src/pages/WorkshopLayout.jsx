@@ -5,8 +5,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     NAV_ITEMS,
 } from './workshop/constants';
-import { STAFF_APP_TAB_SLUG, STAFF_APP_PERMISSION_FALLBACK } from './workshop/staff-app/constants';
+import { STAFF_APP_TAB_SLUG, STAFF_APP_PERMISSION_FALLBACK, STAFF_APP_LEGACY_ROUTE_REDIRECTS } from './workshop/staff-app/constants';
 import StaffAppPage from './workshop/staff-app/StaffAppPage';
+import WorkshopEmployees from './workshop/WorkshopEmployees';
+import WorkshopApprovals from './workshop/WorkshopApprovals';
+import WorkshopPettyCashManagement from './workshop/WorkshopPettyCashManagement';
 import WorkshopDashboard from './workshop/WorkshopDashboard';
 import WorkshopDepartments from './workshop/WorkshopDepartments';
 import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
@@ -150,6 +153,7 @@ export default function WorkshopLayout() {
                 'payments': 'acc-payments',
                 'advances': 'acc-advances',
                 'payroll': 'acc-payroll',
+                'approvals': 'acc-approvals',
                 'ledger': 'acc-ledger',
             };
             return mapping[sub] || 'acc-cash';
@@ -175,16 +179,15 @@ export default function WorkshopLayout() {
 
     const canViewDashboard = hasPermission('workshop.dashboard.view');
 
-    /** Legacy routes → unified Staff App Management section */
+    /** Legacy staff-app nested routes → restored top-level workshop pages */
     useEffect(() => {
-        const redirects = {
-            '/workshop/approvals': '/workshop/staff-app/approvals',
-            '/workshop/my-petty-cash': '/workshop/staff-app/wallets',
-            '/workshop/employees': '/workshop/staff-app/users',
-            '/workshop/accounting/approvals': '/workshop/staff-app/approval-limits',
-        };
-        const target = redirects[location.pathname];
-        if (target) navigate(target, { replace: true });
+        const parts = location.pathname.split('/').filter(Boolean);
+        if (parts[0] !== 'workshop' || parts[1] !== 'staff-app' || !parts[2]) return;
+
+        const legacyTarget = STAFF_APP_LEGACY_ROUTE_REDIRECTS[parts[2]];
+        if (legacyTarget && location.pathname !== legacyTarget) {
+            navigate(legacyTarget, { replace: true });
+        }
     }, [location.pathname, navigate]);
 
     /** `/workshop` and `/workshop/dashboard` default to dashboard — redirect restricted users. */
@@ -241,9 +244,18 @@ export default function WorkshopLayout() {
                 'acc-payments': 'payments',
                 'acc-advances': 'advances',
                 'acc-payroll': 'payroll',
+                'acc-approvals': 'approvals',
                 'acc-ledger': 'ledger',
             };
             navigate(`/workshop/accounting/${reverseMapping[tabId]}`);
+        } else if (tabId === 'sap-users') {
+            navigate('/workshop/employees');
+        } else if (tabId === 'sap-approvals') {
+            navigate('/workshop/approvals');
+        } else if (tabId === 'sap-wallets') {
+            navigate('/workshop/my-petty-cash');
+        } else if (tabId === 'sap-approval-limits') {
+            navigate('/workshop/accounting/approvals');
         } else if (tabId.startsWith('sap-')) {
             const slug = STAFF_APP_TAB_SLUG[tabId] || 'overview';
             navigate(`/workshop/staff-app/${slug}`);
@@ -451,12 +463,10 @@ export default function WorkshopLayout() {
             case 'acc-receipts':      
             case 'acc-payments':      
             case 'acc-advances':      
-            case 'acc-payroll':       
+            case 'acc-payroll':
+            case 'acc-approvals':
             case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'sap-overview':
-            case 'sap-users':
-            case 'sap-approvals':
-            case 'sap-wallets':
             case 'sap-expenses':
             case 'sap-requests':
             case 'sap-purchase-orders':
@@ -465,7 +475,6 @@ export default function WorkshopLayout() {
             case 'sap-salary-advances':
             case 'sap-chat':
             case 'sap-notifications':
-            case 'sap-approval-limits':
             case 'sap-settings':
                 return (
                     <StaffAppPage
@@ -474,6 +483,13 @@ export default function WorkshopLayout() {
                         branches={activeBranches}
                         branchLockedId={userBranchLock}
                         onNavigate={handleTabChange}
+                    />
+                );
+            case 'employees':
+                return (
+                    <WorkshopEmployees
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
                     />
                 );
             case 'dashboard':
@@ -492,8 +508,6 @@ export default function WorkshopLayout() {
                         onLowStockAlertsChange={setDashboardLowStockCount}
                     />
                 );
-            case 'employees':
-                return <Navigate to="/workshop/staff-app/users" replace />;
             case 'departments': return <WorkshopDepartments selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'catalog':
                 return <Navigate to="/workshop/departments" replace />;
@@ -506,8 +520,13 @@ export default function WorkshopLayout() {
                 />
             );
             case 'approvals':
-                return <Navigate to="/workshop/staff-app/approvals" replace />;
-           
+                return (
+                    <WorkshopApprovals
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                        branchLockedId={userBranchLock}
+                    />
+                );
             case 'sales-returns': return <WorkshopSalesReturns selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={activeBranches} onTabChange={handleTabChange} />;
             case 'affiliated-suppliers':
@@ -549,7 +568,12 @@ export default function WorkshopLayout() {
             case 'branches':    return <WorkshopBranches selectedBranchId={selectedBranch} />;
             case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'my-petty-cash':
-                return <Navigate to="/workshop/staff-app/wallets" replace />;
+                return (
+                    <WorkshopPettyCashManagement
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                    />
+                );
             case 'inventory': return (
                 <WorkshopInventory
                     selectedBranchId={selectedBranch}
