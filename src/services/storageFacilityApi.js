@@ -276,5 +276,16 @@ export const createStorageTransfer = (brandId, body) =>
         body: JSON.stringify(body),
     });
 
+export const getStorageTransfer = (brandId, transferId) =>
+    apiFetch(
+        `${base}/brands/${encodeURIComponent(brandId)}/transfers/${encodeURIComponent(transferId)}`,
+    );
+
+export const updateStorageTransfer = (brandId, transferId, body) =>
+    apiFetch(
+        `${base}/brands/${encodeURIComponent(brandId)}/transfers/${encodeURIComponent(transferId)}`,
+        { method: 'PATCH', body: JSON.stringify(body) },
+    );
+
 export const searchWarehouseProductsForMap = (q, params = {}) =>
     apiFetch(withQuery(`${base}/warehouse-products`, { q, ...params }));
