@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeftRight, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Pencil, Plus, Trash2 } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
 import {
     createStorageTransfer,
+    getStorageTransfer,
     listStorageLocations,
     listStorageTransfers,
+    updateStorageTransfer,
 } from '../../../services/storageFacilityApi';
 import ProductLineCombobox from './ProductLineCombobox';
 
@@ -29,6 +31,7 @@ export default function StorageFacilityTransfersTab({
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
+    const [editingTransferId, setEditingTransferId] = useState(null);
     const [busy, setBusy] = useState(false);
     const [form, setForm] = useState({
         transferDate: new Date().toISOString().slice(0, 10),
@@ -125,6 +128,7 @@ export default function StorageFacilityTransfersTab({
     );
 
     const openNew = () => {
+        setEditingTransferId(null);
         const brandDefault = locations.find((l) => l.locationKind === 'brand_storage');
         const ownerDefault = locations.find((l) => l.locationKind === 'owner_warehouse');
         setForm({
@@ -135,6 +139,46 @@ export default function StorageFacilityTransfersTab({
         });
         setLines([newLine(), newLine()]);
         setModalOpen(true);
+    };
+
+    const openEdit = async (transfer) => {
+        setBusy(true);
+        try {
+            const res = await getStorageTransfer(brandId, transfer.id);
+            const t = res?.transfer ?? transfer;
+            setEditingTransferId(t.id);
+            setForm({
+                transferDate: t.transferDate || new Date().toISOString().slice(0, 10),
+                fromLocationId: t.fromLocation?.id || '',
+                toLocationId: t.toLocation?.id || '',
+                notes: t.notes || '',
+            });
+            const mapped =
+                t.items?.length > 0
+                    ? t.items.map((ln) => ({
+                          key: `tr-${ln.id || ln.storageProductId}-${Math.random().toString(36).slice(2, 6)}`,
+                          storageProductId: String(ln.storageProductId || ''),
+                          search: ln.productName || '',
+                          qty: ln.qty != null ? String(ln.qty) : '',
+                          unitCost:
+                              ln.unitCost != null && Number(ln.unitCost) > 0
+                                  ? String(ln.unitCost)
+                                  : '',
+                      }))
+                    : [newLine(), newLine()];
+            setLines(mapped);
+            setModalOpen(true);
+        } catch (ex) {
+            window.alert(ex?.message || 'Could not load transfer');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const closeModal = () => {
+        if (busy) return;
+        setModalOpen(false);
+        setEditingTransferId(null);
     };
 
     const submit = async (e) => {
@@ -153,7 +197,7 @@ export default function StorageFacilityTransfersTab({
         }
         setBusy(true);
         try {
-            await createStorageTransfer(brandId, {
+            const payload = {
                 transferDate: form.transferDate,
                 fromLocationId: form.fromLocationId,
                 toLocationId: form.toLocationId,
@@ -163,8 +207,13 @@ export default function StorageFacilityTransfersTab({
                     qty: Number(ln.qty),
                     unitCost: ln.unitCost !== '' ? Number(ln.unitCost) : undefined,
                 })),
-            });
-            setModalOpen(false);
+            };
+            if (editingTransferId) {
+                await updateStorageTransfer(brandId, editingTransferId, payload);
+            } else {
+                await createStorageTransfer(brandId, payload);
+            }
+            closeModal();
             await load();
             await onReload?.();
         } catch (ex) {
@@ -204,6 +253,7 @@ export default function StorageFacilityTransfersTab({
                             <th>From → To</th>
                             <th>Lines</th>
                             <th>Notes</th>
+                            <th style={{ width: 72 }}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -229,6 +279,25 @@ export default function StorageFacilityTransfersTab({
                                 <td style={{ fontSize: '0.8125rem', color: '#64748b' }}>
                                     {t.notes || '—'}
                                 </td>
+                                <td>
+                                    <button
+                                        type="button"
+                                        className="btn-portal-outline"
+                                        title="Edit transfer"
+                                        aria-label={`Edit transfer ${t.transferNo}`}
+                                        disabled={busy}
+                                        onClick={() => openEdit(t)}
+                                        style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            padding: '6px 10px',
+                                            fontSize: '0.75rem',
+                                        }}
+                                    >
+                                        <Pencil size={14} /> Edit
+                                    </button>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -243,9 +312,9 @@ export default function StorageFacilityTransfersTab({
 
             {modalOpen ? (
                 <Modal
-                    title="Stock transfer"
+                    title={editingTransferId ? 'Edit stock transfer' : 'Stock transfer'}
                     size="large"
-                    onClose={() => !busy && setModalOpen(false)}
+                    onClose={closeModal}
                     contentClassName="sf-doc-modal sf-transfer-modal"
                     disableClose={busy}
                 >
@@ -436,7 +505,7 @@ export default function StorageFacilityTransfersTab({
                                 type="button"
                                 className="btn-portal-outline"
                                 disabled={busy}
-                                onClick={() => setModalOpen(false)}
+                                onClick={closeModal}
                             >
                                 Cancel
                             </button>
@@ -445,7 +514,11 @@ export default function StorageFacilityTransfersTab({
                                 className="mgr-si-btn-new"
                                 disabled={busy || validLines.length === 0}
                             >
-                                {busy ? 'Saving…' : `Post transfer (${validLines.length} line(s))`}
+                                {busy
+                                    ? 'Saving…'
+                                    : editingTransferId
+                                      ? `Save changes (${validLines.length} line(s))`
+                                      : `Post transfer (${validLines.length} line(s))`}
                             </button>
                         </div>
                         </div>
