@@ -16,7 +16,7 @@ import './MarketingUniversal.css';
 export const ReferralRules = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const listPath = marketingSectionPath(location.pathname, 'referral-types-rules');
+  const listPath = marketingSectionPath(location.pathname, 'expenses');
 
   const [expenses, setExpenses] = useState([]);
   const [search, setSearch] = useState('');

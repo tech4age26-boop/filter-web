@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Hourglass, Loader2 } from 'lucide-react';
 import {
   marketingCreatePromoCode,
+  marketingGetPromoCode,
   marketingListPromotions,
+  marketingUpdatePromoCode,
 } from '../../services/superAdminMarketingApi';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
@@ -14,13 +16,12 @@ import {
   discountTypeOptions,
   mapDiscountTypeToBackend,
   mapDiscountTypeToUi,
-  mapStatusToIsActive,
   normalizeOption,
+  normalizePromoCode,
   PromotionSelect,
   randomCode,
   safeArray,
   SelectField,
-  statusOptions,
   Toggle,
   toDateOnly,
   toDateTimeLocal,
@@ -29,11 +30,15 @@ import {
 export default function PromoCodeFormPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { id } = useParams();
+  const isEdit = Boolean(id);
   const listPath = marketingSectionPath(location.pathname, 'promo-codes');
 
   const [promotions, setPromotions] = useState([]);
   const [loadingOptions, setLoadingOptions] = useState(true);
+  const [loadingRecord, setLoadingRecord] = useState(isEdit);
   const [optionsError, setOptionsError] = useState('');
+  const [recordError, setRecordError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const [form, setForm] = useState({
@@ -46,7 +51,7 @@ export default function PromoCodeFormPage() {
     maxUsage: '0',
     validFrom: '',
     validUntil: '',
-    status: 'Active',
+    status: 'Pending Approval',
     showSavings: true,
     notes: '',
   });
@@ -95,6 +100,50 @@ export default function PromoCodeFormPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isEdit) return undefined;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setLoadingRecord(true);
+        setRecordError('');
+        const data = await marketingGetPromoCode(id);
+        if (cancelled) return;
+
+        const item = normalizePromoCode(
+          data?.promoCode || data?.data || data?.item || data
+        );
+
+        setForm({
+          code: item.code || '',
+          promotionId: item.promotionId || '',
+          promotionName: item.promotion || '',
+          discountType: mapDiscountTypeToUi(item.discountType),
+          discountValue: String(item.discountValue ?? ''),
+          minPurchase: String(item.minPurchase ?? '0'),
+          maxUsage: String(item.maxUsage ?? '0'),
+          validFrom: item.validFrom ? toDateTimeLocal(item.validFrom) : '',
+          validUntil: item.validUntil ? toDateTimeLocal(item.validUntil) : '',
+          status: item.status || 'Pending Approval',
+          showSavings: Boolean(item.showSavings),
+          notes: item.notes || '',
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setRecordError(error?.message || 'Promo code load nahi hua.');
+        }
+      } finally {
+        if (!cancelled) setLoadingRecord(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, isEdit]);
+
   const handlePromotionChange = (promotionId) => {
     const selected = promotions.find((item) => item.id === promotionId);
     setForm((prev) => ({
@@ -117,7 +166,7 @@ export default function PromoCodeFormPage() {
     }));
   };
 
-  const createPayload = () => {
+  const buildPayload = () => {
     const descriptionParts = [];
     if (form.promotionName) descriptionParts.push(`Promotion: ${form.promotionName}`);
     if (form.notes) descriptionParts.push(form.notes);
@@ -144,12 +193,16 @@ export default function PromoCodeFormPage() {
       valid_until: toDateOnly(form.validUntil),
       description: descriptionParts.join(' | ') || null,
       notes: form.notes || null,
-      isActive: mapStatusToIsActive(form.status),
-      status: String(form.status || '').toLowerCase(),
       showOnInvoice: form.showSavings,
       show_on_invoice: form.showSavings,
     };
   };
+
+  const createPayload = () => ({
+    ...buildPayload(),
+    status: 'pending_approval',
+    isActive: false,
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -173,8 +226,20 @@ export default function PromoCodeFormPage() {
 
     try {
       setSubmitting(true);
-      await marketingCreatePromoCode(createPayload());
-      goBack();
+      if (isEdit) {
+        await marketingUpdatePromoCode(id, buildPayload());
+        navigate(listPath, {
+          state: { successMessage: 'Promo code updated successfully.' },
+        });
+      } else {
+        await marketingCreatePromoCode(createPayload());
+        navigate(listPath, {
+          state: {
+            successMessage:
+              'Promo code submitted for Super Admin approval. It will appear on POS after approval.',
+          },
+        });
+      }
     } catch (error) {
       alert(error?.message || 'Promo code save nahi hua.');
     } finally {
@@ -184,12 +249,24 @@ export default function PromoCodeFormPage() {
 
   return (
     <MarketingFormShell
-      title="Generate Promo Code"
-      subtitle="Create a promo code for POS and invoices. It will be sent for Super Admin approval."
+      title={isEdit ? 'Edit Promo Code' : 'Generate Promo Code'}
+      subtitle={
+        isEdit
+          ? 'Update promo code details. POS activation is controlled from the list page.'
+          : 'Create a promo code for POS and invoices. It will be sent for Super Admin approval.'
+      }
       backLabel="Back to Promo Codes"
       onBack={goBack}
       className="mk-page mk-code-page mkp-form-page"
     >
+      {loadingRecord ? (
+        <div className="mk-code-empty-state">
+          <Loader2 size={28} className="mk-code-spin" />
+          <div>Loading promo code...</div>
+        </div>
+      ) : recordError ? (
+        <div className="mk-code-error-banner">{recordError}</div>
+      ) : (
       <form onSubmit={handleSubmit} className="mkp-form-page-body mk-code-modal-form">
         <div className="mk-code-form-group">
           <label className="mk-code-label">Promo Code *</label>
@@ -200,7 +277,9 @@ export default function PromoCodeFormPage() {
               onChange={(e) => update('code', e.target.value.toUpperCase())}
               placeholder="e.g. RAMADAN50"
               className="mk-code-input mk-code-focus-input mk-code-flex-input"
+              readOnly={isEdit}
             />
+            {!isEdit ? (
             <button
               type="button"
               onClick={() => update('code', randomCode())}
@@ -208,6 +287,7 @@ export default function PromoCodeFormPage() {
             >
               Auto
             </button>
+            ) : null}
           </div>
         </div>
 
@@ -281,12 +361,12 @@ export default function PromoCodeFormPage() {
         </div>
 
         <div className="mk-code-form-group">
-          <label className="mk-code-label">Status</label>
-          <SelectField
-            value={form.status}
-            onChange={(value) => update('status', value)}
-            options={statusOptions}
-          />
+          <label className="mk-code-label">Activation</label>
+          <div className="mk-code-input" style={{ background: '#f8fafc', color: '#64748b' }}>
+            {isEdit
+              ? `${form.status} — use the list page toggle after Super Admin approval`
+              : 'Pending Super Admin approval (required before POS use)'}
+          </div>
         </div>
 
         <div className="mk-code-form-group">
@@ -307,12 +387,14 @@ export default function PromoCodeFormPage() {
           />
         </div>
 
+        {!isEdit ? (
         <div className="mk-code-approval-note">
           <Hourglass size={14} strokeWidth={2} />
           <span>
             This code will be sent to <b>Super Admin for approval</b> before activation.
           </span>
         </div>
+        ) : null}
 
         <div className="mkp-form-page-footer">
           <button type="button" onClick={goBack} className="mk-code-cancel-btn" disabled={submitting}>
@@ -322,14 +404,17 @@ export default function PromoCodeFormPage() {
             {submitting ? (
               <>
                 <Loader2 size={14} className="mk-code-spin" />
-                Submitting...
+                {isEdit ? 'Saving...' : 'Submitting...'}
               </>
+            ) : isEdit ? (
+              'Save Changes'
             ) : (
               'Submit for Approval'
             )}
           </button>
         </div>
       </form>
+      )}
     </MarketingFormShell>
   );
 }

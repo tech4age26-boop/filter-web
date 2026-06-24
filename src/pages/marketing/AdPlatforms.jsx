@@ -16,6 +16,7 @@ import {
   marketingChangeAdPlatformStatus,
   marketingListAdPlatforms,
   marketingSyncAdPlatform,
+  marketingUpdateAdPlatform,
 } from '../../services/superAdminMarketingApi';
 import './MarketingUniversal.css';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -61,6 +62,18 @@ const PlatformIcon = ({ definition }) => {
     </div>
   );
 };
+
+function formatTime(value) {
+  try {
+    return new Date(value).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
 
 const Toggle = ({ enabled, onClick }) => (
   <button
@@ -186,18 +199,52 @@ export const AdPlatforms = () => {
     try {
       setActionLoading(definition.key);
 
-      await marketingSyncAdPlatform(existing.id, {
+      const res = await marketingSyncAdPlatform(existing.id, {
+        trigger: 'manual',
         forceSync: true,
         syncMode: 'sync_campaign_metrics',
         notes: `Manual sync for ${definition.title}`,
       });
 
-      addLog(`${definition.title} synced`);
+      if (res?.success === false) {
+        addLog(`${definition.title}: ${res?.message || 'sync skipped'}`);
+        alert(res?.message || 'Sync could not pull metrics for this platform.');
+      } else {
+        const m = res?.sync?.metrics;
+        addLog(
+          m
+            ? `${definition.title} synced — ${m.impressions} impressions, ${m.clicks} clicks, ${m.conversions} conversions`
+            : `${definition.title} synced`,
+        );
+      }
+
       await loadPlatforms();
     } catch (err) {
       alert(err?.message || 'Failed to sync platform.');
     } finally {
       setActionLoading('');
+    }
+  };
+
+  const handleToggleAutoSync = async () => {
+    const next = !autoSync;
+    setAutoSync(next);
+
+    const connected = platforms.filter((item) => item?.id);
+
+    if (connected.length === 0) return;
+
+    try {
+      await Promise.all(
+        connected.map((item) =>
+          marketingUpdateAdPlatform(item.id, { autoSync: next }),
+        ),
+      );
+      addLog(`Auto-sync ${next ? 'enabled' : 'disabled'}`);
+      await loadPlatforms();
+    } catch (err) {
+      setAutoSync(!next);
+      alert(err?.message || 'Failed to update auto-sync.');
     }
   };
 
@@ -216,11 +263,16 @@ export const AdPlatforms = () => {
       setActionLoading('sync_all');
 
       for (const item of connected) {
-        await marketingSyncAdPlatform(item.existing.id, {
+        const res = await marketingSyncAdPlatform(item.existing.id, {
+          trigger: 'manual',
           forceSync: true,
           syncMode: 'sync_campaign_metrics',
           notes: `Sync all triggered for ${item.definition.title}`,
         });
+
+        if (res?.success === false) {
+          addLog(`${item.definition.title}: ${res?.message || 'sync skipped'}`);
+        }
       }
 
       addLog(`${connected.length} platforms synced`);
@@ -261,8 +313,8 @@ export const AdPlatforms = () => {
 
         <div className="adp-auto-sync-row">
           <Zap size={14} />
-          <span>Auto-Sync</span>
-          <Toggle enabled={autoSync} onClick={() => setAutoSync((prev) => !prev)} />
+          <span>Auto-Sync (hourly)</span>
+          <Toggle enabled={autoSync} onClick={handleToggleAutoSync} />
         </div>
       </section>
 
@@ -318,6 +370,18 @@ export const AdPlatforms = () => {
               <div className="adp-card-body">
                 {connected ? (
                   <>
+                    {existing?.lastSyncMetrics ? (
+                      <div className="adp-metrics-line">
+                        {Number(existing.lastSyncMetrics.impressions || 0).toLocaleString()} impr ·{' '}
+                        {Number(existing.lastSyncMetrics.clicks || 0).toLocaleString()} clicks ·{' '}
+                        {Number(existing.lastSyncMetrics.conversions || 0).toLocaleString()} conv
+                      </div>
+                    ) : null}
+
+                    {existing?.lastSyncError ? (
+                      <div className="adp-error-line">{existing.lastSyncError}</div>
+                    ) : null}
+
                     <button
                       type="button"
                       className="adp-outline-action"
@@ -625,6 +689,26 @@ export const AdPlatforms = () => {
             border: 1px solid #dbe1ea;
             background: #ffffff;
             color: #334155;
+          }
+
+          .adp-metrics-line {
+            font-size: 10px;
+            font-weight: 700;
+            color: #0f766e;
+            background: #ecfdf5;
+            border-radius: 5px;
+            padding: 5px 7px;
+          }
+
+          .adp-error-line {
+            font-size: 10px;
+            font-weight: 650;
+            color: #b45309;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-radius: 5px;
+            padding: 5px 7px;
+            line-height: 1.4;
           }
 
           .adp-danger-link {

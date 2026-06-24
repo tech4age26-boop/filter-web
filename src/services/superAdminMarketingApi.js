@@ -45,7 +45,7 @@ export const marketingListPromoCodes = (params = {}) =>
   apiFetch(`${ROOT}/promo-codes${qs(params)}`);
 
 export const marketingGetPromoCode = (id) =>
-  apiFetch(`${ROOT}/promo-codes/${encodeURIComponent(String(id))}`);
+  apiFetch(`${ROOT}/promo-codes/detail/${encodeURIComponent(String(id))}`);
 
 export const marketingUpdatePromoCode = (id, body) =>
   apiFetch(`${ROOT}/promo-codes/${encodeURIComponent(String(id))}`, {
@@ -53,9 +53,33 @@ export const marketingUpdatePromoCode = (id, body) =>
     body: JSON.stringify(body),
   });
 
+export const marketingSetPromoCodeActivation = async (id, active) =>
+  apiFetch(`${ROOT}/promo-codes/${encodeURIComponent(String(id))}/activation`, {
+    method: 'PATCH',
+    body: JSON.stringify({ active: Boolean(active) }),
+  });
+
+export const marketingGetPromoCodeReport = async (id) =>
+  apiFetch(`${ROOT}/promo-codes/${encodeURIComponent(String(id))}/report`);
+
+export const marketingGetPromoCodeAutoReport = async (id) =>
+  apiFetch(`${ROOT}/promo-codes/${encodeURIComponent(String(id))}/auto-report`);
+
 export const marketingDeletePromoCode = (id) =>
   apiFetch(`${ROOT}/promo-codes/${encodeURIComponent(String(id))}`, {
     method: 'DELETE',
+  });
+
+export const marketingApprovePromoCode = (id, body = {}) =>
+  apiFetch(`${ROOT}/promo-codes/${encodeURIComponent(String(id))}/approve`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const marketingRejectPromoCode = (id, body = {}) =>
+  apiFetch(`${ROOT}/promo-codes/${encodeURIComponent(String(id))}/reject`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
   });
 
 export const marketingGeneratePromoAutoCode = (params) =>
@@ -227,6 +251,14 @@ export const marketingUpdateCampaignMetrics = (id, body) =>
     body: JSON.stringify(body),
   });
 
+export const marketingGetCampaignErpMetrics = (id) =>
+  apiFetch(`${ROOT}/campaigns/${encodeURIComponent(String(id))}/erp-metrics`);
+
+export const marketingSyncCampaignErpMetrics = (id) =>
+  apiFetch(`${ROOT}/campaigns/${encodeURIComponent(String(id))}/sync-erp-metrics`, {
+    method: 'POST',
+  });
+
 /* =========================
    Referrers APIs
 ========================= */
@@ -288,8 +320,29 @@ export const marketingDeleteLoyaltyProgram = (id) =>
 export const marketingGetCustomerInsights = (params = {}) =>
   apiFetch(`${ROOT}/customer-insights${qs(params)}`);
 
+export const marketingGetCustomerBreakdown = (params = {}) =>
+  apiFetch(`${ROOT}/customer-insights/breakdown${qs(params)}`);
+
+export const marketingSimulateLoyaltyPoints = (body) =>
+  apiFetch(`${ROOT}/loyalty-programs/simulate`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
 export const marketingGetDashboard = (params = {}) =>
   apiFetch(`${ROOT}/dashboard${qs(params)}`);
+
+export const marketingGetDashboardAnalytics = (params = {}) =>
+  apiFetch(`${ROOT}/analytics/dashboard${qs(params)}`);
+
+export const marketingGetAnalyticsBranchWise = (params = {}) =>
+  apiFetch(`${ROOT}/analytics/branch-wise${qs(params)}`);
+
+export const marketingGetAnalyticsWorkshopWise = (params = {}) =>
+  apiFetch(`${ROOT}/analytics/workshop-wise${qs(params)}`);
+
+export const marketingGetAnalyticsTrends = (params = {}) =>
+  apiFetch(`${ROOT}/analytics/trends${qs(params)}`);
 
 /* =========================
    Referral Management APIs
@@ -466,6 +519,24 @@ export const marketingGetAnalyticsRoi = (params = {}) =>
 export const marketingGetCampaignReport = (params = {}) =>
   apiFetch(`${ROOT}/reports/campaigns${qs(params)}`);
 
+export const marketingGetAiCampaignReport = (params = {}) =>
+  apiFetch(`${ROOT}/reports/campaigns/ai${qs(params)}`);
+
+export const marketingGetIntegrations = () =>
+  apiFetch(`${ROOT}/integrations`);
+
+export const marketingSaveIntegrations = (values) =>
+  apiFetch(`${ROOT}/integrations`, {
+    method: 'POST',
+    body: JSON.stringify({ values }),
+  });
+
+export const marketingTestIntegration = (body) =>
+  apiFetch(`${ROOT}/integrations/test`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
 /* =========================
    Marketing Ad Platforms APIs
 ========================= */
@@ -505,6 +576,20 @@ export const marketingDeleteAdPlatform = (id) =>
     method: 'DELETE',
   });
 
+export const marketingGetAdPlatformOAuthUrl = (params = {}) =>
+  apiFetch(`${ROOT}/ad-platforms/oauth/url${qs(params)}`);
+
+export const marketingAdPlatformOAuthCallback = (body) =>
+  apiFetch(`${ROOT}/ad-platforms/oauth/callback`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const marketingListAdPlatformSyncLogs = (id, params = {}) =>
+  apiFetch(
+    `${ROOT}/ad-platforms/${encodeURIComponent(String(id))}/sync-logs${qs(params)}`,
+  );
+
 /* =========================
    Marketing Budget Optimizer APIs
 ========================= */
@@ -514,6 +599,15 @@ export const marketingGetBudgetOptimizer = (params = {}) =>
 
 export const marketingOptimizeBudget = (body) =>
   apiFetch(`${ROOT}/budget-optimizer/optimize`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const marketingGetBudgetOptimizerInsights = (params = {}) =>
+  apiFetch(`${ROOT}/budget-optimizer/insights${qs(params)}`);
+
+export const marketingApplyBudgetOptimizer = (body) =>
+  apiFetch(`${ROOT}/budget-optimizer/apply`, {
     method: 'POST',
     body: JSON.stringify(body),
   });

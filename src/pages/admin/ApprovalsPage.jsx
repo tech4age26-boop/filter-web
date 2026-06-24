@@ -30,11 +30,17 @@ import {
 import {
     marketingApproveBudgetRequest,
     marketingApprovePromotion,
+    marketingApprovePromoCode,
+    marketingApproveExpense,
     marketingGetPromotion,
     marketingListBudgetRequests,
+    marketingListPromoCodes,
     marketingListPromotions,
     marketingRejectBudgetRequest,
     marketingRejectPromotion,
+    marketingRejectPromoCode,
+    marketingRejectExpense,
+    marketingPayExpense,
 } from '../../services/superAdminMarketingApi';
 import Modal from '../../components/Modal';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
@@ -59,6 +65,8 @@ const APPROVAL_TYPE_TO_PERMISSION_SUFFIX = {
     sales_return: 'sales-return',
     marketing_budget_request: 'marketing-budget-request',
     marketing_promotion: 'marketing-promotion',
+    marketing_campaign: 'marketing-campaign',
+    marketing_expense: 'marketing-expense',
 };
 
 function approvalPermission(entityType, action) {
@@ -91,6 +99,76 @@ function unwrapMarketingBudgetRequests(payload) {
     if (Array.isArray(payload?.data?.budgetRequests)) return payload.data.budgetRequests;
     if (Array.isArray(payload?.data?.requests)) return payload.data.requests;
     return [];
+}
+
+function unwrapMarketingPromoCodes(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.promoCodes)) return payload.promoCodes;
+    if (Array.isArray(payload?.items)) return payload.items;
+    if (Array.isArray(payload?.data?.promoCodes)) return payload.data.promoCodes;
+    if (Array.isArray(payload?.data?.items)) return payload.data.items;
+    return [];
+}
+
+function promoCodeMatchesApprovalTab(promoCode, tabStatus) {
+    const workflowStatus = normalizePromotionWorkflowStatus(promoCode?.status);
+
+    if (tabStatus === 'pending') {
+        return workflowStatus === 'pending_approval';
+    }
+
+    if (tabStatus === 'rejected') {
+        return workflowStatus === 'rejected';
+    }
+
+    if (tabStatus === 'approved') {
+        return ['active', 'inactive'].includes(workflowStatus);
+    }
+
+    return ['pending_approval', 'active', 'inactive', 'rejected'].includes(workflowStatus);
+}
+
+function mapMarketingPromoCodeRow(r) {
+    const discountValue = Number(r.discountValue ?? r.discount_value ?? 0);
+    const discountType = String(r.discountType ?? r.discount_type ?? '').toLowerCase();
+    const discountLabel =
+        discountType.includes('fixed') || discountType.includes('amount')
+            ? `SAR ${discountValue}`
+            : `${discountValue}%`;
+
+    const promoStatus = normalizePromotionWorkflowStatus(r.status);
+    const approvalStatus =
+        promoStatus === 'pending_approval'
+            ? 'pending'
+            : promoStatus === 'rejected'
+              ? 'rejected'
+              : 'approved';
+
+    return {
+        id: String(r.id),
+        entityType: 'marketing_promo_code',
+        type: 'marketing_promo_code',
+        typeLabel: 'Marketing promo code',
+        status: approvalStatus,
+        title: `Marketing promo code · ${r.code ?? r.id}`,
+        meta: {
+            code: r.code,
+            promotionName: r.promotionName ?? r.promotion_name ?? r.promotion,
+            discountType: r.discountType ?? r.discount_type,
+            discountValue,
+            discountLabel,
+            validFrom: r.validFrom ?? r.valid_from,
+            validTo: r.validTo ?? r.valid_to ?? r.valid_until,
+            usageLimit: r.usageLimit ?? r.maxUsageCount ?? r.max_usage_count,
+            usageCount: r.usageCount ?? r.currentUsageCount ?? r.current_usage_count,
+            promoCodeStatus: promoStatus,
+        },
+        submittedBy: r.createdByName ?? r.createdBy ?? null,
+        reviewer: null,
+        date: r.createdAt ?? r.created_at ?? '',
+        reference: r.code ?? '',
+        raw: r,
+    };
 }
 
 function unwrapMarketingPromotions(payload) {
@@ -229,6 +307,9 @@ const ENTITY_TYPES = [
     { value: 'sales_return', label: 'POS sales return' },
     { value: 'marketing_budget_request', label: 'Marketing wallet top-up' },
     { value: 'marketing_promotion', label: 'Marketing promotion' },
+    { value: 'marketing_campaign', label: 'Marketing campaign' },
+    { value: 'marketing_expense', label: 'Marketing expense' },
+    { value: 'marketing_promo_code', label: 'Marketing promo code' },
     { value: 'technician_registration', label: 'Technician' },
 ];
 
@@ -438,6 +519,27 @@ function buildMetaChips(item) {
             push('Type', m.promoType);
             push('Strategy', m.marketingStrategy);
             push('Code', m.code);
+            break;
+        case 'marketing_campaign':
+            push('Workshop', m.workshopName);
+            push('Platform', m.platform);
+            push('Type', m.campaignType);
+            push('Budget', m.budgetLabel);
+            push('Dates', m.startDate && m.endDate ? `${m.startDate} → ${m.endDate}` : null);
+            break;
+        case 'marketing_expense':
+            push('Category', m.expenseCategory);
+            push('Vendor', m.vendorName);
+            push('Amount', m.amountLabel);
+            push('Campaign', m.campaignName);
+            push('Date', m.expenseDate);
+            break;
+        case 'marketing_promo_code':
+            push('Code', m.code);
+            push('Discount', m.discountLabel);
+            push('Promotion', m.promotionName);
+            push('Valid', m.validFrom && m.validTo ? `${m.validFrom} → ${m.validTo}` : null);
+            push('Usage', m.usageLimit != null ? `${m.usageCount ?? 0} / ${m.usageLimit}` : null);
             break;
         default:
             break;
@@ -816,6 +918,153 @@ function MarketingBudgetRequestDetailsModal({ id, item, onClose, onApprove, onRe
                         <div style={{ padding: 10, background: '#fef2f2', borderRadius: 10, fontSize: '0.875rem', color: '#991b1b' }}>
                             <strong>Rejection reason:</strong>{' '}
                             {row.rejectionReason ?? row.rejection_reason ?? item?.meta?.rejectionReason}
+                        </div>
+                    )}
+                </div>
+            )}
+        </Modal>
+    );
+}
+
+/** Marketing expense detail — approve/reject + pay (posts HQ Chart of Accounts journal). */
+function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, onPay, payBusy }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr('');
+        fetchApprovalDetails('marketing_expense', id)
+            .then((res) => {
+                if (!cancelled) setData(res);
+            })
+            .catch((e) => {
+                if (!cancelled) setErr(e?.message || 'Could not load expense details');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [id]);
+
+    const row = data?.expense ?? data ?? item?.raw ?? item ?? {};
+    const amount = Number(row.amount ?? item?.meta?.amount ?? 0);
+    const expenseNumber = row.expenseNumber ?? row.expense_number ?? item?.meta?.expenseNumber ?? `#${id}`;
+    const status = String(row.status ?? data?.expenseStatus ?? item?.meta?.expenseStatus ?? item?.status ?? 'pending')
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+
+    const money = (v) =>
+        `SAR ${Number(v || 0).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        })}`;
+
+    const showApproveReject = status === 'pending_approval' || status === 'pending';
+    const showPay = status === 'approved';
+
+    return (
+        <Modal
+            title={`Marketing expense · ${expenseNumber}`}
+            onClose={onClose}
+            width={720}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
+                    {showPay && onPay && (
+                        <button type="button" className="btn-approve" disabled={payBusy} onClick={onPay}>
+                            {payBusy ? <Loader size={16} className="spin" /> : <DollarSign size={16} />}
+                            Pay &amp; Post to CAO
+                        </button>
+                    )}
+                    {showApproveReject && (
+                        <>
+                            {onReject && (
+                                <button type="button" className="btn-reject" onClick={onReject}>
+                                    <X size={16} /> Reject
+                                </button>
+                            )}
+                            {onApprove && (
+                                <button type="button" className="btn-approve" onClick={onApprove}>
+                                    <Check size={16} /> Approve
+                                </button>
+                            )}
+                        </>
+                    )}
+                </>
+            )}
+        >
+            {loading ? (
+                <div style={{ padding: 24, textAlign: 'center' }}>
+                    <Loader size={20} className="spin" /> Loading…
+                </div>
+            ) : err ? (
+                <p style={{ color: '#b91c1c' }}>{err}</p>
+            ) : (
+                <div>
+                    <div style={{ marginBottom: 14 }}>
+                        <span className={`status-badge status-${status === 'pending_approval' ? 'pending' : status}`}>
+                            {status.replace(/_/g, ' ')}
+                        </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Amount</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700, fontSize: '1.125rem' }}>{money(amount)}</p>
+                        </div>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Category</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>
+                                {row.expenseCategory ?? item?.meta?.expenseCategory ?? '—'}
+                            </p>
+                        </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Vendor</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>{row.vendorName ?? item?.meta?.vendorName ?? '—'}</p>
+                        </div>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Campaign</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>{row.campaignName ?? item?.meta?.campaignName ?? '—'}</p>
+                        </div>
+                    </div>
+                    {(row.description ?? item?.meta?.description) && (
+                        <div style={{ marginBottom: 14 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Description</p>
+                            <p style={{ margin: '6px 0 0', fontSize: '0.9375rem' }}>{row.description ?? item?.meta?.description}</p>
+                        </div>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Submitted by</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                {row.submittedByName ?? row.submittedBy ?? item?.submittedBy ?? '—'}
+                            </p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                {formatDate(row.expenseDate ?? row.expense_date ?? item?.meta?.expenseDate)}
+                            </p>
+                        </div>
+                        {(row.approvedByName ?? row.approvedBy) && (
+                            <div>
+                                <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Reviewed by</p>
+                                <p style={{ margin: '4px 0 0', fontWeight: 600 }}>{row.approvedByName ?? row.approvedBy}</p>
+                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                    {formatDate(row.approvalDate ?? row.approval_date)}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                    {status === 'approved' && (
+                        <div style={{ padding: 10, background: '#eff6ff', borderRadius: 10, fontSize: '0.875rem', color: '#1e40af', marginBottom: 14 }}>
+                            Approved — use <strong>Pay &amp; Post to CAO</strong> to debit the marketing wallet and book HQ journal (DR Marketing Expense / CR Marketing Wallet).
+                        </div>
+                    )}
+                    {(row.rejectionReason ?? item?.meta?.rejectionReason) && (
+                        <div style={{ padding: 10, background: '#fef2f2', borderRadius: 10, fontSize: '0.875rem', color: '#991b1b' }}>
+                            <strong>Rejection reason:</strong> {row.rejectionReason ?? item?.meta?.rejectionReason}
                         </div>
                     )}
                 </div>
@@ -1673,9 +1922,11 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             !entityTypeFilter || entityTypeFilter === 'marketing_budget_request';
         const wantMarketingPromotions =
             !entityTypeFilter || entityTypeFilter === 'marketing_promotion';
+        const wantMarketingPromoCodes =
+            !entityTypeFilter || entityTypeFilter === 'marketing_promo_code';
 
         // When the filter is narrowed to a type handled by a dedicated API, skip std approvals.
-        const stdReq = entityTypeFilter === 'corporate_payment_approval' || entityTypeFilter === 'sales_return' || entityTypeFilter === 'marketing_budget_request' || entityTypeFilter === 'marketing_promotion'
+        const stdReq = entityTypeFilter === 'corporate_payment_approval' || entityTypeFilter === 'sales_return' || entityTypeFilter === 'marketing_budget_request' || entityTypeFilter === 'marketing_promotion' || entityTypeFilter === 'marketing_promo_code'
             ? Promise.resolve([])
             : listApprovals({ status, entityType: entityTypeFilter })
                 .then((data) => unwrapApprovalsListResponse(data).map(normalizeItem))
@@ -1793,11 +2044,28 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                   })
             : Promise.resolve([]);
 
-        Promise.all([stdReq, cpaReq, srReq, mbrReq, mprReq])
-            .then(([stdItems, cpaItems, srItems, mbrItems, mprItems]) => {
+        const mpcReq = wantMarketingPromoCodes && canViewType('marketing_promo_code')
+            ? marketingListPromoCodes({
+                  status: 'all',
+                  limit: 200,
+                  offset: 0,
+              })
+                  .then((res) =>
+                      unwrapMarketingPromoCodes(res)
+                          .filter((row) => promoCodeMatchesApprovalTab(row, status))
+                          .map(mapMarketingPromoCodeRow),
+                  )
+                  .catch((err) => {
+                      console.error('Marketing promo codes approval load failed:', err);
+                      return [];
+                  })
+            : Promise.resolve([]);
+
+        Promise.all([stdReq, cpaReq, srReq, mbrReq, mprReq, mpcReq])
+            .then(([stdItems, cpaItems, srItems, mbrItems, mprItems, mpcItems]) => {
                 if (cancelled) return;
                 const seen = new Set();
-                const merged = [...mprItems, ...mbrItems, ...srItems, ...cpaItems, ...stdItems].filter((item) => {
+                const merged = [...mpcItems, ...mprItems, ...mbrItems, ...srItems, ...cpaItems, ...stdItems].filter((item) => {
                     const key = `${item.entityType}:${item.id}`;
                     if (seen.has(key)) return false;
                     seen.add(key);
@@ -1826,6 +2094,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const isSalesReturnApproval = (et) => et === 'sales_return';
     const isMarketingBudgetRequest = (et) => et === 'marketing_budget_request';
     const isMarketingPromotion = (et) => et === 'marketing_promotion';
+    const isMarketingPromoCode = (et) => et === 'marketing_promo_code';
+    const isMarketingExpense = (et) => et === 'marketing_expense';
 
     const handleApproveConfirm = async (item, remarksOrPayload) => {
         setActionLoading(approvalItemKey(item));
@@ -1844,6 +2114,14 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 });
             } else if (isMarketingPromotion(item.entityType)) {
                 await marketingApprovePromotion(item.id, {
+                    notes: payload.remarks ?? payload.notes,
+                });
+            } else if (isMarketingPromoCode(item.entityType)) {
+                await marketingApprovePromoCode(item.id, {
+                    notes: payload.remarks ?? payload.notes,
+                });
+            } else if (isMarketingExpense(item.entityType)) {
+                await marketingApproveExpense(item.id, {
                     notes: payload.remarks ?? payload.notes,
                 });
             } else if (isCorporatePriceQuotation(item.entityType)) {
@@ -1874,6 +2152,10 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 await marketingRejectBudgetRequest(item.id, { rejectionReason: reason });
             } else if (isMarketingPromotion(item.entityType)) {
                 await marketingRejectPromotion(item.id, { reason: reason ?? '' });
+            } else if (isMarketingPromoCode(item.entityType)) {
+                await marketingRejectPromoCode(item.id, { reason: reason ?? '' });
+            } else if (isMarketingExpense(item.entityType)) {
+                await marketingRejectExpense(item.id, { rejectionReason: reason ?? '' });
             } else if (isCorporatePriceQuotation(item.entityType)) {
                 await rejectSuperAdminCorporatePriceQuotation(item.id, { reason });
             } else {
@@ -1886,6 +2168,22 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             showToast('Request rejected.');
         } catch (err) {
             showToast(`Reject failed: ${err.message}`, 'error');
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    const handlePayExpense = async (item) => {
+        if (!item || item.entityType !== 'marketing_expense') return;
+        setActionLoading(approvalItemKey(item));
+        try {
+            await marketingPayExpense(item.id, {});
+            removeFromList(item);
+            setDetailsTarget(null);
+            setReloadTick((t) => t + 1);
+            showToast('Expense paid and posted to Chart of Accounts.');
+        } catch (err) {
+            showToast(`Pay failed: ${err.message}`, 'error');
         } finally {
             setActionLoading(null);
         }
@@ -1931,6 +2229,9 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             case 'sales_return':
                 return <RefreshCcw size={14} />;
             case 'marketing_promotion':
+            case 'marketing_campaign':
+            case 'marketing_expense':
+            case 'marketing_promo_code':
             case 'marketing_budget_request':
                 return <Tag size={14} />;
             default:
@@ -2190,6 +2491,18 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 />
             )}
 
+            {detailsTarget && detailsTarget.entityType === 'marketing_expense' && (
+                <MarketingExpenseDetailsModal
+                    id={detailsTarget.id}
+                    item={detailsTarget.item}
+                    onClose={() => setDetailsTarget(null)}
+                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
+                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
+                    onPay={canApproveType(detailsTarget.entityType) ? () => handlePayExpense(detailsTarget.item) : undefined}
+                    payBusy={actionLoading === approvalItemKey(detailsTarget.item ?? { entityType: detailsTarget.entityType, id: detailsTarget.id })}
+                />
+            )}
+
             {detailsTarget && detailsTarget.entityType === 'marketing_promotion' && (
                 <MarketingPromotionDetailsModal
                     id={detailsTarget.id}
@@ -2204,6 +2517,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 && detailsTarget.entityType !== 'corporate_payment_approval'
                 && detailsTarget.entityType !== 'sales_return'
                 && detailsTarget.entityType !== 'marketing_budget_request'
+                && detailsTarget.entityType !== 'marketing_expense'
                 && detailsTarget.entityType !== 'marketing_promotion' && (
                 <ApprovalDetailsModal
                     entityType={detailsTarget.entityType}

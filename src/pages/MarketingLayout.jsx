@@ -19,6 +19,7 @@ import {
     Eye,
     Tags,
     Trophy,
+    Plug,
 } from 'lucide-react';
 
 import '../styles/AdminLayout.css';
@@ -100,15 +101,17 @@ function formatWalletBalance(value, currency = 'SAR') {
 
 const PAGE_TITLES = {
     dashboard: 'Dashboard',
-    promotions: 'Campaigns',
+    campaigns: 'Campaigns',
     'campaign-requests': 'Campaign Requests',
     'referral-management': 'Marketing Wallet',
+    expenses: 'Expenses',
     'referral-types-rules': 'Expenses',
     'analytics-roi': 'Analytics & ROI',
     'loyalty-programs': 'Loyalty Programs',
     'campaign-reports': 'Campaign Reports',
     'ad-platforms': 'Ad Platforms',
     'budget-optimizer': 'Budget Optimizer',
+    integrations: 'Integrations & API Keys',
     'influencer-referrers': 'Influencer / Referrers',
     'customer-insights': 'Customer Insight',
     'referrer-management': 'Referrer Management',
@@ -123,8 +126,9 @@ function getPageTitle(pathname) {
 
     if (last === 'new') {
         if (prev === 'promo-codes') return 'Generate Promo Code';
+        if (prev === 'campaigns') return 'New Campaign';
         if (prev === 'marketing-promotions' || (prev === 'promotions' && parts.includes('marketing'))) return 'New Promotion';
-        if (prev === 'referral-types-rules') return 'New Expense';
+        if (prev === 'expenses' || prev === 'referral-types-rules') return 'New Expense';
         if (prev === 'loyalty-programs') return 'New Loyalty Program';
         if (prev === 'influencer-referrers') return 'Add Influencer';
         if (prev === 'referrers') return 'Add Referrer';
@@ -134,9 +138,10 @@ function getPageTitle(pathname) {
         return 'New';
     }
     if (last === 'edit') {
+        if (prev === 'campaigns') return 'Edit Campaign';
         if (prev === 'influencer-referrers') return 'Edit Influencer';
         if (prev === 'referrers') return 'Edit Referrer';
-        if (prev === 'referral-types-rules') return 'Edit Expense';
+        if (prev === 'expenses' || prev === 'referral-types-rules') return 'Edit Expense';
         return 'Edit Promotion';
     }
     if (last === 'configure') return 'Configure Platform';
@@ -155,7 +160,7 @@ const NAV_CONFIG = [
     {
         section: 'CAMPAIGNS',
         items: [
-            { label: 'Campaigns', path: 'promotions', icon: Megaphone },
+            { label: 'Campaigns', path: 'campaigns', icon: Megaphone },
             { label: 'Campaign Requests', path: 'campaign-requests', icon: Ticket },
         ],
     },
@@ -163,7 +168,7 @@ const NAV_CONFIG = [
         section: 'FINANCE',
         items: [
             { label: 'Marketing Wallet', path: 'referral-management', icon: Wallet },
-            { label: 'Expenses', path: 'referral-types-rules', icon: FileText },
+            { label: 'Expenses', path: 'expenses', icon: FileText },
         ],
     },
     {
@@ -184,6 +189,12 @@ const NAV_CONFIG = [
             { label: 'Promotions', path: 'marketing-promotions', icon: Tags },
             { label: 'Promo Codes', path: 'promo-codes', icon: Gift },
             { label: 'Loyalty Programs', path: 'loyalty-programs', icon: Trophy },
+        ],
+    },
+    {
+        section: 'SETTINGS',
+        items: [
+            { label: 'Integrations & API Keys', path: 'integrations', icon: Plug },
         ],
     },
 ];
