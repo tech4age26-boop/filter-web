@@ -33,6 +33,10 @@ import {
     listSupplierSuperSupplierAudit,
     updateSupplierSuperSupplierPurchase,
 } from '../../services/supplierApi';
+import {
+    getSupplierAccounts,
+    unwrapSupplierAccountingList,
+} from '../../services/supplierAccountingApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 
 const ACCOUNT_OPTIONS = [
@@ -329,6 +333,22 @@ function fmtApMoney(value) {
     });
 }
 
+function todayIsoDate() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+const EMPTY_SS_FORM = {
+    name: '',
+    mobile: '',
+    email: '',
+    vatNumber: '',
+    address: '',
+    notes: '',
+    openingBalance: '',
+    openingBalanceDate: todayIsoDate(),
+    openingOffsetAccountId: '',
+};
+
 function formatAccountsPayableDisplay(amount) {
     const n = Number(amount ?? 0);
     if (n < -0.005) {
@@ -416,14 +436,9 @@ export default function SupplierPurchaseInvoices() {
     const [ssListError, setSsListError] = useState('');
     const [supplierSearch, setSupplierSearch] = useState('');
     const [addSsOpen, setAddSsOpen] = useState(false);
-    const [ssForm, setSsForm] = useState({
-        name: '',
-        mobile: '',
-        email: '',
-        vatNumber: '',
-        address: '',
-        notes: '',
-    });
+    const [ssForm, setSsForm] = useState(() => ({ ...EMPTY_SS_FORM }));
+    const [ssCoaAccounts, setSsCoaAccounts] = useState([]);
+    const [ssCoaLoading, setSsCoaLoading] = useState(false);
     const [ssSaving, setSsSaving] = useState(false);
     const [ssErr, setSsErr] = useState('');
     const [editingSuperSupplierId, setEditingSuperSupplierId] = useState(null);
@@ -467,6 +482,50 @@ export default function SupplierPurchaseInvoices() {
     useEffect(() => {
         loadSuperSuppliers();
     }, [loadSuperSuppliers]);
+
+    useEffect(() => {
+        if (!addSsOpen) return undefined;
+        let cancelled = false;
+        (async () => {
+            setSsCoaLoading(true);
+            try {
+                const res = await getSupplierAccounts({ status: 'active' });
+                if (!cancelled) {
+                    setSsCoaAccounts(unwrapSupplierAccountingList(res));
+                }
+            } catch {
+                if (!cancelled) setSsCoaAccounts([]);
+            } finally {
+                if (!cancelled) setSsCoaLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [addSsOpen]);
+
+    const ssOpeningContraOptions = useMemo(
+        () =>
+            (ssCoaAccounts || []).filter(
+                (a) =>
+                    (a.type === 'ASSET' || a.type === 'EXPENSE') &&
+                    !a.hasChildren &&
+                    a.status !== 'inactive',
+            ),
+        [ssCoaAccounts],
+    );
+
+    const editingSuperSupplier = useMemo(
+        () =>
+            editingSuperSupplierId
+                ? superSuppliers.find((s) => String(s.id) === String(editingSuperSupplierId))
+                : null,
+        [superSuppliers, editingSuperSupplierId],
+    );
+
+    const ssOpeningLocked = Boolean(
+        editingSuperSupplier && Number(editingSuperSupplier.purchaseCount || 0) > 0,
+    );
 
     const filteredSuperSuppliers = useMemo(() => {
         const q = supplierSearch.trim().toLowerCase();
@@ -592,6 +651,22 @@ export default function SupplierPurchaseInvoices() {
             setSsErr('Name is required');
             return;
         }
+        const openingAmt = Number(ssForm.openingBalance);
+        const hasOpening =
+            ssForm.openingBalance !== '' &&
+            ssForm.openingBalance != null &&
+            Number.isFinite(openingAmt) &&
+            Math.abs(openingAmt) >= 0.005;
+        if (hasOpening) {
+            if (!ssForm.openingBalanceDate?.trim()) {
+                setSsErr('As-of date is required when opening balance is set.');
+                return;
+            }
+            if (!ssForm.openingOffsetAccountId?.trim()) {
+                setSsErr('Select a contra account from your chart of accounts.');
+                return;
+            }
+        }
         setSsSaving(true);
         setSsErr('');
         try {
@@ -602,6 +677,13 @@ export default function SupplierPurchaseInvoices() {
                 vatNumber: ssForm.vatNumber?.trim() || undefined,
                 address: ssForm.address?.trim() || undefined,
                 notes: ssForm.notes?.trim() || undefined,
+                openingBalance: hasOpening ? openingAmt : 0,
+                openingBalanceDate: hasOpening
+                    ? ssForm.openingBalanceDate.trim()
+                    : undefined,
+                openingOffsetAccountId: hasOpening
+                    ? ssForm.openingOffsetAccountId.trim()
+                    : undefined,
             };
             if (editingSuperSupplierId) {
                 await updateSupplierSuperSupplier(editingSuperSupplierId, payload);
@@ -610,14 +692,7 @@ export default function SupplierPurchaseInvoices() {
             }
             setAddSsOpen(false);
             setEditingSuperSupplierId(null);
-            setSsForm({
-                name: '',
-                mobile: '',
-                email: '',
-                vatNumber: '',
-                address: '',
-                notes: '',
-            });
+            setSsForm({ ...EMPTY_SS_FORM, openingBalanceDate: todayIsoDate() });
             await loadSuperSuppliers();
         } catch (e) {
             setSsErr(e?.message || 'Could not save super supplier');
@@ -636,6 +711,14 @@ export default function SupplierPurchaseInvoices() {
             vatNumber: ss.vatNumber || '',
             address: ss.address || '',
             notes: ss.notes || '',
+            openingBalance:
+                ss.openingBalance != null && Number(ss.openingBalance) !== 0
+                    ? String(ss.openingBalance)
+                    : '',
+            openingBalanceDate: ss.openingBalanceDate || todayIsoDate(),
+            openingOffsetAccountId: ss.openingOffsetAccountId
+                ? String(ss.openingOffsetAccountId)
+                : '',
         });
         setApTab('super_suppliers');
         setAddSsOpen(true);
@@ -644,14 +727,7 @@ export default function SupplierPurchaseInvoices() {
     const openAddSuperSupplier = () => {
         setSsErr('');
         setEditingSuperSupplierId(null);
-        setSsForm({
-            name: '',
-            mobile: '',
-            email: '',
-            vatNumber: '',
-            address: '',
-            notes: '',
-        });
+        setSsForm({ ...EMPTY_SS_FORM, openingBalanceDate: todayIsoDate() });
         setApTab('super_suppliers');
         setAddSsOpen(true);
     };
@@ -2080,7 +2156,7 @@ export default function SupplierPurchaseInvoices() {
                                 setSsErr('');
                             }
                         }}
-                        width="520px"
+                        width="560px"
                         footer={
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
                                 <button
@@ -2156,6 +2232,120 @@ export default function SupplierPurchaseInvoices() {
                                 value={ssForm.notes}
                                 onChange={(e) => setSsForm((s) => ({ ...s, notes: e.target.value }))}
                             />
+                        </div>
+
+                        <div
+                            style={{
+                                marginTop: 8,
+                                paddingTop: 14,
+                                borderTop: '1px solid var(--color-border, #e2e8f0)',
+                            }}
+                        >
+                            <p
+                                style={{
+                                    margin: '0 0 10px',
+                                    fontSize: '0.8125rem',
+                                    fontWeight: 700,
+                                    color: '#0f172a',
+                                }}
+                            >
+                                Opening balance (accounts payable)
+                            </p>
+                            <p
+                                style={{
+                                    margin: '0 0 12px',
+                                    fontSize: '0.75rem',
+                                    color: '#64748b',
+                                    lineHeight: 1.45,
+                                }}
+                            >
+                                Enter what you owed this vendor before go-live. A balanced journal
+                                posts automatically: debit your contra account (e.g. stock inventory)
+                                and credit AP for this vendor. Use a negative amount only for a
+                                vendor credit balance (prepayment).
+                            </p>
+                            {ssOpeningLocked ? (
+                                <p
+                                    style={{
+                                        margin: '0 0 12px',
+                                        padding: 10,
+                                        borderRadius: 8,
+                                        background: '#F8FAFC',
+                                        fontSize: '0.75rem',
+                                        color: '#475569',
+                                    }}
+                                >
+                                    Opening balance is locked because purchase invoices were already
+                                    posted for this vendor.
+                                </p>
+                            ) : null}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                <div className="pi-field">
+                                    <label>Opening balance (SAR)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={ssForm.openingBalance}
+                                        disabled={ssOpeningLocked}
+                                        onChange={(e) =>
+                                            setSsForm((s) => ({
+                                                ...s,
+                                                openingBalance: e.target.value,
+                                            }))
+                                        }
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                <div className="pi-field">
+                                    <label>As of date</label>
+                                    <input
+                                        type="date"
+                                        value={ssForm.openingBalanceDate || ''}
+                                        disabled={ssOpeningLocked}
+                                        onChange={(e) =>
+                                            setSsForm((s) => ({
+                                                ...s,
+                                                openingBalanceDate: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </div>
+                            </div>
+                            <div className="pi-field pi-full-width" style={{ marginTop: 12 }}>
+                                <label>Contra account (chart of accounts)</label>
+                                <select
+                                    value={ssForm.openingOffsetAccountId || ''}
+                                    disabled={ssOpeningLocked || ssCoaLoading}
+                                    onChange={(e) =>
+                                        setSsForm((s) => ({
+                                            ...s,
+                                            openingOffsetAccountId: e.target.value,
+                                        }))
+                                    }
+                                >
+                                    <option value="">
+                                        {ssCoaLoading
+                                            ? 'Loading accounts…'
+                                            : '— Select asset or expense account —'}
+                                    </option>
+                                    {ssOpeningContraOptions.map((a) => (
+                                        <option key={a.id} value={a.id}>
+                                            [{a.code}] {a.name}
+                                            {a.seedKey === 'INVENTORY' ? ' (recommended)' : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p
+                                    style={{
+                                        margin: '6px 0 0',
+                                        fontSize: '0.7rem',
+                                        color: '#64748b',
+                                    }}
+                                >
+                                    Typically stock inventory for goods bought on credit before
+                                    system start.
+                                </p>
+                            </div>
                         </div>
                     </Modal>
                 )}
