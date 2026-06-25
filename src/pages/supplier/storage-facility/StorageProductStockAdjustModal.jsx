@@ -60,28 +60,43 @@ export default function StorageProductStockAdjustModal({
         if (!Number.isFinite(qtyInput) || qtyInput < 0) return;
         if (adjustmentType !== 'set' && qtyInput <= 0) return;
 
-        const newWs =
-            previewWs != null ? previewWs : currentWs;
-        const deltaWs = newWs - currentWs;
-        if (Math.abs(deltaWs) < 0.0001) {
+        const newWs = previewWs != null ? previewWs : currentWs;
+        if (Math.abs(newWs - currentWs) < 0.0001) {
             onClose?.();
             return;
+        }
+
+        const entryUnit = splitUom ? eff.warehouseUnit : eff.workshopUnit;
+        let movementType;
+        let postQty;
+
+        if (adjustmentType === 'set') {
+            const targetWh = qtyInput;
+            const deltaWh = targetWh - currentWh;
+            movementType = deltaWh > 0 ? 'IN' : 'OUT';
+            postQty = Math.abs(deltaWh);
+        } else if (adjustmentType === 'add') {
+            movementType = 'IN';
+            postQty = qtyInput;
+        } else {
+            movementType = 'OUT';
+            postQty = qtyInput;
         }
 
         const autoNote =
             adjustmentType === 'set' && newWs === 0 && !adjustNotes.trim()
                 ? 'Stock set to zero'
                 : adjustmentType === 'set' && !adjustNotes.trim()
-                  ? `Stock set to ${fmtQty(splitUom ? newWs / cf : newWs)} ${splitUom ? eff.warehouseUnit : eff.workshopUnit}`
+                  ? `Stock set to ${fmtQty(splitUom ? newWs / cf : newWs)} ${entryUnit}`
                   : '';
 
         setBusy(true);
         try {
             await postStorageMovement(brandId, {
                 storageProductId: String(product.id),
-                movementType: deltaWs > 0 ? 'IN' : 'OUT',
-                qty: Math.abs(deltaWs),
-                unit: eff.workshopUnit,
+                movementType,
+                qty: postQty,
+                unit: entryUnit,
                 uomProfileId: product.uomProfileId || undefined,
                 notes: adjustNotes.trim() || autoNote || undefined,
             });
