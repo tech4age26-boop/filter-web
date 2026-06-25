@@ -17,6 +17,7 @@ import {
 import { useColumnSort, SortableTh } from '../../../components/TableSort';
 
 import StorageUomSelect from './StorageUomSelect';
+import StorageProductStockAdjustModal from './StorageProductStockAdjustModal';
 import {
     formatStockOnHandDisplay,
     parseProductUomSelectValue,
@@ -76,6 +77,7 @@ export default function StorageFacilityProductsTab({
     const [catalogSearch, setCatalogSearch] = useState('');
     const [linkMapId, setLinkMapId] = useState('');
     const [linkMapSearch, setLinkMapSearch] = useState('');
+    const [adjustProduct, setAdjustProduct] = useState(null);
     const [catalogLoading, setCatalogLoading] = useState(false);
     const [catalogTotal, setCatalogTotal] = useState(0);
     const [busy, setBusy] = useState(false);
@@ -503,6 +505,10 @@ export default function StorageFacilityProductsTab({
                                         ariaLabel={`Actions for ${p.name || 'product'}`}
                                         items={[
                                             {
+                                                label: 'Adjust stock',
+                                                onClick: () => setAdjustProduct(p),
+                                            },
+                                            {
                                                 label: 'Edit',
                                                 onClick: () =>
                                                     setEditProduct({
@@ -850,6 +856,20 @@ export default function StorageFacilityProductsTab({
                         </button>
                     </div>
                 </Modal>
+            ) : null}
+
+            {adjustProduct ? (
+                <StorageProductStockAdjustModal
+                    brandId={brandId}
+                    product={adjustProduct}
+                    onClose={() => setAdjustProduct(null)}
+                    onSaved={async () => {
+                        await onReload();
+                        if (timelineProductId === adjustProduct.id) {
+                            await loadTimeline();
+                        }
+                    }}
+                />
             ) : null}
         </>
     );

@@ -674,6 +674,9 @@ export const rejectWorkshopSalesReturn = (returnId, body, params = {}, options =
         ...options,
     });
 
+export const getWorkshopDiscounts = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/discounts${qs(params)}`, options);
+
 export const runWorkshopRelativeAction = (endpoint, method = 'POST', body) =>
     apiFetch(endpoint, {
         method,
