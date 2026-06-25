@@ -8,11 +8,15 @@ import {
   AlertCircle,
   CheckCircle2,
   Trash2,
+  Pencil,
+  Calculator,
+  X,
 } from 'lucide-react';
 
 import {
   marketingDeleteLoyaltyProgram,
   marketingListLoyaltyPrograms,
+  marketingSimulateLoyaltyPoints,
 } from '../../services/superAdminMarketingApi';
 import { marketingSectionPath } from './marketingRouteUtils';
 
@@ -209,6 +213,133 @@ const TierPreviewCard = ({ tier, programName }) => {
   );
 };
 
+const PointsSimulatorModal = ({ program, onClose }) => {
+  const [spendAmount, setSpendAmount] = useState('1000');
+  const [currentPoints, setCurrentPoints] = useState('0');
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  const runSimulation = async () => {
+    try {
+      setRunning(true);
+      setError('');
+      const data = await marketingSimulateLoyaltyPoints({
+        programId: program?.id,
+        spendAmount: Number(spendAmount) || 0,
+        currentPoints: Number(currentPoints) || 0,
+      });
+      setResult(data?.result || data);
+    } catch (err) {
+      setError(err?.message || 'Simulation failed.');
+      setResult(null);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="mk-loyalty-sim-overlay" role="dialog" aria-modal="true">
+      <div className="mk-loyalty-sim-modal">
+        <div className="mk-loyalty-sim-head">
+          <div>
+            <div className="mk-loyalty-sim-title">
+              <Calculator size={16} /> Points Simulator
+            </div>
+            <div className="mk-loyalty-sim-sub">{program?.name}</div>
+          </div>
+          <button
+            type="button"
+            className="mk-loyalty-sim-close"
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="mk-loyalty-sim-fields">
+          <div className="mk-loyalty-form-group">
+            <label className="mk-loyalty-label">Spend amount (SAR)</label>
+            <input
+              type="number"
+              min="0"
+              value={spendAmount}
+              onChange={(e) => setSpendAmount(e.target.value)}
+              className="mk-loyalty-input"
+            />
+          </div>
+          <div className="mk-loyalty-form-group">
+            <label className="mk-loyalty-label">Existing points</label>
+            <input
+              type="number"
+              min="0"
+              value={currentPoints}
+              onChange={(e) => setCurrentPoints(e.target.value)}
+              className="mk-loyalty-input"
+            />
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="mk-loyalty-submit-btn"
+          onClick={runSimulation}
+          disabled={running}
+        >
+          {running ? (
+            <>
+              <Loader2 size={14} className="mk-loyalty-spin" /> Calculating...
+            </>
+          ) : (
+            'Calculate'
+          )}
+        </button>
+
+        {error ? (
+          <div className="mk-loyalty-error-banner">
+            <AlertCircle size={16} /> {error}
+          </div>
+        ) : null}
+
+        {result ? (
+          <div className="mk-loyalty-sim-result">
+            <div className="mk-loyalty-sim-stat">
+              <span>Points earned</span>
+              <b>{result.pointsEarned}</b>
+            </div>
+            <div className="mk-loyalty-sim-stat">
+              <span>Total points</span>
+              <b>{result.totalPoints}</b>
+            </div>
+            <div className="mk-loyalty-sim-stat">
+              <span>Tier</span>
+              <b>{result.tier}</b>
+            </div>
+            <div className="mk-loyalty-sim-stat">
+              <span>Tier discount</span>
+              <b>{result.tierDiscountPct}%</b>
+            </div>
+            <div className="mk-loyalty-sim-stat">
+              <span>Redeemable value</span>
+              <b>SAR {result.redeemableValueSar}</b>
+            </div>
+            <div className="mk-loyalty-sim-stat">
+              <span>Can redeem</span>
+              <b>{result.canRedeem ? 'Yes' : `No (min ${result.minPointsToRedeem})`}</b>
+            </div>
+            {result.nextTier ? (
+              <div className="mk-loyalty-sim-next">
+                {result.nextTier.pointsNeeded} more points to reach{' '}
+                <b>{result.nextTier.tier}</b>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+};
+
 export const LoyaltyPrograms = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -220,6 +351,7 @@ export const LoyaltyPrograms = () => {
 
   const [pageError, setPageError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [simulatorProgram, setSimulatorProgram] = useState(null);
 
   const latestProgram = useMemo(() => {
     return programs.length > 0 ? programs[0] : null;
@@ -362,6 +494,24 @@ export const LoyaltyPrograms = () => {
 
                     <button
                       type="button"
+                      className="mk-loyalty-sim-btn"
+                      onClick={() => setSimulatorProgram(program)}
+                    >
+                      <Calculator size={13} />
+                      Simulate
+                    </button>
+
+                    <button
+                      type="button"
+                      className="mk-loyalty-edit-btn"
+                      onClick={() => navigate(`${listPath}/${program.id}/edit`)}
+                    >
+                      <Pencil size={13} />
+                      Edit
+                    </button>
+
+                    <button
+                      type="button"
                       className="mk-loyalty-delete-btn"
                       onClick={() => handleDelete(program.id)}
                     >
@@ -419,6 +569,13 @@ export const LoyaltyPrograms = () => {
           </div>
         )}
       </div>
+
+      {simulatorProgram ? (
+        <PointsSimulatorModal
+          program={simulatorProgram}
+          onClose={() => setSimulatorProgram(null)}
+        />
+      ) : null}
     </div>
   );
 };
