@@ -15,6 +15,7 @@ import WorkshopDepartments from './workshop/WorkshopDepartments';
 import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
 import WorkshopPurchases from './workshop/WorkshopPurchases';
 import WorkshopSalesReturns from './workshop/WorkshopSalesReturns';
+import WorkshopDiscounts from './workshop/WorkshopDiscounts';
 import WorkshopSuppliers from './workshop/WorkshopSuppliers';
 import WorkshopReports from './workshop/WorkshopReports';
 import WorkshopPosMonitoring from './workshop/WorkshopPosMonitoring';
@@ -528,6 +529,7 @@ export default function WorkshopLayout() {
                     />
                 );
             case 'sales-returns': return <WorkshopSalesReturns selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'discounts': return <WorkshopDiscounts selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={activeBranches} onTabChange={handleTabChange} />;
             case 'affiliated-suppliers':
                 return (
