@@ -18,9 +18,19 @@ function readPortalScope() {
     }
 }
 
+function readSupplierName() {
+    try {
+        const u = JSON.parse(localStorage.getItem('filter_auth_user') || '{}');
+        return u?.supplier?.companyName || u?.supplier?.name || u?.name || '';
+    } catch {
+        return '';
+    }
+}
+
 export default function SupplierStorageFacilityBrands() {
     const navigate = useNavigate();
     const isOwner = readPortalScope() !== 'storage_brand';
+    const supplierName = readSupplierName();
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
