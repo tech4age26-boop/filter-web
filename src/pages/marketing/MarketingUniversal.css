@@ -3801,6 +3801,24 @@
     justify-content: center;
 }
 
+.mk-code-content-area--grid {
+    justify-content: stretch;
+    width: 100%;
+}
+
+.mkp-card-list.mk-code-card-list {
+    width: 100%;
+    max-width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+@media (max-width: 1100px) {
+    .mkp-card-list.mk-code-card-list {
+        grid-template-columns: 1fr;
+    }
+}
+
 .mk-code-empty-state {
     padding-top: 5px;
     color: #94a3b8;
@@ -8387,6 +8405,28 @@
   box-shadow: 0 15px 36px rgba(15, 23, 42, 0.16);
 }
 
+.mk-code-dd-search {
+  height: 41px;
+  padding: 6px;
+  border-bottom: 1px solid #eef2f7;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #64748b;
+}
+
+.mk-code-dd-search input {
+  height: 31px;
+  width: 100%;
+  border: 1px solid #f59e0b;
+  outline: 0;
+  border-radius: 6px;
+  padding: 0 9px;
+  font-size: 12px;
+  color: #0f172a;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.12);
+}
+
 .mk-code-dd-list {
   max-height: 210px;
   overflow-y: auto;
@@ -8412,6 +8452,11 @@
 .mk-code-dd-option:hover,
 .mk-code-dd-option.selected {
   background: #f8fafc;
+}
+
+.mk-code-dd-option.active {
+  background: #fef3c7;
+  outline: 1px solid #fcd34d;
 }
 
 .mk-code-dd-empty {
@@ -8454,6 +8499,16 @@
 .mk-code-status-badge.status-inactive {
   background: #eff6ff;
   color: #2563eb;
+}
+
+.mk-code-status-badge.status-pending-approval {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.mk-code-status-badge.status-rejected {
+  background: #fee2e2;
+  color: #dc2626;
 }
 
 .mk-code-status-badge.status-expired {
@@ -8677,6 +8732,120 @@
   cursor: pointer;
 }
 
+.mk-loyalty-edit-btn,
+.mk-loyalty-sim-btn {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.mk-loyalty-sim-btn {
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.mk-loyalty-edit-btn:hover {
+  background: #f8fafc;
+}
+
+.mk-loyalty-sim-btn:hover {
+  background: #dbeafe;
+}
+
+.mk-loyalty-sim-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.mk-loyalty-sim-modal {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 420px;
+  padding: 20px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+
+.mk-loyalty-sim-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.mk-loyalty-sim-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.mk-loyalty-sim-sub {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.mk-loyalty-sim-close {
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.mk-loyalty-sim-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.mk-loyalty-sim-result {
+  margin-top: 16px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.mk-loyalty-sim-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #475569;
+}
+
+.mk-loyalty-sim-stat b {
+  color: #0f172a;
+}
+
+.mk-loyalty-sim-next {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
 .mk-loyalty-program-badge.status-active {
   background: #dcfce7;
   color: #15803d;
@@ -8709,4 +8878,146 @@
 .mk-loyalty-tier-mini b {
   font-weight: 600;
   color: #334155;
+}
+
+/* Marketing expense form — New / Edit expense */
+.mk-expense-form-page {
+  padding: 18px 22px 32px;
+  max-width: 720px;
+}
+
+.mk-expense-form-card {
+  margin-top: 4px;
+}
+
+.mk-expense-form-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 56px 24px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.mk-expense-spin {
+  animation: mk-expense-spin 0.9s linear infinite;
+}
+
+@keyframes mk-expense-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mk-expense-form-error {
+  margin-bottom: 12px;
+}
+
+.mk-expense-info-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef9c3 100%);
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #92400e;
+  line-height: 1.55;
+}
+
+.mk-expense-info-banner strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  color: #78350f;
+  margin-bottom: 4px;
+}
+
+.mk-expense-info-icon {
+  flex-shrink: 0;
+  color: #d97706;
+  margin-top: 1px;
+}
+
+.mk-expense-section {
+  margin-bottom: 8px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.mk-expense-section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 4px;
+}
+
+.mk-expense-field-hint {
+  margin: 0;
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.mk-expense-required {
+  color: #ef4444;
+  font-weight: 700;
+}
+
+.mk-expense-amount-wrap {
+  position: relative;
+}
+
+.mk-expense-amount-prefix {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+.mk-expense-amount-wrap .mkp-input {
+  padding-left: 46px;
+  font-weight: 600;
+}
+
+.mk-expense-form-footer {
+  margin-top: 4px;
+}
+
+.mk-expense-submit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 20px;
+  font-size: 12px;
+  font-weight: 800;
+  background: linear-gradient(180deg, #e5b820 0%, #d9ad18 100%);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(180, 83, 9, 0.2);
+  transition: filter 0.15s ease, transform 0.1s ease;
+}
+
+.mk-expense-submit-btn:hover:not(:disabled) {
+  filter: brightness(1.03);
+}
+
+.mk-expense-submit-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.mk-expense-submit-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }

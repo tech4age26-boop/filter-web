@@ -227,6 +227,36 @@ function extractGrowth(payload) {
   return Array.from(monthMap.values());
 }
 
+function extractBreakdown(payload) {
+  const root = payload?.data || payload || {};
+  const b = root.breakdown || root || {};
+
+  const nvr = b.newVsReturning || root.newVsReturning || {};
+  return {
+    newCustomers: toNumber(nvr.newCustomers ?? nvr.new_customers),
+    returningCustomers: toNumber(
+      nvr.returningCustomers ?? nvr.returning_customers,
+    ),
+    typeDistribution: asArray(b.typeDistribution || root.typeDistribution || []).map(
+      (row) => ({
+        type: row?.type || 'regular',
+        customers: toNumber(row?.customers),
+        revenue: toNumber(row?.revenue),
+      }),
+    ),
+    branchDistribution: asArray(
+      b.branchDistribution || root.branchDistribution || [],
+    ).map((row) => ({
+      branch: row?.branch || '—',
+      customers: toNumber(row?.customers),
+      revenue: toNumber(row?.revenue),
+    })),
+    ltv: toNumber(b.ltv ?? root.lifetimeValue ?? root.ltv),
+  };
+}
+
+const TYPE_COLORS = ['#3b82f6', '#8b5cf6', '#14b8a6', '#f59e0b', '#ef4444', '#0ea5e9'];
+
 const KpiCard = ({ title, value, sub, tone }) => (
   <section className={`ci-kpi-card ci-kpi-${tone}`}>
     <div className="ci-kpi-top-line" />
@@ -370,6 +400,13 @@ export const CustomerInsights = () => {
 
   const [customers, setCustomers] = useState([]);
   const [growth, setGrowth] = useState(makeLastMonths(6));
+  const [breakdown, setBreakdown] = useState({
+    newCustomers: 0,
+    returningCustomers: 0,
+    typeDistribution: [],
+    branchDistribution: [],
+    ltv: 0,
+  });
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('newest');
 
@@ -390,6 +427,7 @@ export const CustomerInsights = () => {
       setSummary(normalizeSummary(res));
       setCustomers(extractCustomers(res));
       setGrowth(extractGrowth(res));
+      setBreakdown(extractBreakdown(res));
     } catch (err) {
       setError(err?.message || 'Failed to load customer insights.');
       setSummary({
@@ -402,6 +440,13 @@ export const CustomerInsights = () => {
       });
       setCustomers([]);
       setGrowth(makeLastMonths(6));
+      setBreakdown({
+        newCustomers: 0,
+        returningCustomers: 0,
+        typeDistribution: [],
+        branchDistribution: [],
+        ltv: 0,
+      });
     } finally {
       setLoading(false);
     }
@@ -487,6 +532,108 @@ export const CustomerInsights = () => {
       {error ? <div className="mk-error-text">{error}</div> : null}
 
       <GrowthChart data={growth} />
+
+      <div className="ci-breakdown-grid">
+        <section className="ci-breakdown-card">
+          <h3>New vs Returning</h3>
+          {(() => {
+            const total =
+              breakdown.newCustomers + breakdown.returningCustomers || 1;
+            const newPct = Math.round((breakdown.newCustomers / total) * 100);
+            const retPct = 100 - newPct;
+            return (
+              <>
+                <div className="ci-nvr-bar">
+                  <div
+                    className="ci-nvr-new"
+                    style={{ width: `${newPct}%` }}
+                    title={`New ${newPct}%`}
+                  />
+                  <div
+                    className="ci-nvr-ret"
+                    style={{ width: `${retPct}%` }}
+                    title={`Returning ${retPct}%`}
+                  />
+                </div>
+                <div className="ci-nvr-legend">
+                  <span>
+                    <i className="ci-dot-new" /> New&nbsp;
+                    <b>{breakdown.newCustomers}</b> ({newPct}%)
+                  </span>
+                  <span>
+                    <i className="ci-dot-ret" /> Returning&nbsp;
+                    <b>{breakdown.returningCustomers}</b> ({retPct}%)
+                  </span>
+                </div>
+                <div className="ci-ltv-line">
+                  Lifetime Value / Customer:{' '}
+                  <b>{formatSar(breakdown.ltv)}</b>
+                </div>
+              </>
+            );
+          })()}
+        </section>
+
+        <section className="ci-breakdown-card">
+          <h3>Walk-in vs Corporate</h3>
+          {breakdown.typeDistribution.length === 0 ? (
+            <div className="ci-bd-empty">No data</div>
+          ) : (
+            <div className="ci-type-list">
+              {breakdown.typeDistribution.map((row, idx) => (
+                <div className="ci-type-row" key={row.type}>
+                  <span className="ci-type-name">
+                    <i
+                      className="ci-type-dot"
+                      style={{
+                        background: TYPE_COLORS[idx % TYPE_COLORS.length],
+                      }}
+                    />
+                    {humanize(row.type)}
+                  </span>
+                  <span className="ci-type-meta">
+                    <b>{row.customers}</b> cust · {formatSar(row.revenue)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <section className="ci-breakdown-card ci-branch-card">
+        <h3>Branch Distribution</h3>
+        {breakdown.branchDistribution.length === 0 ? (
+          <div className="ci-bd-empty">No data</div>
+        ) : (
+          (() => {
+            const maxRev = Math.max(
+              1,
+              ...breakdown.branchDistribution.map((r) => r.revenue),
+            );
+            return (
+              <div className="ci-branch-list">
+                {breakdown.branchDistribution.map((row) => (
+                  <div className="ci-branch-row" key={row.branch}>
+                    <div className="ci-branch-top">
+                      <span>{row.branch}</span>
+                      <span>
+                        <b>{formatSar(row.revenue)}</b> · {row.customers} cust
+                      </span>
+                    </div>
+                    <div className="ci-branch-track">
+                      <div
+                        className="ci-branch-fill"
+                        style={{ width: `${(row.revenue / maxRev) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()
+        )}
+      </section>
 
       <section className="ci-customers-card">
         <div className="ci-customers-header">
@@ -693,6 +840,140 @@ export const CustomerInsights = () => {
             fill: #3b82f6;
           }
 
+          .ci-breakdown-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 18px;
+          }
+
+          .ci-breakdown-card {
+            background: #ffffff;
+            border: 1px solid #e1e7ef;
+            border-radius: 9px;
+            padding: 14px 16px 16px;
+            box-sizing: border-box;
+          }
+
+          .ci-breakdown-card h3 {
+            margin: 0 0 12px;
+            color: #111827;
+            font-size: 13px;
+            font-weight: 800;
+          }
+
+          .ci-branch-card {
+            margin-bottom: 18px;
+          }
+
+          .ci-bd-empty {
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 650;
+            padding: 14px 0;
+            text-align: center;
+          }
+
+          .ci-nvr-bar {
+            display: flex;
+            height: 14px;
+            border-radius: 7px;
+            overflow: hidden;
+            background: #eef2f7;
+          }
+
+          .ci-nvr-new { background: #3b82f6; }
+          .ci-nvr-ret { background: #8b5cf6; }
+
+          .ci-nvr-legend {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 10px;
+            font-size: 11px;
+            color: #475569;
+            font-weight: 650;
+          }
+
+          .ci-nvr-legend i,
+          .ci-type-dot {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            margin-right: 5px;
+            vertical-align: middle;
+          }
+
+          .ci-dot-new { background: #3b82f6; }
+          .ci-dot-ret { background: #8b5cf6; }
+
+          .ci-ltv-line {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid #eef2f7;
+            font-size: 11px;
+            color: #64748b;
+            font-weight: 650;
+          }
+
+          .ci-ltv-line b { color: #111827; }
+
+          .ci-type-list {
+            display: grid;
+            gap: 10px;
+          }
+
+          .ci-type-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #334155;
+            font-weight: 650;
+          }
+
+          .ci-type-name {
+            display: inline-flex;
+            align-items: center;
+          }
+
+          .ci-type-meta {
+            color: #64748b;
+            font-size: 11px;
+          }
+
+          .ci-type-meta b { color: #111827; }
+
+          .ci-branch-list {
+            display: grid;
+            gap: 12px;
+          }
+
+          .ci-branch-top {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #475569;
+            font-weight: 650;
+            margin-bottom: 5px;
+          }
+
+          .ci-branch-top b { color: #111827; }
+
+          .ci-branch-track {
+            height: 8px;
+            border-radius: 5px;
+            background: #eef2f7;
+            overflow: hidden;
+          }
+
+          .ci-branch-fill {
+            height: 100%;
+            border-radius: 5px;
+            background: linear-gradient(90deg, #14b8a6, #3b82f6);
+          }
+
           .ci-customers-card {
             min-height: 160px;
             background: #ffffff;
@@ -844,6 +1125,10 @@ export const CustomerInsights = () => {
           @media (max-width: 1050px) {
             .ci-kpi-grid {
               grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .ci-breakdown-grid {
+              grid-template-columns: 1fr;
             }
           }
 

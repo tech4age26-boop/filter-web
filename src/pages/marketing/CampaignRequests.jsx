@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle, Eye, Search, XCircle } from 'lucide-react';
+import { CheckCircle, Eye, Search, XCircle, AlertCircle } from 'lucide-react';
 import './MarketingUniversal.css';
 
 import {
@@ -8,6 +8,7 @@ import {
   marketingListCampaignRequests,
   marketingRejectCampaignRequest,
 } from '../../services/superAdminMarketingApi';
+import { useAuth } from '../../context/AuthContext';
 
 const getId = (item) =>
   item?.id ||
@@ -187,6 +188,8 @@ const normalizeRequests = (payload) => {
 };
 
 export const CampaignRequests = () => {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.userType === 'platform_admin';
   const [search, setSearch] = useState('');
   const [requests, setRequests] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -291,6 +294,10 @@ export const CampaignRequests = () => {
         notes,
       });
 
+      alert(
+        'Request approved. A campaign draft was created and sent to Super Admin for final campaign approval.',
+      );
+
       setSelected(null);
       await loadRequests();
     } catch (err) {
@@ -342,6 +349,17 @@ export const CampaignRequests = () => {
       </div>
 
       {error ? <div className="mk-alert mk-alert-danger">{error}</div> : null}
+
+      <div className="mk-camp-pending-banner" style={{ marginBottom: 14 }}>
+        <AlertCircle size={15} />
+        <span>
+          Workshop campaign requests appear here for <strong>Marketing</strong> and{' '}
+          <strong>Super Admin</strong>. Marketing reviews the request; after approval the
+          linked campaign still requires <strong>Super Admin approval</strong> on the
+          Campaigns page.
+          {isSuperAdmin ? ' You can process requests and approve campaigns.' : ''}
+        </span>
+      </div>
 
       <section className="mk-card mk-campaign-requests-card">
         {loading ? (

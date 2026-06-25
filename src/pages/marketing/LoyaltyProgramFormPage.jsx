@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, Loader2 } from 'lucide-react';
-import { marketingCreateLoyaltyProgram } from '../../services/superAdminMarketingApi';
+import {
+  marketingCreateLoyaltyProgram,
+  marketingGetLoyaltyProgram,
+  marketingUpdateLoyaltyProgram,
+} from '../../services/superAdminMarketingApi';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
 import {
@@ -15,13 +19,83 @@ import {
 } from './loyaltyProgramShared';
 import './MarketingUniversal.css';
 
+const num = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const programToForm = (item) => {
+  const tiers = Array.isArray(item?.tiers) ? item.tiers : [];
+  const findTier = (name) =>
+    tiers.find(
+      (t) =>
+        String(t?.tierName || t?.name || '')
+          .toLowerCase()
+          .trim() === name,
+    );
+  const tierVals = (key, defMin, defDiscount) => {
+    const t = findTier(key);
+    return {
+      minPoints: num(
+        t?.minPoints ?? item?.[`tier_${key}_min`] ?? item?.[`tier${key[0].toUpperCase()}${key.slice(1)}Min`],
+        defMin,
+      ),
+      discount: num(
+        t?.bonusPercent ?? item?.[`${key}_discount_pct`] ?? item?.[`${key}DiscountPct`],
+        defDiscount,
+      ),
+    };
+  };
+
+  return {
+    ...EMPTY_LOYALTY_FORM,
+    name: item?.program_name || item?.programName || item?.name || '',
+    description: item?.description || '',
+    pointsPerSar: num(item?.points_per_sar ?? item?.pointsPerSar, 1),
+    pointsForDiscount: num(item?.redemption_rate ?? item?.redemptionRate, 100),
+    minRedeemPoints: num(item?.min_points_to_redeem ?? item?.minPointsToRedeem, 500),
+    status:
+      String(item?.status || (item?.isActive ? 'active' : 'inactive')).toLowerCase() === 'active'
+        ? 'Active'
+        : 'Inactive',
+    bronze: tierVals('bronze', 0, 0),
+    silver: tierVals('silver', 1000, 5),
+    gold: tierVals('gold', 5000, 10),
+    platinum: tierVals('platinum', 15000, 15),
+  };
+};
+
 export default function LoyaltyProgramFormPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const params = useParams();
+  const editId = params?.id || null;
+  const isEdit = Boolean(editId);
   const listPath = marketingSectionPath(location.pathname, 'loyalty-programs');
 
   const [form, setForm] = useState(EMPTY_LOYALTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(isEdit);
+
+  useEffect(() => {
+    if (!isEdit) return;
+    let active = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const data = await marketingGetLoyaltyProgram(editId);
+        const item = data?.loyaltyProgram || data?.data || data;
+        if (active && item) setForm(programToForm(item));
+      } catch (error) {
+        alert(error?.message || 'Loyalty program load nahi hua.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [editId, isEdit]);
 
   const goBack = () => navigate(listPath);
 
@@ -45,7 +119,12 @@ export default function LoyaltyProgramFormPage() {
 
     try {
       setSubmitting(true);
-      await marketingCreateLoyaltyProgram(buildLoyaltyPayload(form));
+      const payload = buildLoyaltyPayload(form);
+      if (isEdit) {
+        await marketingUpdateLoyaltyProgram(editId, payload);
+      } else {
+        await marketingCreateLoyaltyProgram(payload);
+      }
       goBack();
     } catch (error) {
       alert(error?.message || 'Loyalty program save nahi hua.');
@@ -56,7 +135,7 @@ export default function LoyaltyProgramFormPage() {
 
   return (
     <MarketingFormShell
-      title="New Loyalty Program"
+      title={isEdit ? 'Edit Loyalty Program' : 'New Loyalty Program'}
       subtitle="Configure points rules and tiers. Sent to Super Admin for approval before activation."
       backLabel="Back to Loyalty Programs"
       onBack={goBack}
@@ -137,12 +216,18 @@ export default function LoyaltyProgramFormPage() {
           >
             Cancel
           </button>
-          <button type="submit" className="mk-loyalty-submit-btn" disabled={submitting}>
+          <button
+            type="submit"
+            className="mk-loyalty-submit-btn"
+            disabled={submitting || loading}
+          >
             {submitting ? (
               <>
                 <Loader2 size={14} className="mk-loyalty-spin" />
-                Submitting...
+                Saving...
               </>
+            ) : isEdit ? (
+              'Save Changes'
             ) : (
               'Submit for Approval'
             )}
