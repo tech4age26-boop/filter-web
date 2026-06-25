@@ -407,8 +407,8 @@ export default function SupplierStockInventory() {
             });
             const hist = Array.isArray(res?.transactionHistory) ? res.transactionHistory : [];
             const currentQty =
-                currentQtyHint ??
                 res?.currentBalanceWarehouse ??
+                currentQtyHint ??
                 stock.find((p) => String(p.id) === String(productId))?.warehouseQty ??
                 0;
             const uom = productUomByProductId[String(productId)] || {};

@@ -200,8 +200,18 @@ export function normalizeSupplierTimelineEntry(h) {
             reason += ` · Ref ${reference.vendorRef}`;
         }
     } else if (type === 'stock_adjusted') {
-        const prev = readMetaQty(meta, 'previousQuantity', 'previousQty');
-        const next = readMetaQty(meta, 'newQuantity', 'newQty');
+        const prevTotal = readMetaQty(meta, 'previousTotalWarehouseQty');
+        const nextTotal = readMetaQty(meta, 'newTotalWarehouseQty');
+        const prevLoc = readMetaQty(meta, 'previousQuantity', 'previousQty');
+        const nextLoc = readMetaQty(meta, 'newQuantity', 'newQty');
+        const prev =
+            prevTotal != null
+                ? prevTotal
+                : prevLoc;
+        const next =
+            nextTotal != null
+                ? nextTotal
+                : nextLoc;
         if (prev != null && next != null) {
             delta = next - prev;
         } else {
@@ -215,18 +225,34 @@ export function normalizeSupplierTimelineEntry(h) {
                 : typeof meta.notes === 'string'
                   ? meta.notes.trim()
                   : '';
+        const locName = readMetaStr(meta, 'locationName');
         reason = metaReason ? metaReason.slice(0, 500) : 'Manual stock adjustment';
+        if (locName && prevTotal == null && nextTotal == null) {
+            reason = `${reason} @ ${locName}`;
+        }
     } else if (type === 'inventory_out_sales_invoice') {
         source = 'sales_invoice';
         reference = invoiceRef(h);
-        const q = warehouseDeltaFromMeta(meta);
-        if (q != null && q > 0) delta = -Math.abs(q);
+        const salePrev = readMetaQty(meta, 'previousQuantity', 'previousQty');
+        const saleNext = readMetaQty(meta, 'newQuantity', 'newQty');
+        if (salePrev != null && saleNext != null) {
+            delta = saleNext - salePrev;
+        } else {
+            const q = warehouseDeltaFromMeta(meta);
+            if (q != null && q > 0) delta = -Math.abs(q);
+        }
         reason = h.title ? String(h.title).slice(0, 120) : 'Stock out — sales invoice';
     } else if (type === 'inventory_in_sales_return') {
         source = 'sales_invoice';
         reference = invoiceRef(h);
-        const q = warehouseDeltaFromMeta(meta);
-        if (q != null && q > 0) delta = Math.abs(q);
+        const retPrev = readMetaQty(meta, 'previousQuantity', 'previousQty');
+        const retNext = readMetaQty(meta, 'newQuantity', 'newQty');
+        if (retPrev != null && retNext != null) {
+            delta = retNext - retPrev;
+        } else {
+            const q = warehouseDeltaFromMeta(meta);
+            if (q != null && q > 0) delta = Math.abs(q);
+        }
         reason = h.title ? String(h.title).slice(0, 120) : 'Stock in — sales return';
     } else if (type === 'workshop_supplier_purchase_invoice_approved') {
         source = 'supplier_purchase_invoice';
@@ -281,26 +307,45 @@ export function normalizeSupplierTimelineEntry(h) {
             ? { name: String(h.createdByUserName).trim() }
             : null;
 
+    const metaPrevTotal = readMetaQty(meta, 'previousTotalWarehouseQty');
+    const metaNextTotal = readMetaQty(meta, 'newTotalWarehouseQty');
     const metaPrev = readMetaQty(meta, 'previousQuantity', 'previousQty');
     const metaNext = readMetaQty(meta, 'newQuantity', 'newQty');
     const cfForWs =
         uom.conversionFactor != null && uom.conversionFactor > 0 ? uom.conversionFactor : 1;
+
+    // Timeline balances are product-wide warehouse totals — not per-location counts.
+    const balancePrev =
+        type === 'stock_adjusted' && metaPrevTotal != null
+            ? metaPrevTotal
+            : type === 'inventory_out_sales_invoice' || type === 'inventory_in_sales_return'
+              ? (metaPrevTotal ?? metaPrev)
+              : metaPrev;
+    const balanceNext =
+        type === 'stock_adjusted' && metaNextTotal != null
+            ? metaNextTotal
+            : type === 'inventory_out_sales_invoice' || type === 'inventory_in_sales_return'
+              ? (metaNextTotal ?? metaNext)
+              : metaNext;
     const hasMetaBalances =
-        metaPrev != null &&
-        metaNext != null &&
-        (type === 'stock_adjusted' ||
-            type === 'inventory_in_super_supplier_purchase');
+        balancePrev != null &&
+        balanceNext != null &&
+        (type === 'inventory_in_super_supplier_purchase' ||
+            type === 'inventory_out_sales_invoice' ||
+            type === 'inventory_in_sales_return' ||
+            (type === 'stock_adjusted' &&
+                (metaPrevTotal != null || metaNextTotal != null)));
 
     return {
         id,
         at,
         supplierProductId: h.supplierProductId != null ? String(h.supplierProductId) : null,
         productLabel: h.productName || '—',
-        previousQty: hasMetaBalances ? metaPrev : null,
-        newQty: hasMetaBalances ? metaNext : null,
+        previousQty: hasMetaBalances ? balancePrev : null,
+        newQty: hasMetaBalances ? balanceNext : null,
         delta,
-        previousQtyWorkshop: hasMetaBalances ? metaPrev * cfForWs : null,
-        newQtyWorkshop: hasMetaBalances ? metaNext * cfForWs : null,
+        previousQtyWorkshop: hasMetaBalances ? balancePrev * cfForWs : null,
+        newQtyWorkshop: hasMetaBalances ? balanceNext * cfForWs : null,
         deltaWorkshop:
             hasMetaBalances && delta != null && Number.isFinite(Number(delta))
                 ? Number(delta) * cfForWs
@@ -318,16 +363,12 @@ export function normalizeSupplierTimelineEntry(h) {
 }
 
 /**
- * Back-fill FROM / TO in warehouse units by walking newest → oldest from current on-hand qty.
- * Workshop columns are derived via conversion factor.
- * @param {object[]} entries – newest first
- * @param {number|null|undefined} currentQtyOnHand – warehouse units on hand now
- * @param {{ warehouseUnit?: string; workshopUnit?: string; conversionFactor?: number }} [productUom]
+ * Build FROM/TO balances by walking oldest → newest (warehouse UOM).
+ * Backward walks from "current on-hand" break the chain after purchases (+156 Box)
+ * because each sale's FROM becomes `running - delta` (e.g. 8 - (-5) = 13 Box).
  */
 export function fillSupplierTimelineRunningQty(entries, currentQtyOnHand, productUom = {}) {
     if (!Array.isArray(entries) || entries.length === 0) return [];
-    let runningNew = Number(currentQtyOnHand);
-    if (!Number.isFinite(runningNew)) runningNew = 0;
 
     const defaultWh = productUom.warehouseUnit || entries[0]?.warehouseUnit || 'Box';
     const defaultWs = productUom.workshopUnit || entries[0]?.workshopUnit || 'Liter';
@@ -338,7 +379,10 @@ export function fillSupplierTimelineRunningQty(entries, currentQtyOnHand, produc
               ? Number(entries[0].conversionFactor)
               : 1;
 
-    return entries.map((entry) => {
+    const chronological = [...entries].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+
+    let running = 0;
+    const filled = chronological.map((entry) => {
         const cf =
             entry.conversionFactor != null && entry.conversionFactor > 0
                 ? Number(entry.conversionFactor)
@@ -355,43 +399,29 @@ export function fillSupplierTimelineRunningQty(entries, currentQtyOnHand, produc
                 conversionFactor: cf,
             };
         }
-
         delta = Number(delta);
 
-        // Prefer authoritative warehouse balances from API metadata (manual adjustments).
+        let previousQty = running;
+        let newQty = running + delta;
+
+        // Use stored balances only when they continue the forward running total.
         if (
             entry.previousQty != null &&
             entry.newQty != null &&
             Number.isFinite(Number(entry.previousQty)) &&
             Number.isFinite(Number(entry.newQty))
         ) {
-            const previousQty = Number(entry.previousQty);
-            const newQty = Number(entry.newQty);
-            runningNew = previousQty;
-            return {
-                ...entry,
-                previousQty,
-                newQty,
-                delta,
-                previousQtyWorkshop:
-                    entry.previousQtyWorkshop != null
-                        ? Number(entry.previousQtyWorkshop)
-                        : previousQty * cf,
-                newQtyWorkshop:
-                    entry.newQtyWorkshop != null
-                        ? Number(entry.newQtyWorkshop)
-                        : newQty * cf,
-                deltaWorkshop:
-                    entry.deltaWorkshop != null ? Number(entry.deltaWorkshop) : delta * cf,
-                warehouseUnit: whUom,
-                workshopUnit: wsUom,
-                conversionFactor: cf,
-            };
+            const metaPrev = Number(entry.previousQty);
+            const metaNext = Number(entry.newQty);
+            const metaMatchesDelta = Math.abs(metaNext - metaPrev - delta) <= 0.0005;
+            const metaContinuesRunning = Math.abs(metaPrev - running) <= 0.0005;
+            if (metaMatchesDelta && metaContinuesRunning) {
+                previousQty = metaPrev;
+                newQty = metaNext;
+            }
         }
 
-        const newQty = runningNew;
-        const previousQty = runningNew - delta;
-        runningNew = previousQty;
+        running = newQty;
 
         return {
             ...entry,
@@ -406,6 +436,9 @@ export function fillSupplierTimelineRunningQty(entries, currentQtyOnHand, produc
             conversionFactor: cf,
         };
     });
+
+    filled.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    return filled;
 }
 
 /** Unit price (SAR) per warehouse unit for API stock balance rows. */
