@@ -118,6 +118,32 @@ export function formatStorageMovementQtyDisplay(wsQty, eff) {
     return `${whQty.toLocaleString()} ${wu}`;
 }
 
+/** Default qty entry unit for transfers / movements (warehouse pack when split UOM). */
+export function defaultEntryUnitForProduct(product) {
+    const eff = productEffectiveUom(product || {});
+    const cf = Number(eff.conversionFactor) || 1;
+    const wu = String(eff.warehouseUnit || '').trim();
+    const wsu = String(eff.workshopUnit || '').trim();
+    const split =
+        wu && wsu && normUomKey(wu) !== normUomKey(wsu) && cf > 1;
+    return split ? wu : wsu || wu || 'pcs';
+}
+
+/** Stored stock qty (workshop) → qty for user entry field (warehouse when split). */
+export function stockQtyToEntryQty(stockQty, product) {
+    const qty = Number(stockQty);
+    if (!Number.isFinite(qty)) return '';
+    const eff = productEffectiveUom(product || {});
+    const cf = Number(eff.conversionFactor) || 1;
+    const wu = String(eff.warehouseUnit || '').trim();
+    const wsu = String(eff.workshopUnit || '').trim();
+    const split =
+        wu && wsu && normUomKey(wu) !== normUomKey(wsu) && cf > 1;
+    if (!split) return String(qty);
+    const wh = Math.round((qty / cf) * 1000) / 1000;
+    return String(wh);
+}
+
 /** Invoice line caps — use selected profile conversion when line picks a profile. */
 export function lineInventoryCapsForInvoice(capsRow, line, profiles = []) {
     if (!capsRow) return null;

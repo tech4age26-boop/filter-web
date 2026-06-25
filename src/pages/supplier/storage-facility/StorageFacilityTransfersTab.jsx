@@ -10,6 +10,11 @@ import {
     updateStorageTransfer,
 } from '../../../services/storageFacilityApi';
 import ProductLineCombobox from './ProductLineCombobox';
+import {
+    defaultEntryUnitForProduct,
+    productEffectiveUom,
+    stockQtyToEntryQty,
+} from './storageFacilityUomUtils';
 
 function newLine() {
     return {
@@ -17,6 +22,8 @@ function newLine() {
         storageProductId: '',
         search: '',
         qty: '',
+        unit: '',
+        uomProfileId: '',
         unitCost: '',
     };
 }
@@ -155,16 +162,28 @@ export default function StorageFacilityTransfersTab({
             });
             const mapped =
                 t.items?.length > 0
-                    ? t.items.map((ln) => ({
-                          key: `tr-${ln.id || ln.storageProductId}-${Math.random().toString(36).slice(2, 6)}`,
-                          storageProductId: String(ln.storageProductId || ''),
-                          search: ln.productName || '',
-                          qty: ln.qty != null ? String(ln.qty) : '',
-                          unitCost:
-                              ln.unitCost != null && Number(ln.unitCost) > 0
-                                  ? String(ln.unitCost)
+                    ? t.items.map((ln) => {
+                          const p = products.find(
+                              (x) => String(x.id) === String(ln.storageProductId),
+                          );
+                          return {
+                              key: `tr-${ln.id || ln.storageProductId}-${Math.random().toString(36).slice(2, 6)}`,
+                              storageProductId: String(ln.storageProductId || ''),
+                              search: ln.productName || p?.name || '',
+                              qty:
+                                  ln.qty != null
+                                      ? stockQtyToEntryQty(ln.qty, p || {})
+                                      : '',
+                              unit: defaultEntryUnitForProduct(p || {}),
+                              uomProfileId: p?.uomProfileId
+                                  ? String(p.uomProfileId)
                                   : '',
-                      }))
+                              unitCost:
+                                  ln.unitCost != null && Number(ln.unitCost) > 0
+                                      ? String(ln.unitCost)
+                                      : '',
+                          };
+                      })
                     : [newLine(), newLine()];
             setLines(mapped);
             setModalOpen(true);
@@ -202,11 +221,20 @@ export default function StorageFacilityTransfersTab({
                 fromLocationId: form.fromLocationId,
                 toLocationId: form.toLocationId,
                 notes: form.notes.trim() || undefined,
-                lines: validLines.map((ln) => ({
-                    storageProductId: ln.storageProductId,
-                    qty: Number(ln.qty),
-                    unitCost: ln.unitCost !== '' ? Number(ln.unitCost) : undefined,
-                })),
+                lines: validLines.map((ln) => {
+                    const p = products.find(
+                        (x) => String(x.id) === String(ln.storageProductId),
+                    );
+                    return {
+                        storageProductId: ln.storageProductId,
+                        qty: Number(ln.qty),
+                        unit:
+                            ln.unit?.trim() ||
+                            defaultEntryUnitForProduct(p || {}),
+                        uomProfileId: ln.uomProfileId || p?.uomProfileId || undefined,
+                        unitCost: ln.unitCost !== '' ? Number(ln.unitCost) : undefined,
+                    };
+                }),
             };
             if (editingTransferId) {
                 await updateStorageTransfer(brandId, editingTransferId, payload);
@@ -382,7 +410,7 @@ export default function StorageFacilityTransfersTab({
                                     <tr>
                                         <th className="sf-bulk-col-num">#</th>
                                         <th className="sf-bulk-col-product">Product</th>
-                                        <th className="sf-bulk-col-qty">Quantity</th>
+                                        <th className="sf-bulk-col-qty">Quantity (unit)</th>
                                         <th className="sf-bulk-col-cost">Unit cost (SAR)</th>
                                         <th className="sf-bulk-col-actions" />
                                     </tr>
@@ -409,31 +437,71 @@ export default function StorageFacilityTransfersTab({
                                                         updateLine(ln.key, {
                                                             storageProductId: String(p.id),
                                                             search: p.name || '',
+                                                            unit: defaultEntryUnitForProduct(p),
+                                                            uomProfileId: p.uomProfileId
+                                                                ? String(p.uomProfileId)
+                                                                : '',
                                                         })
                                                     }
                                                     onTabAdvance={() => focusQty(rowIndex)}
                                                 />
                                             </td>
                                             <td className="sf-bulk-col-qty">
-                                                <input
-                                                    ref={(el) => {
-                                                        qtyRefs.current[rowIndex] = el;
+                                                <div
+                                                    style={{
+                                                        display: 'flex',
+                                                        gap: 6,
+                                                        alignItems: 'center',
                                                     }}
-                                                    type="number"
-                                                    min="0.001"
-                                                    step="any"
-                                                    className="sf-bulk-grid-input"
-                                                    value={ln.qty}
-                                                    onChange={(e) =>
-                                                        updateLine(ln.key, { qty: e.target.value })
-                                                    }
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Tab' && !e.shiftKey) {
-                                                            e.preventDefault();
-                                                            focusCost(rowIndex);
+                                                >
+                                                    <input
+                                                        ref={(el) => {
+                                                            qtyRefs.current[rowIndex] = el;
+                                                        }}
+                                                        type="number"
+                                                        min="0.001"
+                                                        step="any"
+                                                        className="sf-bulk-grid-input"
+                                                        style={{ flex: 1 }}
+                                                        value={ln.qty}
+                                                        onChange={(e) =>
+                                                            updateLine(ln.key, {
+                                                                qty: e.target.value,
+                                                            })
                                                         }
-                                                    }}
-                                                />
+                                                        onKeyDown={(e) => {
+                                                            if (
+                                                                e.key === 'Tab' &&
+                                                                !e.shiftKey
+                                                            ) {
+                                                                e.preventDefault();
+                                                                focusCost(rowIndex);
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span
+                                                        style={{
+                                                            fontSize: '0.75rem',
+                                                            color: '#64748b',
+                                                            whiteSpace: 'nowrap',
+                                                        }}
+                                                    >
+                                                        {ln.unit ||
+                                                            (ln.storageProductId
+                                                                ? defaultEntryUnitForProduct(
+                                                                      products.find(
+                                                                          (p) =>
+                                                                              String(
+                                                                                  p.id,
+                                                                              ) ===
+                                                                              String(
+                                                                                  ln.storageProductId,
+                                                                              ),
+                                                                      ) || {},
+                                                                  )
+                                                                : '—')}
+                                                    </span>
+                                                </div>
                                             </td>
                                             <td className="sf-bulk-col-cost">
                                                 <input
