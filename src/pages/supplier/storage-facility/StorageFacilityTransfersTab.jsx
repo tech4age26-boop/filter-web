@@ -16,6 +16,32 @@ import {
     stockQtyToEntryQty,
 } from './storageFacilityUomUtils';
 
+function isStorageHub(loc) {
+    return loc?.locationKind === 'brand_storage' && loc?.isSystem;
+}
+
+function isTransferSource(loc) {
+    return (
+        loc?.locationKind === 'brand_site' ||
+        (loc?.locationKind === 'brand_storage' && !loc?.isSystem)
+    );
+}
+
+function formatTransferLocationLabel(loc) {
+    if (!loc) return '';
+    if (loc.locationKind === 'owner_warehouse') {
+        return `${loc.name} (main warehouse)`;
+    }
+    if (isTransferSource(loc)) {
+        const company = loc.companyName ? ` — ${loc.companyName}` : '';
+        return `${loc.name}${company} (transfer source)`;
+    }
+    if (isStorageHub(loc)) {
+        return `${loc.name} (storage facility)`;
+    }
+    return loc.name;
+}
+
 function newLine() {
     return {
         key: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -78,12 +104,31 @@ export default function StorageFacilityTransfersTab({
         () =>
             locations.map((l) => ({
                 ...l,
-                label:
-                    l.locationKind === 'owner_warehouse'
-                        ? `${l.name} (main warehouse)`
-                        : l.name,
+                label: formatTransferLocationLabel(l),
             })),
         [locations],
+    );
+
+    const fromLocationOptions = useMemo(
+        () =>
+            locationOptions.filter(
+                (l) =>
+                    isTransferSource(l) ||
+                    isStorageHub(l) ||
+                    l.locationKind === 'owner_warehouse',
+            ),
+        [locationOptions],
+    );
+
+    const toLocationOptions = useMemo(
+        () =>
+            locationOptions.filter(
+                (l) =>
+                    isStorageHub(l) ||
+                    isTransferSource(l) ||
+                    l.locationKind === 'owner_warehouse',
+            ),
+        [locationOptions],
     );
 
     const updateLine = (key, patch) => {
@@ -136,12 +181,12 @@ export default function StorageFacilityTransfersTab({
 
     const openNew = () => {
         setEditingTransferId(null);
-        const brandDefault = locations.find((l) => l.locationKind === 'brand_storage');
-        const ownerDefault = locations.find((l) => l.locationKind === 'owner_warehouse');
+        const hubDefault = locations.find((l) => isStorageHub(l));
+        const sourceDefault = locations.find((l) => isTransferSource(l));
         setForm({
             transferDate: new Date().toISOString().slice(0, 10),
-            fromLocationId: brandDefault?.id || locations[0]?.id || '',
-            toLocationId: ownerDefault?.id || locations[1]?.id || '',
+            fromLocationId: sourceDefault?.id || locations[0]?.id || '',
+            toLocationId: hubDefault?.id || locations[1]?.id || '',
             notes: '',
         });
         setLines([newLine(), newLine()]);
@@ -264,8 +309,8 @@ export default function StorageFacilityTransfersTab({
             {err ? <div className="mgr-si-error" style={{ marginBottom: 12 }}>{err}</div> : null}
 
             <p className="mgr-si-subtitle" style={{ marginBottom: 12 }}>
-                Move stock between brand storage, your main warehouse, and custom locations defined
-                under Inventory locations.
+                Receive stock from external transfer sources (factory, brand depot) into your
+                storage facility, or move stock between your storage facility and main warehouse.
             </p>
 
             <button type="button" className="mgr-si-btn-new" style={{ marginBottom: 16 }} onClick={openNew}>
@@ -361,7 +406,7 @@ export default function StorageFacilityTransfersTab({
                                     required
                                 >
                                     <option value="">Choose…</option>
-                                    {locationOptions.map((l) => (
+                                    {fromLocationOptions.map((l) => (
                                         <option key={l.id} value={l.id}>
                                             {l.label}
                                         </option>
@@ -380,7 +425,7 @@ export default function StorageFacilityTransfersTab({
                                     required
                                 >
                                     <option value="">Choose…</option>
-                                    {locationOptions.map((l) => (
+                                    {toLocationOptions.map((l) => (
                                         <option key={l.id} value={l.id}>
                                             {l.label}
                                         </option>

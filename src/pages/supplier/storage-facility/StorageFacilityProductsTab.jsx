@@ -344,14 +344,23 @@ export default function StorageFacilityProductsTab({
                         type="button"
                         className="mgr-si-search-btn"
                         disabled={!rows.length}
-                        onClick={() =>
+                        onClick={() => {
+                            const exportOpts = {
+                                dateFrom,
+                                dateTo,
+                                asOfDate: kpis.asOfDate || asOfDate,
+                                unit: timelineUom.warehouseUnit || p?.unit || '',
+                                qtyColLabel,
+                                balanceColLabel,
+                            };
                             exportStorageTimelineExcel(
                                 p,
                                 rows,
                                 kpis,
                                 `storage-timeline-${p?.sku || p?.id}`,
-                            )
-                        }
+                                exportOpts,
+                            );
+                        }}
                     >
                         <FileSpreadsheet size={14} /> Excel
                     </button>
@@ -359,14 +368,23 @@ export default function StorageFacilityProductsTab({
                         type="button"
                         className="mgr-si-search-btn"
                         disabled={!rows.length}
-                        onClick={() =>
+                        onClick={() => {
+                            const exportOpts = {
+                                dateFrom,
+                                dateTo,
+                                asOfDate: kpis.asOfDate || asOfDate,
+                                unit: timelineUom.warehouseUnit || p?.unit || '',
+                                qtyColLabel,
+                                balanceColLabel,
+                            };
                             exportStorageTimelinePdf(
                                 p,
                                 rows,
                                 kpis,
                                 `storage-timeline-${p?.sku || p?.id}`,
-                            )
-                        }
+                                exportOpts,
+                            );
+                        }}
                     >
                         <FileText size={14} /> PDF
                     </button>
