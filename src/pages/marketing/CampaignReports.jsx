@@ -3,11 +3,23 @@ import {
   CalendarDays,
   Bot,
   Download,
+  FileText,
   RefreshCw,
   TrendingUp,
+  TrendingDown,
+  Minus,
   Table2,
+  X,
+  Sparkles,
+  AlertTriangle,
+  Lightbulb,
+  Target,
+  Loader2,
 } from 'lucide-react';
-import { marketingGetCampaignReport } from '../../services/superAdminMarketingApi';
+import {
+  marketingGetCampaignReport,
+  marketingGetAiCampaignReport,
+} from '../../services/superAdminMarketingApi';
 import './MarketingUniversal.css';
 
 const EMPTY_SUMMARY = {
@@ -372,6 +384,90 @@ function downloadCsv(campaigns) {
   URL.revokeObjectURL(url);
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function downloadPdf(campaigns, summary, periodLabel) {
+  const generatedAt = new Date().toLocaleString();
+
+  const summaryRows = [
+    ['Budget Allocated', `${toNumber(summary.totalBudget).toLocaleString()} SAR`],
+    ['Total Spent', `${toNumber(summary.totalSpent).toLocaleString()} SAR`],
+    ['Revenue', `${toNumber(summary.totalRevenue).toLocaleString()} SAR`],
+    ['ROI', `${toNumber(summary.roiPercent).toFixed(2)}%`],
+    ['Leads', toNumber(summary.totalLeads).toLocaleString()],
+    ['Conversions', toNumber(summary.totalConversions).toLocaleString()],
+    ['Impressions', toNumber(summary.totalImpressions).toLocaleString()],
+    ['Clicks', toNumber(summary.totalClicks).toLocaleString()],
+  ]
+    .map(
+      ([k, v]) =>
+        `<tr><td class="lbl">${escapeHtml(k)}</td><td class="val">${escapeHtml(v)}</td></tr>`,
+    )
+    .join('');
+
+  const bodyRows = campaigns
+    .map(
+      (item) => `
+      <tr>
+        <td>${escapeHtml(item.name)}</td>
+        <td>${escapeHtml(humanize(item.platform))}</td>
+        <td class="num">${toNumber(item.budget).toLocaleString()}</td>
+        <td class="num">${toNumber(item.spent).toLocaleString()}</td>
+        <td class="num">${toNumber(item.revenue).toLocaleString()}</td>
+        <td class="num">${toNumber(item.roiPercent).toFixed(1)}%</td>
+        <td class="num">${toNumber(item.leads).toLocaleString()}</td>
+        <td class="num">${toNumber(item.conversions).toLocaleString()}</td>
+        <td>${escapeHtml(humanize(item.status))}</td>
+      </tr>`,
+    )
+    .join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8" />
+  <title>Campaign Report</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 24px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .meta { color: #64748b; font-size: 12px; margin-bottom: 18px; }
+    h2 { font-size: 14px; margin: 18px 0 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; }
+    th { background: #f1f5f9; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+    td.num, td.val { text-align: right; }
+    .summary-table { width: 320px; margin-bottom: 8px; }
+    .summary-table td.lbl { color: #64748b; }
+    @media print { body { margin: 12mm; } }
+  </style></head><body>
+    <h1>Campaign Performance Report</h1>
+    <div class="meta">Period: ${escapeHtml(periodLabel)} &nbsp;|&nbsp; Generated: ${escapeHtml(generatedAt)} &nbsp;|&nbsp; ${campaigns.length} campaigns</div>
+    <h2>Summary</h2>
+    <table class="summary-table">${summaryRows}</table>
+    <h2>Campaigns</h2>
+    <table>
+      <thead><tr>
+        <th>Campaign</th><th>Platform</th><th>Budget</th><th>Spent</th>
+        <th>Revenue</th><th>ROI</th><th>Leads</th><th>Conv.</th><th>Status</th>
+      </tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <script>window.onload = function () { window.print(); };</script>
+  </body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('Please allow pop-ups to export the PDF.');
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
 const SelectField = ({ label, value, onChange, options }) => (
   <div className="mk-report-filter">
     <label className="mk-report-filter-label">{label}</label>
@@ -411,6 +507,300 @@ const ReportIconButton = ({ active, title, onClick, disabled, children }) => (
     {children}
   </button>
 );
+
+const TrendIcon = ({ trend }) => {
+  if (trend === 'up') return <TrendingUp size={14} className="mk-ai-trend-up" />;
+  if (trend === 'down')
+    return <TrendingDown size={14} className="mk-ai-trend-down" />;
+  return <Minus size={14} className="mk-ai-trend-flat" />;
+};
+
+function scoreColor(score) {
+  if (score >= 70) return '#16a34a';
+  if (score >= 40) return '#d97706';
+  return '#dc2626';
+}
+
+function aiReportToHtml(report, meta) {
+  const km = report.keyMetrics || {};
+  const list = (arr, render) => (arr || []).map(render).join('');
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+  <title>${escapeHtml(report.title || 'Campaign Report')}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color:#1e293b; margin:28px; line-height:1.5; }
+    h1 { font-size:22px; margin:0 0 2px; }
+    h2 { font-size:15px; margin:22px 0 8px; border-bottom:2px solid #e2e8f0; padding-bottom:4px; }
+    .meta { color:#64748b; font-size:12px; margin-bottom:6px; }
+    .summary { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px; font-size:13px; }
+    .km { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; }
+    .km div { border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px; min-width:120px; }
+    .km span { display:block; color:#64748b; font-size:10px; text-transform:uppercase; letter-spacing:.5px; }
+    .km b { font-size:15px; }
+    table { width:100%; border-collapse:collapse; font-size:12px; margin-top:4px; }
+    th,td { border:1px solid #e2e8f0; padding:6px 9px; text-align:left; vertical-align:top; }
+    th { background:#f1f5f9; }
+    .pill { font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; text-transform:uppercase; }
+    .hi { background:#fee2e2; color:#b91c1c; } .med{ background:#fef3c7;color:#b45309;} .low{background:#dbeafe;color:#1d4ed8;}
+    @media print { body { margin:12mm; } }
+  </style></head><body>
+    <h1>${escapeHtml(report.title || 'Campaign Performance Report')}</h1>
+    <div class="meta">Period: ${escapeHtml(report.period || '')} &nbsp;|&nbsp; Generated: ${escapeHtml(new Date(meta.generatedAt || Date.now()).toLocaleString())} &nbsp;|&nbsp; ${meta.llmUsed ? 'AI (LLM) analysis' : 'Data-driven analysis'} &nbsp;|&nbsp; Health score: ${report.healthScore ?? '-'} /100</div>
+    <h2>Executive Summary</h2>
+    <div class="summary">${escapeHtml(report.executiveSummary || '')}</div>
+    <div class="km">
+      <div><span>Budget</span><b>${toNumber(km.budgetAllocated).toLocaleString()} SAR</b></div>
+      <div><span>Spent</span><b>${toNumber(km.totalSpent).toLocaleString()} SAR</b></div>
+      <div><span>Revenue</span><b>${toNumber(km.totalRevenue).toLocaleString()} SAR</b></div>
+      <div><span>ROI</span><b>${toNumber(km.roi)}%</b></div>
+      <div><span>Leads</span><b>${toNumber(km.leads)}</b></div>
+      <div><span>Conversions</span><b>${toNumber(km.conversions)}</b></div>
+      <div><span>Cost / Lead</span><b>${toNumber(km.costPerLead)} SAR</b></div>
+    </div>
+    <h2>Performance Analysis</h2>
+    <table><tbody>${list(report.performanceAnalysis, (a) => `<tr><td style="width:160px"><b>${escapeHtml(a.title)}</b></td><td>${escapeHtml(a.detail)}</td></tr>`)}</tbody></table>
+    <h2>Platform Insights</h2>
+    <table><tbody>${list(report.platformInsights, (p) => `<tr><td style="width:140px"><b>${escapeHtml(humanize(p.platform))}</b></td><td>${escapeHtml(p.detail)}</td></tr>`)}</tbody></table>
+    <h2>Predictions (Next Period)</h2>
+    <table><thead><tr><th>Metric</th><th>Current</th><th>Projected</th><th>Trend</th><th>Rationale</th></tr></thead>
+    <tbody>${list(report.predictions, (p) => `<tr><td><b>${escapeHtml(p.metric)}</b></td><td>${escapeHtml(String(p.current))}</td><td>${escapeHtml(String(p.projectedNextPeriod))}</td><td>${escapeHtml(p.trend)}</td><td>${escapeHtml(p.rationale)}</td></tr>`)}</tbody></table>
+    <h2>Recommendations</h2>
+    <table><thead><tr><th>Priority</th><th>Action</th><th>Expected Impact</th></tr></thead>
+    <tbody>${list(report.recommendations, (r) => `<tr><td><span class="pill ${r.priority === 'high' ? 'hi' : r.priority === 'medium' ? 'med' : 'low'}">${escapeHtml(r.priority)}</span></td><td><b>${escapeHtml(r.title)}</b><br/>${escapeHtml(r.action)}</td><td>${escapeHtml(r.expectedImpact || '')}</td></tr>`)}</tbody></table>
+    ${(report.risks || []).length ? `<h2>Risk Alerts</h2><table><thead><tr><th>Severity</th><th>Risk</th></tr></thead><tbody>${list(report.risks, (r) => `<tr><td><span class="pill ${r.severity === 'high' ? 'hi' : 'med'}">${escapeHtml(r.severity)}</span></td><td><b>${escapeHtml(r.title)}</b><br/>${escapeHtml(r.message)}</td></tr>`)}</tbody></table>` : ''}
+    <script>window.onload=function(){window.print();};</script>
+  </body></html>`;
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('Please allow pop-ups to export the PDF.');
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
+const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
+  const report = data?.report;
+  const km = report?.keyMetrics || {};
+
+  return (
+    <div className="mk-ai-overlay" role="dialog" aria-modal="true">
+      <div className="mk-ai-modal">
+        <div className="mk-ai-head">
+          <div className="mk-ai-head-title">
+            <Sparkles size={18} />
+            <div>
+              <h2>AI Campaign Report</h2>
+              <span>
+                {loading
+                  ? 'Analyzing your marketing data...'
+                  : data
+                    ? `${report?.period || ''} · ${data.llmUsed ? 'AI (LLM) analysis' : 'Data-driven analysis'}`
+                    : 'Professional analysis & recommendations'}
+              </span>
+            </div>
+          </div>
+          <div className="mk-ai-head-actions">
+            {report ? (
+              <button
+                type="button"
+                className="mk-ai-pdf-btn"
+                onClick={() =>
+                  aiReportToHtml(report, {
+                    generatedAt: data.generatedAt,
+                    llmUsed: data.llmUsed,
+                  })
+                }
+              >
+                <FileText size={14} /> PDF
+              </button>
+            ) : null}
+            <button type="button" className="mk-ai-close" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="mk-ai-body">
+          {loading ? (
+            <div className="mk-ai-loading">
+              <Loader2 size={34} className="mk-ai-spin" />
+              <p>Reading configuration & analyzing performance...</p>
+            </div>
+          ) : error ? (
+            <div className="mk-ai-error">
+              <AlertTriangle size={24} />
+              <p>{error}</p>
+              <button type="button" className="mk-report-ai-btn" onClick={onRetry}>
+                Retry
+              </button>
+            </div>
+          ) : report ? (
+            <>
+              {data?.note ? <div className="mk-ai-note">{data.note}</div> : null}
+
+              <div className="mk-ai-top">
+                <div
+                  className="mk-ai-score"
+                  style={{ borderColor: scoreColor(report.healthScore) }}
+                >
+                  <div
+                    className="mk-ai-score-num"
+                    style={{ color: scoreColor(report.healthScore) }}
+                  >
+                    {report.healthScore ?? '-'}
+                  </div>
+                  <div className="mk-ai-score-label">Health Score</div>
+                </div>
+                <div className="mk-ai-summary">
+                  <h3>Executive Summary</h3>
+                  <p>{report.executiveSummary}</p>
+                </div>
+              </div>
+
+              <div className="mk-ai-kpis">
+                {[
+                  ['Budget', `${toNumber(km.budgetAllocated).toLocaleString()} SAR`],
+                  ['Spent', `${toNumber(km.totalSpent).toLocaleString()} SAR`],
+                  ['Revenue', `${toNumber(km.totalRevenue).toLocaleString()} SAR`],
+                  ['ROI', `${toNumber(km.roi)}%`],
+                  ['Leads', toNumber(km.leads).toLocaleString()],
+                  ['Conversions', toNumber(km.conversions).toLocaleString()],
+                  ['CPL', `${toNumber(km.costPerLead)} SAR`],
+                  ['Conv. Rate', `${toNumber(km.conversionRate)}%`],
+                ].map(([label, value]) => (
+                  <div key={label} className="mk-ai-kpi">
+                    <span>{label}</span>
+                    <b>{value}</b>
+                  </div>
+                ))}
+              </div>
+
+              {report.performanceAnalysis?.length ? (
+                <section className="mk-ai-section">
+                  <h3>
+                    <Target size={15} /> Performance Analysis
+                  </h3>
+                  <div className="mk-ai-rows">
+                    {report.performanceAnalysis.map((a, i) => (
+                      <div key={i} className="mk-ai-row">
+                        <b>{a.title}</b>
+                        <span>{a.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {report.platformInsights?.length ? (
+                <section className="mk-ai-section">
+                  <h3>Platform Insights</h3>
+                  <div className="mk-ai-rows">
+                    {report.platformInsights.map((p, i) => (
+                      <div key={i} className="mk-ai-row">
+                        <b>{humanize(p.platform)}</b>
+                        <span>{p.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {(report.topPerformers?.length ||
+                report.underperformers?.length) ? (
+                <div className="mk-ai-two-col">
+                  {report.topPerformers?.length ? (
+                    <section className="mk-ai-section">
+                      <h3 className="mk-ai-good">Top Performers</h3>
+                      {report.topPerformers.map((t, i) => (
+                        <div key={i} className="mk-ai-perf">
+                          <b>{t.name}</b>
+                          <span>{t.reason}</span>
+                        </div>
+                      ))}
+                    </section>
+                  ) : null}
+                  {report.underperformers?.length ? (
+                    <section className="mk-ai-section">
+                      <h3 className="mk-ai-bad">Underperformers</h3>
+                      {report.underperformers.map((t, i) => (
+                        <div key={i} className="mk-ai-perf">
+                          <b>{t.name}</b>
+                          <span>{t.reason}</span>
+                        </div>
+                      ))}
+                    </section>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {report.predictions?.length ? (
+                <section className="mk-ai-section">
+                  <h3>
+                    <TrendingUp size={15} /> Predictions — Next Period
+                  </h3>
+                  <div className="mk-ai-pred-grid">
+                    {report.predictions.map((p, i) => (
+                      <div key={i} className="mk-ai-pred">
+                        <div className="mk-ai-pred-head">
+                          <span>{p.metric}</span>
+                          <TrendIcon trend={p.trend} />
+                        </div>
+                        <div className="mk-ai-pred-vals">
+                          <span>{toNumber(p.current).toLocaleString()}</span>
+                          <span className="mk-ai-arrow">→</span>
+                          <b>{toNumber(p.projectedNextPeriod).toLocaleString()}</b>
+                        </div>
+                        <p>{p.rationale}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {report.recommendations?.length ? (
+                <section className="mk-ai-section">
+                  <h3>
+                    <Lightbulb size={15} /> Recommendations
+                  </h3>
+                  {report.recommendations.map((r, i) => (
+                    <div key={i} className="mk-ai-rec">
+                      <span className={`mk-ai-pri mk-ai-pri-${r.priority}`}>
+                        {r.priority}
+                      </span>
+                      <div>
+                        <b>{r.title}</b>
+                        <p>{r.action}</p>
+                        {r.expectedImpact ? (
+                          <em>Impact: {r.expectedImpact}</em>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              ) : null}
+
+              {report.risks?.length ? (
+                <section className="mk-ai-section">
+                  <h3 className="mk-ai-bad">
+                    <AlertTriangle size={15} /> Risk Alerts
+                  </h3>
+                  {report.risks.map((r, i) => (
+                    <div key={i} className={`mk-ai-risk sev-${r.severity}`}>
+                      <b>{r.title}</b>
+                      <span>{r.message}</span>
+                    </div>
+                  ))}
+                </section>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const PerformanceChart = ({ campaigns }) => {
   const width = 1000;
@@ -585,17 +975,30 @@ export const CampaignReports = () => {
 
   const [campaignFilter, setCampaignFilter] = useState('all');
   const [period, setPeriod] = useState('all_time');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [compareTo, setCompareTo] = useState('none');
   const [viewMode, setViewMode] = useState('chart');
   const [scheduleOn, setScheduleOn] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiReportOpen, setAiReportOpen] = useState(false);
+  const [aiReport, setAiReport] = useState(null);
+  const [aiError, setAiError] = useState('');
 
   const loadReports = useCallback(async () => {
     setLoading(true);
     setLoadError('');
 
     try {
-      const dateRange = getDateRange(period);
+      const dateRange =
+        period === 'custom'
+          ? {
+              startDate: customStart || undefined,
+              endDate: customEnd || undefined,
+              dateFrom: customStart || undefined,
+              dateTo: customEnd || undefined,
+            }
+          : getDateRange(period);
 
       const res = await marketingGetCampaignReport({
         status: 'all',
@@ -623,7 +1026,7 @@ export const CampaignReports = () => {
     } finally {
       setLoading(false);
     }
-  }, [campaignFilter, period, compareTo]);
+  }, [campaignFilter, period, compareTo, customStart, customEnd]);
 
   useEffect(() => {
     loadReports();
@@ -649,6 +1052,17 @@ export const CampaignReports = () => {
 
   const campaignsInScope = campaigns.length;
 
+  const periodLabel = useMemo(() => {
+    const map = {
+      all_time: 'All Time',
+      today: 'Today',
+      this_week: 'This Week',
+      this_month: 'This Month',
+      last_month: 'Last Month',
+    };
+    return map[period] || humanize(period);
+  }, [period]);
+
   const exportCsv = () => {
     if (campaigns.length === 0) {
       alert('No report data available to export.');
@@ -658,25 +1072,49 @@ export const CampaignReports = () => {
     downloadCsv(campaigns);
   };
 
+  const exportPdf = () => {
+    if (campaigns.length === 0) {
+      alert('No report data available to export.');
+      return;
+    }
+
+    downloadPdf(campaigns, summary, periodLabel);
+  };
+
   const runAiReport = async () => {
+    setAiReportOpen(true);
     setAiLoading(true);
+    setAiError('');
+    setAiReport(null);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 450));
+      const dateRange =
+        period === 'custom'
+          ? {
+              startDate: customStart || undefined,
+              endDate: customEnd || undefined,
+              dateFrom: customStart || undefined,
+              dateTo: customEnd || undefined,
+            }
+          : getDateRange(period);
 
-      alert(
-        [
-          'AI Report Summary',
-          '',
-          `Campaigns in scope: ${campaignsInScope}`,
-          `Budget allocated: ${formatSar(summary.totalBudget)}`,
-          `Total spent: ${formatSar(summary.totalSpent)}`,
-          `Revenue: ${formatSar(summary.totalRevenue)}`,
-          `ROI: ${formatPercent(summary.roiPercent)}`,
-          `Leads: ${summary.totalLeads || 0}`,
-          `Conversions: ${summary.totalConversions || 0}`,
-        ].join('\n'),
-      );
+      const res = await marketingGetAiCampaignReport({
+        status: 'all',
+        campaignId: campaignFilter,
+        period,
+        compareTo,
+        limit: 500,
+        offset: 0,
+        ...dateRange,
+      });
+
+      if (!res?.report) {
+        throw new Error('No report returned by the server.');
+      }
+
+      setAiReport(res);
+    } catch (err) {
+      setAiError(err?.message || 'Failed to generate AI report.');
     } finally {
       setAiLoading(false);
     }
@@ -719,8 +1157,35 @@ export const CampaignReports = () => {
               { value: 'this_week', label: 'This Week' },
               { value: 'this_month', label: 'This Month' },
               { value: 'last_month', label: 'Last Month' },
+              { value: 'custom', label: 'Custom Range' },
             ]}
           />
+
+          {period === 'custom' ? (
+            <>
+              <div className="mk-report-filter">
+                <label className="mk-report-filter-label">From</label>
+                <input
+                  type="date"
+                  className="mk-input mk-report-select"
+                  value={customStart}
+                  max={customEnd || undefined}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                />
+              </div>
+
+              <div className="mk-report-filter">
+                <label className="mk-report-filter-label">To</label>
+                <input
+                  type="date"
+                  className="mk-input mk-report-select"
+                  value={customEnd}
+                  min={customStart || undefined}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                />
+              </div>
+            </>
+          ) : null}
 
           <SelectField
             label="Compare To"
@@ -819,6 +1284,15 @@ export const CampaignReports = () => {
               disabled={campaigns.length === 0}
             >
               <Download size={13} />
+            </ReportIconButton>
+
+            <ReportIconButton
+              active={false}
+              title="Export PDF"
+              onClick={exportPdf}
+              disabled={campaigns.length === 0}
+            >
+              <FileText size={13} />
             </ReportIconButton>
 
             <ReportIconButton
@@ -1289,8 +1763,283 @@ export const CampaignReports = () => {
               grid-template-columns: 1fr;
             }
           }
+
+          .mk-ai-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.55);
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            z-index: 1200;
+            padding: 28px 16px;
+            overflow-y: auto;
+          }
+
+          .mk-ai-modal {
+            background: #f8fafc;
+            border-radius: 14px;
+            width: 100%;
+            max-width: 860px;
+            box-shadow: 0 24px 60px rgba(2, 6, 23, 0.35);
+            overflow: hidden;
+          }
+
+          .mk-ai-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            background: linear-gradient(120deg, #1e3a8a, #7c3aed);
+            color: #fff;
+          }
+
+          .mk-ai-head-title {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+          }
+
+          .mk-ai-head-title h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 850;
+          }
+
+          .mk-ai-head-title span {
+            font-size: 11px;
+            opacity: 0.85;
+          }
+
+          .mk-ai-head-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+
+          .mk-ai-pdf-btn {
+            border: 0;
+            background: rgba(255, 255, 255, 0.18);
+            color: #fff;
+            border-radius: 7px;
+            padding: 6px 11px;
+            font-size: 12px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+          }
+
+          .mk-ai-pdf-btn:hover {
+            background: rgba(255, 255, 255, 0.28);
+          }
+
+          .mk-ai-close {
+            border: 0;
+            background: transparent;
+            color: #fff;
+            cursor: pointer;
+            display: inline-flex;
+          }
+
+          .mk-ai-body {
+            padding: 20px;
+            max-height: calc(100vh - 130px);
+            overflow-y: auto;
+          }
+
+          .mk-ai-loading,
+          .mk-ai-error {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 60px 20px;
+            color: #64748b;
+            text-align: center;
+          }
+
+          .mk-ai-error svg { color: #dc2626; }
+
+          .mk-ai-spin { animation: mk-report-spin 1s linear infinite; color: #7c3aed; }
+
+          .mk-ai-note {
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            color: #92400e;
+            border-radius: 8px;
+            padding: 9px 12px;
+            font-size: 12px;
+            margin-bottom: 14px;
+          }
+
+          .mk-ai-top {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 16px;
+          }
+
+          .mk-ai-score {
+            flex: 0 0 110px;
+            border: 3px solid #16a34a;
+            border-radius: 12px;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+          }
+
+          .mk-ai-score-num { font-size: 34px; font-weight: 900; line-height: 1; }
+          .mk-ai-score-label { font-size: 10px; color: #64748b; font-weight: 700; margin-top: 4px; text-transform: uppercase; }
+
+          .mk-ai-summary {
+            flex: 1;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 14px 16px;
+          }
+
+          .mk-ai-summary h3 { margin: 0 0 6px; font-size: 13px; font-weight: 850; color: #0f172a; }
+          .mk-ai-summary p { margin: 0; font-size: 13px; color: #334155; line-height: 1.55; }
+
+          .mk-ai-kpis {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 18px;
+          }
+
+          .mk-ai-kpi {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 9px;
+            padding: 9px 11px;
+          }
+
+          .mk-ai-kpi span { display: block; font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+          .mk-ai-kpi b { font-size: 15px; color: #0f172a; }
+
+          .mk-ai-section {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 14px;
+          }
+
+          .mk-ai-section h3 {
+            margin: 0 0 10px;
+            font-size: 13px;
+            font-weight: 850;
+            color: #0f172a;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+          }
+
+          .mk-ai-good { color: #16a34a; }
+          .mk-ai-bad { color: #dc2626; }
+
+          .mk-ai-rows { display: grid; gap: 9px; }
+          .mk-ai-row b { display: block; font-size: 12px; color: #0f172a; }
+          .mk-ai-row span { font-size: 12px; color: #475569; }
+
+          .mk-ai-two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+          }
+
+          .mk-ai-perf { margin-bottom: 9px; }
+          .mk-ai-perf b { display: block; font-size: 12px; color: #0f172a; }
+          .mk-ai-perf span { font-size: 11px; color: #64748b; }
+
+          .mk-ai-pred-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+          }
+
+          .mk-ai-pred {
+            border: 1px solid #e2e8f0;
+            border-radius: 9px;
+            padding: 10px 12px;
+            background: #f8fafc;
+          }
+
+          .mk-ai-pred-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 800; color: #334155; text-transform: uppercase; }
+          .mk-ai-pred-vals { display: flex; align-items: baseline; gap: 7px; margin: 6px 0; }
+          .mk-ai-pred-vals span { color: #94a3b8; font-size: 13px; }
+          .mk-ai-pred-vals b { color: #0f172a; font-size: 17px; }
+          .mk-ai-arrow { color: #cbd5e1; }
+          .mk-ai-pred p { margin: 0; font-size: 11px; color: #64748b; line-height: 1.45; }
+
+          .mk-ai-trend-up { color: #16a34a; }
+          .mk-ai-trend-down { color: #dc2626; }
+          .mk-ai-trend-flat { color: #94a3b8; }
+
+          .mk-ai-rec {
+            display: flex;
+            gap: 11px;
+            padding: 10px 0;
+            border-top: 1px solid #f1f5f9;
+          }
+
+          .mk-ai-rec:first-of-type { border-top: 0; }
+          .mk-ai-rec b { font-size: 12.5px; color: #0f172a; }
+          .mk-ai-rec p { margin: 3px 0; font-size: 12px; color: #475569; }
+          .mk-ai-rec em { font-size: 11px; color: #16a34a; font-style: normal; font-weight: 600; }
+
+          .mk-ai-pri {
+            flex: 0 0 auto;
+            height: fit-content;
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 3px 8px;
+            border-radius: 10px;
+            letter-spacing: .5px;
+          }
+
+          .mk-ai-pri-high { background: #fee2e2; color: #b91c1c; }
+          .mk-ai-pri-medium { background: #fef3c7; color: #b45309; }
+          .mk-ai-pri-low { background: #dbeafe; color: #1d4ed8; }
+
+          .mk-ai-risk {
+            border-radius: 8px;
+            padding: 9px 12px;
+            margin-bottom: 8px;
+            border-left: 4px solid #f59e0b;
+            background: #fffbeb;
+          }
+
+          .mk-ai-risk.sev-high { border-left-color: #dc2626; background: #fef2f2; }
+          .mk-ai-risk b { display: block; font-size: 12px; color: #0f172a; }
+          .mk-ai-risk span { font-size: 11.5px; color: #64748b; }
+
+          @media (max-width: 760px) {
+            .mk-ai-kpis { grid-template-columns: repeat(2, 1fr); }
+            .mk-ai-pred-grid { grid-template-columns: 1fr; }
+            .mk-ai-two-col { grid-template-columns: 1fr; }
+            .mk-ai-top { flex-direction: column; }
+          }
         `}
       </style>
+
+      {aiReportOpen ? (
+        <AiReportModal
+          data={aiReport}
+          loading={aiLoading}
+          error={aiError}
+          onClose={() => setAiReportOpen(false)}
+          onRetry={runAiReport}
+        />
+      ) : null}
     </div>
   );
 };
