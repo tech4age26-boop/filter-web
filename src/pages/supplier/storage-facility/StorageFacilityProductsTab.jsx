@@ -20,6 +20,7 @@ import StorageUomSelect from './StorageUomSelect';
 import StorageProductStockAdjustModal from './StorageProductStockAdjustModal';
 import {
     formatStockOnHandDisplay,
+    formatStorageMovementQtyDisplay,
     parseProductUomSelectValue,
     productEffectiveUom,
     productUomSelectValue,
@@ -266,6 +267,19 @@ export default function StorageFacilityProductsTab({
         const p = timeline?.product ?? products.find((x) => x.id === timelineProductId);
         const rows = timeline?.rows ?? [];
         const kpis = timeline?.kpis ?? {};
+        const timelineUom = productEffectiveUom(p || {});
+        const splitTimelineUom =
+            timelineUom.warehouseUnit &&
+            timelineUom.workshopUnit &&
+            String(timelineUom.warehouseUnit).toLowerCase() !==
+                String(timelineUom.workshopUnit).toLowerCase() &&
+            Number(timelineUom.conversionFactor) > 1;
+        const qtyColLabel = splitTimelineUom
+            ? `Qty owned (${timelineUom.warehouseUnit})`
+            : 'Qty owned';
+        const balanceColLabel = splitTimelineUom
+            ? `Balance (${timelineUom.warehouseUnit})`
+            : 'Balance';
 
         return (
             <div className="mgr-sf-ar-page">
@@ -410,8 +424,8 @@ export default function StorageFacilityProductsTab({
                                     <th className="table-th">Transaction</th>
                                     <th className="table-th">Reference</th>
                                     <th className="table-th">Inventory Item</th>
-                                    <th className="table-th mgr-si-cell-amount">Qty owned</th>
-                                    <th className="table-th mgr-si-cell-amount">Balance</th>
+                                    <th className="table-th mgr-si-cell-amount">{qtyColLabel}</th>
+                                    <th className="table-th mgr-si-cell-amount">{balanceColLabel}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -440,10 +454,16 @@ export default function StorageFacilityProductsTab({
                                                 }}
                                             >
                                                 {r.qtyOwned > 0 ? '+' : ''}
-                                                {fmtQty(r.qtyOwned)}
+                                                {formatStorageMovementQtyDisplay(
+                                                    r.qtyOwned,
+                                                    timelineUom,
+                                                )}
                                             </td>
                                             <td className="table-cell mgr-si-cell-amount">
-                                                {fmtQty(r.balance)}
+                                                {formatStorageMovementQtyDisplay(
+                                                    r.balance,
+                                                    timelineUom,
+                                                )}
                                             </td>
                                         </tr>
                                     ))

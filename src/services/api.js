@@ -6,9 +6,9 @@
 
 const DEFAULT_API_BASE = 'http://localhost:3000';
 
-export const BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE
-).replace(/\/+$/, '');
+// export const BASE_URL = (
+//   import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE
+// ).replace(/\/+$/, '');
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
