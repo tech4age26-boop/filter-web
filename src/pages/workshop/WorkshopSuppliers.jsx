@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ShoppingCart, Plus, RefreshCw, Loader, AlertCircle, Eye } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import Modal from '../../components/Modal';
 import { PI_INVENTORY_ITEMS } from './constants';
 import { useAuth } from '../../context/AuthContext';
@@ -226,6 +227,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                         {error}
                     </div>
                 )}
+                <WsTableScroll>
                 <table className="ws-table">
                     <thead>
                         <tr>
@@ -309,6 +311,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
                 {!loading && total != null && total > PURCHASES_PAGE_SIZE ? (
                     <div
                         style={{
@@ -839,7 +842,8 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                         </div>
                     )}
                     <div className="ws-section">
-                        <table className="ws-table">
+                        <WsTableScroll>
+                <table className="ws-table">
                             <thead>
                                 <tr>
                                     <th>Supplier Name</th>
@@ -918,6 +922,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 )}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                     </div>
                 </>
             )}
@@ -1189,13 +1194,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                         this workshop without a platform login.
                                     </div>
                                 ) : (
-                                    <div
-                                        style={{
-                                            border: '1px solid var(--color-border)',
-                                            borderRadius: 10,
-                                            overflow: 'hidden',
-                                        }}
-                                    >
+                                    <WsTableScroll>
                                         <table className="ws-table" style={{ margin: 0 }}>
                                             <thead>
                                                 <tr>
@@ -1251,7 +1250,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                                 })}
                                             </tbody>
                                         </table>
-                                    </div>
+                                    </WsTableScroll>
                                 )}
                                 <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
                                     Pick on-platform suppliers below (they can use the supplier portal), or add a

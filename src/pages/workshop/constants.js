@@ -2,12 +2,13 @@ import {
     LayoutDashboard, Users, Layers, Package, ShoppingCart, ClipboardCheck,
     Truck, BarChart3, Building2, CheckCircle, CheckCircle2, PlayCircle,
     Store, Shield, Globe, Landmark, Banknote, Monitor, TicketPercent, Briefcase,
-    Archive, Lock, Wallet, RotateCcw, Smartphone,
+    Archive, Lock, Wallet, RotateCcw, Smartphone, MessageCircle,
 } from 'lucide-react';
 import { STAFF_APP_NAV_ITEMS } from './staff-app/constants';
 
 export const NAV_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'workshop.dashboard.view' },
+    { id: 'platform-chat', label: 'Chat', icon: MessageCircle },
     { id: 'departments', label: 'View Inventory and Departments', icon: Layers, permission: 'workshop.departments.view' },
     { id: 'catalog-new', label: 'Master Catalog', icon: Package, permission: 'workshop.catalog.view' },
     { id: 'inventory', label: 'Manage Inventory', icon: Archive, permission: 'workshop.inventory.view' },

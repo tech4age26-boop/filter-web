@@ -102,6 +102,9 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/tax-codes',        permission: 'tax-codes.view' },
     { path: '/admin/marketing',        permission: 'marketing.view' },
     { path: '/admin/permissions',      permission: 'permissions.view' },
+    { path: '/admin/admin-wallets',    permission: 'admin-wallets.view' },
+    { path: '/admin/chat',             permission: 'chat.view' },
+    { path: '/admin/demo-invoices',    permission: 'demo-invoices.view' },
     // OPERATIONS (sub-items: redirect to their parent route — InventoryPage handles default sub-tab)
     { path: '/admin/inventory/master-catalog',   permission: 'inventory.master-catalog.view' },
     { path: '/admin/inventory/stock-movements',  permission: 'inventory.stock-movements.view' },
@@ -109,6 +112,7 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/customers/all-customers',    permission: 'customers.all-customers.view' },
     { path: '/admin/customers/corporate-billing', permission: 'customers.corporate-billing.view' },
     { path: '/admin/suppliers', permission: 'suppliers.view' },
+    { path: '/admin/storage-facility', permission: 'storage-facility.view' },
     { path: '/admin/employees', permission: 'employees.view' },
     { path: '/admin/branches',  permission: 'branches.view' },
     { path: '/admin/workshop',  permission: 'workshop.view' },
@@ -134,31 +138,45 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/accounting/advances',              permission: 'accounting.advances.view' },
     { path: '/admin/accounting/ledger',                permission: 'accounting.ledger.view' },
     { path: '/admin/softpos-settlement',               permission: 'softpos-settlement.view' },
+    { path: '/admin/my-wallet', walletRequired: true },
 ];
+
+function adminSidebarEntryAllowed(user, codes, entry) {
+    if (entry.walletRequired) return Boolean(user?.walletEnabled);
+    if (entry.permission) return codes.has(entry.permission);
+    return true;
+}
 
 /**
  * Compute the URL the user should land on after login (admin portal).
  *
- * Uses the same bootstrap rules as `hasPermission`:
+ * Uses the same bootstrap rules as `AuthContext.userHas`:
  *   - platform_admin without role / with system role → /admin/dashboard
  *   - any user without permissions field → /admin/dashboard (legacy)
- *   - otherwise pick the first sidebar item their role permits
- *   - fallback: /admin/dashboard
+ *   - user with no role assigned → /admin/dashboard (signup bootstrap)
+ *   - otherwise pick the first sidebar item their role permits (never dashboard
+ *     unless they have dashboard.view)
  */
 export function firstVisibleAdminPath(user) {
     if (!user) return '/admin/dashboard';
-    const codes = Array.isArray(user.permissions) ? new Set(user.permissions) : null;
 
-    // Bootstrap bypass — same as AuthContext.userHas
     if (user.userType === 'platform_admin' && (!user.role || user.role?.isSystem)) {
         return '/admin/dashboard';
     }
-    if (!codes || codes.size === 0) return '/admin/dashboard';
+
+    const codes = Array.isArray(user.permissions) ? new Set(user.permissions) : null;
+    if (!codes) return '/admin/dashboard';
+
+    if (!user.role) return '/admin/dashboard';
 
     const match = ADMIN_SIDEBAR_ORDER.find((entry) =>
-        entry.permission ? codes.has(entry.permission) : true,
+        adminSidebarEntryAllowed(user, codes, entry),
     );
-    return match?.path ?? '/admin/dashboard';
+    if (match) return match.path;
+
+    if (user.walletEnabled) return '/admin/my-wallet';
+
+    return '/admin/permissions';
 }
 
 const WORKSHOP_ACC_TAB_SLUG = {

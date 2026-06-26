@@ -12,6 +12,7 @@ import {
     details as fetchApprovalDetails,
     getWalkInSettings,
     updateWalkInSettings,
+    listAdminWalletCashAccounts,
 } from '../../services/approvalsApi';
 import {
     approveSuperAdminCorporatePriceQuotation,
@@ -65,6 +66,7 @@ const APPROVAL_TYPE_TO_PERMISSION_SUFFIX = {
     corporate_payment_approval: 'corporate-payment-proof',
     sales_return: 'sales-return',
     marketing_budget_request: 'marketing-budget-request',
+    admin_wallet_fund_request: 'admin-wallet-fund-request',
     marketing_promotion: 'marketing-promotion',
     marketing_campaign: 'marketing-campaign',
     marketing_expense: 'marketing-expense',
@@ -307,6 +309,7 @@ const ENTITY_TYPES = [
     { value: 'corporate_payment_approval', label: 'Corporate payment proof' },
     { value: 'sales_return', label: 'POS sales return' },
     { value: 'marketing_budget_request', label: 'Marketing wallet top-up' },
+    { value: 'admin_wallet_fund_request', label: 'Admin wallet fund request' },
     { value: 'marketing_promotion', label: 'Marketing promotion' },
     { value: 'marketing_campaign', label: 'Marketing campaign' },
     { value: 'marketing_expense', label: 'Marketing expense' },
@@ -515,6 +518,13 @@ function buildMetaChips(item) {
             push('Source', m.sourceAccountName);
             push('Request', m.requestNumber);
             break;
+        case 'admin_wallet_fund_request':
+            push('Admin', m.adminUserName ?? m.adminUserEmail);
+            push('Amount', m.amountLabel ?? (m.amount != null ? `SAR ${m.amount}` : null));
+            push('Purpose', m.purpose);
+            push('Source', m.sourceAccountName);
+            push('Request', m.requestNumber);
+            break;
         case 'marketing_promotion':
             push('Discount', m.discountLabel);
             push('Type', m.promoType);
@@ -587,6 +597,183 @@ function ApproveModal({ item, busy, onCancel, onConfirm }) {
                 className="approval-modal-textarea"
                 rows={3}
                 placeholder="e.g. Documents verified."
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                disabled={busy}
+            />
+        </Modal>
+    );
+}
+
+function normalizeAdminWalletCashAccounts(payload) {
+    const rows = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.accounts)
+            ? payload.accounts
+            : Array.isArray(payload?.cashAccounts)
+                ? payload.cashAccounts
+                : [];
+    return rows.map((row) => {
+        const id = String(row.id || '');
+        const name = row.name || 'Account';
+        const balance = Number(
+            row.closingBalance ?? row.balance ?? row.currentBalance ?? 0,
+        );
+        const formatted = balance.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+        return {
+            id,
+            name,
+            label: `${name} — Closing SAR ${formatted}`,
+            balance,
+            closingBalance: balance,
+        };
+    });
+}
+
+/** Approve admin wallet fund request — super admin picks source cash/bank account. */
+function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error }) {
+    const [remarks, setRemarks] = useState('');
+    const [sourceAccountId, setSourceAccountId] = useState('');
+    const [cashAccounts, setCashAccounts] = useState([]);
+    const [accountsLoading, setAccountsLoading] = useState(true);
+    const [accountsError, setAccountsError] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setAccountsLoading(true);
+        setAccountsError('');
+        listAdminWalletCashAccounts()
+            .then((res) => {
+                if (cancelled) return;
+                const normalized = normalizeAdminWalletCashAccounts(res);
+                setCashAccounts(normalized);
+                if (normalized.length > 0) {
+                    setSourceAccountId(normalized[0].id);
+                }
+            })
+            .catch((err) => {
+                if (!cancelled) {
+                    setAccountsError(err?.message || 'Failed to load cash accounts');
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setAccountsLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, []);
+
+    const selectedAccount = cashAccounts.find((a) => a.id === sourceAccountId);
+    const amountLabel = item?.meta?.amountLabel
+        ?? (item?.meta?.amount != null ? `SAR ${item.meta.amount}` : '—');
+    const requestAmount = Number(item?.meta?.amount ?? 0);
+    const insufficientBalance = Boolean(
+        selectedAccount
+        && Number.isFinite(requestAmount)
+        && requestAmount > 0
+        && selectedAccount.balance < requestAmount,
+    );
+    const balanceError = insufficientBalance
+        ? `Insufficient balance in ${selectedAccount.name}. Closing balance is SAR ${selectedAccount.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} but this request needs SAR ${requestAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+        : '';
+    const displayError = error || balanceError;
+
+    return (
+        <Modal
+            title="Approve Admin Wallet Fund Request"
+            onClose={busy ? undefined : onCancel}
+            width={520}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-approve"
+                        disabled={busy || accountsLoading || !sourceAccountId || insufficientBalance}
+                        onClick={() => onConfirm({
+                            remarks: remarks.trim() || undefined,
+                            sourceAccountId,
+                            sourceAccountName: selectedAccount?.name || '',
+                        })}
+                    >
+                        {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
+                        Approve &amp; Fund Wallet
+                    </button>
+                </>
+            )}
+        >
+            {displayError ? (
+                <div
+                    role="alert"
+                    style={{
+                        margin: '0 0 14px',
+                        padding: '12px 14px',
+                        borderRadius: 12,
+                        background: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        color: '#b91c1c',
+                        fontSize: '0.8125rem',
+                    }}
+                >
+                    {displayError}
+                </div>
+            ) : null}
+            <p className="approval-modal-lead">
+                Approve <strong>{item.title}</strong> and credit the admin wallet.
+                Amount <strong>{amountLabel}</strong> will be deducted from the selected HQ account.
+            </p>
+
+            <label className="approval-modal-label" htmlFor="admin-wallet-source-account">
+                Fund from account <span style={{ color: '#dc2626' }}>*</span>
+            </label>
+            {accountsLoading ? (
+                <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                    <Loader size={14} className="spin" /> Loading cash accounts…
+                </p>
+            ) : accountsError ? (
+                <p style={{ color: '#b91c1c', fontSize: '0.875rem' }}>{accountsError}</p>
+            ) : cashAccounts.length === 0 ? (
+                <p style={{ color: '#b45309', fontSize: '0.875rem' }}>
+                    No HQ cash/bank accounts found. Add one under Accounting → Cash &amp; Bank first.
+                </p>
+            ) : (
+                <select
+                    id="admin-wallet-source-account"
+                    className="approval-modal-textarea"
+                    style={{ minHeight: 'unset', padding: '10px 12px' }}
+                    value={sourceAccountId}
+                    onChange={(e) => setSourceAccountId(e.target.value)}
+                    disabled={busy}
+                >
+                    {cashAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>{account.label}</option>
+                    ))}
+                </select>
+            )}
+            {selectedAccount && !accountsLoading && !accountsError && (
+                <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                    Closing balance:{' '}
+                    <strong>
+                        SAR {selectedAccount.balance.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                        })}
+                    </strong>
+                </p>
+            )}
+
+            <label className="approval-modal-label" htmlFor="admin-wallet-approve-remarks" style={{ marginTop: 14 }}>
+                Remarks <span className="approval-modal-optional">(optional)</span>
+            </label>
+            <textarea
+                id="admin-wallet-approve-remarks"
+                className="approval-modal-textarea"
+                rows={3}
+                placeholder="e.g. Approved for travel petty cash."
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 disabled={busy}
@@ -1062,6 +1249,144 @@ function MarketingBudgetRequestDetailsModal({ id, item, onClose, onApprove, onRe
                             <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Requested by</p>
                             <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
                                 {row.requestedBy ?? row.requested_by ?? row.requestedByName ?? row.requested_by_name ?? item?.submittedBy ?? '—'}
+                            </p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                {formatDate(row.createdAt ?? row.created_at ?? item?.date)}
+                            </p>
+                        </div>
+                        {(row.approvedBy ?? row.approved_by ?? row.approvedByName ?? row.rejectedBy ?? row.rejected_by) && (
+                            <div>
+                                <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
+                                    {row.rejectedBy ?? row.rejected_by ? 'Rejected by' : 'Approved by'}
+                                </p>
+                                <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                    {row.approvedByName ?? row.approved_by_name ?? row.approvedBy ?? row.approved_by
+                                        ?? row.rejectedByName ?? row.rejected_by_name ?? row.rejectedBy ?? row.rejected_by}
+                                </p>
+                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                    {formatDate(row.approvedAt ?? row.approved_at ?? row.rejectedAt ?? row.rejected_at)}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                    {(row.rejectionReason ?? row.rejection_reason ?? item?.meta?.rejectionReason) && (
+                        <div style={{ padding: 10, background: '#fef2f2', borderRadius: 10, fontSize: '0.875rem', color: '#991b1b' }}>
+                            <strong>Rejection reason:</strong>{' '}
+                            {row.rejectionReason ?? row.rejection_reason ?? item?.meta?.rejectionReason}
+                        </div>
+                    )}
+                </div>
+            )}
+        </Modal>
+    );
+}
+
+/** Admin personal wallet fund request detail for Super Admin Approvals. */
+function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onReject }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr('');
+        fetchApprovalDetails('admin_wallet_fund_request', id)
+            .then((res) => {
+                if (!cancelled) setData(res);
+            })
+            .catch((e) => {
+                if (!cancelled) setErr(e?.message || 'Could not load request details');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [id]);
+
+    const row = data ?? item?.raw ?? item ?? {};
+    const currency = row.currencyCode ?? row.currency_code ?? item?.meta?.currencyCode ?? 'SAR';
+    const amount = Number(row.amount ?? item?.meta?.amount ?? 0);
+    const requestNumber = row.requestNumber ?? row.request_number ?? item?.meta?.requestNumber ?? `#${id}`;
+    const status = String(row.status ?? item?.status ?? 'pending').toLowerCase();
+    const adminUser = row.adminUser ?? {};
+
+    const money = (v) =>
+        `${currency} ${Number(v || 0).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        })}`;
+
+    return (
+        <Modal
+            title={`Admin wallet fund · ${requestNumber}`}
+            onClose={onClose}
+            width={720}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
+                    {status === 'pending' && (
+                        <>
+                            {onReject && (
+                                <button type="button" className="btn-reject" onClick={onReject}>
+                                    <X size={16} /> Reject
+                                </button>
+                            )}
+                            {onApprove && (
+                                <button type="button" className="btn-approve" onClick={onApprove}>
+                                    <Check size={16} /> Approve
+                                </button>
+                            )}
+                        </>
+                    )}
+                </>
+            )}
+        >
+            {loading ? (
+                <div style={{ padding: 24, textAlign: 'center' }}>
+                    <Loader size={20} className="spin" /> Loading…
+                </div>
+            ) : err ? (
+                <p style={{ color: '#b91c1c' }}>{err}</p>
+            ) : (
+                <div>
+                    <div style={{ marginBottom: 14 }}>
+                        <span className={`status-badge status-${status}`}>{status}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Amount</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700, fontSize: '1.125rem' }}>{money(amount)}</p>
+                        </div>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Admin user</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>
+                                {adminUser.name ?? row.adminUserName ?? item?.meta?.adminUserName ?? '—'}
+                            </p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                {adminUser.email ?? row.adminUserEmail ?? item?.meta?.adminUserEmail ?? '—'}
+                            </p>
+                        </div>
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Purpose</p>
+                        <p style={{ margin: '6px 0 0', fontSize: '0.9375rem' }}>
+                            {row.purpose ?? item?.meta?.purpose ?? '—'}
+                        </p>
+                    </div>
+                    {(row.sourceAccountName ?? row.source_account_name ?? item?.meta?.sourceAccountName) && (
+                        <div style={{ marginBottom: 14, padding: 12, background: '#f0fdf4', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#166534', textTransform: 'uppercase', fontWeight: 700 }}>Funded from</p>
+                            <p style={{ margin: '6px 0 0', fontWeight: 700 }}>
+                                {row.sourceAccountName ?? row.source_account_name ?? item?.meta?.sourceAccountName}
+                            </p>
+                        </div>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Requested by</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                {row.requestedByName ?? row.requested_by_name ?? row.requestedBy ?? item?.submittedBy ?? '—'}
                             </p>
                             <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
                                 {formatDate(row.createdAt ?? row.created_at ?? item?.date)}
@@ -2022,6 +2347,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const [approveTarget, setApproveTarget] = useState(null); // item
     const [payTarget, setPayTarget] = useState(null); // marketing_expense awaiting pay
     const [rejectTarget, setRejectTarget] = useState(null);   // item
+    const [approveModalError, setApproveModalError] = useState('');
 
     // toast
     const [toast, setToast] = useState(null);
@@ -2266,8 +2592,15 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const isMarketingPromoCode = (et) => et === 'marketing_promo_code';
     const isMarketingExpense = (et) => et === 'marketing_expense';
 
+    useEffect(() => {
+        if (approveTarget?.entityType === 'admin_wallet_fund_request' && approveTarget?.id) {
+            setApproveModalError('');
+        }
+    }, [approveTarget?.entityType, approveTarget?.id]);
+
     const handleApproveConfirm = async (item, remarksOrPayload) => {
         setActionLoading(approvalItemKey(item));
+        setApproveModalError('');
         try {
             const payload =
                 typeof remarksOrPayload === 'string'
@@ -2304,6 +2637,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             }
             removeFromList(item);
             setApproveTarget(null);
+            setApproveModalError('');
             setDetailsTarget(null);
             setReloadTick((t) => t + 1);
             const postedToCao =
@@ -2314,7 +2648,11 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     : 'Request approved.',
             );
         } catch (err) {
-            showToast(`Approve failed: ${err.message}`, 'error');
+            if (item.entityType === 'admin_wallet_fund_request') {
+                setApproveModalError(err?.message || 'Approve failed');
+            } else {
+                showToast(`Approve failed: ${err.message}`, 'error');
+            }
         } finally {
             setActionLoading(null);
         }
@@ -2422,6 +2760,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             case 'marketing_expense':
             case 'marketing_promo_code':
             case 'marketing_budget_request':
+            case 'admin_wallet_fund_request':
                 return <Tag size={14} />;
             default:
                 return <FileText size={14} />;
@@ -2680,6 +3019,16 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 />
             )}
 
+            {detailsTarget && detailsTarget.entityType === 'admin_wallet_fund_request' && (
+                <AdminWalletFundRequestDetailsModal
+                    id={detailsTarget.id}
+                    item={detailsTarget.item}
+                    onClose={() => setDetailsTarget(null)}
+                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
+                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
+                />
+            )}
+
             {detailsTarget && detailsTarget.entityType === 'marketing_expense' && (
                 <MarketingExpenseDetailsModal
                     id={detailsTarget.id}
@@ -2706,6 +3055,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 && detailsTarget.entityType !== 'corporate_payment_approval'
                 && detailsTarget.entityType !== 'sales_return'
                 && detailsTarget.entityType !== 'marketing_budget_request'
+                && detailsTarget.entityType !== 'admin_wallet_fund_request'
                 && detailsTarget.entityType !== 'marketing_expense'
                 && detailsTarget.entityType !== 'marketing_promotion' && (
                 <ApprovalDetailsModal
@@ -2761,6 +3111,17 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     item={approveTarget}
                     busy={actionLoading === approvalItemKey(approveTarget)}
                     onCancel={() => setApproveTarget(null)}
+                    onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
+                />
+            ) : approveTarget && approveTarget.entityType === 'admin_wallet_fund_request' ? (
+                <AdminWalletFundApproveModal
+                    item={approveTarget}
+                    busy={actionLoading === approvalItemKey(approveTarget)}
+                    error={approveModalError}
+                    onCancel={() => {
+                        setApproveTarget(null);
+                        setApproveModalError('');
+                    }}
                     onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
                 />
             ) : approveTarget

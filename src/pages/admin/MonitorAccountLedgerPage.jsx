@@ -18,7 +18,10 @@ import {
     todayISO,
 } from './saAccountingDateRange';
 import { loadSaAccountingScope } from './saAccountingScope';
+import { adminWalletExpenseLedgerFilterOptions } from '../../constants/adminWalletExpenseCategories';
 import '../../styles/admin/AccountingPage.css';
+
+const HQ_ADMIN_WALLET_LEDGER_CODES = new Set(['6100', '1335']);
 
 /**
  * Super Admin monitor — full-page account ledger statement (workshop, HQ, or supplier scope).
@@ -49,6 +52,10 @@ export default function MonitorAccountLedgerPage() {
     const [dateTo, setDateTo] = useState(
         () => urlDateTo || storedRange.dateTo || todayISO(),
     );
+    const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('');
+    const [expenseCategoryInput, setExpenseCategoryInput] = useState('');
+    const [walletUserFilter, setWalletUserFilter] = useState('');
+    const [topupsOnly, setTopupsOnly] = useState(false);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [data, setData] = useState(null);
@@ -114,6 +121,15 @@ export default function MonitorAccountLedgerPage() {
             dateTo: dateTo || undefined,
             limit: 10000,
         };
+        if (expenseCategoryFilter) {
+            p.expenseCategory = expenseCategoryFilter;
+        }
+        if (walletUserFilter) {
+            p.walletUserId = walletUserFilter;
+        }
+        if (topupsOnly) {
+            p.topupsOnly = 'true';
+        }
         if (!isSupplier && scope.branchId) {
             p.branchId = scope.branchId;
         }
@@ -121,9 +137,9 @@ export default function MonitorAccountLedgerPage() {
             p.workshopId = workshopId;
         }
         return p;
-    }, [dateFrom, dateTo, isSupplier, scope.branchId, workshopId]);
+    }, [dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly, isSupplier, scope.branchId, workshopId]);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async (opts = {}) => {
         if (!accountId) return;
         if (isSupplier && !scope.supplierId) {
             setErr('Select a supplier on Chart of Accounts first.');
@@ -144,16 +160,36 @@ export default function MonitorAccountLedgerPage() {
         const seq = ++loadSeqRef.current;
         setLoading(true);
         setErr('');
+        const categoryParam =
+            opts.expenseCategory !== undefined
+                ? opts.expenseCategory
+                : expenseCategoryFilter;
+        const walletUserParam =
+            opts.walletUserId !== undefined
+                ? opts.walletUserId
+                : walletUserFilter;
+        const topupsOnlyParam =
+            opts.topupsOnly !== undefined ? opts.topupsOnly : topupsOnly;
+        const params = {
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
+            limit: 10000,
+            ...(!topupsOnlyParam && categoryParam ? { expenseCategory: categoryParam } : {}),
+            ...(walletUserParam ? { walletUserId: walletUserParam } : {}),
+            ...(topupsOnlyParam ? { topupsOnly: 'true' } : {}),
+            ...(!isSupplier && scope.branchId ? { branchId: scope.branchId } : {}),
+            ...(!isSupplier && workshopId ? { workshopId } : {}),
+        };
         try {
             let res;
             if (isSupplier) {
                 res = await supMon.monitorSupplierAccountLedger(
                     scope.supplierId,
                     accountId,
-                    ledgerParams,
+                    params,
                 );
             } else {
-                res = await accountsApi.getAccountLedger(accountId, ledgerParams);
+                res = await accountsApi.getAccountLedger(accountId, params);
             }
             if (seq !== loadSeqRef.current) return;
             setData(unwrapLedgerPayload(res));
@@ -164,7 +200,7 @@ export default function MonitorAccountLedgerPage() {
         } finally {
             if (seq === loadSeqRef.current) setLoading(false);
         }
-    }, [accountId, isHq, isSupplier, ledgerParams, scope.supplierId, workshopId]);
+    }, [accountId, isHq, isSupplier, scope.supplierId, scope.branchId, workshopId, dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly]);
 
     useEffect(() => {
         void load();
@@ -195,6 +231,8 @@ export default function MonitorAccountLedgerPage() {
             companyName: root?.header?.companyName || entityLabel || undefined,
             from: root?.header?.from || dateFrom || undefined,
             to: root?.header?.to || dateTo || undefined,
+            expenseCategory: root?.header?.expenseCategory || expenseCategoryFilter || undefined,
+            walletUserId: root?.header?.walletUserId || walletUserFilter || undefined,
             currencyCode: root?.header?.currencyCode || 'SAR',
         };
     }
@@ -233,7 +271,84 @@ export default function MonitorAccountLedgerPage() {
         const next = loadSaAccountingDateRange();
         setDateFrom(next.dateFrom);
         setDateTo(next.dateTo);
+        setExpenseCategoryFilter('');
+        setExpenseCategoryInput('');
+        setWalletUserFilter('');
+        setTopupsOnly(false);
     }
+
+    function syncExpenseCategoryFromInput() {
+        if (expenseCategoryFilter) return expenseCategoryFilter;
+        const raw = String(expenseCategoryInput || '').trim();
+        if (!raw || raw.toLowerCase() === 'all categories') {
+            setExpenseCategoryFilter('');
+            return '';
+        }
+        const options = expenseCategoryComboboxOptions;
+        const match = options.find(
+            (c) => c.label.toLowerCase() === raw.toLowerCase()
+                || String(c.id).toLowerCase() === raw.toLowerCase(),
+        );
+        const next = match?.id ?? '';
+        setExpenseCategoryFilter(next);
+        return next;
+    }
+
+    function applyFilters() {
+        const nextCategory = topupsOnly ? '' : syncExpenseCategoryFromInput();
+        void load({
+            expenseCategory: nextCategory,
+            walletUserId: walletUserFilter,
+            topupsOnly,
+        });
+    }
+
+    function handleTopupsOnlyChange(checked) {
+        setTopupsOnly(checked);
+        if (checked) {
+            setExpenseCategoryFilter('');
+            setExpenseCategoryInput('');
+        }
+    }
+
+    const isAdminWalletTopupLedger = Boolean(
+        isHq && (fallbackCode === '1335' || data?.header?.accountCode === '1335'),
+    );
+    const isPettyCashExpenseLedger = Boolean(
+        data?.pettyCashExpenseLedger
+        || (isHq && (
+            HQ_ADMIN_WALLET_LEDGER_CODES.has(fallbackCode)
+            || HQ_ADMIN_WALLET_LEDGER_CODES.has(data?.header?.accountCode)
+        )),
+    );
+
+    const showExpenseCategoryFilter = isPettyCashExpenseLedger && !topupsOnly;
+
+    const expenseCategoryComboboxOptions = useMemo(() => {
+        if (data?.filterOptions?.expenseCategories?.length) {
+            return data.filterOptions.expenseCategories.map((c) => ({
+                id: c.key,
+                label: c.label,
+                searchText: c.label,
+            }));
+        }
+        if (!isPettyCashExpenseLedger) return [];
+        return adminWalletExpenseLedgerFilterOptions();
+    }, [data?.filterOptions?.expenseCategories, isPettyCashExpenseLedger]);
+
+    const ledgerFilterOptions = useMemo(() => {
+        if (data?.filterOptions) {
+            return data.filterOptions;
+        }
+        if (!isPettyCashExpenseLedger) return null;
+        return {
+            expenseCategories: adminWalletExpenseLedgerFilterOptions().map((o) => ({
+                key: o.id,
+                label: o.label,
+            })),
+            walletUsers: [{ key: '', label: 'All users / employees' }],
+        };
+    }, [data?.filterOptions, isPettyCashExpenseLedger]);
 
     const accountType =
         data?.header?.accountType ||
@@ -268,11 +383,30 @@ export default function MonitorAccountLedgerPage() {
                 dateTo={dateTo}
                 onDateFromChange={setDateFrom}
                 onDateToChange={setDateTo}
-                onApply={() => void load()}
+                onApply={applyFilters}
                 onClear={clearRange}
                 onExportPdf={() => void onExportPdf()}
                 onExportExcel={() => void onExportExcel()}
                 exportDisabled={!data || loading}
+                showPettyCashExpenseColumns={isPettyCashExpenseLedger}
+                closingBalanceKpiLabel={
+                    isPettyCashExpenseLedger
+                        ? 'Closing Balance (selected period)'
+                        : 'Closing Balance'
+                }
+                filterOptions={ledgerFilterOptions}
+                expenseCategoryFilter={expenseCategoryFilter}
+                onExpenseCategoryFilterChange={setExpenseCategoryFilter}
+                expenseCategoryFilterInput={expenseCategoryInput}
+                onExpenseCategoryFilterInputChange={setExpenseCategoryInput}
+                expenseCategoryComboboxOptions={expenseCategoryComboboxOptions}
+                walletUserFilter={walletUserFilter}
+                onWalletUserFilterChange={setWalletUserFilter}
+                walletUsers={ledgerFilterOptions?.walletUsers ?? []}
+                showTopupsOnlyFilter={isAdminWalletTopupLedger}
+                topupsOnly={topupsOnly}
+                onTopupsOnlyChange={handleTopupsOnlyChange}
+                showExpenseCategoryFilter={showExpenseCategoryFilter}
             />
         </div>
     );

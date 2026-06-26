@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { Building2, LogOut, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Building2, LogOut, AlertTriangle, ChevronDown, ChevronRight, Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     NAV_ITEMS,
@@ -29,6 +29,11 @@ import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
 import WorkshopAffiliatedSuppliers from './workshop/WorkshopAffiliatedSuppliers';
 import WorkshopNonAffiliatedSuppliers from './workshop/WorkshopNonAffiliatedSuppliers';
 import WorkshopSupplierLedger from './workshop/WorkshopSupplierLedger';
+import WorkshopPlatformChatPage from './workshop/WorkshopPlatformChatPage';
+import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
+import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import { isPlatformChatNavId } from '../utils/platformChatForUser';
+import '../styles/admin/PlatformChat.css';
 import { apiFetch } from '../services/api';
 import { workshopLogout } from '../services/authApi';
 import {
@@ -231,6 +236,7 @@ export default function WorkshopLayout() {
     }, [location.pathname, location.search]);
 
     const handleTabChange = (tabId, state = null) => {
+        setIsMobileMenuOpen(false);
         setActiveTab(tabId);
         setTabState(state);
         
@@ -280,6 +286,11 @@ export default function WorkshopLayout() {
         accounting: activeTab.startsWith('acc-'),
         'staff-app': activeTab.startsWith('sap-'),
     });
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+    useEffect(() => {
+        setIsMobileMenuOpen(false);
+    }, [location.pathname, location.search]);
 
     const toggleMenu = (id) => {
         setOpenMenus(prev => ({ ...prev, [id]: !prev[id] }));
@@ -486,6 +497,8 @@ export default function WorkshopLayout() {
                         onNavigate={handleTabChange}
                     />
                 );
+            case 'platform-chat':
+                return null;
             case 'employees':
                 return (
                     <WorkshopEmployees
@@ -604,9 +617,25 @@ export default function WorkshopLayout() {
                 : NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
     const topbarSubtitle = activeTab === 'catalog-new' ? 'Corporate master catalog' : selectedBranchName;
 
+    if (activeTab === 'platform-chat') {
+        return (
+            <div className="portal-layout--chat-fullscreen">
+                <WorkshopPlatformChatPage />
+            </div>
+        );
+    }
+
     return (
-        <div className="workshop-layout">
-            <aside className="ws-sidebar">
+        <div className={`workshop-layout${isMobileMenuOpen ? ' mobile-menu-open' : ''}`}>
+            {isMobileMenuOpen && (
+                <button
+                    type="button"
+                    className="ws-sidebar-overlay"
+                    aria-label="Close navigation menu"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                />
+            )}
+            <aside className={`ws-sidebar${isMobileMenuOpen ? ' open' : ''}`}>
                 <div className="ws-logo">
                     <div className="ws-logo-icon"><Building2 size={20}/></div>
                     <div><p className="ws-logo-title">Filter Admin Workshop</p><p className="ws-logo-sub">Portal</p></div>
@@ -652,6 +681,7 @@ export default function WorkshopLayout() {
                                 >
                                     <item.icon size={18} stroke="currentColor" />
                                     <span>{item.label}</span>
+                                    {isPlatformChatNavId(item.id) && <PlatformChatNavBadge />}
                                     {hasSub && (
                                         <span style={{ marginLeft: 'auto', opacity: 0.5 }}>
                                             {isOpen ? <ChevronDown size={14} stroke="currentColor" /> : <ChevronRight size={14} stroke="currentColor" />}
@@ -711,7 +741,21 @@ export default function WorkshopLayout() {
             </aside>
             <div className="ws-main">
                 <header className="ws-topbar">
-                    <div><p className="ws-topbar-title">{currentLabel}</p><p className="ws-topbar-sub">{topbarSubtitle}</p></div>
+                    <div className="ws-topbar-left">
+                        <button
+                            type="button"
+                            className="ws-mobile-menu-toggle"
+                            onClick={() => setIsMobileMenuOpen((open) => !open)}
+                            aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+                            aria-expanded={isMobileMenuOpen}
+                        >
+                            {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+                        </button>
+                        <div>
+                            <p className="ws-topbar-title">{currentLabel}</p>
+                            <p className="ws-topbar-sub">{topbarSubtitle}</p>
+                        </div>
+                    </div>
                     <div className="ws-topbar-right">
                         {dashboardLowStockCount > 0 && (
                             <button className="ws-alert-badge" onClick={() => setActiveTab('departments')}>
@@ -721,16 +765,22 @@ export default function WorkshopLayout() {
                         <div className="ws-online-badge"><div className="ws-online-dot"/> Online</div>
                     </div>
                 </header>
-                <main className="ws-content">
-                    {apiLoading && (
-                        <div className="ws-global-loader" role="status" aria-live="polite">
-                            <div className="ws-global-loader__spinner" />
-                            <span>Loading...</span>
+                {apiLoading && (
+                    <div className="ws-global-loader" role="status" aria-live="polite">
+                        <div className="ws-global-loader__inner">
+                            <div className="ws-global-loader__spinner" aria-hidden="true" />
+                            <span className="ws-global-loader__text">Loading...</span>
                         </div>
-                    )}
+                    </div>
+                )}
+                <main className="ws-content">
                     {renderContent()}
                 </main>
             </div>
+            <PlatformChatFab
+                hidden={activeTab === 'platform-chat'}
+                onClick={() => handleTabChange('platform-chat')}
+            />
         </div>
     );
 }

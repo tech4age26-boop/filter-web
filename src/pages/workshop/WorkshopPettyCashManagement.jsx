@@ -13,6 +13,7 @@ import {
 import { listCashBankAccounts } from '../../services/workshopAccountingApi';
 import { getWorkshopBranches, unwrapWorkshopBranchesResponse } from '../../services/workshopStaffApi';
 import { StatusBadge, MessageThread, formatSar, WalletTransactionsTable } from './WorkshopMyPettyCash.shared';
+import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/AccountingPage.css';
 
@@ -458,6 +459,7 @@ export default function WorkshopPettyCashManagement({
                             <th className="table-th">Type</th>
                             <th className="table-th">Branch</th>
                             <th className="table-th">Amount</th>
+                            <th className="table-th">Proof</th>
                             <th className="table-th">Status</th>
                             <th className="table-th">Pay from</th>
                             <th className="table-th">Actions</th>
@@ -465,7 +467,7 @@ export default function WorkshopPettyCashManagement({
                     </thead>
                     <tbody>
                         {requests.length === 0 ? (
-                            <tr><td colSpan={8} className="table-cell table-empty">No requests.</td></tr>
+                            <tr><td colSpan={9} className="table-cell table-empty">No requests.</td></tr>
                         ) : requests.map((r) => (
                             <tr key={r.id}>
                                 <td className="table-cell">{new Date(r.createdAt).toLocaleDateString()}</td>
@@ -473,6 +475,11 @@ export default function WorkshopPettyCashManagement({
                                 <td className="table-cell">{r.kind === 'fund_request' ? 'Fund top-up' : 'Expense'}</td>
                                 <td className="table-cell">{r.branch?.name ?? '—'}</td>
                                 <td className="table-cell">SAR {formatSar(r.amount)}</td>
+                                <td className="table-cell">
+                                    {r.kind === 'expense' ? (
+                                        <ExpenseProofThumbnail proofUrl={r.proofUrl} size={36} />
+                                    ) : '—'}
+                                </td>
                                 <td className="table-cell"><StatusBadge status={r.status} /></td>
                                 <td className="table-cell">
                                     {r.status === 'pending' && r.kind === 'fund_request' ? (

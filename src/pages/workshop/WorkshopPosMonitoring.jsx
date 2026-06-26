@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { LogOut, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { qs, branchScopeParams } from '../../services/workshopStaffApi';
 import ForceCashierLogoutModal from '../../components/workshop/ForceCashierLogoutModal';
 import ClosingReportDetailModal from '../../components/workshop/ClosingReportDetailModal';
@@ -127,7 +128,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
 
             <div className="ws-section" style={{ marginTop: 16 }}>
                 <p style={{ padding: '16px 16px 0', fontWeight: 700, margin: 0 }}>Live Counters</p>
-                <div style={{ overflowX: 'auto', padding: 16 }}>
+                <WsTableScroll style={{ padding: 16 }}>
                     <table className="ws-table">
                         <thead>
                             <tr>
@@ -170,7 +171,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                             ))}
                         </tbody>
                     </table>
-                </div>
+                </WsTableScroll>
             </div>
 
             <div className="ws-section" style={{ marginTop: 16 }}>
@@ -178,7 +179,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                     Recent Closing Reports
                     <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', fontSize: '0.8rem', marginLeft: 8 }}>Click a row for full details</span>
                 </p>
-                <div style={{ overflowX: 'auto', padding: 16 }}>
+                <WsTableScroll style={{ padding: 16 }}>
                     <table className="ws-table">
                         <thead>
                             <tr>
@@ -213,7 +214,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                             ))}
                         </tbody>
                     </table>
-                </div>
+                </WsTableScroll>
             </div>
 
             {forceLogoutCounter && (

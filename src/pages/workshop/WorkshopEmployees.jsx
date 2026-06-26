@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Users, Wrench, Radio, Plus, Pencil, Trash2, Loader, Eye, EyeOff, ShieldCheck, Key, ChevronDown, ChevronRight } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { useAuth } from '../../context/AuthContext';
 import * as workshopPermsApi from '../../services/workshopPermissionsApi';
 import { codesToActionsByTab, flattenActionsByTab } from '../../utils/permissions';
@@ -1259,7 +1260,7 @@ export default function WorkshopEmployees({
                         the workshop portal after approval.
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: 10 }}>
+                <div className="ws-page-header-actions">
                     {canManagePermissions && (
                         <button
                             className="btn-portal-outline"
@@ -1282,7 +1283,7 @@ export default function WorkshopEmployees({
                     {listError}
                 </div>
             )}
-            <div className="ws-kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            <div className="ws-kpi-grid ws-kpi-grid--staff">
                 <div className="ws-kpi-card">
                     <div>
                         <p className="ws-kpi-label">Total Staff</p>
@@ -1322,6 +1323,7 @@ export default function WorkshopEmployees({
                     <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No employees in this view.</p>
                 ) : (
                     !loading && (
+                        <WsTableScroll>
                         <table className="ws-table">
                             <thead>
                                 <tr>
@@ -1461,6 +1463,7 @@ export default function WorkshopEmployees({
                                 ))}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                     )
                 )}
             </div>

@@ -27,10 +27,15 @@ import SupplierAccountingPage from './supplier/SupplierAccountingPage';
 import SupplierAccountLedgerPage from './supplier/accounting/SupplierAccountLedgerPage';
 import SupplierStorageFacility from './supplier/storage-facility/SupplierStorageFacility';
 import SupplierStaffAppPage from './supplier/SupplierStaffAppPage';
+import SupplierPlatformChatPage from './supplier/SupplierPlatformChatPage';
+import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
+import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import { isPlatformChatNavId } from '../utils/platformChatForUser';
 import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { getSupplierProfile, getSupplierReceivables } from '../services/supplierApi';
 import './workshop/Workshop.css';
+import '../styles/admin/PlatformChat.css';
 import '../styles/ThemeOnly.css';
 import '../styles/RowActionsMenu.css';
 import { ShimmerLine } from '../components/supplier/Shimmer';
@@ -179,6 +184,7 @@ export default function SupplierLayout() {
         }
 
         switch (activeTab) {
+            case 'platform-chat': return null;
             case 'dashboard': return <SupplierDashboard onTabChange={setActiveTab}/>;
             case 'order_queue': return <SupplierOrderQueue/>;
             case 'stock': return <SupplierStockInventory/>;
@@ -202,6 +208,14 @@ export default function SupplierLayout() {
     const currentLabel = navGroupsForUser.flatMap(g => [g, ...(g.items || [])])
         .flatMap(i => [i, ...(i.subItems || [])])
         .find(i => i.id === activeTab)?.label || 'Dashboard';
+
+    if (activeTab === 'platform-chat') {
+        return (
+            <div className="portal-layout--chat-fullscreen">
+                <SupplierPlatformChatPage />
+            </div>
+        );
+    }
 
     return (
         <div className="workshop-layout supplier-portal">
@@ -247,6 +261,7 @@ export default function SupplierLayout() {
                                         >
                                             <item.icon size={17} stroke="currentColor" />
                                             <span>{item.label}</span>
+                                            {isPlatformChatNavId(item.id) && <PlatformChatNavBadge />}
                                             {item.badge > 0 && <span className="ws-nav-badge">{item.badge}</span>}
                                             {hasSub && (
                                                 <div style={{ marginLeft: 'auto', opacity: 0.5 }}>
@@ -335,6 +350,11 @@ export default function SupplierLayout() {
                     </p>
                 </Modal>
             )}
+
+            <PlatformChatFab
+                hidden={activeTab === 'platform-chat'}
+                onClick={() => setActiveTab('platform-chat')}
+            />
         </div>
     );
 }

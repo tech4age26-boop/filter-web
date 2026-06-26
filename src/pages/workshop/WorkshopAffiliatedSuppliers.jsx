@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Search, RefreshCw, FileText } from 'lucide-react';
 import Modal from '../../components/Modal';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import {
     listAffiliatedSuppliers,
     listAvailableAffiliatedSuppliers,
@@ -145,26 +146,28 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
         <Modal
             title="Add Affiliated Supplier(s)"
             onClose={isSaving ? () => {} : onClose}
-            width="880px"
+            width="min(880px, 96vw)"
+            contentClassName="ws-aff-modal"
             footer={
-                <>
-                    <button className="btn-portal-outline" onClick={onClose} disabled={isSaving}>
+                <div className="ws-aff-modal-footer">
+                    <button className="btn-portal-outline" type="button" onClick={onClose} disabled={isSaving}>
                         Cancel
                     </button>
                     <button
                         className="btn-portal"
+                        type="button"
                         disabled={isSaving || pickedIds.length === 0}
                         onClick={handleSave}
                     >
                         {isSaving ? 'Adding...' : `Add ${pickedIds.length || ''} supplier(s)`}
                     </button>
-                </>
+                </div>
             }
         >
             <form
                 autoComplete="off"
                 onSubmit={(e) => e.preventDefault()}
-                style={{ fontSize: '0.875rem' }}
+                className="ws-aff-modal-form"
             >
                 {/* Hidden dummy fields neutralize Chrome / Safari "save email" autofill on the search box. */}
                 <input
@@ -182,14 +185,14 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                     readOnly
                 />
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginBottom: 14 }}>
-                    <div>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Default branch</label>
+                <div className="ws-aff-modal-toolbar">
+                    <div className="ws-aff-modal-field">
+                        <label>Default branch</label>
                         <select
                             value={branchId}
                             onChange={(e) => setBranchId(e.target.value)}
                             disabled={!isAll}
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', opacity: isAll ? 1 : 0.85 }}
+                            className="ws-aff-modal-input"
                         >
                             {isAll && <option value="">— None (workshop-wide) —</option>}
                             {visibleBranches.map((b) => (
@@ -199,10 +202,10 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                             ))}
                         </select>
                     </div>
-                    <div>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Search registered suppliers</label>
-                        <div style={{ position: 'relative' }}>
-                            <Search size={14} style={{ position: 'absolute', left: 10, top: 12, color: '#94A3B8' }} />
+                    <div className="ws-aff-modal-field ws-aff-modal-field--search">
+                        <label>Search registered suppliers</label>
+                        <div className="ws-aff-modal-search">
+                            <Search size={14} className="ws-aff-modal-search-icon" />
                             <input
                                 type="search"
                                 name="affiliatedSupplierSearch"
@@ -212,30 +215,20 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                                 autoComplete="off"
                                 autoCorrect="off"
                                 spellCheck={false}
-                                style={{ width: '100%', padding: '10px 12px 10px 32px', borderRadius: 8, border: '1px solid var(--color-border)' }}
+                                className="ws-aff-modal-input ws-aff-modal-input--search"
                             />
                         </div>
                     </div>
                 </div>
 
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 12,
-                        marginBottom: 8,
-                        fontSize: 12,
-                        color: '#64748B',
-                    }}
-                >
+                <div className="ws-aff-modal-meta">
                     <span>
                         Showing <strong>{visibleRows.length}</strong> of {available.length} registered
                         {linkedCount > 0 && ` • ${linkedCount} already linked`}
                         {pickedIds.length > 0 && ` • ${pickedIds.length} selected`}
                     </span>
-                    <span style={{ flex: 1 }} />
                     {linkedCount > 0 && (
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <label className="ws-aff-modal-hide-linked">
                             <input
                                 type="checkbox"
                                 checked={hideLinked}
@@ -246,25 +239,18 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                     )}
                 </div>
 
-                <div
-                    style={{
-                        border: '1px solid var(--color-border)',
-                        borderRadius: 10,
-                        maxHeight: 380,
-                        overflow: 'auto',
-                        background: '#fff',
-                    }}
-                >
+                <div className="ws-aff-modal-table-wrap">
                     {loading ? (
-                        <div style={{ padding: 24, textAlign: 'center', color: '#64748B' }}>Loading registered suppliers...</div>
+                        <div className="ws-aff-modal-empty">Loading registered suppliers...</div>
                     ) : visibleRows.length === 0 ? (
-                        <div style={{ padding: 24, textAlign: 'center', color: '#64748B' }}>
+                        <div className="ws-aff-modal-empty">
                             {available.length === 0
                                 ? 'No suppliers are registered with the platform yet. Ask the super-admin to register suppliers first.'
                                 : 'No registered suppliers match your filter.'}
                         </div>
                     ) : (
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <WsTableScroll bodyClassName="ws-aff-modal-table-scroll">
+                        <table className="ws-aff-modal-table">
                             <thead>
                                 <tr style={{ background: '#F8FAFC', textAlign: 'left' }}>
                                     <th style={{ padding: 10, width: 36 }}>
@@ -374,11 +360,12 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                                 })}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                     )}
                 </div>
 
                 {error && (
-                    <p style={{ marginTop: 10, color: '#B91C1C', fontSize: 13 }}>{error}</p>
+                    <p className="ws-aff-modal-error">{error}</p>
                 )}
             </form>
         </Modal>
@@ -449,32 +436,35 @@ export default function WorkshopAffiliatedSuppliers({
     );
 
     return (
-        <div className="ws-page" style={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <h2 style={{ margin: 0, flex: 1 }}>Filter Affiliated Suppliers</h2>
-                <button className="btn-portal-outline" onClick={loadList} disabled={loading}>
-                    <RefreshCw size={14} style={{ marginRight: 6 }} />
-                    Refresh
-                </button>
-                {canCreate && (
-                    <button className="btn-portal" onClick={() => setShowAdd(true)}>
-                        <Plus size={14} style={{ marginRight: 6 }} />
-                        Add new supplier
+        <div className="ws-suppliers-page">
+            <div className="ws-suppliers-header">
+                <h2 className="ws-suppliers-title">Filter Affiliated Suppliers</h2>
+                <div className="ws-suppliers-header-actions">
+                    <button type="button" className="btn-portal-outline" onClick={loadList} disabled={loading}>
+                        <RefreshCw size={14} />
+                        Refresh
                     </button>
-                )}
+                    {canCreate && (
+                        <button type="button" className="btn-portal" onClick={() => setShowAdd(true)}>
+                            <Plus size={14} />
+                            Add new supplier
+                        </button>
+                    )}
+                </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
-                <div style={{ background: '#F1F5F9', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>
+            <div className="ws-suppliers-stats">
+                <div className="ws-suppliers-stat ws-suppliers-stat--neutral">
                     Total suppliers: <strong>{rows.length}</strong>
                 </div>
-                <div style={{ background: '#FEF3C7', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>
+                <div className="ws-suppliers-stat ws-suppliers-stat--balance">
                     Aggregate payable balance: <strong>{fmtMoney(totalBalance)} SAR</strong>
                 </div>
             </div>
 
-            <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <div className="ws-suppliers-table-wrap">
+                <WsTableScroll>
+                <table className="ws-suppliers-table">
                     <thead>
                         <tr style={{ background: '#F8FAFC', textAlign: 'left' }}>
                             <th style={{ padding: 12, width: 60 }}>S.No.</th>
@@ -519,41 +509,21 @@ export default function WorkshopAffiliatedSuppliers({
                                     <td style={{ padding: 12 }}>{fmtMoney(r.openingBalance)}</td>
                                     <td style={{ padding: 12 }}>{fmtMoney(r.finalBalance)}</td>
                                     <td style={{ padding: 12, textAlign: 'center' }}>
-                                        <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, opacity: canEdit ? 1 : 0.55, cursor: canEdit ? 'pointer' : 'not-allowed' }} title={canEdit ? undefined : 'No edit permission'}>
+                                        <label className="ws-suppliers-toggle" title={canEdit ? undefined : 'No edit permission'} style={{ opacity: canEdit ? 1 : 0.55, cursor: canEdit ? 'pointer' : 'not-allowed' }}>
                                             <input
                                                 type="checkbox"
                                                 checked={Boolean(r.isActive)}
                                                 onChange={() => { if (canEdit) onToggleActive(r); }}
                                                 disabled={!canEdit}
-                                                style={{ opacity: 0, width: 0, height: 0 }}
                                             />
-                                            <span
-                                                style={{
-                                                    position: 'absolute',
-                                                    inset: 0,
-                                                    background: r.isActive ? '#10B981' : '#CBD5E1',
-                                                    borderRadius: 22,
-                                                    transition: 'background 0.2s',
-                                                }}
-                                            />
-                                            <span
-                                                style={{
-                                                    position: 'absolute',
-                                                    top: 3,
-                                                    left: r.isActive ? 21 : 3,
-                                                    width: 16,
-                                                    height: 16,
-                                                    background: '#fff',
-                                                    borderRadius: '50%',
-                                                    transition: 'left 0.2s',
-                                                }}
-                                            />
+                                            <span className="ws-suppliers-toggle-track" data-on={r.isActive ? '1' : '0'} />
+                                            <span className="ws-suppliers-toggle-thumb" data-on={r.isActive ? '1' : '0'} />
                                         </label>
                                     </td>
                                     <td style={{ padding: 12 }}>
                                         <button
-                                            className="btn-portal-outline"
-                                            style={{ padding: '6px 10px', fontSize: 12 }}
+                                            type="button"
+                                            className="btn-portal-outline ws-suppliers-ledger-btn"
                                             onClick={() =>
                                                 onTabChange?.('supplier-ledger', {
                                                     type: 'affiliated',
@@ -562,7 +532,7 @@ export default function WorkshopAffiliatedSuppliers({
                                                 })
                                             }
                                         >
-                                            <FileText size={12} style={{ marginRight: 4 }} />
+                                            <FileText size={12} />
                                             Open ledger
                                         </button>
                                     </td>
@@ -571,10 +541,11 @@ export default function WorkshopAffiliatedSuppliers({
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
             </div>
 
             {error && (
-                <p style={{ marginTop: 12, color: '#B91C1C', fontSize: 13 }}>{error}</p>
+                <p className="ws-suppliers-error">{error}</p>
             )}
 
             {showAdd && (

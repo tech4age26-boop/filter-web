@@ -8,9 +8,12 @@ import {
     Shield, Map, Truck, Building, UserCheck, Receipt, ArrowLeftRight, FileSpreadsheet,
     Landmark, FileText, Car, Warehouse, Box, ShoppingCart, UserPlus, Globe, Megaphone,
     Menu, X, Percent, Wrench, GitBranch, Radio, BarChart2, ClipboardList, CreditCard,
-    FlaskConical, Smartphone,
+    FlaskConical, Smartphone, MessageCircle, Wallet, CircleDollarSign,
 } from 'lucide-react';
 import '../styles/AdminLayout.css';
+import '../styles/admin/PlatformChat.css';
+import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import { usePlatformChatUnread } from '../context/PlatformChatUnreadContext';
 import { loadSaAccountingScope, isHqAccountingScope } from './admin/saAccountingScope';
 
 const ACCOUNTING_MONITOR_SUB_ITEMS = [
@@ -44,7 +47,7 @@ const TRANSLATIONS = {
     en: {
         section: { CONTROL: 'CONTROL', OPERATIONS: 'OPERATIONS', FINANCE: 'FINANCE', SPECIALIZED: 'SPECIALIZED' },
         nav: {
-            dashboard: 'Dashboard', reports: 'Reporting', pos: 'POS / New Order', approvals: 'Approvals', 'zone-management': 'Zone Management', 'tax-codes': 'Tax Code', permissions: 'Permissions', 'tier-management': 'Tier Management',
+            dashboard: 'Dashboard', reports: 'Reporting', pos: 'POS / New Order', approvals: 'Approvals', 'zone-management': 'Zone Management', 'tax-codes': 'Tax Code', permissions: 'Permissions', 'admin-wallets': 'Admin Wallets', 'my-wallet': 'My Wallet', 'tier-management': 'Tier Management',
             inventory: 'Inventory', 'master-catalog': 'Master Catalog', 'products-services': 'Products & Services', 'stock-movements': 'Stock Movements', categories: 'Categories', 'units-of-measure': 'Units of Measure',
             customers: 'Customers', 'all-customers': 'All Customers', 'corporate-billing': 'Corporate Billing',
             suppliers: 'Suppliers', 'storage-facility': 'Storage Facility', employees: 'Employees', branches: 'Branches', workshop: 'Workshop', 'staff-app': 'Staff App',
@@ -58,6 +61,7 @@ const TRANSLATIONS = {
             'sales-reports': 'Sales Reports', 'sales-orders': 'Sales Orders',
             'corporate-transactions': 'Corporate Transactions', 'sales-returns': 'Sales Returns',
             'demo-invoices': 'Demo Invoices',
+            chat: 'Chat',
             transactions: 'Transactions', 'journal-entries': 'Journal Entries', purchases: 'Purchases', expenses: 'Expenses', payments: 'Payments', advances: 'Advances', payroll: 'Payroll Run', ledger: 'Ledger',
             'softpos-settlement': 'SoftPOS Settlement',
             marketing: 'Marketing',
@@ -73,7 +77,7 @@ const TRANSLATIONS = {
     ar: {
         section: { CONTROL: 'التحكم', OPERATIONS: 'العمليات', FINANCE: 'المالية', SPECIALIZED: 'متخصص' },
         nav: {
-            dashboard: 'لوحة التحكم', reports: 'التقارير', pos: 'نقطة البيع / طلب جديد', approvals: 'الموافقات', 'zone-management': 'إدارة المناطق', 'tax-codes': 'أكواد الضريبة', permissions: 'الصلاحيات', 'tier-management': 'إدارة الفئات',
+            dashboard: 'لوحة التحكم', reports: 'التقارير', pos: 'نقطة البيع / طلب جديد', approvals: 'الموافقات', 'zone-management': 'إدارة المناطق', 'tax-codes': 'أكواد الضريبة', permissions: 'الصلاحيات', 'admin-wallets': 'محافظ المشرفين', 'my-wallet': 'محفظتي', 'tier-management': 'إدارة الفئات',
             inventory: 'المخزون', 'master-catalog': 'الكتالوج الرئيسي', 'products-services': 'المنتجات والخدمات', 'stock-movements': 'حركة المخزون', categories: 'الفئات', 'units-of-measure': 'وحدات القياس',
             customers: 'العملاء', 'all-customers': 'جميع العملاء', 'corporate-billing': 'الفواتير المؤسسية',
             suppliers: 'الموردون', employees: 'الموظفون', branches: 'الفروع', workshop: 'الورشة',
@@ -87,6 +91,7 @@ const TRANSLATIONS = {
             'sales-reports': 'تقارير المبيعات', 'sales-orders': 'طلبات المبيعات',
             'corporate-transactions': 'معاملات الشركات', 'sales-returns': 'مرتجعات المبيعات',
             'demo-invoices': 'فواتير تجريبية',
+            chat: 'المحادثة',
             transactions: 'المعاملات', 'journal-entries': 'قيد اليومية', purchases: 'المشتريات', expenses: 'المصروفات', payments: 'المدفوعات', advances: 'السلف', payroll: 'تشغيل الرواتب', ledger: 'دفتر الأستاذ',
             'softpos-settlement': 'تسوية SoftPOS',
             marketing: 'التسويق',
@@ -111,6 +116,9 @@ const NAV_CONFIG = [
             { label: 'Tax Codes', path: 'tax-codes', icon: Percent },
             { label: 'Marketing', path: 'marketing', icon: Megaphone },
             { label: 'Permissions', path: 'permissions', icon: Shield },
+            { label: 'Admin Wallets', path: 'admin-wallets', icon: Wallet },
+            { label: 'My Wallet', path: 'my-wallet', icon: CircleDollarSign, walletRequired: true },
+            { label: 'Chat', path: 'chat', icon: MessageCircle },
             { label: 'Demo Invoices', path: 'demo-invoices', icon: FlaskConical },
         ],
     },
@@ -191,8 +199,12 @@ const PERMISSION_KEY_FOR = {
     'tax-codes': 'tax-codes.view',
     marketing: 'marketing.view',
     permissions: 'permissions.view',
+    'admin-wallets': 'admin-wallets.view',
+    chat: 'chat.view',
+    'demo-invoices': 'demo-invoices.view',
     // OPERATIONS
     suppliers: 'suppliers.view',
+    'storage-facility': 'storage-facility.view',
     employees: 'employees.view',
     branches: 'branches.view',
     workshop: 'workshop.view',
@@ -212,6 +224,7 @@ function permissionCodeFor(parentPath, subPath) {
 const SidebarNavItem = ({ item, basePath, locale, hasPermission }) => {
     const [open, setOpen] = useState(false);
     const navigate = useNavigate();
+    const { totalUnread } = usePlatformChatUnread();
     const parentPath = `${basePath}/${item.path}`;
     const isParentActive = useLocation().pathname.startsWith('/admin/' + item.path);
     const t = TRANSLATIONS[locale] || TRANSLATIONS.en;
@@ -286,6 +299,11 @@ const SidebarNavItem = ({ item, basePath, locale, hasPermission }) => {
                 >
                     <item.icon size={20} />
                     <span className="nav-label">{getNavLabel(item.path, locale)}</span>
+                    {item.path === 'chat' && totalUnread > 0 && (
+                        <span className="platform-chat-nav-badge platform-chat-nav-badge--sidebar">
+                            {totalUnread > 9 ? '9+' : totalUnread}
+                        </span>
+                    )}
                 </NavLink>
             )}
         </div>
@@ -368,6 +386,16 @@ function AdminLayoutShell() {
     const userDisplayRole = user?.adminRole ? user.adminRole.replace('_', ' ').toUpperCase() : t.userRole;
     const userInitials = userDisplayName.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
 
+    const isChatFullscreen = location.pathname.startsWith('/admin/chat');
+
+    if (isChatFullscreen) {
+        return (
+            <div className="admin-layout admin-layout--chat-fullscreen" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+                <Outlet />
+            </div>
+        );
+    }
+
     return (
         <div className={`admin-layout ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
             <AnimatePresence>
@@ -391,6 +419,7 @@ function AdminLayoutShell() {
                     {navConfig.map((sec) => {
                         // Render section only if at least one visible item remains.
                         const visibleItems = sec.items.filter((item) => {
+                            if (item.walletRequired && !user?.walletEnabled) return false;
                             if (item.externalPath) return true; // portal shortcuts ungated
                             if (item.subItems?.length) {
                                 return item.subItems.some((sub) => {
@@ -471,6 +500,9 @@ function AdminLayoutShell() {
                 </header>
                 <Outlet />
             </main>
+            {!location.pathname.startsWith('/admin/chat') && hasPermission('chat.view') && (
+                <PlatformChatFab onClick={() => navigate('/admin/chat')} />
+            )}
         </div>
     );
 }

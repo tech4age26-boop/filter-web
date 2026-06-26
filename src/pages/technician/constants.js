@@ -1,10 +1,11 @@
 import {
-    BarChart3, ClipboardList, DollarSign, CheckCircle2, Wrench, Radio, PlayCircle, Home, User,
+    BarChart3, ClipboardList, DollarSign, CheckCircle2, Wrench, Radio, PlayCircle, Home, User, MessageCircle,
 } from 'lucide-react';
 
 export const NAV_GROUPS = [
     { label: 'MAIN', items: [
         { id: 'home', label: 'Home', icon: Home },
+        { id: 'chat', label: 'Chat', icon: MessageCircle },
         { id: 'overview', label: 'Overview', icon: BarChart3 },
         { id: 'active', label: 'Assigned Orders', icon: ClipboardList, showBadge: true },
         { id: 'commission', label: 'Commission', icon: DollarSign },

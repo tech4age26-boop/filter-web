@@ -9,6 +9,8 @@ import {
     FileText,
     Printer,
 } from 'lucide-react';
+import SearchableEntityCombobox from '../SearchableEntityCombobox';
+import ExpenseProofThumbnail from './ExpenseProofThumbnail';
 import {
     LEDGER_ROWS_PER_PAGE,
     fmtBalanceSide,
@@ -45,20 +47,51 @@ export default function ProfessionalLedgerStatementDocument({
     onExportExcel,
     exportDisabled = false,
     showCashLedgerColumns = false,
+    showPettyCashExpenseColumns = false,
     counterpartyColumnLabel = 'Paid to / Received from',
     offsetAccountColumnLabel = 'Expense / AR account',
+    walletUserColumnLabel = 'Wallet user / employee',
+    expenseCategoryColumnLabel = 'Account category',
+    closingBalanceKpiLabel = 'Closing Balance',
     filterOptions = null,
     partyFilterKey = '',
     onPartyFilterKeyChange,
     offsetAccountFilterId = '',
     onOffsetAccountFilterIdChange,
+    expenseCategoryFilter = '',
+    onExpenseCategoryFilterChange,
+    expenseCategoryFilterInput = '',
+    onExpenseCategoryFilterInputChange,
+    expenseCategoryComboboxOptions = [],
+    walletUserFilter = '',
+    onWalletUserFilterChange,
+    walletUsers = [],
+    showTopupsOnlyFilter = false,
+    topupsOnly = false,
+    onTopupsOnlyChange,
+    showExpenseCategoryFilter = true,
 }) {
     const printRef = useRef(null);
     const [page, setPage] = useState(1);
 
     const parties = filterOptions?.parties ?? [];
     const offsetAccounts = filterOptions?.offsetAccounts ?? [];
-    const colSpan = showCashLedgerColumns ? 7 : 5;
+    const expenseCategories = filterOptions?.expenseCategories ?? [];
+    const expenseCategoryComboOptions = useMemo(() => {
+        if (expenseCategoryComboboxOptions.length > 0) {
+            return expenseCategoryComboboxOptions;
+        }
+        return expenseCategories.map((c) => ({
+            id: c.key,
+            label: c.label,
+            searchText: c.label,
+        }));
+    }, [expenseCategoryComboboxOptions, expenseCategories]);
+    const colSpan = showPettyCashExpenseColumns
+        ? 8
+        : showCashLedgerColumns
+            ? 7
+            : 5;
 
     const totalPages = Math.max(1, Math.ceil((rows?.length || 0) / LEDGER_ROWS_PER_PAGE));
 
@@ -69,7 +102,7 @@ export default function ProfessionalLedgerStatementDocument({
 
     React.useEffect(() => {
         setPage(1);
-    }, [rows, dateFrom, dateTo, partyFilterKey, offsetAccountFilterId]);
+    }, [rows, dateFrom, dateTo, partyFilterKey, offsetAccountFilterId, expenseCategoryFilter, walletUserFilter, topupsOnly]);
 
     function handlePrint() {
         window.print();
@@ -141,6 +174,61 @@ export default function ProfessionalLedgerStatementDocument({
                         </select>
                     </div>
                 ) : null}
+                {showTopupsOnlyFilter ? (
+                    <div className="pls-filter-field pls-filter-field--check">
+                        <label htmlFor="pls-topups-only" className="pls-filter-check-label">
+                            <input
+                                id="pls-topups-only"
+                                type="checkbox"
+                                checked={topupsOnly}
+                                onChange={(e) => onTopupsOnlyChange?.(e.target.checked)}
+                                disabled={loading}
+                            />
+                            Top-ups only
+                        </label>
+                    </div>
+                ) : null}
+                {walletUsers.length > 0 ? (
+                    <div className="pls-filter-field">
+                        <label htmlFor="pls-wallet-user">User / employee</label>
+                        <select
+                            id="pls-wallet-user"
+                            value={walletUserFilter}
+                            onChange={(e) => onWalletUserFilterChange?.(e.target.value)}
+                            disabled={loading}
+                        >
+                            {walletUsers.map((u) => (
+                                <option key={u.key || 'all'} value={u.key}>
+                                    {u.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                ) : null}
+                {showExpenseCategoryFilter && expenseCategoryComboOptions.length > 0 ? (
+                    <div className="pls-filter-field pls-filter-field--combo">
+                        <label htmlFor="pls-expense-category">Account category</label>
+                        <SearchableEntityCombobox
+                            id="pls-expense-category"
+                            options={expenseCategoryComboOptions}
+                            value={expenseCategoryFilter}
+                            displayText={expenseCategoryFilterInput}
+                            onDisplayTextChange={(text) => {
+                                onExpenseCategoryFilterInputChange?.(text);
+                                if (!text.trim()) onExpenseCategoryFilterChange?.('');
+                            }}
+                            onSelect={(opt) => {
+                                onExpenseCategoryFilterChange?.(opt?.id || '');
+                                onExpenseCategoryFilterInputChange?.(opt?.label || '');
+                            }}
+                            placeholder="All categories — type to search"
+                            entityLabel="category"
+                            maxInitial={30}
+                            maxFiltered={30}
+                            disabled={loading}
+                        />
+                    </div>
+                ) : null}
                 <button type="button" className="btn-portal" onClick={onApply} disabled={loading}>
                     {loading ? 'Loading…' : 'Apply filters'}
                 </button>
@@ -169,7 +257,7 @@ export default function ProfessionalLedgerStatementDocument({
                         </div>
                     </div>
                     <div className="pls-kpi">
-                        <div className="pls-kpi-label">Closing Balance</div>
+                        <div className="pls-kpi-label">{closingBalanceKpiLabel}</div>
                         <div className="pls-kpi-value">
                             {fmtBalanceSide(totals.closingBalance, normalDebit)}
                         </div>
@@ -275,6 +363,13 @@ export default function ProfessionalLedgerStatementDocument({
                         <thead>
                             <tr>
                                 <th style={{ width: 100 }}>Date</th>
+                                {showPettyCashExpenseColumns ? (
+                                    <>
+                                        <th>{walletUserColumnLabel}</th>
+                                        <th>{expenseCategoryColumnLabel}</th>
+                                        <th style={{ width: 72 }}>Proof</th>
+                                    </>
+                                ) : null}
                                 {showCashLedgerColumns ? (
                                     <>
                                         <th>{counterpartyColumnLabel}</th>
@@ -297,6 +392,13 @@ export default function ProfessionalLedgerStatementDocument({
                             {page === 1 ? (
                                 <tr className="pls-row-opening">
                                     <td>—</td>
+                                    {showPettyCashExpenseColumns ? (
+                                        <>
+                                            <td>—</td>
+                                            <td>—</td>
+                                            <td>—</td>
+                                        </>
+                                    ) : null}
                                     {showCashLedgerColumns ? (
                                         <>
                                             <td>—</td>
@@ -327,6 +429,19 @@ export default function ProfessionalLedgerStatementDocument({
                                 pagedRows.map((r) => (
                                     <tr key={r.id}>
                                         <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
+                                        {showPettyCashExpenseColumns ? (
+                                            <>
+                                                <td title={r.walletUserLabel || ''}>
+                                                    {r.walletUserLabel || '—'}
+                                                </td>
+                                                <td title={r.expenseCategoryLabel || ''}>
+                                                    {r.expenseCategoryLabel || '—'}
+                                                </td>
+                                                <td>
+                                                    <ExpenseProofThumbnail proofUrl={r.expenseProofUrl} size={32} />
+                                                </td>
+                                            </>
+                                        ) : null}
                                         {showCashLedgerColumns ? (
                                             <>
                                                 <td title={r.counterpartyLabel || ''}>

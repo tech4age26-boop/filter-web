@@ -3,6 +3,7 @@ import {
     Building2, FileText, Lock, Mail, Pencil, Phone, Plus, RefreshCw, Store, User, UserPlus, ToggleLeft,
 } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import Modal from '../../components/Modal';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import { apiFetch } from '../../services/api';
@@ -758,7 +759,7 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
             </div>
 
             <div className="ws-section" style={{ marginTop: 16 }}>
-                <div style={{ overflowX: 'auto', padding: 16 }}>
+                <WsTableScroll style={{ padding: 16 }}>
                     <table className="ws-table">
                         <thead>
                             <tr>
@@ -849,7 +850,7 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                             )}
                         </tbody>
                     </table>
-                </div>
+                </WsTableScroll>
             </div>
 
             {editing && (

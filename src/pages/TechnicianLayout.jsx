@@ -3,10 +3,15 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, LogOut, Bell, RefreshCw } from 'lucide-react';
 import { NAV_GROUPS } from './technician/constants';
 import TechnicianDashboard from './technician/TechnicianDashboard';
+import TechnicianPlatformChatPage from './technician/TechnicianPlatformChatPage';
+import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
+import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import { isPlatformChatNavId } from '../utils/platformChatForUser';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../services/api';
 import Modal from '../components/Modal';
 import '../styles/POSLayout.css';
+import '../styles/admin/PlatformChat.css';
 import './workshop/Workshop.css';
 
 const SIDEBAR_W = 252;
@@ -77,6 +82,23 @@ export default function TechnicianLayout() {
     const workshopLabel = workshop?.name || user?.workshop?.name || 'Workshop';
     const branchLine = user?.branchName || user?.branch?.name;
 
+    const currentLabel = NAV_GROUPS.flatMap(g => g.items).find(i => i.id === activeTab)?.label || 'Home';
+
+    if (activeTab === 'chat') {
+        return (
+            <>
+                {toast && (
+                    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, padding: '12px 20px', borderRadius: 12, fontWeight: 700, fontSize: '0.875rem', background: toast.type === 'error' ? '#FEE2E2' : '#DCFCE7', color: toast.type === 'error' ? '#DC2626' : '#15803D', border: `1px solid ${toast.type === 'error' ? '#FCA5A5' : '#BBF7D0'}`, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+                        {toast.msg}
+                    </div>
+                )}
+                <div className="portal-layout--chat-fullscreen">
+                    <TechnicianPlatformChatPage />
+                </div>
+            </>
+        );
+    }
+
     const renderContent = () => (
         <TechnicianDashboard
             activeSection={activeTab}
@@ -88,8 +110,6 @@ export default function TechnicianLayout() {
             onAssignedOrdersListChanged={fetchAssignedOrdersTotal}
         />
     );
-
-    const currentLabel = NAV_GROUPS.flatMap(g => g.items).find(i => i.id === activeTab)?.label || 'Home';
 
     const navBtnBase = {
         width: '100%',
@@ -229,6 +249,7 @@ export default function TechnicianLayout() {
                                         <span style={{ fontSize: '0.875rem', fontWeight: sel ? 800 : 500, color: sel ? '#000' : 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap' }}>
                                             {item.label}
                                         </span>
+                                        {isPlatformChatNavId(item.id) && <PlatformChatNavBadge />}
                                         {item.showBadge && assignedOrdersTotal > 0 && (
                                             <span style={{ marginLeft: 'auto', background: '#EF4444', color: '#fff', fontSize: '0.625rem', fontWeight: 800, padding: '2px 7px', borderRadius: 999, minWidth: 20, textAlign: 'center' }}>
                                                 {assignedOrdersTotal > 99 ? '99+' : assignedOrdersTotal}
@@ -373,6 +394,10 @@ export default function TechnicianLayout() {
                     .tech-pos-header-date { display: block; }
                 }
             `}</style>
+            <PlatformChatFab
+                hidden={activeTab === 'chat'}
+                onClick={() => setActiveTab('chat')}
+            />
         </div>
     );
 }

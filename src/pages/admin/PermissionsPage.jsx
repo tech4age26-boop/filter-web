@@ -5,7 +5,7 @@ import {
     ShieldCheck, Users,
     UserCircle, ChevronDown, ChevronRight,
     Building, Wrench, Store, ScrollText, Sparkles, Briefcase,
-    Loader2, RefreshCcw, AlertCircle,
+    Loader2, RefreshCcw, AlertCircle, Wallet,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -925,6 +925,7 @@ function UserModal({ onClose, onSave, roles, saving }) {
     const [email, setEmail] = useState('');
     const [mobile, setMobile] = useState('');
     const [password, setPassword] = useState('');
+    const [assignWallet, setAssignWallet] = useState(false);
 
     const [workshops, setWorkshops] = useState([]);
     const [branches, setBranches] = useState([]);
@@ -985,6 +986,7 @@ function UserModal({ onClose, onSave, roles, saving }) {
             password,
             mobile: mobile.trim() || undefined,
             isSuperAdmin,
+            assignWallet: isSuperAdmin ? assignWallet : false,
             workshopId: isSuperAdmin ? null : workshopId,
             branchId: isSuperAdmin ? null : branchId,
             workshopRole: isSuperAdmin ? null : (workshopRole || null),
@@ -1034,9 +1036,38 @@ function UserModal({ onClose, onSave, roles, saving }) {
                     <ToggleSwitch checked={isSuperAdmin} onChange={(v) => {
                         setIsSuperAdmin(v);
                         if (v) { setWorkshopId(''); setBranchId(''); setWorkshopRole(''); }
+                        else { setAssignWallet(false); }
                         setAssignRoleId('');
                     }} />
                 </div>
+
+                {isSuperAdmin && (
+                    <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '12px 14px', borderRadius: 12,
+                        border: `2px solid ${assignWallet ? '#d97706' : '#e2e8f0'}`,
+                        background: assignWallet ? '#fffbeb' : '#fff',
+                        marginBottom: 16, transition: 'all 0.15s',
+                    }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                            <div style={{
+                                width: 36, height: 36, borderRadius: 10,
+                                background: assignWallet ? '#f59e0b' : '#f1f5f9',
+                                color: assignWallet ? '#fff' : '#64748b',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}>
+                                <Wallet size={18} />
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem' }}>Assign Wallet</div>
+                                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                    Create a SAR wallet (0 balance) — user can request funds and record expenses later.
+                                </div>
+                            </div>
+                        </div>
+                        <ToggleSwitch checked={assignWallet} onChange={setAssignWallet} />
+                    </div>
+                )}
 
                 {/* Identity */}
                 <div className="form-row">
