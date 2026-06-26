@@ -5,12 +5,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     NAV_ITEMS,
 } from './workshop/constants';
-import WorkshopDashboard from './workshop/WorkshopDashboard';
+import { STAFF_APP_TAB_SLUG, STAFF_APP_PERMISSION_FALLBACK, STAFF_APP_LEGACY_ROUTE_REDIRECTS } from './workshop/staff-app/constants';
+import StaffAppPage from './workshop/staff-app/StaffAppPage';
 import WorkshopEmployees from './workshop/WorkshopEmployees';
+import WorkshopApprovals from './workshop/WorkshopApprovals';
+import WorkshopPettyCashManagement from './workshop/WorkshopPettyCashManagement';
+import WorkshopDashboard from './workshop/WorkshopDashboard';
 import WorkshopDepartments from './workshop/WorkshopDepartments';
 import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
 import WorkshopPurchases from './workshop/WorkshopPurchases';
-import WorkshopApprovals from './workshop/WorkshopApprovals';
 import WorkshopSalesReturns from './workshop/WorkshopSalesReturns';
 import WorkshopSuppliers from './workshop/WorkshopSuppliers';
 import WorkshopReports from './workshop/WorkshopReports';
@@ -20,12 +23,16 @@ import WorkshopPromoCodes from './workshop/WorkshopPromoCodes';
 import WorkshopCorporateManagement from './workshop/WorkshopCorporateManagement';
 import WorkshopBranches from './workshop/WorkshopBranches';
 import WorkshopCommissions from './workshop/WorkshopCommissions';
-import WorkshopMyPettyCash from './workshop/WorkshopMyPettyCash';
 import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
 import WorkshopAffiliatedSuppliers from './workshop/WorkshopAffiliatedSuppliers';
 import WorkshopNonAffiliatedSuppliers from './workshop/WorkshopNonAffiliatedSuppliers';
 import WorkshopSupplierLedger from './workshop/WorkshopSupplierLedger';
+import WorkshopPlatformChatPage from './workshop/WorkshopPlatformChatPage';
+import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
+import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import { isPlatformChatNavId } from '../utils/platformChatForUser';
+import '../styles/admin/PlatformChat.css';
 import { apiFetch } from '../services/api';
 import { workshopLogout } from '../services/authApi';
 import {
@@ -104,7 +111,13 @@ export default function WorkshopLayout() {
         () => NAV_ITEMS
             .map((item) => {
                 if (item.subItems?.length) {
-                    const visibleSubs = item.subItems.filter((s) => !s.permission || hasPermission(s.permission));
+                    const visibleSubs = item.subItems.filter((s) => {
+                        if (item.id === 'staff-app') {
+                            const fallbacks = STAFF_APP_PERMISSION_FALLBACK[s.id] || [s.permission];
+                            return fallbacks.some((code) => !code || hasPermission(code));
+                        }
+                        return !s.permission || hasPermission(s.permission);
+                    });
                     return visibleSubs.length > 0 ? { ...item, subItems: visibleSubs } : null;
                 }
                 if (item.permission && !hasPermission(item.permission)) return null;
@@ -130,6 +143,10 @@ export default function WorkshopLayout() {
         const main = parts[1] || 'dashboard';
         const sub = parts[2];
 
+        if (main === 'staff-app' && sub) {
+            const tab = Object.entries(STAFF_APP_TAB_SLUG).find(([, slug]) => slug === sub)?.[0];
+            return tab || 'sap-overview';
+        }
         if (main === 'accounting' && sub) {
             const mapping = {
                 'chart-of-accounts': 'acc-chart',
@@ -166,6 +183,17 @@ export default function WorkshopLayout() {
     })();
 
     const canViewDashboard = hasPermission('workshop.dashboard.view');
+
+    /** Legacy staff-app nested routes → restored top-level workshop pages */
+    useEffect(() => {
+        const parts = location.pathname.split('/').filter(Boolean);
+        if (parts[0] !== 'workshop' || parts[1] !== 'staff-app' || !parts[2]) return;
+
+        const legacyTarget = STAFF_APP_LEGACY_ROUTE_REDIRECTS[parts[2]];
+        if (legacyTarget && location.pathname !== legacyTarget) {
+            navigate(legacyTarget, { replace: true });
+        }
+    }, [location.pathname, navigate]);
 
     /** `/workshop` and `/workshop/dashboard` default to dashboard — redirect restricted users. */
     useEffect(() => {
@@ -226,6 +254,17 @@ export default function WorkshopLayout() {
                 'acc-ledger': 'ledger',
             };
             navigate(`/workshop/accounting/${reverseMapping[tabId]}`);
+        } else if (tabId === 'sap-users') {
+            navigate('/workshop/employees');
+        } else if (tabId === 'sap-approvals') {
+            navigate('/workshop/approvals');
+        } else if (tabId === 'sap-wallets') {
+            navigate('/workshop/my-petty-cash');
+        } else if (tabId === 'sap-approval-limits') {
+            navigate('/workshop/accounting/approvals');
+        } else if (tabId.startsWith('sap-')) {
+            const slug = STAFF_APP_TAB_SLUG[tabId] || 'overview';
+            navigate(`/workshop/staff-app/${slug}`);
         } else if (
             tabId === 'supplier-ledger' &&
             state?.type &&
@@ -242,7 +281,10 @@ export default function WorkshopLayout() {
         }
     };
 
-    const [openMenus, setOpenMenus] = useState({ accounting: activeTab.startsWith('acc-') });
+    const [openMenus, setOpenMenus] = useState({
+        accounting: activeTab.startsWith('acc-'),
+        'staff-app': activeTab.startsWith('sap-'),
+    });
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     useEffect(() => {
@@ -432,9 +474,37 @@ export default function WorkshopLayout() {
             case 'acc-receipts':      
             case 'acc-payments':      
             case 'acc-advances':      
-            case 'acc-payroll':       
-            case 'acc-approvals':     
+            case 'acc-payroll':
+            case 'acc-approvals':
             case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'sap-overview':
+            case 'sap-expenses':
+            case 'sap-requests':
+            case 'sap-purchase-orders':
+            case 'sap-tasks':
+            case 'sap-leave':
+            case 'sap-salary-advances':
+            case 'sap-chat':
+            case 'sap-notifications':
+            case 'sap-settings':
+                return (
+                    <StaffAppPage
+                        activeTab={activeTab}
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                        branchLockedId={userBranchLock}
+                        onNavigate={handleTabChange}
+                    />
+                );
+            case 'platform-chat':
+                return null;
+            case 'employees':
+                return (
+                    <WorkshopEmployees
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                    />
+                );
             case 'dashboard':
                 if (!canViewDashboard) {
                     return (
@@ -451,7 +521,6 @@ export default function WorkshopLayout() {
                         onLowStockAlertsChange={setDashboardLowStockCount}
                     />
                 );
-            case 'employees':   return <WorkshopEmployees selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'departments': return <WorkshopDepartments selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'catalog':
                 return <Navigate to="/workshop/departments" replace />;
@@ -463,14 +532,14 @@ export default function WorkshopLayout() {
                     branches={activeBranches}
                 />
             );
-            case 'approvals':   return (
-                <WorkshopApprovals
-                    selectedBranchId={selectedBranch}
-                    branches={activeBranches}
-                    branchLockedId={userBranchLock}
-                />
-            );
-           
+            case 'approvals':
+                return (
+                    <WorkshopApprovals
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                        branchLockedId={userBranchLock}
+                    />
+                );
             case 'sales-returns': return <WorkshopSalesReturns selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={activeBranches} onTabChange={handleTabChange} />;
             case 'affiliated-suppliers':
@@ -511,7 +580,13 @@ export default function WorkshopLayout() {
             case 'corporate-management': return <WorkshopCorporateManagement selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'branches':    return <WorkshopBranches selectedBranchId={selectedBranch} />;
             case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'my-petty-cash': return <WorkshopMyPettyCash selectedBranchId={selectedBranch} />;
+            case 'my-petty-cash':
+                return (
+                    <WorkshopPettyCashManagement
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                    />
+                );
             case 'inventory': return (
                 <WorkshopInventory
                     selectedBranchId={selectedBranch}
@@ -535,8 +610,18 @@ export default function WorkshopLayout() {
     const currentLabel =
         activeTab === 'supplier-ledger'
             ? 'Supplier Ledger'
-            : NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
+            : activeTab.startsWith('sap-')
+                ? 'Staff App Management'
+                : NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
     const topbarSubtitle = activeTab === 'catalog-new' ? 'Corporate master catalog' : selectedBranchName;
+
+    if (activeTab === 'platform-chat') {
+        return (
+            <div className="portal-layout--chat-fullscreen">
+                <WorkshopPlatformChatPage />
+            </div>
+        );
+    }
 
     return (
         <div className={`workshop-layout${isMobileMenuOpen ? ' mobile-menu-open' : ''}`}>
@@ -594,12 +679,15 @@ export default function WorkshopLayout() {
                                 >
                                     <item.icon size={18} stroke="currentColor" />
                                     <span>{item.label}</span>
+                                    {isPlatformChatNavId(item.id) && <PlatformChatNavBadge />}
                                     {hasSub && (
                                         <span style={{ marginLeft: 'auto', opacity: 0.5 }}>
                                             {isOpen ? <ChevronDown size={14} stroke="currentColor" /> : <ChevronRight size={14} stroke="currentColor" />}
                                         </span>
                                     )}
-                                    {item.badge && pendingApprovals > 0 && !hasSub && <span className="ws-nav-badge">{pendingApprovals}</span>}
+                                    {item.badge && pendingApprovals > 0 && (item.id === 'staff-app' || (!hasSub && item.badge)) && (
+                                        <span className="ws-nav-badge">{pendingApprovals}</span>
+                                    )}
                                 </button>
                                 {hasSub && (
                                     <AnimatePresence>
@@ -687,6 +775,10 @@ export default function WorkshopLayout() {
                     {renderContent()}
                 </main>
             </div>
+            <PlatformChatFab
+                hidden={activeTab === 'platform-chat'}
+                onClick={() => handleTabChange('platform-chat')}
+            />
         </div>
     );
 }

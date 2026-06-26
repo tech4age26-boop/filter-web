@@ -75,6 +75,7 @@ export function listUsers({ search, portal } = {}) {
  * payload = {
  *   name, email, password, mobile?,
  *   isSuperAdmin: bool,
+ *   assignWallet?: bool,                       // only when isSuperAdmin = true
  *   workshopId?, branchId?, workshopRole?,   // required when isSuperAdmin = false
  *   roleId
  * }

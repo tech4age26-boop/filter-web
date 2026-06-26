@@ -60,7 +60,7 @@ export default function ExpensesView({ readOnly = false }) {
             getSummary().catch(() => ({})),
             getExpenses({ search, category, status }).catch(() => ({ list: [] })),
             getExpenseAccounts().catch(() => []),
-            getAccounts().catch(() => []),
+            getAccounts({ leafOnly: true }).catch(() => []),
             apiFetch('/super-admin/branches').catch(() => []),
         ]);
         setSummary({ totalApproved: Number(s.totalApproved || 0), pendingApproval: Number(s.pendingApproval || 0), thisMonthCount: Number(s.thisMonthCount || 0) });

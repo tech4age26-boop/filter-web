@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, CheckCircle, Users, Wallet, Calendar, AlertCircle } from 'lucide-react';
+import Modal from '../../components/Modal';
+import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
@@ -20,11 +22,25 @@ import {
     postWorkshopCommissionsPayout,
     workshopCommissionsScopeParams,
 } from '../../services/workshopCommissionsApi';
+import './Workshop.css';
 
 const PAGE_SIZE = 25;
 
-function buildListParams(selectedBranchId, dateScope, filterStatus, filterEmployeeId, page) {
-    const base = workshopCommissionsScopeParams(selectedBranchId, dateScope);
+/** Convert datetime-local value to epoch ms for API date-time filters. */
+function localDatetimeToEpochMs(local) {
+    if (!local || !String(local).trim()) return '';
+    const s = String(local).trim();
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return '';
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return '';
+    return String(d.getTime());
+}
+
+function buildListParams(selectedBranchId, dateScope, filterStatus, filterEmployeeId, page, workshopId) {
+    const base = workshopCommissionsScopeParams(selectedBranchId, {
+        ...dateScope,
+        ...(workshopId ? { workshopId } : {}),
+    });
     return {
         ...base,
         ...(filterStatus !== 'all' ? { status: filterStatus } : {}),
@@ -35,8 +51,11 @@ function buildListParams(selectedBranchId, dateScope, filterStatus, filterEmploy
 }
 
 /** Fetch every accrued line id + amount matching the current filters (all pages). */
-async function fetchAllAccruedInScope(selectedBranchId, dateScope, filterEmployeeId, options = {}) {
-    const base = workshopCommissionsScopeParams(selectedBranchId, dateScope);
+async function fetchAllAccruedInScope(selectedBranchId, dateScope, filterEmployeeId, workshopId, options = {}) {
+    const base = workshopCommissionsScopeParams(selectedBranchId, {
+        ...dateScope,
+        ...(workshopId ? { workshopId } : {}),
+    });
     const batchSize = 200;
     const lines = new Map();
     let page = 1;
@@ -171,9 +190,16 @@ function applyCommissionDashboardSettled(settled, setters) {
     return [...new Set(errMsgs)];
 }
 
-export default function WorkshopCommissions({ selectedBranchId = 'all', branches = [] }) {
+export default function WorkshopCommissions({
+    selectedBranchId = 'all',
+    branches = [],
+    adminMode = false,
+    workshopId = '',
+}) {
     const { hasPermission } = useAuth();
-    const visibleCommissionTabs = COMMISSIONS_TABS.filter((t) => hasPermission(t.permission));
+    const visibleCommissionTabs = adminMode
+        ? COMMISSIONS_TABS
+        : COMMISSIONS_TABS.filter((t) => hasPermission(t.permission));
     const [activeTab, setActiveTab] = useState(() => visibleCommissionTabs[0]?.key ?? 'ledger');
     useEffect(() => {
         if (visibleCommissionTabs.length === 0) return;
@@ -188,8 +214,9 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
     const [filterEmployees, setFilterEmployees] = useState([]);
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterEmployeeId, setFilterEmployeeId] = useState('');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
+    const [employeeFilterText, setEmployeeFilterText] = useState('');
+    const [startDateTime, setStartDateTime] = useState('');
+    const [endDateTime, setEndDateTime] = useState('');
     const [page, setPage] = useState(1);
     const [accruedTotalInScope, setAccruedTotalInScope] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
@@ -214,15 +241,46 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
 
     const dateScope = useMemo(() => {
         const o = {};
-        if (startDate) o.startDate = startDate;
-        if (endDate) o.endDate = endDate;
+        const startMs = localDatetimeToEpochMs(startDateTime);
+        const endMs = localDatetimeToEpochMs(endDateTime);
+        if (startMs) o.startAt = startMs;
+        if (endMs) o.endAt = endMs;
         return o;
-    }, [startDate, endDate]);
+    }, [startDateTime, endDateTime]);
+
+    const employeeComboboxOptions = useMemo(
+        () =>
+            filterEmployees.map((e) => {
+                const id = e.employee_id ?? e.employeeId;
+                const nm = e.name ?? '';
+                const lc = e.line_count ?? e.lineCount;
+                return {
+                    id: String(id),
+                    label: nm || 'Employee',
+                    subtitle: lc != null ? `${lc} commission entries` : '',
+                };
+            }),
+        [filterEmployees],
+    );
 
     const filterScopeKey = useMemo(
-        () => [selectedBranchId, startDate, endDate, filterStatus, filterEmployeeId].join('\u0001'),
-        [selectedBranchId, startDate, endDate, filterStatus, filterEmployeeId],
+        () =>
+            [
+                workshopId,
+                selectedBranchId,
+                startDateTime,
+                endDateTime,
+                filterStatus,
+                filterEmployeeId,
+            ].join('\u0001'),
+        [workshopId, selectedBranchId, startDateTime, endDateTime, filterStatus, filterEmployeeId],
     );
+
+    const scopeExtra = useMemo(() => {
+        const o = { ...dateScope };
+        if (workshopId) o.workshopId = workshopId;
+        return o;
+    }, [dateScope, workshopId]);
 
     useEffect(() => {
         const ac = new AbortController();
@@ -239,17 +297,23 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
             }
         }
 
+        if (adminMode && !workshopId) {
+            setIsLoading(false);
+            return () => ac.abort();
+        }
+
         setLoadError('');
         setIsLoading(true);
         (async () => {
             try {
-                const base = workshopCommissionsScopeParams(selectedBranchId, dateScope);
+                const base = workshopCommissionsScopeParams(selectedBranchId, scopeExtra);
                 const listParams = buildListParams(
                     selectedBranchId,
-                    dateScope,
+                    scopeExtra,
                     filterStatus,
                     filterEmployeeId,
                     page,
+                    workshopId,
                 );
                 const accruedCountParams = {
                     ...base,
@@ -310,7 +374,7 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
             cancelled = true;
             ac.abort();
         };
-    }, [selectedBranchId, dateScope, filterStatus, filterEmployeeId, page, filterScopeKey]);
+    }, [selectedBranchId, scopeExtra, filterStatus, filterEmployeeId, page, filterScopeKey, adminMode, workshopId]);
 
     useEffect(() => {
         if (!payoutModalOpen) return undefined;
@@ -320,7 +384,7 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
         setPayoutError('');
         (async () => {
             try {
-                const base = workshopCommissionsScopeParams(selectedBranchId, dateScope);
+                const base = workshopCommissionsScopeParams(selectedBranchId, scopeExtra);
                 const res = await getWorkshopCommissionsPayoutAccounts(base, { signal: ac.signal });
                 if (cancelled) return;
                 const acc = res?.accounts ?? res?.data?.accounts ?? [];
@@ -336,7 +400,7 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
             cancelled = true;
             ac.abort();
         };
-    }, [payoutModalOpen, selectedBranchId, dateScope]);
+    }, [payoutModalOpen, selectedBranchId, scopeExtra]);
 
     const selectedCount = selectedLines.size;
 
@@ -370,8 +434,9 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
         try {
             const lines = await fetchAllAccruedInScope(
                 selectedBranchId,
-                dateScope,
+                scopeExtra,
                 filterEmployeeId,
+                workshopId,
             );
             setSelectedLines(lines);
         } catch (e) {
@@ -392,19 +457,21 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
                 commissionLineIds: Array.from(selectedLines.keys()),
                 payoutAccountId: selectedAccountId,
                 ...(payoutNotes.trim() ? { notes: payoutNotes.trim() } : {}),
+                ...(workshopId ? { workshopId } : {}),
             });
             setSelectedLines(new Map());
             setPayoutModalOpen(false);
             setSelectedAccountId('');
             setPayoutNotes('');
             setIsLoading(true);
-            const base = workshopCommissionsScopeParams(selectedBranchId, dateScope);
+            const base = workshopCommissionsScopeParams(selectedBranchId, scopeExtra);
             const listParams = buildListParams(
                 selectedBranchId,
-                dateScope,
+                scopeExtra,
                 filterStatus,
                 filterEmployeeId,
                 page,
+                workshopId,
             );
             const settled = await Promise.allSettled([
                 getWorkshopCommissionsSummary(base),
@@ -711,41 +778,46 @@ export default function WorkshopCommissions({ selectedBranchId = 'all', branches
                         <option value="accrued">Accrued</option>
                         <option value="paid">Paid</option>
                     </select>
-                    <select
-                        className="ws-select"
+                    <SearchableEntityCombobox
+                        className="ws-filter-combobox"
+                        options={employeeComboboxOptions}
                         value={filterEmployeeId}
-                        onChange={(e) => setFilterEmployeeId(e.target.value)}
-                    >
-                        <option value="">All Employees</option>
-                        {filterEmployees.map((e) => {
-                            const id = e.employee_id ?? e.employeeId;
-                            const nm = e.name ?? '';
-                            const lc = e.line_count ?? e.lineCount;
-                            return (
-                                <option key={String(id)} value={String(id)}>
-                                    {nm}
-                                    {lc != null ? ` (${lc})` : ''}
-                                </option>
-                            );
-                        })}
-                    </select>
-                    <div className="ws-date-picker">
-                        <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                            aria-label="Start date"
-                        />
-                        <Calendar size={14} />
-                    </div>
-                    <div className="ws-date-picker">
-                        <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            aria-label="End date"
-                        />
-                        <Calendar size={14} />
+                        displayText={employeeFilterText}
+                        entityLabel="employee"
+                        placeholder="Type employee name… (↑↓ keys)"
+                        emptyHint="No employees match — clear to show all"
+                        onDisplayTextChange={(text) => {
+                            setEmployeeFilterText(text);
+                            if (!text.trim()) {
+                                setFilterEmployeeId('');
+                            }
+                        }}
+                        onSelect={(opt) => {
+                            setFilterEmployeeId(String(opt.id));
+                            setEmployeeFilterText(opt.label || '');
+                        }}
+                    />
+                    <div className="ws-datetime-range" aria-label="Date & time range filter">
+                        <span className="ws-datetime-range-label">Date &amp; time</span>
+                        <div className="ws-date-picker ws-datetime-picker">
+                            <input
+                                type="datetime-local"
+                                value={startDateTime}
+                                onChange={(e) => setStartDateTime(e.target.value)}
+                                aria-label="From date and time"
+                            />
+                            <Calendar size={14} />
+                        </div>
+                        <span className="ws-datetime-range-sep">to</span>
+                        <div className="ws-date-picker ws-datetime-picker">
+                            <input
+                                type="datetime-local"
+                                value={endDateTime}
+                                onChange={(e) => setEndDateTime(e.target.value)}
+                                aria-label="To date and time"
+                            />
+                            <Calendar size={14} />
+                        </div>
                     </div>
                 </div>
                 <div className="ws-filter-actions">

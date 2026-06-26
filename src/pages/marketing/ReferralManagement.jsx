@@ -1,17 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Wallet, Plus } from 'lucide-react';
 import {
-  Wallet,
-  Plus,
-  X,
-} from 'lucide-react';
-import {
-  marketingCreateBudgetRequest,
   marketingGetWallet,
   marketingListBudgetRequests,
-  marketingListWalletCashAccounts,
   marketingListWalletTransactions,
 } from '../../services/superAdminMarketingApi';
+import { marketingSectionPath } from './marketingRouteUtils';
 import './MarketingUniversal.css';
 
 const initialWallet = {
@@ -260,43 +255,22 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-export const ReferralManagement = ({
-  showAdd: propsShowAdd,
-  setShowAdd: propsSetShowAdd,
-}) => {
-  const ctx = useOutletContext() || {};
-
-  const showAdd =
-    propsShowAdd !== undefined ? propsShowAdd : ctx.showAddModal;
-
-  const setShowAdd = propsSetShowAdd || ctx.setShowAddModal;
+export const ReferralManagement = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const walletBase = location.pathname.includes('marketing-wallet')
+    ? marketingSectionPath(location.pathname, 'marketing-wallet')
+    : marketingSectionPath(location.pathname, 'referral-management');
 
   const [wallet, setWallet] = useState(initialWallet);
   const [budgetRequests, setBudgetRequests] = useState([]);
   const [transactions, setTransactions] = useState([]);
 
-  const [localModalOpen, setLocalModalOpen] = useState(false);
-  const [amount, setAmount] = useState('');
-  const [purpose, setPurpose] = useState('');
-  const [sourceCashAccountId, setSourceCashAccountId] = useState('');
-
-  const [cashAccounts, setCashAccounts] = useState([]);
-  const [accountsLoading, setAccountsLoading] = useState(false);
-  const [accountsError, setAccountsError] = useState('');
-
   const [pageLoading, setPageLoading] = useState(false);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   const [error, setError] = useState('');
-
-  const isModalOpen = localModalOpen || !!showAdd;
-
-  const selectedAccount = useMemo(
-    () => cashAccounts.find((account) => account.id === sourceCashAccountId),
-    [cashAccounts, sourceCashAccountId],
-  );
 
   const loadWallet = useCallback(async () => {
     const res = await marketingGetWallet();
@@ -381,95 +355,12 @@ export const ReferralManagement = ({
     }
   }, [loadWallet, loadBudgetRequests, loadTransactions]);
 
-  const loadCashAccounts = useCallback(async () => {
-    setAccountsLoading(true);
-    setAccountsError('');
-
-    try {
-      const res = await marketingListWalletCashAccounts();
-      const normalized = normalizeCashAccountsPayload(res);
-
-      setCashAccounts(normalized);
-
-      if (normalized.length > 0) {
-        setSourceCashAccountId((prev) => prev || normalized[0].id);
-      }
-    } catch (err) {
-      setCashAccounts([]);
-      setAccountsError(err?.message || 'Failed to load cash accounts.');
-    } finally {
-      setAccountsLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     loadPageData();
   }, [loadPageData]);
 
-  useEffect(() => {
-    if (isModalOpen) {
-      loadCashAccounts();
-    }
-  }, [isModalOpen, loadCashAccounts]);
-
-  const openModal = () => {
-    setLocalModalOpen(true);
-    if (setShowAdd) setShowAdd(true);
-  };
-
-  const closeModal = () => {
-    if (saving) return;
-
-    setLocalModalOpen(false);
-    if (setShowAdd) setShowAdd(false);
-
-    setAmount('');
-    setPurpose('');
-    setSourceCashAccountId('');
-    setAccountsError('');
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    const value = Number(amount);
-
-    if (!Number.isFinite(value) || value <= 0) {
-      alert('Enter valid amount.');
-      return;
-    }
-
-    if (!purpose.trim()) {
-      alert('Purpose is required.');
-      return;
-    }
-
-    if (!sourceCashAccountId) {
-      alert('Select source cash account.');
-      return;
-    }
-
-    setSaving(true);
-    setError('');
-
-    try {
-      await marketingCreateBudgetRequest({
-        amount: value,
-        purpose: purpose.trim(),
-        sourceAccountId: sourceCashAccountId,
-        sourceAccountName: selectedAccount?.name || '',
-        currencyCode: wallet.currencyCode || 'SAR',
-      });
-
-      closeModal();
-      await loadPageData();
-
-      alert('Budget top-up request has been sent to Admin Approvals.');
-    } catch (err) {
-      alert(err?.message || 'Failed to submit budget request.');
-    } finally {
-      setSaving(false);
-    }
+  const openBudgetRequestPage = () => {
+    navigate(`${walletBase}/budget-request`);
   };
 
   return (
@@ -498,7 +389,7 @@ export const ReferralManagement = ({
           <button
             type="button"
             className="mk-wallet-topup-btn"
-            onClick={openModal}
+            onClick={openBudgetRequestPage}
           >
             <Plus size={16} strokeWidth={2.5} />
             Request Budget Top-up
@@ -595,121 +486,6 @@ export const ReferralManagement = ({
           )}
         </section>
       </div>
-
-      {isModalOpen ? (
-        <div className="mk-modal-overlay mk-modal-top">
-          <div className="mk-modal-card mk-modal-sm">
-            <div className="mk-modal-header">
-              <h2>Request Budget Top-up</h2>
-
-              <button
-                type="button"
-                className="mk-modal-close"
-                onClick={closeModal}
-              >
-                <X size={18} strokeWidth={2} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit}>
-              <div className="mk-form-group">
-                <label className="mk-label">Amount (SAR)</label>
-                <input
-                  autoFocus
-                  type="number"
-                  min="1"
-                  className="mk-input"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </div>
-
-              <div className="mk-form-group">
-                <label className="mk-label">Purpose</label>
-                <input
-                  type="text"
-                  className="mk-input"
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
-                  placeholder="e.g. Meta ads campaign budget"
-                />
-              </div>
-
-              <div className="mk-form-group">
-                <label className="mk-label">Source Cash Account</label>
-                <select
-                  className="mk-input mk-input-focus"
-                  value={sourceCashAccountId}
-                  onChange={(e) => setSourceCashAccountId(e.target.value)}
-                  disabled={accountsLoading}
-                >
-                  <option value="">
-                    {accountsLoading ? 'Loading accounts...' : 'Select account...'}
-                  </option>
-
-                  {cashAccounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.label}
-                      {Number.isFinite(account.balance)
-                        ? ` — ${formatSar(account.balance)}`
-                        : ''}
-                    </option>
-                  ))}
-                </select>
-
-                {accountsError ? (
-                  <div className="mk-field-error">{accountsError}</div>
-                ) : null}
-
-                {!accountsLoading && cashAccounts.length === 0 ? (
-                  <div className="mk-field-error">
-                    No cash/bank accounts found. Add account from accounting module first.
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="mk-wallet-request-note">
-                This request will be sent to Admin Approvals. Wallet balance will update only after approval.
-              </div>
-
-              <div className="mk-modal-footer">
-                <button
-                  type="button"
-                  className="mk-btn-secondary"
-                  onClick={closeModal}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  className="mk-btn-primary"
-                  disabled={saving || accountsLoading || cashAccounts.length === 0}
-                >
-                  {saving ? 'Submitting...' : 'Submit Request'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      <style>
-        {`
-          .mk-wallet-request-note {
-            margin-top: 10px;
-            padding: 9px 10px;
-            border-radius: 7px;
-            border: 1px solid #fde68a;
-            background: #fffbeb;
-            color: #92400e;
-            font-size: 11px;
-            font-weight: 700;
-            line-height: 1.4;
-          }
-        `}
-      </style>
     </div>
   );
 };

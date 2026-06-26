@@ -1,20 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Star,
   DollarSign,
   TrendingUp,
   Search,
   Plus,
-  X,
   Pencil,
   Trash2,
 } from 'lucide-react';
 import {
-  marketingCreateReferrer,
   marketingDeleteReferrer,
   marketingListReferrers,
-  marketingUpdateReferrer,
 } from '../../services/superAdminMarketingApi';
+import { marketingSectionPath } from './marketingRouteUtils';
 import './MarketingUniversal.css';
 
 const initialForm = {
@@ -177,18 +176,16 @@ const StatusBadge = ({ status }) => {
 };
 
 export const InfluencerReferrers = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const listPath = marketingSectionPath(location.pathname, 'influencer-referrers');
+
   const [search, setSearch] = useState('');
   const [influencers, setInfluencers] = useState([]);
 
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState('');
   const [error, setError] = useState('');
-
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState(initialForm);
-
-  const isEditing = Boolean(form.id);
 
   const loadInfluencers = async () => {
     try {
@@ -265,85 +262,8 @@ export const InfluencerReferrers = () => {
     0
   );
 
-  const updateForm = (field, value) => {
-    setForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
-
-  const openCreateModal = () => {
-    setForm(initialForm);
-    setShowModal(true);
-  };
-
-  const openEditModal = (item) => {
-    setForm({
-      id: item.id,
-      name: item.name || '',
-      email: item.email || '',
-      phone: item.phone || '',
-      platform: item.platform || 'instagram',
-      handle: item.handle || '',
-      commissionRate: String(item.commissionRate || ''),
-      activeCampaigns: String(item.activeCampaigns || ''),
-      status: item.status || 'active',
-      notes: item.notes || '',
-    });
-
-    setShowModal(true);
-  };
-
-  const closeModal = () => {
-    setForm(initialForm);
-    setShowModal(false);
-  };
-
-  const buildPayload = () => ({
-    name: form.name.trim(),
-    fullName: form.name.trim(),
-    email: form.email.trim() || undefined,
-    phone: form.phone.trim() || undefined,
-    platform: form.platform,
-    socialPlatform: form.platform,
-    handle: form.handle.trim() || undefined,
-    socialHandle: form.handle.trim() || undefined,
-    commissionRate: Number(form.commissionRate || 0),
-    activeCampaigns: Number(form.activeCampaigns || 0),
-    status: form.status,
-    type: 'influencer',
-    referrerType: 'influencer',
-    category: 'influencer',
-    notes: form.notes.trim() || undefined,
-  });
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-
-    if (!form.name.trim()) {
-      alert('Influencer name is required.');
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      const payload = buildPayload();
-
-      if (isEditing) {
-        await marketingUpdateReferrer(form.id, payload);
-      } else {
-        await marketingCreateReferrer(payload);
-      }
-
-      closeModal();
-      await loadInfluencers();
-    } catch (err) {
-      alert(err?.message || 'Failed to save influencer referrer.');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const openCreatePage = () => navigate(`${listPath}/new`);
+  const openEditPage = (id) => navigate(`${listPath}/${id}/edit`);
 
   const handleDelete = async (item) => {
     if (!window.confirm(`Delete ${item.name}?`)) return;
@@ -409,7 +329,7 @@ export const InfluencerReferrers = () => {
             <button
               type="button"
               className="mk-btn-primary"
-              onClick={openCreateModal}
+              onClick={openCreatePage}
             >
               <Plus size={16} strokeWidth={2.5} />
               Add Influencer
@@ -471,7 +391,7 @@ export const InfluencerReferrers = () => {
                           type="button"
                           title="Edit"
                           disabled={busy}
-                          onClick={() => openEditModal(item)}
+                          onClick={() => openEditPage(item.id)}
                         >
                           <Pencil size={15} />
                         </button>
@@ -493,147 +413,6 @@ export const InfluencerReferrers = () => {
           </tbody>
         </table>
       </section>
-
-      {showModal ? (
-        <div className="mk-modal-overlay">
-          <div className="mk-modal-card">
-            <div className="mk-modal-header">
-              <h2>{isEditing ? 'Edit Influencer' : 'Add Influencer'}</h2>
-
-              <button
-                type="button"
-                className="mk-modal-close"
-                onClick={closeModal}
-              >
-                <X size={18} strokeWidth={2} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit}>
-              <div className="mk-form-grid-2">
-                <div className="mk-form-group">
-                  <label className="mk-label">Name</label>
-                  <input
-                    autoFocus
-                    className="mk-input"
-                    value={form.name}
-                    onChange={(e) => updateForm('name', e.target.value)}
-                  />
-                </div>
-
-                <div className="mk-form-group">
-                  <label className="mk-label">Status</label>
-                  <select
-                    className="mk-input"
-                    value={form.status}
-                    onChange={(e) => updateForm('status', e.target.value)}
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="pending">Pending</option>
-                    <option value="suspended">Suspended</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="mk-form-grid-2">
-                <div className="mk-form-group">
-                  <label className="mk-label">Email</label>
-                  <input
-                    className="mk-input"
-                    value={form.email}
-                    onChange={(e) => updateForm('email', e.target.value)}
-                  />
-                </div>
-
-                <div className="mk-form-group">
-                  <label className="mk-label">Phone</label>
-                  <input
-                    className="mk-input"
-                    value={form.phone}
-                    onChange={(e) => updateForm('phone', e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="mk-form-grid-2">
-                <div className="mk-form-group">
-                  <label className="mk-label">Platform</label>
-                  <select
-                    className="mk-input"
-                    value={form.platform}
-                    onChange={(e) => updateForm('platform', e.target.value)}
-                  >
-                    {platformOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {humanize(option)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="mk-form-group">
-                  <label className="mk-label">Handle / Username</label>
-                  <input
-                    className="mk-input"
-                    value={form.handle}
-                    onChange={(e) => updateForm('handle', e.target.value)}
-                    placeholder="@username"
-                  />
-                </div>
-              </div>
-
-              <div className="mk-form-grid-2">
-                <div className="mk-form-group">
-                  <label className="mk-label">Commission Rate (%)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    className="mk-input"
-                    value={form.commissionRate}
-                    onChange={(e) => updateForm('commissionRate', e.target.value)}
-                  />
-                </div>
-
-                <div className="mk-form-group">
-                  <label className="mk-label">Active Campaigns</label>
-                  <input
-                    type="number"
-                    min="0"
-                    className="mk-input"
-                    value={form.activeCampaigns}
-                    onChange={(e) => updateForm('activeCampaigns', e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="mk-form-group">
-                <label className="mk-label">Notes</label>
-                <input
-                  className="mk-input"
-                  value={form.notes}
-                  onChange={(e) => updateForm('notes', e.target.value)}
-                />
-              </div>
-
-              <div className="mk-modal-footer">
-                <button
-                  type="button"
-                  className="mk-btn-secondary"
-                  onClick={closeModal}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-
-                <button type="submit" className="mk-btn-primary" disabled={saving}>
-                  {saving ? 'Saving...' : 'Save Influencer'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 };

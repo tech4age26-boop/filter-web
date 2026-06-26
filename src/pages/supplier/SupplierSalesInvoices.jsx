@@ -25,7 +25,7 @@ import {
     createSupplierInvoice,
     deleteSupplierInvoice,
     getSupplierInvoice,
-    fetchAllSupplierStockBalanceItems,
+    getSupplierInventoryStockBalances,
     getSupplierSalesInvoiceCustomerBranches,
     listSupplierInvoices,
     listSupplierInvoiceReturns,
@@ -429,28 +429,6 @@ const CASH_ACCOUNTS = ['Main Cash', 'Bank — Al Rajhi', 'Bank — SNB'];
 const SEARCH_QUICK_PICK = 15;
 const SEARCH_MAX_RESULTS = 50;
 
-function scoreSalesInvoiceSearchItem(item, q) {
-    const name = String(item?.name || '').toLowerCase();
-    const sku = String(item?.sku || '').toLowerCase();
-    const masterName = String(item?.masterProductName || '').toLowerCase();
-    const masterSku = String(item?.masterProductSku || '').toLowerCase();
-    const hay = `${name} ${sku} ${masterName} ${masterSku}`;
-    if (!q) return 0;
-    if (sku === q || masterSku === q) return 100;
-    if (name === q || masterName === q) return 95;
-    if (sku.startsWith(q) || masterSku.startsWith(q)) return 90;
-    if (name.startsWith(q) || masterName.startsWith(q)) return 85;
-    if (sku.includes(q) || masterSku.includes(q)) return 70;
-    if (name.includes(q) || masterName.includes(q)) return 60;
-    const tokens = q.split(/\s+/).filter((t) => t.length >= 2);
-    let hits = 0;
-    for (const t of tokens) {
-        if (hay.includes(t)) hits += 1;
-    }
-    if (tokens.length && hits === tokens.length) return 50 + hits * 5;
-    return 0;
-}
-
 function roundMoney2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -517,6 +495,35 @@ function applyLineTotals(line, amountsTaxInclusive) {
         taxAmt: f.taxAmtStr,
         totalFinal: f.grandInclStr,
     };
+}
+
+/**
+ * Stock catalog sale price is VAT-inclusive (workshop unit). Invoice last-sale history is ex-VAT.
+ */
+function resolveCatalogLineUnitPrice(catalogItem, amountsTaxInclusive, taxCode = 'VAT 15%') {
+    const rate = TAXES.find((t) => t.code === taxCode)?.rate ?? 0.15;
+    const cf = Math.max(0.0001, Number(catalogItem.conversionFactor) || 1);
+    const wh = catalogItem.warehouseUnit || catalogItem.unit || 'Box';
+    const lineUom = catalogItem.unit || wh;
+    const isWh = normUomLabel(lineUom) === normUomLabel(wh);
+
+    const catalogInclWs = Number(catalogItem.catalogSalePrice ?? 0);
+    if (catalogInclWs > 0) {
+        const inclAtLineUom = isWh ? roundMoney2(catalogInclWs * cf) : catalogInclWs;
+        if (amountsTaxInclusive) return inclAtLineUom;
+        return roundMoney2(inclAtLineUom / (1 + rate));
+    }
+
+    if (catalogItem.hasInvoiceSaleHistory && Number(catalogItem.lastPrice) > 0) {
+        const exWorkshop = Number(catalogItem.lastPrice);
+        const exAtLineUom = isWh ? roundMoney2(exWorkshop * cf) : exWorkshop;
+        if (amountsTaxInclusive) return roundMoney2(exAtLineUom * (1 + rate));
+        return exAtLineUom;
+    }
+
+    const fallback = Number(catalogItem.price) || 0;
+    if (amountsTaxInclusive && fallback > 0) return roundMoney2(fallback * (1 + rate));
+    return fallback;
 }
 
 /** Stored `unitPrice` is exclusive per unit after line discount — rebuild list price for the form. */
@@ -601,14 +608,20 @@ function normalizeStockCatalogRow(item) {
               ? Math.max(0, unitCostWh)
               : 0;
     const uom = warehouseUnit;
+    const catalogSalePrice =
+        item.salePrice != null && Number(item.salePrice) > 0
+            ? Number(item.salePrice)
+            : 0;
     const costHint =
         qtyWh > 0
             ? `Warehouse stock: ${qtyWh} ${warehouseUnit} • Unit cost SAR ${unitCostWh.toLocaleString(undefined, { maximumFractionDigits: 4 })} / ${warehouseUnit}`
             : 'No warehouse stock — you can still enter qty/price; save may be blocked if over stock.';
     const listHint =
-        Number.isFinite(suggestedWh) && suggestedWh > 0
-            ? `Suggested list SAR ${suggestedWh.toFixed(2)} / ${warehouseUnit} (invoice default)`
-            : '';
+        catalogSalePrice > 0
+            ? `Stock sales price SAR ${roundMoney2(catalogSalePrice * conversionFactor).toFixed(2)} / ${warehouseUnit} incl. VAT`
+            : Number.isFinite(suggestedWh) && suggestedWh > 0
+              ? `Suggested list SAR ${suggestedWh.toFixed(2)} / ${warehouseUnit} (invoice default)`
+              : '';
     const stockHint = [listHint, costHint].filter(Boolean).join(' · ');
 
 /** `stock-balances` row `productId` is supplier_products.id — POST as supplierProductId for workshop catalog resolution. */
@@ -638,6 +651,16 @@ const lastSalePriceNum = hasPreviousSale
     ? Number(lastSaleRaw.unitPrice ?? 0)
     : 0;
 
+const displaySalePrice =
+    hasPreviousSale && lastSalePriceNum > 0
+        ? lastSalePriceNum
+        : catalogSalePrice > 0
+          ? catalogSalePrice
+          : lastSalePriceNum;
+
+const hasSalePriceHint =
+    (hasPreviousSale && lastSalePriceNum > 0) || catalogSalePrice > 0;
+
 const saleDateRaw = String(lastSaleRaw?.invoiceDate || '').trim();
 
 const buyerWorkshop = String(lastSaleRaw?.buyerWorkshopName || '').trim();
@@ -652,17 +675,17 @@ const buyerLabel =
 const lastSaleMeta =
     hasPreviousSale && (saleDateRaw || buyerLabel)
         ? [saleDateRaw, buyerLabel].filter(Boolean).join(' • ')
-        : '';
+        : catalogSalePrice > 0
+          ? 'Stock sales price'
+          : '';
 
 /** Workshop-side sellable qty cap (aligned with supplier stock-balances payload). */
     const stockQtyWorkshop = Number(item.currentBalanceWorkshop ?? NaN);
 
     return {
     id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
-    name: item.productName || item.masterProductName || 'Product',
-    sku: String(item.sku ?? item.masterProductSku ?? item.barcode ?? '').trim(),
-    masterProductName: item.masterProductName || null,
-    masterProductSku: item.masterProductSku || null,
+    name: item.productName || 'Product',
+    sku: String(item.sku ?? item.barcode ?? '').trim(),
     price,
     unit: uom,
     warehouseUnit,
@@ -677,9 +700,11 @@ const lastSaleMeta =
                 ? stockQtyWorkshop
                 : null,
 
-    lastPrice: lastSalePriceNum,
+    lastPrice: displaySalePrice,
     lastSaleMeta,
-    hasPreviousSale,
+    hasPreviousSale: hasSalePriceHint,
+    hasInvoiceSaleHistory: hasPreviousSale,
+    catalogSalePrice,
 
     itemType: 'Product',
     stockHint,
@@ -859,7 +884,7 @@ export default function SupplierSalesInvoices() {
     const [showLineNum, setShowLineNum] = useState(false);
     const [showDesc, setShowDesc] = useState(false);
     const [showDiscount, setShowDiscount] = useState(false);
-    const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(false);
+    const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(true);
     const amountsTaxInclusiveRef = useRef(amountsTaxInclusive);
     amountsTaxInclusiveRef.current = amountsTaxInclusive;
     const [freightCharges, setFreightCharges] = useState('0');
@@ -883,7 +908,9 @@ export default function SupplierSalesInvoices() {
         useState('');
     const customerSearchWrapRef = useRef(null);
     const invoiceLineSearchWrapRef = useRef(null);
+    const invoiceLineSearchListRef = useRef(null);
     const lineItemPickerWrapRef = useRef(null);
+    const lineItemPickerListRef = useRef(null);
     /** Current text in the line item field while picker is open — saved to the line on close. */
     const itemPickerInputRef = useRef('');
     const [itemPickerLineId, setItemPickerLineId] = useState(null);
@@ -974,27 +1001,16 @@ export default function SupplierSalesInvoices() {
     const workshopPurchasePrefillRef = useRef(null);
 
     const getSearchSuggestions = (query) => {
-        const items = inventoryItems;
+        const items = [...inventoryItems].sort((a, b) =>
+            String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+                sensitivity: 'base',
+            }),
+        );
         const q = query.trim().toLowerCase();
-        if (!q) {
-            return [...items]
-                .sort((a, b) =>
-                    String(a.name || '').localeCompare(String(b.name || ''), undefined, {
-                        sensitivity: 'base',
-                    }),
-                )
-                .slice(0, SEARCH_QUICK_PICK);
-        }
+        if (!q) return items.slice(0, SEARCH_QUICK_PICK);
         return items
-            .map((item) => ({ item, score: scoreSalesInvoiceSearchItem(item, q) }))
-            .filter((x) => x.score > 0)
-            .sort(
-                (a, b) =>
-                    b.score - a.score ||
-                    String(a.item.name || '').localeCompare(String(b.item.name || '')),
-            )
-            .slice(0, SEARCH_MAX_RESULTS)
-            .map((x) => x.item);
+            .filter((i) => String(i.name || '').toLowerCase().includes(q))
+            .slice(0, SEARCH_MAX_RESULTS);
     };
 
     const applySearchQuery = (value) => {
@@ -1146,7 +1162,7 @@ export default function SupplierSalesInvoices() {
 
     const addItemToLines = useCallback((item) => {
         const lineId = nextLineId();
-        const unitPrice = Number(item.price) || 0;
+        const unitPrice = resolveCatalogLineUnitPrice(item, amountsTaxInclusive);
         const hasPrev = !!item.hasPreviousSale;
         const lastSaleAmt = hasPrev ? Number(item.lastPrice ?? 0) : 0;
         const catId =
@@ -1226,12 +1242,23 @@ export default function SupplierSalesInvoices() {
     };
 
     const handleKeyDown = (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!showDropdown) {
+                openInvoiceLineSearch();
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                setSelectedIndex((i) =>
+                    i < searchResults.length - 1 ? i + 1 : i,
+                );
+            } else {
+                setSelectedIndex((i) => (i > 0 ? i - 1 : i));
+            }
+            return;
+        }
         if (!showDropdown) return;
-        if (e.key === 'ArrowDown') {
-            setSelectedIndex((i) => (i < searchResults.length - 1 ? i + 1 : i));
-        } else if (e.key === 'ArrowUp') {
-            setSelectedIndex((i) => (i > 0 ? i - 1 : i));
-        } else if (e.key === 'Enter' && selectedIndex >= 0 && searchResults[selectedIndex]) {
+        if (e.key === 'Enter' && selectedIndex >= 0 && searchResults[selectedIndex]) {
             e.preventDefault();
             addItemToLines(searchResults[selectedIndex]);
         } else if (e.key === 'Escape') {
@@ -1324,7 +1351,7 @@ export default function SupplierSalesInvoices() {
         setShowLineNum(false);
         setShowDesc(false);
         setShowDiscount(false);
-        setAmountsTaxInclusive(false);
+        setAmountsTaxInclusive(true);
         setFreightCharges('0');
         setInvoiceDiscountValue('0');
         setInvoiceDiscountMode('fixed_sar');
@@ -2209,7 +2236,7 @@ export default function SupplierSalesInvoices() {
     }, [modalOpen, customerPickerOpen]);
 
     const applyCatalogItemToLine = (lineId, catalogItem) => {
-        const unitPrice = Number(catalogItem.price) || 0;
+        const unitPrice = resolveCatalogLineUnitPrice(catalogItem, amountsTaxInclusive);
         const hasPrev = !!catalogItem.hasPreviousSale;
         const lastSaleAmt = hasPrev ? Number(catalogItem.lastPrice ?? 0) : 0;
         const catId =
@@ -2262,6 +2289,7 @@ export default function SupplierSalesInvoices() {
     };
 
     const handleLineItemPickerKeyDown = (e, line) => {
+        if (itemPickerLineId !== line.id) return;
         const suggestions = getSearchSuggestions(itemPickerFilter);
         if (e.key === 'ArrowDown') {
             e.preventDefault();
@@ -2309,6 +2337,29 @@ export default function SupplierSalesInvoices() {
     }, [itemPickerFilter, itemPickerLineId]);
 
     useEffect(() => {
+        if (!modalOpen || itemPickerLineId == null) return;
+        focusLineField(itemPickerLineId, 'item');
+    }, [modalOpen, itemPickerLineId, focusLineField]);
+
+    useEffect(() => {
+        if (!showDropdown || !invoiceLineSearchListRef.current) return;
+        const el = invoiceLineSearchListRef.current.querySelector(
+            `[data-pick-idx="${selectedIndex}"]`,
+        );
+        el?.scrollIntoView({ block: 'nearest' });
+    }, [selectedIndex, showDropdown]);
+
+    useEffect(() => {
+        if (!modalOpen || itemPickerLineId == null || !lineItemPickerListRef.current) {
+            return;
+        }
+        const el = lineItemPickerListRef.current.querySelector(
+            `[data-pick-idx="${itemPickerSelectedIndex}"]`,
+        );
+        el?.scrollIntoView({ block: 'nearest' });
+    }, [modalOpen, itemPickerLineId, itemPickerSelectedIndex]);
+
+    useEffect(() => {
         let cancelled = false;
         const branchesErrDefault =
             'Could not load workshop branches. Check that the app points at your backend (see api.js BASE_URL) and you are logged in as a supplier user.';
@@ -2317,11 +2368,8 @@ export default function SupplierSalesInvoices() {
             setListLoading(true);
             setListError('');
             try {
-                const [stockRows, branchesRes, invRes] = await Promise.all([
-                    fetchAllSupplierStockBalanceItems({ historyLimit: 1 }).catch((se) => {
-                        console.error('Supplier stock catalog load failed:', se);
-                        return [];
-                    }),
+                const [stockRes, branchesRes, invRes] = await Promise.all([
+                    getSupplierInventoryStockBalances({ limit: 200 }),
                     getSupplierSalesInvoiceCustomerBranches().catch((be) => {
                         console.error('Supplier customer-branches failed:', be);
                         return { __error: be, branches: [] };
@@ -2337,8 +2385,8 @@ export default function SupplierSalesInvoices() {
 
                 if (cancelled) return;
 
-                const stockItems = Array.isArray(stockRows)
-                    ? stockRows.map((raw) => normalizeStockCatalogRow(raw))
+                const stockItems = Array.isArray(stockRes?.items)
+                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw))
                     : [];
 
                 let branchesErr = '';
@@ -2399,7 +2447,7 @@ export default function SupplierSalesInvoices() {
     useEffect(() => {
         if (!modalOpen || !inventoryInitialLoadDone) return undefined;
         let cancelled = false;
-        const params = { historyLimit: 1 };
+        const params = { limit: 200 };
         const bid = selectedCustomer?.branchId ? String(selectedCustomer.branchId) : '';
         if (bid) {
             params.branchId = bid;
@@ -2407,10 +2455,10 @@ export default function SupplierSalesInvoices() {
         const run = async () => {
             setLastSaleStockRefreshing(true);
             try {
-                const stockRows = await fetchAllSupplierStockBalanceItems(params);
+                const stockRes = await getSupplierInventoryStockBalances(params);
                 if (cancelled) return;
-                const normalized = Array.isArray(stockRows)
-                    ? stockRows.map((raw) => normalizeStockCatalogRow(raw))
+                const normalized = Array.isArray(stockRes?.items)
+                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw))
                     : [];
                 setInventoryItems((prev) => mergeInventoryLists(normalized, INVENTORY_ITEMS));
                 setLineItems((prev) =>
@@ -3557,7 +3605,10 @@ export default function SupplierSalesInvoices() {
                                                 </div>
                                                 {itemPickerLineId ===
                                                 line.id ? (
-                                                    <div className="pi-search-results pi-line-item-picker-results">
+                                                    <div
+                                                        ref={lineItemPickerListRef}
+                                                        className="pi-search-results pi-line-item-picker-results"
+                                                    >
                                                         {(() => {
                                                             const pickerRows =
                                                                 getSearchSuggestions(
@@ -3571,6 +3622,7 @@ export default function SupplierSalesInvoices() {
                                                                     ) => (
                                                                         <div
                                                                             key={`${line.id}-${String(invItem.id)}-${i}`}
+                                                                            data-pick-idx={i}
                                                                             className={`pi-result-item ${
                                                                                 itemPickerSelectedIndex ===
                                                                                 i
@@ -4120,7 +4172,7 @@ export default function SupplierSalesInvoices() {
                                                             fontWeight: 500,
                                                         }}
                                                     >
-                                                        No previous sale in selected workshop
+                                                        No previous sale or stock sales price set
                                                     </span>
                                                 );
                                             })()}
@@ -4176,11 +4228,15 @@ export default function SupplierSalesInvoices() {
                                             />
                                         </div>
                                         {showDropdown ? (
-                                            <div className="pi-search-results">
+                                            <div
+                                                ref={invoiceLineSearchListRef}
+                                                className="pi-search-results"
+                                            >
                                                 {searchResults.length > 0 ? (
                                                     searchResults.map((item, index) => (
                                                         <div
                                                             key={`${item.id}-${item.name}`}
+                                                            data-pick-idx={index}
                                                             className={`pi-result-item ${
                                                                 selectedIndex === index
                                                                     ? 'selected'

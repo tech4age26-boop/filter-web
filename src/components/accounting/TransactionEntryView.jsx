@@ -7,6 +7,7 @@ import {
     Save,
     Trash2,
 } from 'lucide-react';
+import CoaAccountSearchCombobox, { CashBankAccountSearchCombobox } from './CoaAccountSearchCombobox';
 import { getAccounts } from '../../services/accountsApi';
 import { apiFetch } from '../../services/api';
 import { createJournalEntry } from '../../services/journalEntriesApi';
@@ -71,7 +72,7 @@ export default function TransactionEntryView({ readOnly = false }) {
         let cancelled = false;
         (async () => {
             try {
-                const raw = await getAccounts();
+                const raw = await getAccounts({ leafOnly: true });
                 if (!cancelled) setAllAccounts(parseArr(raw));
             } catch {
                 if (!cancelled) setAllAccounts([]);
@@ -94,13 +95,22 @@ export default function TransactionEntryView({ readOnly = false }) {
     }, [activeTab]);
 
     const paymentAccounts = useMemo(
-        () => allAccounts.filter((a) => a.type === 'EXPENSE' || a.type === 'LIABILITY'),
+        () => allAccounts.filter((a) => a.type === 'EXPENSE' || a.type === 'LIABILITY' || a.type === 'EQUITY'),
         [allAccounts],
     );
     const receiptAccounts = useMemo(
-        () => allAccounts.filter((a) => a.type === 'INCOME' || a.type === 'ASSET'),
+        () => allAccounts.filter((a) => a.type === 'INCOME' || a.type === 'ASSET' || a.type === 'EQUITY'),
         [allAccounts],
     );
+
+    const coaOptionsFrom = (list) =>
+        list.map((a) => ({
+            id: String(a.id),
+            code: a.code,
+            name: a.name,
+            type: a.type,
+            label: `${a.code} — ${a.name}`,
+        }));
 
     const paymentValid = paymentsRows.filter((r) => Number(r.amount) > 0).length;
     const paymentTotal = paymentsRows.reduce((s, r) => s + Number(r.amount || 0), 0);
@@ -216,33 +226,15 @@ export default function TransactionEntryView({ readOnly = false }) {
                             <div style={{ fontSize: 12, marginBottom: 4 }}>
                                 {activeTab === 'Payments' ? '💳 Paid From Account' : '💳 Received Into Account'}
                             </div>
-                            <select
-                                key={activeTab}
-                                defaultValue=""
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    if (activeTab === 'Payments') {
-                                        setSelectedPaidFromAccountId(val);
-                                    } else {
-                                        setSelectedReceivedIntoAccountId(val);
-                                    }
+                            <CashBankAccountSearchCombobox
+                                accounts={cashBankAccounts}
+                                value={activeTab === 'Payments' ? selectedPaidFromAccountId : selectedReceivedIntoAccountId}
+                                onChange={(id) => {
+                                    if (activeTab === 'Payments') setSelectedPaidFromAccountId(id);
+                                    else setSelectedReceivedIntoAccountId(id);
                                 }}
-                                style={{
-                                    height: 34,
-                                    border: '1px solid #d1d5db',
-                                    borderRadius: 6,
-                                    padding: '0 8px',
-                                    width: '100%',
-                                    outlineColor: '#D4A017',
-                                }}
-                            >
-                                <option value="">Select account</option>
-                                {cashBankAccounts.map((a) => (
-                                    <option key={String(a.id)} value={String(a.id)}>
-                                        {a.name}
-                                    </option>
-                                ))}
-                            </select>
+                                placeholder="Select account — type to search"
+                            />
                         </div>
                     )}
                 </div>
@@ -270,7 +262,13 @@ export default function TransactionEntryView({ readOnly = false }) {
                                         <td style={{ padding: 6 }}><input type="date" value={r.date} onChange={(e) => updateRows(setPaymentsRows, paymentsRows, r.id, 'date', e.target.value)} style={tableInput} /></td>
                                         <td style={{ padding: 6 }}><select value={r.payeeType} onChange={(e) => updateRows(setPaymentsRows, paymentsRows, r.id, 'payeeType', e.target.value)} style={tableInput}><option>Supplier</option><option>Employee</option><option>Customer</option><option>Other</option></select></td>
                                         <td style={{ padding: 6 }}><input value={r.payeeName} onChange={(e) => updateRows(setPaymentsRows, paymentsRows, r.id, 'payeeName', e.target.value)} placeholder="Payee name" style={tableInput} /></td>
-                                        <td style={{ padding: 6 }}><select value={r.accountId} onChange={(e) => updateRows(setPaymentsRows, paymentsRows, r.id, 'accountId', e.target.value)} style={tableInput}><option value="">Select account</option>{paymentAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}</select></td>
+                                        <td style={{ padding: 6 }}>
+                                            <CoaAccountSearchCombobox
+                                                accounts={coaOptionsFrom(paymentAccounts)}
+                                                value={r.accountId}
+                                                onChange={(accountId) => updateRows(setPaymentsRows, paymentsRows, r.id, 'accountId', accountId)}
+                                            />
+                                        </td>
                                         <td style={{ padding: 6 }}><input type="number" min="0" step="0.01" value={r.amount} onChange={(e) => updateRows(setPaymentsRows, paymentsRows, r.id, 'amount', e.target.value)} style={tableInput} /></td>
                                         <td style={{ padding: 6 }}><input value={r.reference} onChange={(e) => updateRows(setPaymentsRows, paymentsRows, r.id, 'reference', e.target.value)} style={tableInput} /></td>
                                         <td style={{ padding: 6 }}><input value={r.notes} onChange={(e) => updateRows(setPaymentsRows, paymentsRows, r.id, 'notes', e.target.value)} style={tableInput} /></td>
@@ -300,7 +298,13 @@ export default function TransactionEntryView({ readOnly = false }) {
                                         <td style={{ padding: 6 }}><input type="date" value={r.date} onChange={(e) => updateRows(setReceiptsRows, receiptsRows, r.id, 'date', e.target.value)} style={tableInput} /></td>
                                         <td style={{ padding: 6 }}><select value={r.payeeType} onChange={(e) => updateRows(setReceiptsRows, receiptsRows, r.id, 'payeeType', e.target.value)} style={tableInput}><option>Customer</option><option>Supplier</option><option>Employee</option><option>Other</option></select></td>
                                         <td style={{ padding: 6 }}><input value={r.payeeName} onChange={(e) => updateRows(setReceiptsRows, receiptsRows, r.id, 'payeeName', e.target.value)} placeholder="Payer name" style={tableInput} /></td>
-                                        <td style={{ padding: 6 }}><select value={r.accountId} onChange={(e) => updateRows(setReceiptsRows, receiptsRows, r.id, 'accountId', e.target.value)} style={tableInput}><option value="">Select account</option>{receiptAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}</select></td>
+                                        <td style={{ padding: 6 }}>
+                                            <CoaAccountSearchCombobox
+                                                accounts={coaOptionsFrom(receiptAccounts)}
+                                                value={r.accountId}
+                                                onChange={(accountId) => updateRows(setReceiptsRows, receiptsRows, r.id, 'accountId', accountId)}
+                                            />
+                                        </td>
                                         <td style={{ padding: 6 }}><input type="number" min="0" step="0.01" value={r.amount} onChange={(e) => updateRows(setReceiptsRows, receiptsRows, r.id, 'amount', e.target.value)} style={tableInput} /></td>
                                         <td style={{ padding: 6 }}><input value={r.reference} onChange={(e) => updateRows(setReceiptsRows, receiptsRows, r.id, 'reference', e.target.value)} style={tableInput} /></td>
                                         <td style={{ padding: 6 }}><input value={r.notes} onChange={(e) => updateRows(setReceiptsRows, receiptsRows, r.id, 'notes', e.target.value)} style={tableInput} /></td>
@@ -326,7 +330,13 @@ export default function TransactionEntryView({ readOnly = false }) {
                         <tbody>
                             {journalRows.map((r) => (
                                 <tr key={r.id}>
-                                    <td style={{ padding: 6 }}><select value={r.accountId} onChange={(e) => setJournalRows(journalRows.map((x) => (x.id === r.id ? { ...x, accountId: e.target.value } : x)))} style={tableInput}><option value="">Select account</option>{allAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}</select></td>
+                                    <td style={{ padding: 6 }}>
+                                        <CoaAccountSearchCombobox
+                                            accounts={coaOptionsFrom(allAccounts)}
+                                            value={r.accountId}
+                                            onChange={(accountId) => setJournalRows(journalRows.map((x) => (x.id === r.id ? { ...x, accountId } : x)))}
+                                        />
+                                    </td>
                                     <td style={{ padding: 6 }}><input value={r.description} onChange={(e) => setJournalRows(journalRows.map((x) => (x.id === r.id ? { ...x, description: e.target.value } : x)))} style={tableInput} /></td>
                                     <td style={{ padding: 6 }}><input type="number" value={r.debit} onChange={(e) => setJournalRows(journalRows.map((x) => (x.id === r.id ? { ...x, debit: e.target.value } : x)))} style={tableInput} /></td>
                                     <td style={{ padding: 6 }}><input type="number" value={r.credit} onChange={(e) => setJournalRows(journalRows.map((x) => (x.id === r.id ? { ...x, credit: e.target.value } : x)))} style={tableInput} /></td>

@@ -26,6 +26,27 @@ import './marketing/Marketing.css';
 import { useMarketingState } from './marketing/MarketingUtils';
 import { getWorkshops } from '../services/superAdminApi';
 import { marketingGetWallet } from '../services/superAdminMarketingApi';
+import { useAuth } from '../context/AuthContext';
+
+function resolveSessionUserLabel(user) {
+    if (!user) {
+        return { name: 'User', role: '—', initial: 'U' };
+    }
+    const name =
+        user.name ||
+        user.fullName ||
+        user.email ||
+        user.username ||
+        user.mobile ||
+        'User';
+    const role =
+        user.role?.name ||
+        (user.userType === 'platform_admin'
+            ? 'Super Admin'
+            : String(user.userType || 'User').replace(/_/g, ' '));
+    const initial = String(name).trim().charAt(0).toUpperCase() || 'U';
+    return { name, role, initial };
+}
 
 function normalizeWorkshopsPayload(payload) {
     if (!payload) return [];
@@ -98,6 +119,29 @@ const PAGE_TITLES = {
 function getPageTitle(pathname) {
     const parts = pathname.split('/').filter(Boolean);
     const last = parts[parts.length - 1] || 'dashboard';
+    const prev = parts[parts.length - 2] || '';
+
+    if (last === 'new') {
+        if (prev === 'promo-codes') return 'Generate Promo Code';
+        if (prev === 'marketing-promotions' || (prev === 'promotions' && parts.includes('marketing'))) return 'New Promotion';
+        if (prev === 'referral-types-rules') return 'New Expense';
+        if (prev === 'loyalty-programs') return 'New Loyalty Program';
+        if (prev === 'influencer-referrers') return 'Add Influencer';
+        if (prev === 'referrers') return 'Add Referrer';
+        if (prev === 'rules') return 'New Commission Rule';
+        if (prev === 'payouts') return 'New Payout Request';
+        if (last === 'budget-request' || prev === 'budget-request') return 'Request Budget Top-up';
+        return 'New';
+    }
+    if (last === 'edit') {
+        if (prev === 'influencer-referrers') return 'Edit Influencer';
+        if (prev === 'referrers') return 'Edit Referrer';
+        if (prev === 'referral-types-rules') return 'Edit Expense';
+        return 'Edit Promotion';
+    }
+    if (last === 'configure') return 'Configure Platform';
+    if (last === 'budget-request') return 'Request Budget Top-up';
+
     return PAGE_TITLES[last] || 'Dashboard';
 }
 
@@ -163,6 +207,8 @@ const SidebarNavItem = ({ item, basePath }) => {
 export default function MarketingLayout() {
     const location = useLocation();
     const navigate = useNavigate();
+    const { user, logout } = useAuth();
+    const sessionUser = resolveSessionUserLabel(user);
 
     const [locale, setLocale] = useState(
         () => localStorage.getItem('marketing-locale') || 'en'
@@ -245,9 +291,7 @@ export default function MarketingLayout() {
     const handleLogout = () => {
         localStorage.removeItem('portal-locale');
         localStorage.removeItem('marketing-locale');
-        localStorage.removeItem('filter_auth_token');
-        localStorage.removeItem('filter_auth_user');
-        localStorage.removeItem('filter_auth_workshop');
+        logout();
         navigate('/');
     };
 
@@ -314,11 +358,11 @@ export default function MarketingLayout() {
 
                 <div className="marketing-user-row">
                     <div className="marketing-user-left">
-                        <div className="marketing-user-avatar">A</div>
+                        <div className="marketing-user-avatar">{sessionUser.initial}</div>
 
                         <div className="marketing-user-meta">
-                            <div className="marketing-user-name">abhutto85</div>
-                            <div className="marketing-user-role">super_admin</div>
+                            <div className="marketing-user-name">{sessionUser.name}</div>
+                            <div className="marketing-user-role">{sessionUser.role}</div>
                         </div>
                     </div>
 
@@ -358,7 +402,7 @@ export default function MarketingLayout() {
                     </div>
 
                     <div className="marketing-header-right">
-                        <span className="marketing-header-user">abhutto85</span>
+                        <span className="marketing-header-user">{sessionUser.name}</span>
 
                         <button
                             type="button"

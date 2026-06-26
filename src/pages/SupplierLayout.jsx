@@ -24,11 +24,18 @@ import SupplierNonAffiliatedCustomers from './supplier/SupplierNonAffiliatedCust
 import SupplierCashBank from './supplier/SupplierCashBank';
 import SupplierExpenses from './supplier/SupplierExpenses';
 import SupplierAccountingPage from './supplier/SupplierAccountingPage';
+import SupplierAccountLedgerPage from './supplier/accounting/SupplierAccountLedgerPage';
 import SupplierStorageFacility from './supplier/storage-facility/SupplierStorageFacility';
+import SupplierStaffAppPage from './supplier/SupplierStaffAppPage';
+import SupplierPlatformChatPage from './supplier/SupplierPlatformChatPage';
+import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
+import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import { isPlatformChatNavId } from '../utils/platformChatForUser';
 import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { getSupplierProfile, getSupplierReceivables } from '../services/supplierApi';
 import './workshop/Workshop.css';
+import '../styles/admin/PlatformChat.css';
 import '../styles/ThemeOnly.css';
 import '../styles/RowActionsMenu.css';
 import { ShimmerLine } from '../components/supplier/Shimmer';
@@ -168,17 +175,23 @@ export default function SupplierLayout() {
         : NAV_GROUPS;
 
     const renderContent = () => {
+        if (/^\/supplier\/accounting\/ledger\/[^/]+/.test(location.pathname)) {
+            return <SupplierAccountLedgerPage />;
+        }
+
         if (activeTab.startsWith('accounting_')) {
             return <SupplierAccountingPage activeSubTab={activeTab} />;
         }
 
         switch (activeTab) {
+            case 'platform-chat': return null;
             case 'dashboard': return <SupplierDashboard onTabChange={setActiveTab}/>;
             case 'order_queue': return <SupplierOrderQueue/>;
             case 'stock': return <SupplierStockInventory/>;
             case 'stock_alerts': return <SupplierWorkshopAlerts/>;
             case 'catalog': return <SupplierCatalog/>;
             case 'employees': return <SupplierEmployeesPage/>;
+            case 'staff_app': return <SupplierStaffAppPage/>;
             case 'sales_invoices': return <SupplierSalesInvoices/>;
             case 'affiliated_workshops': return <SupplierAffiliatedWorkshops/>;
             case 'nonaffiliated_customers': return <SupplierNonAffiliatedCustomers/>;
@@ -195,6 +208,14 @@ export default function SupplierLayout() {
     const currentLabel = navGroupsForUser.flatMap(g => [g, ...(g.items || [])])
         .flatMap(i => [i, ...(i.subItems || [])])
         .find(i => i.id === activeTab)?.label || 'Dashboard';
+
+    if (activeTab === 'platform-chat') {
+        return (
+            <div className="portal-layout--chat-fullscreen">
+                <SupplierPlatformChatPage />
+            </div>
+        );
+    }
 
     return (
         <div className="workshop-layout supplier-portal">
@@ -240,6 +261,7 @@ export default function SupplierLayout() {
                                         >
                                             <item.icon size={17} stroke="currentColor" />
                                             <span>{item.label}</span>
+                                            {isPlatformChatNavId(item.id) && <PlatformChatNavBadge />}
                                             {item.badge > 0 && <span className="ws-nav-badge">{item.badge}</span>}
                                             {hasSub && (
                                                 <div style={{ marginLeft: 'auto', opacity: 0.5 }}>
@@ -328,6 +350,11 @@ export default function SupplierLayout() {
                     </p>
                 </Modal>
             )}
+
+            <PlatformChatFab
+                hidden={activeTab === 'platform-chat'}
+                onClick={() => setActiveTab('platform-chat')}
+            />
         </div>
     );
 }

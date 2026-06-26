@@ -8,6 +8,14 @@ const fmtMoney = (v) =>
         maximumFractionDigits: 2,
     });
 
+/** jsPDF built-in fonts cannot render Arabic/RTL — avoid garbled PDF headings. */
+function pdfAsciiOrFallback(text, fallback = '') {
+    const s = String(text || '').trim();
+    if (!s) return fallback;
+    if (/[^\u0020-\u007E]/.test(s)) return fallback;
+    return s;
+}
+
 function buildFileBase({ header }) {
     const safe = (s) => String(s || '').replace(/[^\w-]+/g, '_').replace(/_+/g, '_');
     const supplier = safe(header?.supplierName || 'supplier');
@@ -339,6 +347,16 @@ function accountLedgerHasCashColumns(rows) {
     return (rows ?? []).some((r) => r.counterpartyLabel || r.offsetAccountLabel);
 }
 
+function accountLedgerHasPettyCashColumns(rows) {
+    return (rows ?? []).some((r) => r.walletUserLabel || r.expenseCategoryLabel);
+}
+
+function accountLedgerColumnMode(rows) {
+    if (accountLedgerHasPettyCashColumns(rows)) return 'pettyCash';
+    if (accountLedgerHasCashColumns(rows)) return 'cash';
+    return 'basic';
+}
+
 /** Export a Chart of Accounts ledger statement to PDF. */
 export function exportAccountLedgerPdf({ header, openingBalance, rows, totals }) {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
@@ -351,11 +369,11 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.text(header?.companyName || 'Supplier', margin, cursorY + 16);
+    doc.text(pdfAsciiOrFallback(header?.companyName, 'FILTER'), margin, cursorY + 16);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
-    doc.text(accountLabel, margin, cursorY + 38);
+    doc.text(pdfAsciiOrFallback(accountLabel, 'Account Ledger'), margin, cursorY + 38);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
@@ -368,6 +386,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
     const lines = [
         header?.accountType ? `Account type: ${header.accountType}` : null,
         `Period: ${header?.from || '—'}  to  ${header?.to || '—'}`,
+        header?.expenseCategory ? `Expense category: ${header.expenseCategory}` : null,
         `Currency: ${header?.currencyCode || 'SAR'}`,
     ].filter(Boolean);
     lines.forEach((line, i) => {
@@ -375,31 +394,45 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
     });
     cursorY += lines.length * 14 + 8;
 
-    const hasCashCols = accountLedgerHasCashColumns(rows);
+    const colMode = accountLedgerColumnMode(rows);
+    const hasCashCols = colMode === 'cash';
+    const hasPettyCols = colMode === 'pettyCash';
     const body = [
-        hasCashCols
+        hasPettyCols
             ? ['—', 'Opening balance', '', '', '', '', fmtMoney(openingBalance)]
-            : ['—', 'Opening balance', '', '', fmtMoney(openingBalance)],
+            : hasCashCols
+              ? ['—', 'Opening balance', '', '', '', '', fmtMoney(openingBalance)]
+              : ['—', 'Opening balance', '', '', fmtMoney(openingBalance)],
         ...rows.map((r) =>
-            hasCashCols
+            hasPettyCols
                 ? [
                       r.date,
-                      r.counterpartyLabel || '',
-                      r.offsetAccountLabel || '',
+                      r.walletUserLabel || '',
+                      r.expenseCategoryLabel || '',
                       r.description || '',
                       r.debit > 0 ? fmtMoney(r.debit) : '',
                       r.credit > 0 ? fmtMoney(r.credit) : '',
                       fmtMoney(r.runningBalance),
                   ]
-                : [
-                      r.date,
-                      r.description || '',
-                      r.debit > 0 ? fmtMoney(r.debit) : '',
-                      r.credit > 0 ? fmtMoney(r.credit) : '',
-                      fmtMoney(r.runningBalance),
-                  ],
+                : hasCashCols
+                  ? [
+                        r.date,
+                        r.counterpartyLabel || '',
+                        r.offsetAccountLabel || '',
+                        r.description || '',
+                        r.debit > 0 ? fmtMoney(r.debit) : '',
+                        r.credit > 0 ? fmtMoney(r.credit) : '',
+                        fmtMoney(r.runningBalance),
+                    ]
+                  : [
+                        r.date,
+                        r.description || '',
+                        r.debit > 0 ? fmtMoney(r.debit) : '',
+                        r.credit > 0 ? fmtMoney(r.credit) : '',
+                        fmtMoney(r.runningBalance),
+                    ],
         ),
-        hasCashCols
+        hasPettyCols
             ? [
                   '',
                   '',
@@ -409,39 +442,61 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
                   fmtMoney(totals?.totalCredit),
                   fmtMoney(totals?.closingBalance),
               ]
-            : [
-                  '',
-                  'Totals',
-                  fmtMoney(totals?.totalDebit),
-                  fmtMoney(totals?.totalCredit),
-                  fmtMoney(totals?.closingBalance),
-              ],
+            : hasCashCols
+              ? [
+                    '',
+                    '',
+                    '',
+                    'Totals',
+                    fmtMoney(totals?.totalDebit),
+                    fmtMoney(totals?.totalCredit),
+                    fmtMoney(totals?.closingBalance),
+                ]
+              : [
+                    '',
+                    'Totals',
+                    fmtMoney(totals?.totalDebit),
+                    fmtMoney(totals?.totalCredit),
+                    fmtMoney(totals?.closingBalance),
+                ],
     ];
 
     autoTable(doc, {
         startY: cursorY,
-        head: hasCashCols
+        head: hasPettyCols
             ? [
                   [
                       'Date',
-                      'Paid to / Received from',
-                      'Expense / AR account',
+                      'Wallet user / employee',
+                      'Expense category',
                       'Description',
                       'Debit',
                       'Credit',
                       'Balance',
                   ],
               ]
-            : [['Date', 'Description', 'Debit', 'Credit', 'Balance']],
+            : hasCashCols
+              ? [
+                    [
+                        'Date',
+                        'Paid to / Received from',
+                        'Expense / AR account',
+                        'Description',
+                        'Debit',
+                        'Credit',
+                        'Balance',
+                    ],
+                ]
+              : [['Date', 'Description', 'Debit', 'Credit', 'Balance']],
         body,
         margin: { left: margin, right: margin },
         styles: { fontSize: 9, cellPadding: 5 },
         headStyles: { fillColor: [241, 245, 249], textColor: 30 },
-        columnStyles: hasCashCols
+        columnStyles: hasPettyCols || hasCashCols
             ? {
                   0: { cellWidth: 58 },
-                  1: { cellWidth: 90 },
-                  2: { cellWidth: 90 },
+                  1: { cellWidth: 82 },
+                  2: { cellWidth: 82 },
                   3: { cellWidth: 'auto' },
                   4: { cellWidth: 58, halign: 'right' },
                   5: { cellWidth: 58, halign: 'right' },
@@ -450,9 +505,9 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
             : {
                   0: { cellWidth: 70 },
                   1: { cellWidth: 'auto' },
-                  2: { cellWidth: 75, halign: 'right' },
-                  3: { cellWidth: 75, halign: 'right' },
-                  4: { cellWidth: 85, halign: 'right' },
+                  2: { cellWidth: 75, halign: 'left' },
+                  3: { cellWidth: 75, halign: 'left' },
+                  4: { cellWidth: 85, halign: 'left' },
               },
         didParseCell(data) {
             const last = data.row.index === body.length - 1;
@@ -482,7 +537,9 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
     const accountLabel = header?.accountCode
         ? `[${header.accountCode}] ${header.accountName || ''}`
         : header?.accountName || 'Account';
-    const hasCashCols = accountLedgerHasCashColumns(rows);
+    const colMode = accountLedgerColumnMode(rows);
+    const hasCashCols = colMode === 'cash';
+    const hasPettyCols = colMode === 'pettyCash';
     const aoa = [
         [header?.companyName || 'Supplier'],
         [accountLabel],
@@ -492,9 +549,41 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
         ['Account type', header?.accountType || ''],
         ['Period', `${header?.from || '—'}  to  ${header?.to || '—'}`],
         ['Currency', header?.currencyCode || 'SAR'],
+        ...(header?.expenseCategory ? [['Expense category', header.expenseCategory]] : []),
         [],
-        ...(hasCashCols
+        ...(hasPettyCols
             ? [
+                  [
+                      'Date',
+                      'Wallet user / employee',
+                      'Expense category',
+                      'Description',
+                      'Debit',
+                      'Credit',
+                      'Balance',
+                  ],
+                  ['—', 'Opening balance', '', '', '', '', Number(openingBalance ?? 0)],
+                  ...rows.map((r) => [
+                      r.date,
+                      r.walletUserLabel || '',
+                      r.expenseCategoryLabel || '',
+                      r.description || '',
+                      r.debit > 0 ? Number(r.debit) : '',
+                      r.credit > 0 ? Number(r.credit) : '',
+                      Number(r.runningBalance ?? 0),
+                  ]),
+                  [
+                      '',
+                      '',
+                      '',
+                      'Totals',
+                      Number(totals?.totalDebit ?? 0),
+                      Number(totals?.totalCredit ?? 0),
+                      Number(totals?.closingBalance ?? 0),
+                  ],
+              ]
+            : hasCashCols
+              ? [
                   [
                       'Date',
                       'Paid to / Received from',
@@ -544,11 +633,11 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
               ]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = hasCashCols
+    ws['!cols'] = hasPettyCols || hasCashCols
         ? [
               { wch: 14 },
-              { wch: 36 },
-              { wch: 36 },
+              { wch: 28 },
+              { wch: 24 },
               { wch: 40 },
               { wch: 12 },
               { wch: 12 },

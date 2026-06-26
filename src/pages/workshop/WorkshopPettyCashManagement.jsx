@@ -16,7 +16,12 @@ import { StatusBadge, MessageThread, formatSar, WalletTransactionsTable } from '
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/AccountingPage.css';
 
-export default function WorkshopPettyCashManagement({ selectedBranchId = 'all' }) {
+export default function WorkshopPettyCashManagement({
+    selectedBranchId = 'all',
+    branches: branchesProp = [],
+    workshopId = null,
+}) {
+    const scopeQuery = workshopId ? { workshopId: String(workshopId) } : {};
     const { hasPermission, user } = useAuth();
     // Owners bypass; otherwise role must explicitly grant the .issue code.
     const canIssue =
@@ -58,8 +63,8 @@ export default function WorkshopPettyCashManagement({ selectedBranchId = 'all' }
         // for these before clearing the loader so the user sees real data, not
         // empty tables.
         const primary = Promise.all([
-            listWorkshopPettyCashWallets({ branchId: effectiveBranch }),
-            listWorkshopExpenseRequests({ limit: 100, branchId: effectiveBranch }),
+            listWorkshopPettyCashWallets({ branchId: effectiveBranch, ...scopeQuery }),
+            listWorkshopExpenseRequests({ limit: 100, branchId: effectiveBranch, ...scopeQuery }),
         ]).then(([walletRes, reqRes]) => {
             setWallets(walletRes?.wallets ?? []);
             setRequests(reqRes?.items ?? []);
@@ -68,15 +73,19 @@ export default function WorkshopPettyCashManagement({ selectedBranchId = 'all' }
         // Secondary data — only needed when the Issue modal opens. Load in the
         // background, never block the page render on these. Each catches its
         // own errors so one slow/failing endpoint doesn't poison the others.
-        listExpenseIssuanceTargets()
+        listExpenseIssuanceTargets(scopeQuery)
             .then((r) => setTargets(r?.users ?? []))
             .catch(() => undefined);
         listCashBankAccounts({})
             .then((r) => setCashAccounts(r?.accounts ?? r?.items ?? []))
             .catch(() => undefined);
-        getWorkshopBranches()
-            .then((r) => setBranches(unwrapWorkshopBranchesResponse(r)))
-            .catch(() => undefined);
+        if (!workshopId) {
+            getWorkshopBranches()
+                .then((r) => setBranches(unwrapWorkshopBranchesResponse(r)))
+                .catch(() => undefined);
+        } else if (branchesProp?.length) {
+            setBranches(branchesProp);
+        }
 
         try {
             await primary;
@@ -85,7 +94,7 @@ export default function WorkshopPettyCashManagement({ selectedBranchId = 'all' }
         } finally {
             setLoading(false);
         }
-    }, [effectiveBranch]);
+    }, [effectiveBranch, workshopId, branchesProp]);
 
     useEffect(() => {
         const next =
@@ -137,7 +146,7 @@ export default function WorkshopPettyCashManagement({ selectedBranchId = 'all' }
                 amount: amt,
                 payFromAccountId: issuePayFrom,
                 description: issueNote.trim() || undefined,
-            });
+            }, scopeQuery);
             setIssueOpen(false);
             setIssueUserId('');
             setIssueBranchId('');
@@ -166,7 +175,7 @@ export default function WorkshopPettyCashManagement({ selectedBranchId = 'all' }
         try {
             await approveExpenseRequest(row.id, {
                 ...(payFrom ? { payFromAccountId: payFrom } : {}),
-            });
+            }, scopeQuery);
             await loadAll();
         } catch (e) {
             setError(e?.message || 'Approve failed.');
@@ -181,7 +190,7 @@ export default function WorkshopPettyCashManagement({ selectedBranchId = 'all' }
         setActionBusyId(row.id);
         setError('');
         try {
-            await rejectExpenseRequest(row.id, { reason: reason.trim() });
+            await rejectExpenseRequest(row.id, { reason: reason.trim() }, scopeQuery);
             await loadAll();
         } catch (e) {
             setError(e?.message || 'Reject failed.');

@@ -15,6 +15,14 @@ function qs(params) {
 export const getStats = () =>
     apiFetch('/super-admin/stats');
 
+// ─── Platform HQ (Super Admin own books) ─────────────────────────────────────
+
+export const getPlatformHqInfo = () =>
+    apiFetch('/super-admin/platform-hq');
+
+export const ensurePlatformHq = () =>
+    apiFetch('/super-admin/platform-hq/ensure', { method: 'POST' });
+
 // ─── Master Catalog: Duplication Review ───────────────────────────────────────
 
 export const getDuplicates = ({ entityType } = {}) =>
@@ -228,6 +236,7 @@ export const getSuperAdminInventoryLedger = ({
     from,
     to,
     search,
+    kind,
     limit,
     offset,
 } = {}) =>
@@ -239,6 +248,7 @@ export const getSuperAdminInventoryLedger = ({
             from,
             to,
             search,
+            kind,
             limit,
             offset,
         })}`,
@@ -647,6 +657,14 @@ export const generateCorporateBill = ({ corporateAccountId, startDate, endDate, 
         method: 'POST',
         body: JSON.stringify({ corporateAccountId, startDate, endDate, dueDate }),
     });
+
+export const listCorporateGeneratedBills = (corporateAccountId) =>
+    apiFetch(
+        `/super-admin/corporate-billing/generated-bills${qs({ corporateAccountId })}`,
+    );
+
+export const getCorporateGeneratedBill = (id) =>
+    apiFetch(`/super-admin/corporate-billing/generated-bills/${encodeURIComponent(id)}`);
 
 /** Same bilingual simplified-tax-invoice shape used by the corporate portal modal. */
 export const getSuperAdminInvoiceView = (id) =>

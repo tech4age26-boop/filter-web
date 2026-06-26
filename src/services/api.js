@@ -4,11 +4,11 @@
 //export const BASE_URL  = 'https://filterbackend-production.up.railway.app';
 
 // production url
-// export const BASE_URL  = 'https://api.filtercarservices.com';der it should be approved already
+// export const BASE_URL  = 'https://api.filtercarservices.com';
 
 // development url
-export const BASE_URL = 'http://localhost:3000';
 
+export const BASE_URL = 'http://localhost:3000';
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
@@ -62,6 +62,22 @@ function buildUrl(path) {
   return `${BASE_URL}${normalized}`;
 }
 
+function getLoginRedirectPath() {
+  if (typeof window === "undefined") return "/";
+
+  const pathname = window.location.pathname.toLowerCase();
+
+  if (pathname.startsWith("/admin")) return "/admin/login";
+  if (pathname.startsWith("/workshop")) return "/workshop/login";
+  if (pathname.startsWith("/supplier")) return "/supplier/login";
+  if (pathname.startsWith("/marketing")) return "/marketing/login";
+  if (pathname.startsWith("/locker")) return "/locker/login";
+  if (pathname.startsWith("/technician")) return "/technician/login";
+  if (pathname.startsWith("/corporate")) return "/corporate/login";
+
+  return "/";
+}
+
 function shouldRedirectToLogin() {
   if (typeof window === "undefined") return false;
 
@@ -91,6 +107,27 @@ function getErrorMessage(errorBody, status, statusText, method, path) {
   }
 
   return `Request failed: ${status} ${statusText} (${method} ${path})`;
+}
+
+function isInvalidSession401(errorBody) {
+  const msg = (
+    getErrorMessage(errorBody, 401, "Unauthorized", "GET", "") || ""
+  ).toLowerCase();
+
+  // Workshop scope / missing workshop context — session is still valid for platform admin.
+  if (
+    msg.includes("associated with a workshop") ||
+    msg.includes("bound to a workshop") ||
+    msg.includes("not linked to a workshop") ||
+    msg.includes("workshopid query param is required") ||
+    msg.includes("workshopid is required") ||
+    msg.includes("super admin access only") ||
+    msg.includes("missing permission:")
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -132,11 +169,11 @@ export async function apiFetch(path, options = {}) {
       : await response.text().catch(() => "");
 
     if (!response.ok) {
-      if (response.status === 401) {
+      if (response.status === 401 && isInvalidSession401(responseBody)) {
         clearAuthSession();
 
         if (shouldRedirectToLogin()) {
-          window.location.replace("/signin");
+          window.location.replace(getLoginRedirectPath());
         }
       }
 

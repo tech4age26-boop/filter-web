@@ -66,7 +66,7 @@ export default function PurchasesView({ readOnly = false }) {
         const [s, list, coa] = await Promise.all([
             getSummary().catch(() => ({ totalPayable: 0, totalInvoices: 0 })),
             getPurchaseInvoices().catch(() => ({ list: [] })),
-            getAccounts().catch(() => []),
+            getAccounts({ leafOnly: true }).catch(() => []),
         ]);
         setSummary(s || { totalPayable: 0, totalInvoices: 0 });
         setRows(parseArr(list?.list ?? list));

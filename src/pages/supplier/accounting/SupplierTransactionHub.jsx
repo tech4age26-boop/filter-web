@@ -32,6 +32,7 @@ import {
     outlineBtnStyle,
     primaryBtnStyle,
     todayISO,
+    coaNetBalance,
 } from './SupplierAccountingShared';
 
 const PAY_TYPES = [
@@ -107,7 +108,7 @@ function partyPayloadFromRow(row) {
 function cashLabel(a) {
     const rd = Number(a.closingDebit) || 0;
     const rc = Number(a.closingCredit) || 0;
-    const bal = a.type === 'ASSET' || a.type === 'EXPENSE' ? rd : rc;
+    const bal = coaNetBalance(a.type, rd, rc);
     return `[${a.code}] ${a.name} — ${money(bal)}`;
 }
 

@@ -142,7 +142,7 @@ export default function JournalEntriesView({ readOnly = false }) {
                     ...(dateTo ? { dateTo } : {}),
                     ...(debouncedSearch ? { search: debouncedSearch } : {}),
                 }),
-                getAccounts(),
+                getAccounts({ leafOnly: true }),
             ]);
             setStats({
                 totalEntries: Number(statsRes.totalEntries || 0),

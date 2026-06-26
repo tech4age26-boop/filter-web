@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
     AlertCircle, Banknote, ClipboardList, Clock, FileText,
     Gift, Map, ShoppingCart, TrendingUp, UserCheck, UserPlus,
     Users, Wallet, Wrench, Box, Building, Car, Truck, Warehouse
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { firstVisibleAdminPath } from '../../utils/permissions';
 import '../../styles/admin/DashboardPage.css';
 import { getStats, getSalesOrders, getProducts } from '../../services/superAdminApi';
 import { list as listApprovals } from '../../services/approvalsApi';
@@ -70,6 +72,9 @@ function formatSar(value) {
 
 export default function DashboardPage() {
     const navigate = useNavigate();
+    const { user, hasPermission } = useAuth();
+    const canView = hasPermission('dashboard.view');
+
     const [stats, setStats] = useState(null);
     const [recentOrders, setRecentOrders] = useState([]);
     const [lowStock, setLowStock] = useState([]);
@@ -77,12 +82,14 @@ export default function DashboardPage() {
     const [panelLoading, setPanelLoading] = useState(true);
 
     useEffect(() => {
+        if (!canView) return;
         getStats().then((d) => setStats(d?.totals ?? d)).catch(() => {});
-    }, []);
+    }, [canView]);
 
     // Three independent fetches for the bottom-row panels. Don't block the
     // page if any single one fails — each catches and falls back to empty.
     useEffect(() => {
+        if (!canView) return;
         let cancelled = false;
         setPanelLoading(true);
         Promise.all([
@@ -113,7 +120,11 @@ export default function DashboardPage() {
             if (!cancelled) setPanelLoading(false);
         });
         return () => { cancelled = true; };
-    }, []);
+    }, [canView]);
+
+    if (!canView) {
+        return <Navigate to={firstVisibleAdminPath(user)} replace />;
+    }
 
     return (
         <div className="dashboard-view">

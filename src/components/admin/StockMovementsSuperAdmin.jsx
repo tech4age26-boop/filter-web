@@ -5,6 +5,7 @@ import {
     Package,
     Pencil,
     Search,
+    SlidersHorizontal,
     TrendingDown,
     TrendingUp,
     LayoutGrid,
@@ -21,10 +22,22 @@ import {
     patchSuperAdminInventoryProductStartingStock,
     getWorkshopOptions,
 } from '../../services/superAdminApi';
+import { patchBranchProduct } from '../../services/workshopCatalogApi';
+import { postBranchProductInventoryAdjustment } from '../../services/workshopInventoryApi';
+import {
+    INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY,
+    INVENTORY_ADJUSTMENT_REASON_OPENING_QTY,
+    INVENTORY_ADJUST_REASON_OPTIONS,
+} from '../../constants/inventoryAdjustmentReasons';
+import {
+    exportAdjustmentReportExcel,
+    exportAdjustmentReportPdf,
+} from '../../utils/inventoryAdjustmentReportExport';
 
 const GRID_LIMIT = 50;
 const MOVEMENT_LIMIT = 100;
 const LEDGER_LIMIT = 50;
+const ADJUSTMENT_LEDGER_LIMIT = 200;
 /** Same cap as workshop Manage Inventory search suggestions. */
 const INV_SEARCH_SUGGEST_LIMIT = 12;
 /** Backend max page size for super-admin branch inventory list. */
@@ -152,6 +165,74 @@ function displayCell(v) {
         }
     }
     return String(v);
+}
+
+function ledgerStockBeforeAfter(row) {
+    if (!row || typeof row !== 'object') return { before: null, after: null };
+    if (row.previousQty != null && row.newQty != null) {
+        return { before: row.previousQty, after: row.newQty };
+    }
+    const after = Number(row.balanceAfter);
+    const delta = Number(row.delta) || 0;
+    if (!Number.isNaN(after)) return { before: after - delta, after };
+    return { before: null, after: null };
+}
+
+function rowPurchasePrice(row, catalogPriceByProductId) {
+    const pr = row?.product ?? {};
+    const fromApi = pr.purchasePrice ?? pr.purchase_price ?? row?.purchasePrice;
+    const apiNum = Number(fromApi);
+    const pid = String(pr.id ?? row?.productId ?? '');
+    const catalog = pid ? Number(catalogPriceByProductId?.[pid]) : NaN;
+
+    if (pr.purchasePriceSource === 'last_purchase' && Number.isFinite(apiNum) && apiNum > 0) {
+        return apiNum;
+    }
+    if (Number.isFinite(apiNum) && apiNum > 0) return apiNum;
+    if (Number.isFinite(catalog) && catalog > 0) return catalog;
+    return Number.isFinite(apiNum) ? apiNum : 0;
+}
+
+function adjustmentRowMetrics(row, catalogPriceByProductId) {
+    const { before, after } = ledgerStockBeforeAfter(row);
+    const purchasePrice = rowPurchasePrice(row, catalogPriceByProductId);
+    const beforeQty = Number(before) || 0;
+    const afterQty = Number(after) || 0;
+    const diffQty = afterQty - beforeQty;
+    const valueBefore = beforeQty * purchasePrice;
+    const valueAfter = afterQty * purchasePrice;
+    return {
+        purchasePrice,
+        beforeQty,
+        afterQty,
+        diffQty,
+        valueBefore,
+        valueAfter,
+        diffValue: valueAfter - valueBefore,
+    };
+}
+
+function formatSar(amount, { decimals = 2 } = {}) {
+    if (amount == null || amount === '' || Number.isNaN(Number(amount))) return '—';
+    return Number(amount).toLocaleString(undefined, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+    });
+}
+
+function formatSignedQty(n) {
+    if (n == null || Number.isNaN(Number(n))) return '—';
+    const v = Number(n);
+    if (v === 0) return '0';
+    return v > 0 ? `+${formatNum(v)}` : formatNum(v);
+}
+
+function formatSignedSar(n) {
+    if (n == null || Number.isNaN(Number(n))) return '—';
+    const v = Number(n);
+    if (v === 0) return `SAR ${formatSar(0)}`;
+    const sign = v > 0 ? '+' : '−';
+    return `${sign} SAR ${formatSar(Math.abs(v))}`;
 }
 
 /** Same token search as workshop Manage Inventory (`WorkshopInventory.jsx`). */
@@ -598,6 +679,39 @@ export default function StockMovementsSuperAdmin() {
     const [ledgerMeta, setLedgerMeta] = useState({ total: 0, limit: LEDGER_LIMIT, offset: 0 });
     const [loadingLedger, setLoadingLedger] = useState(false);
     const [ledgerError, setLedgerError] = useState('');
+    const [ledgerFrom, setLedgerFrom] = useState('');
+    const [ledgerTo, setLedgerTo] = useState('');
+    const [appliedLedgerFrom, setAppliedLedgerFrom] = useState('');
+    const [appliedLedgerTo, setAppliedLedgerTo] = useState('');
+    const [ledgerSearchQuery, setLedgerSearchQuery] = useState('');
+    const [appliedLedgerSearch, setAppliedLedgerSearch] = useState('');
+    const [ledgerProductId, setLedgerProductId] = useState('');
+    const [ledgerSuggestOpen, setLedgerSuggestOpen] = useState(false);
+    const [ledgerSuggestIndex, setLedgerSuggestIndex] = useState(-1);
+    const ledgerSearchBlurTimerRef = useRef(null);
+    const ledgerSuggestDropdownRef = useRef(null);
+
+    const [branchFrom, setBranchFrom] = useState('');
+    const [branchTo, setBranchTo] = useState('');
+    const [appliedBranchFrom, setAppliedBranchFrom] = useState('');
+    const [appliedBranchTo, setAppliedBranchTo] = useState('');
+    const [branchAdjustments, setBranchAdjustments] = useState([]);
+    const [branchAdjustmentSummary, setBranchAdjustmentSummary] = useState(null);
+    const [loadingBranchAdjustments, setLoadingBranchAdjustments] = useState(false);
+    const [branchAdjustmentsError, setBranchAdjustmentsError] = useState('');
+
+    const [adjustProduct, setAdjustProduct] = useState(null);
+    const [adjustReason, setAdjustReason] = useState('');
+    const [adjustNote, setAdjustNote] = useState('');
+    const [adjustNewQty, setAdjustNewQty] = useState('');
+    const [adjustSaving, setAdjustSaving] = useState(false);
+    const [adjustError, setAdjustError] = useState('');
+
+    const [criticalEditProductId, setCriticalEditProductId] = useState(null);
+    const [criticalDraft, setCriticalDraft] = useState('');
+    const [criticalSaving, setCriticalSaving] = useState(false);
+    const [criticalHint, setCriticalHint] = useState('');
+    const criticalInputRef = useRef(null);
 
     const [branchMovementProduct, setBranchMovementProduct] = useState(null);
 
@@ -626,10 +740,20 @@ export default function StockMovementsSuperAdmin() {
             setLoadingLedger(true);
             setLedgerError('');
             try {
-                const res = await getSuperAdminInventoryLedger({
+                const params = {
                     limit: LEDGER_LIMIT,
                     offset: ledgerOffset,
-                });
+                    ...(selectedWorkshopId ? { workshopId: selectedWorkshopId } : {}),
+                    ...(selectedBranchId ? { branchId: selectedBranchId } : {}),
+                    ...(appliedLedgerFrom ? { from: appliedLedgerFrom } : {}),
+                    ...(appliedLedgerTo ? { to: appliedLedgerTo } : {}),
+                };
+                if (ledgerProductId) {
+                    params.productId = ledgerProductId;
+                } else if (appliedLedgerSearch) {
+                    params.search = appliedLedgerSearch;
+                }
+                const res = await getSuperAdminInventoryLedger(params);
                 if (cancelled) return;
                 const data = unwrapData(res);
                 const list = data?.entries ?? [];
@@ -651,7 +775,133 @@ export default function StockMovementsSuperAdmin() {
         return () => {
             cancelled = true;
         };
-    }, [pageTab, ledgerOffset]);
+    }, [
+        pageTab,
+        ledgerOffset,
+        selectedWorkshopId,
+        selectedBranchId,
+        appliedLedgerFrom,
+        appliedLedgerTo,
+        ledgerProductId,
+        appliedLedgerSearch,
+    ]);
+
+    useEffect(() => {
+        if (!selectedWorkshopId || !selectedBranchId) {
+            setBranchAdjustments([]);
+            setBranchAdjustmentSummary(null);
+            setBranchAdjustmentsError('');
+            return undefined;
+        }
+        let cancelled = false;
+        (async () => {
+            setLoadingBranchAdjustments(true);
+            setBranchAdjustmentsError('');
+            try {
+                const all = [];
+                let offset = 0;
+                let summary = null;
+                for (;;) {
+                    const res = await getSuperAdminInventoryLedger({
+                        workshopId: selectedWorkshopId,
+                        branchId: selectedBranchId,
+                        kind: 'adjustment',
+                        ...(appliedBranchFrom ? { from: appliedBranchFrom } : {}),
+                        ...(appliedBranchTo ? { to: appliedBranchTo } : {}),
+                        limit: ADJUSTMENT_LEDGER_LIMIT,
+                        offset,
+                    });
+                    if (cancelled) return;
+                    const data = unwrapData(res);
+                    if (offset === 0 && data?.summary) summary = data.summary;
+                    const list = data?.entries ?? [];
+                    if (Array.isArray(list)) all.push(...list);
+                    const total = Number(data?.total ?? 0) || 0;
+                    if (list.length < ADJUSTMENT_LEDGER_LIMIT || all.length >= total) break;
+                    offset += ADJUSTMENT_LEDGER_LIMIT;
+                }
+                setBranchAdjustments(all);
+                setBranchAdjustmentSummary(summary);
+            } catch (e) {
+                if (!cancelled) {
+                    setBranchAdjustments([]);
+                    setBranchAdjustmentSummary(null);
+                    setBranchAdjustmentsError(e?.message || 'Could not load adjustment report.');
+                }
+            } finally {
+                if (!cancelled) setLoadingBranchAdjustments(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedWorkshopId, selectedBranchId, appliedBranchFrom, appliedBranchTo]);
+
+    const catalogPurchasePriceByProductId = useMemo(() => {
+        const map = {};
+        for (const p of branchProductCatalog) {
+            const id = String(p.productId ?? '');
+            if (!id) continue;
+            const n = Number(p.purchasePrice);
+            if (Number.isFinite(n)) map[id] = n;
+        }
+        return map;
+    }, [branchProductCatalog]);
+
+    const enrichedBranchAdjustments = useMemo(() => {
+        return branchAdjustments.map((row) => {
+            const pid = String(row?.product?.id ?? '');
+            const apiPrice = Number(row?.product?.purchasePrice);
+            if (Number.isFinite(apiPrice) && apiPrice > 0) return row;
+            const catalog = Number(catalogPurchasePriceByProductId[pid]);
+            if (!Number.isFinite(catalog) || catalog <= 0) return row;
+            return {
+                ...row,
+                product: {
+                    ...row.product,
+                    purchasePrice: catalog,
+                    purchasePriceSource: row.product?.purchasePriceSource ?? 'profile',
+                },
+            };
+        });
+    }, [branchAdjustments, catalogPurchasePriceByProductId]);
+
+    const metricsForAdjustmentRow = useCallback(
+        (row) => adjustmentRowMetrics(row, catalogPurchasePriceByProductId),
+        [catalogPurchasePriceByProductId],
+    );
+
+    const adjustmentKpis = useMemo(() => {
+        if (branchAdjustmentSummary) {
+            return {
+                count: Number(branchAdjustmentSummary.count) || 0,
+                totalValueBefore: Number(branchAdjustmentSummary.totalValueBefore) || 0,
+                totalValueAfter: Number(branchAdjustmentSummary.totalValueAfter) || 0,
+                totalDiffValue: Number(branchAdjustmentSummary.totalDiffValue) || 0,
+                totalDiffQty: Number(branchAdjustmentSummary.totalDiffQty) || 0,
+            };
+        }
+        let totalValueBefore = 0;
+        let totalValueAfter = 0;
+        let totalDiffQty = 0;
+        for (const row of enrichedBranchAdjustments) {
+            const m = adjustmentRowMetrics(row, catalogPurchasePriceByProductId);
+            totalValueBefore += m.valueBefore;
+            totalValueAfter += m.valueAfter;
+            totalDiffQty += m.diffQty;
+        }
+        return {
+            count: enrichedBranchAdjustments.length,
+            totalValueBefore,
+            totalValueAfter,
+            totalDiffValue: totalValueAfter - totalValueBefore,
+            totalDiffQty,
+        };
+    }, [
+        enrichedBranchAdjustments,
+        branchAdjustmentSummary,
+        catalogPurchasePriceByProductId,
+    ]);
 
     useEffect(() => {
         setLoadingWorkshops(true);
@@ -746,6 +996,21 @@ export default function StockMovementsSuperAdmin() {
             .slice(0, INV_SEARCH_SUGGEST_LIMIT);
     }, [branchProductCatalog, searchQuery]);
 
+    const ledgerSearchSuggestions = useMemo(() => {
+        if (!normalizeInventorySearchValue(ledgerSearchQuery)) return [];
+        const pool = branchProductCatalog.length
+            ? branchProductCatalog
+            : ledgerEntries.map((e) => ({
+                  productId: e?.product?.id,
+                  name: e?.product?.name,
+                  sku: e?.product?.sku,
+                  brandName: e?.product?.brandName,
+              }));
+        return pool
+            .filter((p) => matchesProductNameSearch(toInventorySearchRow(p), ledgerSearchQuery))
+            .slice(0, INV_SEARCH_SUGGEST_LIMIT);
+    }, [branchProductCatalog, ledgerSearchQuery, ledgerEntries]);
+
     const products = useMemo(
         () => filteredBranchProducts.slice(gridOffset, gridOffset + GRID_LIMIT),
         [filteredBranchProducts, gridOffset],
@@ -838,7 +1103,290 @@ export default function StockMovementsSuperAdmin() {
 
     useEffect(() => {
         cancelOpeningEdit();
+        setCriticalEditProductId(null);
+        setCriticalDraft('');
+        setCriticalHint('');
     }, [selectedWorkshopId, selectedBranchId, gridOffset, searchQuery, cancelOpeningEdit]);
+
+    useEffect(() => {
+        if (!criticalHint) return undefined;
+        const t = setTimeout(() => setCriticalHint(''), 4500);
+        return () => clearTimeout(t);
+    }, [criticalHint]);
+
+    useEffect(() => {
+        if (!criticalEditProductId) return;
+        const el = criticalInputRef.current;
+        if (el) {
+            el.focus();
+            el.select();
+        }
+    }, [criticalEditProductId]);
+
+    const cancelCriticalEdit = useCallback(() => {
+        setCriticalEditProductId(null);
+        setCriticalDraft('');
+        setCriticalHint('');
+        setCriticalSaving(false);
+    }, []);
+
+    const beginCriticalEdit = useCallback((product) => {
+        setCriticalHint('');
+        setCriticalEditProductId(String(product.productId));
+        setCriticalDraft(String(product.criticalStockPoint ?? ''));
+    }, []);
+
+    const saveCriticalEdit = useCallback(
+        async (product) => {
+            const trimmed = String(criticalDraft).trim();
+            const parsed = Number(trimmed);
+            if (trimmed === '' || Number.isNaN(parsed) || parsed < 0) {
+                setCriticalHint('Enter a valid number ≥ 0');
+                return;
+            }
+            const prevNum = Number(product.criticalStockPoint ?? 0);
+            if (parsed === prevNum) {
+                cancelCriticalEdit();
+                return;
+            }
+            setCriticalSaving(true);
+            setCriticalHint('');
+            try {
+                const res = await patchBranchProduct(
+                    selectedBranchId,
+                    product.productId,
+                    { criticalStockPoint: parsed },
+                    { workshopId: selectedWorkshopId },
+                );
+                const data = unwrapData(res);
+                applyProductStockPatch(product.productId, {
+                    criticalStockPoint: data?.criticalStockPoint ?? parsed,
+                });
+                cancelCriticalEdit();
+            } catch (e) {
+                setCriticalHint(e?.message || 'Could not save');
+            } finally {
+                setCriticalSaving(false);
+            }
+        },
+        [criticalDraft, selectedWorkshopId, selectedBranchId, applyProductStockPatch, cancelCriticalEdit],
+    );
+
+    const openAdjustModal = useCallback((product) => {
+        setAdjustProduct(product);
+        setAdjustReason('');
+        setAdjustNote('');
+        setAdjustNewQty(String(product.currentQty ?? ''));
+        setAdjustError('');
+        setAdjustSaving(false);
+    }, []);
+
+    const closeAdjustModal = useCallback(() => {
+        if (adjustSaving) return;
+        setAdjustProduct(null);
+        setAdjustReason('');
+        setAdjustNote('');
+        setAdjustNewQty('');
+        setAdjustError('');
+    }, [adjustSaving]);
+
+    const submitAdjust = useCallback(async () => {
+        if (!adjustProduct || !selectedWorkshopId || !selectedBranchId) return;
+        const reason = String(adjustReason || '').trim();
+        if (!reason) {
+            setAdjustError('Select a reason for the adjustment.');
+            return;
+        }
+        const isInfinite = reason === INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY;
+        const isOpening = reason === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY;
+        let newQtyNum;
+        if (!isInfinite) {
+            newQtyNum = Number.parseFloat(String(adjustNewQty).trim().replace(/,/g, ''));
+            if (!Number.isFinite(newQtyNum) || newQtyNum < 0) {
+                setAdjustError('Enter a valid quantity ≥ 0.');
+                return;
+            }
+            newQtyNum = Math.round(newQtyNum);
+            const baseline = isOpening
+                ? Number(adjustProduct.openingQty ?? adjustProduct.currentQty) || 0
+                : Number(adjustProduct.currentQty) || 0;
+            if (newQtyNum === baseline) {
+                setAdjustError('New quantity matches current stock — no change needed.');
+                return;
+            }
+        }
+        setAdjustSaving(true);
+        setAdjustError('');
+        try {
+            const body = {
+                reason,
+                ...(adjustNote.trim() ? { note: adjustNote.trim() } : {}),
+            };
+            if (!isInfinite) {
+                body.newQty = newQtyNum;
+                body.previousQty = Number(adjustProduct.currentQty) || 0;
+            } else {
+                body.newQty = 0;
+            }
+            const res = await postBranchProductInventoryAdjustment(
+                selectedBranchId,
+                adjustProduct.productId,
+                body,
+                { workshopId: selectedWorkshopId },
+            );
+            const data = unwrapData(res);
+            applyProductStockPatch(adjustProduct.productId, {
+                currentQty: data?.qtyOnHand ?? data?.qty_on_hand ?? newQtyNum,
+                openingQty: data?.openingQty ?? data?.opening_qty ?? adjustProduct.openingQty,
+                reservedQty: data?.reservedQty ?? data?.reserved_qty,
+                availableQty: data?.availableQty ?? data?.available_qty,
+            });
+            closeAdjustModal();
+            void loadBranchProductCatalog();
+            const all = [];
+            let adjOffset = 0;
+            let summary = null;
+            for (;;) {
+                const ledgerRes = await getSuperAdminInventoryLedger({
+                    workshopId: selectedWorkshopId,
+                    branchId: selectedBranchId,
+                    kind: 'adjustment',
+                    ...(appliedBranchFrom ? { from: appliedBranchFrom } : {}),
+                    ...(appliedBranchTo ? { to: appliedBranchTo } : {}),
+                    limit: ADJUSTMENT_LEDGER_LIMIT,
+                    offset: adjOffset,
+                });
+                const ledgerData = unwrapData(ledgerRes);
+                if (adjOffset === 0 && ledgerData?.summary) summary = ledgerData.summary;
+                const list = ledgerData?.entries ?? [];
+                if (Array.isArray(list)) all.push(...list);
+                const total = Number(ledgerData?.total ?? 0) || 0;
+                if (list.length < ADJUSTMENT_LEDGER_LIMIT || all.length >= total) break;
+                adjOffset += ADJUSTMENT_LEDGER_LIMIT;
+            }
+            setBranchAdjustments(all);
+            setBranchAdjustmentSummary(summary);
+        } catch (e) {
+            setAdjustError(e?.message || 'Could not save adjustment.');
+        } finally {
+            setAdjustSaving(false);
+        }
+    }, [
+        adjustProduct,
+        adjustReason,
+        adjustNote,
+        adjustNewQty,
+        selectedWorkshopId,
+        selectedBranchId,
+        applyProductStockPatch,
+        closeAdjustModal,
+        loadBranchProductCatalog,
+        appliedBranchFrom,
+        appliedBranchTo,
+    ]);
+
+    const applyLedgerFilters = useCallback(() => {
+        setAppliedLedgerFrom(ledgerFrom);
+        setAppliedLedgerTo(ledgerTo);
+        if (!ledgerProductId) {
+            setAppliedLedgerSearch(ledgerSearchQuery.trim());
+        } else {
+            setAppliedLedgerSearch('');
+        }
+        setLedgerOffset(0);
+    }, [ledgerFrom, ledgerTo, ledgerSearchQuery, ledgerProductId]);
+
+    const clearLedgerFilters = useCallback(() => {
+        setLedgerFrom('');
+        setLedgerTo('');
+        setAppliedLedgerFrom('');
+        setAppliedLedgerTo('');
+        setLedgerSearchQuery('');
+        setAppliedLedgerSearch('');
+        setLedgerProductId('');
+        setLedgerSuggestOpen(false);
+        setLedgerSuggestIndex(-1);
+        setLedgerOffset(0);
+    }, []);
+
+    const applyBranchDateFilters = useCallback(() => {
+        setAppliedBranchFrom(branchFrom);
+        setAppliedBranchTo(branchTo);
+    }, [branchFrom, branchTo]);
+
+    const clearBranchDateFilters = useCallback(() => {
+        setBranchFrom('');
+        setBranchTo('');
+        setAppliedBranchFrom('');
+        setAppliedBranchTo('');
+    }, []);
+
+    const applyLedgerSearchSuggestion = useCallback((row) => {
+        setLedgerSearchQuery(inventorySearchValueFromRow(toInventorySearchRow(row)));
+        setLedgerProductId(String(row.productId ?? row?.product?.id ?? ''));
+        setAppliedLedgerSearch('');
+        setLedgerSuggestOpen(false);
+        setLedgerSuggestIndex(-1);
+        setLedgerOffset(0);
+    }, []);
+
+    const clearLedgerSearchBlurTimer = useCallback(() => {
+        if (ledgerSearchBlurTimerRef.current != null) {
+            clearTimeout(ledgerSearchBlurTimerRef.current);
+            ledgerSearchBlurTimerRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => () => clearLedgerSearchBlurTimer(), [clearLedgerSearchBlurTimer]);
+
+    const onLedgerSearchKeyDown = useCallback(
+        (e) => {
+            if (e.key === 'ArrowDown') {
+                if (!ledgerSearchSuggestions.length) return;
+                e.preventDefault();
+                setLedgerSuggestOpen(true);
+                setLedgerSuggestIndex((i) => {
+                    if (i < 0) return 0;
+                    return Math.min(i + 1, ledgerSearchSuggestions.length - 1);
+                });
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                if (!ledgerSearchSuggestions.length) return;
+                e.preventDefault();
+                setLedgerSuggestOpen(true);
+                setLedgerSuggestIndex((i) => (i <= 0 ? -1 : i - 1));
+                return;
+            }
+            if (e.key === 'Enter') {
+                if (ledgerSuggestOpen && ledgerSuggestIndex >= 0 && ledgerSearchSuggestions[ledgerSuggestIndex]) {
+                    e.preventDefault();
+                    applyLedgerSearchSuggestion(ledgerSearchSuggestions[ledgerSuggestIndex]);
+                }
+                return;
+            }
+            if (e.key === 'Escape') {
+                setLedgerSuggestOpen(false);
+                setLedgerSuggestIndex(-1);
+            }
+        },
+        [ledgerSearchSuggestions, ledgerSuggestOpen, ledgerSuggestIndex, applyLedgerSearchSuggestion],
+    );
+
+    useLayoutEffect(() => {
+        if (!ledgerSuggestOpen || ledgerSuggestIndex < 0) return;
+        const list = ledgerSuggestDropdownRef.current;
+        const item = list?.querySelector(`#sm-ledger-inv-suggest-${ledgerSuggestIndex}`);
+        if (!list || !item) return;
+        const padding = 6;
+        const listRect = list.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+        if (itemRect.bottom > listRect.bottom - padding) {
+            list.scrollTop += itemRect.bottom - listRect.bottom + padding;
+        } else if (itemRect.top < listRect.top + padding) {
+            list.scrollTop -= listRect.top - itemRect.top + padding;
+        }
+    }, [ledgerSuggestIndex, ledgerSuggestOpen, ledgerSearchSuggestions]);
 
     useEffect(() => {
         if (!openingHint) return undefined;
@@ -919,6 +1467,41 @@ export default function StockMovementsSuperAdmin() {
         }
     }, [invSuggestIndex, invSuggestOpen, invSearchSuggestions]);
 
+    const exportAdjustmentPdf = useCallback(() => {
+        if (!enrichedBranchAdjustments.length) return;
+        exportAdjustmentReportPdf({
+            adjustments: enrichedBranchAdjustments,
+            metricsForRow: metricsForAdjustmentRow,
+            formatWhen: formatLedgerWhen,
+            displayCell,
+            workshop: displayCell(gridMeta.workshop),
+            branch: displayCell(gridMeta.branch),
+            from: appliedBranchFrom,
+            to: appliedBranchTo,
+            kpis: adjustmentKpis,
+        });
+    }, [
+        enrichedBranchAdjustments,
+        metricsForAdjustmentRow,
+        gridMeta.workshop,
+        gridMeta.branch,
+        appliedBranchFrom,
+        appliedBranchTo,
+        adjustmentKpis,
+    ]);
+
+    const exportAdjustmentExcel = useCallback(() => {
+        if (!enrichedBranchAdjustments.length) return;
+        exportAdjustmentReportExcel({
+            adjustments: enrichedBranchAdjustments,
+            metricsForRow: metricsForAdjustmentRow,
+            formatWhen: formatLedgerWhen,
+            displayCell,
+            workshop: displayCell(gridMeta.workshop),
+            branch: displayCell(gridMeta.branch),
+        });
+    }, [enrichedBranchAdjustments, metricsForAdjustmentRow, gridMeta.workshop, gridMeta.branch]);
+
     const gridTotalPages = Math.max(1, Math.ceil((gridMeta.total || 0) / GRID_LIMIT));
     const gridPage = Math.floor(gridOffset / GRID_LIMIT) + 1;
     const ledgerTotalPages = Math.max(1, Math.ceil((ledgerMeta.total || 0) / LEDGER_LIMIT));
@@ -969,7 +1552,8 @@ export default function StockMovementsSuperAdmin() {
                     <h1 className="stock-movements-title">Stock movements</h1>
                     <p className="stock-movements-subtitle">
                         <strong>Branch stock</strong>: pick a workshop and branch for on-hand quantities and per-product history.{' '}
-                        <strong>Movement ledger</strong>: optional filters and a global movement list (workshop + branch on each row) from the super-admin ledger API.
+                        <strong>Inventory adjustments</strong>: branch-wise adjustment report with before/after stock and staff name.{' '}
+                        <strong>Movement ledger</strong>: optional filters and a global movement list (workshop + branch on each row).
                     </p>
                 </div>
                 <button
@@ -982,17 +1566,6 @@ export default function StockMovementsSuperAdmin() {
                 </button>
             </header>
 
-            <UniversalTabs
-                idPrefix="sm-page"
-                className="stock-movements-page-tabs"
-                value={pageTab}
-                onChange={setPageTab}
-                tabs={[
-                    {
-                        id: 'branch-stock',
-                        label: 'Branch stock',
-                        panel: (
-                            <>
             <div className="stock-movements-context-bar">
                 <div className="stock-movements-context-field">
                     <label className="log-filter-label">Workshop (center)</label>
@@ -1038,6 +1611,17 @@ export default function StockMovementsSuperAdmin() {
                 ) : null}
             </div>
 
+            <UniversalTabs
+                idPrefix="sm-page"
+                className="stock-movements-page-tabs"
+                value={pageTab}
+                onChange={setPageTab}
+                tabs={[
+                    {
+                        id: 'branch-stock',
+                        label: 'Branch stock',
+                        panel: (
+                            <>
             <div className="stock-movements-filter-bar">
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div
@@ -1186,7 +1770,7 @@ export default function StockMovementsSuperAdmin() {
                             <GridQtyTh label="Stock now" apiField="currentQty" />
                             <GridQtyTh label="Reserved" apiField="reservedQty" />
                             <GridQtyTh label="Free to use" apiField="availableQty" />
-                            <GridQtyTh label="Low-stock level" apiField="criticalStockPoint" />
+                            <GridQtyTh label="Critical stock level" apiField="criticalStockPoint" />
                             <GridQtyTh label="Starting stock" apiField="openingQty" />
                             <GridQtyTh label="In use" apiField="isActive" />
                             <th className="table-th">Actions</th>
@@ -1241,7 +1825,40 @@ export default function StockMovementsSuperAdmin() {
                                     <td className="table-cell font-bold">{formatNum(p.currentQty)}</td>
                                     <td className="table-cell">{formatNum(p.reservedQty)}</td>
                                     <td className="table-cell">{formatNum(p.availableQty)}</td>
-                                    <td className="table-cell">{formatNum(p.criticalStockPoint)}</td>
+                                    <td className="table-cell critical-stock-cell">
+                                        {String(criticalEditProductId) === String(p.productId) ? (
+                                            <div className="opening-qty-editor">
+                                                <input
+                                                    ref={criticalInputRef}
+                                                    type="number"
+                                                    step="any"
+                                                    min={0}
+                                                    className="opening-qty-input"
+                                                    value={criticalDraft}
+                                                    disabled={criticalSaving}
+                                                    onChange={(e) => setCriticalDraft(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            void saveCriticalEdit(p);
+                                                        } else if (e.key === 'Escape') {
+                                                            e.preventDefault();
+                                                            cancelCriticalEdit();
+                                                        }
+                                                    }}
+                                                    aria-label="Critical stock level"
+                                                />
+                                                {criticalSaving ? (
+                                                    <Loader className="animate-spin opening-qty-spinner" size={14} />
+                                                ) : null}
+                                                {criticalHint ? (
+                                                    <span className="opening-qty-hint">{criticalHint}</span>
+                                                ) : null}
+                                            </div>
+                                        ) : (
+                                            <span className="opening-qty-readonly">{formatNum(p.criticalStockPoint)}</span>
+                                        )}
+                                    </td>
                                     <td className="table-cell opening-qty-cell">
                                         {String(openingEditProductId) === String(p.productId) ? (
                                             <div className="opening-qty-editor">
@@ -1282,6 +1899,44 @@ export default function StockMovementsSuperAdmin() {
                                     </td>
                                     <td className="table-cell">
                                         <div className="stock-row-actions">
+                                            {String(criticalEditProductId) === String(p.productId) ? (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        className="btn-edit"
+                                                        onClick={() => void saveCriticalEdit(p)}
+                                                        disabled={criticalSaving || loadingProducts}
+                                                        title="Save critical stock level"
+                                                    >
+                                                        Save
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="btn-secondary"
+                                                        onClick={cancelCriticalEdit}
+                                                        disabled={criticalSaving}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    className="btn-edit"
+                                                    onClick={() => beginCriticalEdit(p)}
+                                                    disabled={
+                                                        loadingProducts ||
+                                                        !selectedWorkshopId ||
+                                                        !selectedBranchId ||
+                                                        criticalSaving ||
+                                                        String(openingEditProductId) === String(p.productId)
+                                                    }
+                                                    title="Edit critical stock level for this branch"
+                                                >
+                                                    <Pencil size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                                                    Critical
+                                                </button>
+                                            )}
                                             {String(openingEditProductId) === String(p.productId) ? (
                                                 <>
                                                     <button
@@ -1324,6 +1979,23 @@ export default function StockMovementsSuperAdmin() {
                                                     Edit
                                                 </button>
                                             )}
+                                            <button
+                                                type="button"
+                                                className="btn-edit"
+                                                onClick={() => openAdjustModal(p)}
+                                                disabled={
+                                                    loadingProducts ||
+                                                    !selectedWorkshopId ||
+                                                    !selectedBranchId ||
+                                                    adjustSaving ||
+                                                    (String(openingEditProductId) === String(p.productId) && openingSaving) ||
+                                                    String(criticalEditProductId) === String(p.productId)
+                                                }
+                                                title="Adjust on-hand quantity with a reason"
+                                            >
+                                                <SlidersHorizontal size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                                                Adjust
+                                            </button>
                                             <button
                                                 type="button"
                                                 className="btn-edit"
@@ -1375,10 +2047,371 @@ export default function StockMovementsSuperAdmin() {
                         ),
                     },
                     {
+                        id: 'adjustment-report',
+                        label: 'Inventory adjustments',
+                        panel: (
+                            <>
+                                {!selectedWorkshopId || !selectedBranchId ? (
+                                    <p style={{ margin: 0, padding: 32, textAlign: 'center', color: '#64748b', fontSize: '0.875rem' }}>
+                                        Choose a workshop and branch above to view manual inventory adjustments for that location.
+                                    </p>
+                                ) : (
+                                    <>
+                                        <div className="stock-movements-filter-bar" style={{ marginBottom: 16 }}>
+                                            <div className="form-group" style={{ margin: 0 }}>
+                                                <label className="form-label">From date</label>
+                                                <input type="date" className="form-input-field" value={branchFrom} onChange={(e) => setBranchFrom(e.target.value)} />
+                                            </div>
+                                            <div className="form-group" style={{ margin: 0 }}>
+                                                <label className="form-label">To date</label>
+                                                <input type="date" className="form-input-field" value={branchTo} onChange={(e) => setBranchTo(e.target.value)} />
+                                            </div>
+                                            <button type="button" className="btn-portal" style={{ padding: '10px 16px', marginBottom: 2 }} onClick={applyBranchDateFilters}>
+                                                Apply dates
+                                            </button>
+                                            {(appliedBranchFrom || appliedBranchTo) ? (
+                                                <button type="button" className="btn-secondary" style={{ marginBottom: 2 }} onClick={clearBranchDateFilters}>
+                                                    Clear dates
+                                                </button>
+                                            ) : null}
+                                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                                                <button
+                                                    type="button"
+                                                    className="btn-export"
+                                                    disabled={loadingBranchAdjustments || !enrichedBranchAdjustments.length}
+                                                    onClick={exportAdjustmentPdf}
+                                                >
+                                                    <Download size={16} /> Download PDF
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn-export"
+                                                    disabled={loadingBranchAdjustments || !enrichedBranchAdjustments.length}
+                                                    onClick={exportAdjustmentExcel}
+                                                >
+                                                    <Download size={16} /> Download Excel
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <p style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: '#64748b' }}>
+                                            Branch-wise manual adjustments for{' '}
+                                            <strong>{displayCell(gridMeta.branch)}</strong>
+                                            {appliedBranchFrom || appliedBranchTo
+                                                ? ` from ${appliedBranchFrom || '…'} to ${appliedBranchTo || '…'}`
+                                                : ' (all dates — use Apply dates to narrow)'}
+                                            . Shows stock before and after each change, purchase value, line totals, and the user who made it.
+                                        </p>
+                                        {branchAdjustmentsError ? (
+                                            <div style={{ padding: 12, marginBottom: 12, background: '#FEF2F2', color: '#B91C1C', borderRadius: 8, fontSize: '0.875rem' }}>
+                                                {branchAdjustmentsError}
+                                            </div>
+                                        ) : null}
+                                        {!loadingBranchAdjustments && enrichedBranchAdjustments.length > 0 ? (
+                                            <div className="stock-movements-summary" style={{ marginBottom: 20 }}>
+                                                <div className="movement-summary-card">
+                                                    <div className="summary-main">
+                                                        <div className="summary-info">
+                                                            <span className="summary-label">Total value before (adjusted lines)</span>
+                                                            <span className="summary-value">SAR {formatSar(adjustmentKpis.totalValueBefore)}</span>
+                                                        </div>
+                                                        <div className="summary-icon-box in">
+                                                            <TrendingUp size={20} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="movement-summary-card">
+                                                    <div className="summary-main">
+                                                        <div className="summary-info">
+                                                            <span className="summary-label">Total value after (adjusted lines)</span>
+                                                            <span className="summary-value">SAR {formatSar(adjustmentKpis.totalValueAfter)}</span>
+                                                        </div>
+                                                        <div className="summary-icon-box out">
+                                                            <TrendingDown size={20} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="movement-summary-card">
+                                                    <div className="summary-main">
+                                                        <div className="summary-info">
+                                                            <span className="summary-label">
+                                                                Total difference · {adjustmentKpis.count} adjustment{adjustmentKpis.count !== 1 ? 's' : ''}
+                                                            </span>
+                                                            <span
+                                                                className="summary-value"
+                                                                style={{
+                                                                    color:
+                                                                        adjustmentKpis.totalDiffValue > 0
+                                                                            ? '#059669'
+                                                                            : adjustmentKpis.totalDiffValue < 0
+                                                                              ? '#b91c1c'
+                                                                              : undefined,
+                                                                }}
+                                                            >
+                                                                {formatSignedSar(adjustmentKpis.totalDiffValue)}
+                                                                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginLeft: 8 }}>
+                                                                    Qty {formatSignedQty(adjustmentKpis.totalDiffQty)}
+                                                                </span>
+                                                            </span>
+                                                        </div>
+                                                        <div className="summary-icon-box net">
+                                                            <LayoutGrid size={20} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : null}
+                                        <section className="premium-table stock-movements-table" style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
+                                                <thead>
+                                                    <tr className="table-header-row">
+                                                        <th className="table-th">When</th>
+                                                        <th className="table-th">Product</th>
+                                                        <th className="table-th">Reason / note</th>
+                                                        <th className="table-th">Purchase value</th>
+                                                        <th className="table-th">Stock before</th>
+                                                        <th className="table-th">Stock after</th>
+                                                        <th className="table-th">Value before</th>
+                                                        <th className="table-th">Value after</th>
+                                                        <th className="table-th">Diff qty</th>
+                                                        <th className="table-th">Diff value</th>
+                                                        <th className="table-th">Changed by</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {loadingBranchAdjustments ? (
+                                                        <tr>
+                                                            <td className="table-cell" colSpan={11} style={{ textAlign: 'center', padding: 24 }}>
+                                                                <Loader className="animate-spin" size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} />
+                                                                Loading adjustments…
+                                                            </td>
+                                                        </tr>
+                                                    ) : enrichedBranchAdjustments.length === 0 ? (
+                                                        <tr>
+                                                            <td className="table-cell" colSpan={11} style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>
+                                                                No manual adjustments for this branch{appliedBranchFrom || appliedBranchTo ? ' in this date range' : ''}.
+                                                            </td>
+                                                        </tr>
+                                                    ) : (
+                                                        enrichedBranchAdjustments.map((row, idx) => {
+                                                            const m = metricsForAdjustmentRow(row);
+                                                            const pr = row.product ?? {};
+                                                            const priceSource =
+                                                                pr.purchasePriceSource === 'last_purchase'
+                                                                    ? 'Last purchase price'
+                                                                    : pr.purchasePriceSource === 'profile'
+                                                                      ? 'Product profile price'
+                                                                      : undefined;
+                                                            const diffQtyColor =
+                                                                m.diffQty > 0 ? '#059669' : m.diffQty < 0 ? '#b91c1c' : undefined;
+                                                            const diffValueColor =
+                                                                m.diffValue > 0 ? '#059669' : m.diffValue < 0 ? '#b91c1c' : undefined;
+                                                            return (
+                                                                <tr key={row.id != null ? String(row.id) : `adj-${idx}`} className="table-row">
+                                                                    <td className="table-cell" style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
+                                                                        {formatLedgerWhen(row)}
+                                                                    </td>
+                                                                    <td className="table-cell">
+                                                                        <span className="cell-main-text">{displayCell(pr.name)}</span>
+                                                                        {pr.sku ? (
+                                                                            <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: 2 }}>
+                                                                                {displayCell(pr.sku)}
+                                                                            </div>
+                                                                        ) : null}
+                                                                    </td>
+                                                                    <td className="table-cell text-muted" style={{ fontSize: '0.8125rem' }}>
+                                                                        {displayCell(row.note)}
+                                                                    </td>
+                                                                    <td className="table-cell" style={{ fontSize: '0.8125rem' }} title={priceSource}>
+                                                                        SAR {formatSar(m.purchasePrice)}
+                                                                        {priceSource ? (
+                                                                            <div className="text-muted" style={{ fontSize: '0.7rem', marginTop: 2 }}>
+                                                                                {pr.purchasePriceSource === 'last_purchase' ? 'Last purchase' : 'Profile'}
+                                                                            </div>
+                                                                        ) : null}
+                                                                    </td>
+                                                                    <td className="table-cell font-bold">{formatNum(m.beforeQty)}</td>
+                                                                    <td className="table-cell font-bold">{formatNum(m.afterQty)}</td>
+                                                                    <td className="table-cell" style={{ fontSize: '0.8125rem' }}>
+                                                                        SAR {formatSar(m.valueBefore)}
+                                                                    </td>
+                                                                    <td className="table-cell" style={{ fontSize: '0.8125rem' }}>
+                                                                        SAR {formatSar(m.valueAfter)}
+                                                                    </td>
+                                                                    <td className="table-cell font-bold" style={{ color: diffQtyColor }}>
+                                                                        {formatSignedQty(m.diffQty)}
+                                                                    </td>
+                                                                    <td className="table-cell font-bold" style={{ color: diffValueColor }}>
+                                                                        {formatSignedSar(m.diffValue)}
+                                                                    </td>
+                                                                    <td className="table-cell" style={{ fontSize: '0.8125rem' }}>
+                                                                        {displayCell(row.actor)}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </section>
+                                    </>
+                                )}
+                            </>
+                        ),
+                    },
+                    {
                         id: 'movement-ledger',
                         label: 'Movement ledger',
                         panel: (
                             <>
+                                <div className="stock-movements-filter-bar" style={{ marginBottom: 16 }}>
+                                    <div className="form-group" style={{ margin: 0 }}>
+                                        <label className="form-label">From date</label>
+                                        <input type="date" className="form-input-field" value={ledgerFrom} onChange={(e) => setLedgerFrom(e.target.value)} />
+                                    </div>
+                                    <div className="form-group" style={{ margin: 0 }}>
+                                        <label className="form-label">To date</label>
+                                        <input type="date" className="form-input-field" value={ledgerTo} onChange={(e) => setLedgerTo(e.target.value)} />
+                                    </div>
+                                    <button type="button" className="btn-portal" style={{ padding: '10px 16px', marginBottom: 2 }} onClick={applyLedgerFilters}>
+                                        Apply filters
+                                    </button>
+                                    {(appliedLedgerFrom || appliedLedgerTo || appliedLedgerSearch || ledgerProductId) ? (
+                                        <button type="button" className="btn-secondary" style={{ marginBottom: 2 }} onClick={clearLedgerFilters}>
+                                            Clear filters
+                                        </button>
+                                    ) : null}
+                                </div>
+                                <div className="stock-movements-filter-bar" style={{ marginBottom: 16 }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div
+                                            className="mc-filter-select-wrapper mc-inv-search-combo"
+                                            style={{ position: 'relative', width: '100%' }}
+                                        >
+                                            <Search className="mc-filter-icon" size={16} />
+                                            <input
+                                                type="text"
+                                                placeholder="Search product by name or SKU…"
+                                                className="mc-filter-select"
+                                                style={{
+                                                    paddingLeft: '40px',
+                                                    paddingRight: ledgerSearchQuery ? '70px' : '14px',
+                                                    width: '100%',
+                                                    minHeight: 46,
+                                                    fontSize: '0.95rem',
+                                                    backgroundImage: 'none',
+                                                    cursor: 'text',
+                                                }}
+                                                value={ledgerSearchQuery}
+                                                onChange={(e) => {
+                                                    const v = e.target.value;
+                                                    setLedgerSearchQuery(v);
+                                                    setLedgerProductId('');
+                                                    setLedgerSuggestIndex(-1);
+                                                    if (!normalizeInventorySearchValue(v)) {
+                                                        setLedgerSuggestOpen(false);
+                                                    } else {
+                                                        setLedgerSuggestOpen(true);
+                                                    }
+                                                }}
+                                                onKeyDown={onLedgerSearchKeyDown}
+                                                onFocus={() => {
+                                                    clearLedgerSearchBlurTimer();
+                                                    if (normalizeInventorySearchValue(ledgerSearchQuery)) {
+                                                        setLedgerSuggestOpen(true);
+                                                    }
+                                                }}
+                                                onBlur={() => {
+                                                    clearLedgerSearchBlurTimer();
+                                                    ledgerSearchBlurTimerRef.current = setTimeout(() => {
+                                                        ledgerSearchBlurTimerRef.current = null;
+                                                        setLedgerSuggestOpen(false);
+                                                        setLedgerSuggestIndex(-1);
+                                                    }, 200);
+                                                }}
+                                                role="combobox"
+                                                aria-autocomplete="list"
+                                                aria-expanded={ledgerSuggestOpen}
+                                                aria-controls="sm-ledger-inv-search-suggest-list"
+                                                aria-activedescendant={
+                                                    ledgerSuggestOpen && ledgerSuggestIndex >= 0
+                                                        ? `sm-ledger-inv-suggest-${ledgerSuggestIndex}`
+                                                        : undefined
+                                                }
+                                            />
+                                            {ledgerSearchQuery ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setLedgerSearchQuery('');
+                                                        setLedgerProductId('');
+                                                        setLedgerSuggestOpen(false);
+                                                        setLedgerSuggestIndex(-1);
+                                                    }}
+                                                    aria-label="Clear search"
+                                                    title="Clear search"
+                                                    style={{
+                                                        position: 'absolute',
+                                                        right: 8,
+                                                        top: '50%',
+                                                        transform: 'translateY(-50%)',
+                                                        border: 'none',
+                                                        background: '#F3F4F6',
+                                                        color: '#374151',
+                                                        borderRadius: 8,
+                                                        width: 26,
+                                                        height: 26,
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            ) : null}
+                                            {ledgerSuggestOpen && normalizeInventorySearchValue(ledgerSearchQuery) ? (
+                                                <div
+                                                    ref={ledgerSuggestDropdownRef}
+                                                    id="sm-ledger-inv-search-suggest-list"
+                                                    className="mc-inv-search-dropdown"
+                                                    role="listbox"
+                                                    aria-label="Matching products"
+                                                    onMouseDown={(ev) => ev.preventDefault()}
+                                                >
+                                                    {ledgerSearchSuggestions.length === 0 ? (
+                                                        <div className="mc-inv-search-dropdown-empty">
+                                                            {selectedBranchId
+                                                                ? 'No matching products — press Apply filters to search by text'
+                                                                : 'No suggestions — pick a branch or press Apply filters to search globally'}
+                                                        </div>
+                                                    ) : (
+                                                        ledgerSearchSuggestions.map((row, idx) => (
+                                                            <button
+                                                                key={String(row.productId ?? row?.product?.id ?? idx)}
+                                                                type="button"
+                                                                id={`sm-ledger-inv-suggest-${idx}`}
+                                                                role="option"
+                                                                aria-selected={ledgerSuggestIndex === idx}
+                                                                className={`mc-inv-search-suggest${ledgerSuggestIndex === idx ? ' is-active' : ''}`}
+                                                                onMouseEnter={() => setLedgerSuggestIndex(idx)}
+                                                                onClick={() => applyLedgerSearchSuggestion(row)}
+                                                            >
+                                                                <span className="mc-inv-search-suggest-name">{displayCell(row.name ?? row?.product?.name)}</span>
+                                                                {(row.sku ?? row?.product?.sku) ? (
+                                                                    <span className="mc-inv-search-suggest-sku">{displayCell(row.sku ?? row?.product?.sku)}</span>
+                                                                ) : null}
+                                                            </button>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                        <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                            Use <strong>↑</strong> <strong>↓</strong> and <strong>Enter</strong> to pick a product, then <strong>Apply filters</strong>.
+                                            {ledgerProductId ? ' Filtering by selected product.' : ledgerSearchQuery ? ' Text search runs when filters are applied.' : ''}
+                                        </p>
+                                    </div>
+                                </div>
                                 {ledgerError ? (
                                     <div
                                         style={{
@@ -1404,29 +2437,32 @@ export default function StockMovementsSuperAdmin() {
                                                 <th className="table-th">Kind</th>
                                                 <th className="table-th">IN</th>
                                                 <th className="table-th">OUT</th>
+                                                <th className="table-th">Stock before → after</th>
                                                 <th className="table-th">Balance after</th>
                                                 <th className="table-th">Reference</th>
                                                 <th className="table-th">Note</th>
+                                                <th className="table-th">Staff</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {loadingLedger ? (
                                                 <tr>
-                                                    <td className="table-cell" colSpan={10} style={{ textAlign: 'center', padding: 32 }}>
+                                                    <td className="table-cell" colSpan={12} style={{ textAlign: 'center', padding: 32 }}>
                                                         <Loader className="animate-spin" size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} />
                                                         Loading ledger…
                                                     </td>
                                                 </tr>
                                             ) : ledgerEntries.length === 0 ? (
                                                 <tr>
-                                                    <td className="table-cell" colSpan={10} style={{ textAlign: 'center', padding: 32, color: '#64748b' }}>
-                                                        No ledger rows yet.
+                                                    <td className="table-cell" colSpan={12} style={{ textAlign: 'center', padding: 32, color: '#64748b' }}>
+                                                        No ledger rows match these filters.
                                                     </td>
                                                 </tr>
                                             ) : (
                                                 ledgerEntries.map((row, idx) => {
                                                     const pr = row.product ?? {};
                                                     const ref = row.reference;
+                                                    const { before, after } = ledgerStockBeforeAfter(row);
                                                     const brandRaw = pr.brandName ?? pr.brand;
                                                     const brandSub =
                                                         brandRaw != null && String(brandRaw).trim() !== ''
@@ -1462,6 +2498,9 @@ export default function StockMovementsSuperAdmin() {
                                                             <td className="table-cell font-bold" style={{ color: '#b91c1c' }}>
                                                                 {formatNum(row.outQty)}
                                                             </td>
+                                                            <td className="table-cell" style={{ fontSize: '0.8125rem' }}>
+                                                                {`${formatNum(before)} → ${formatNum(after)}`}
+                                                            </td>
                                                             <td className="table-cell font-bold">{formatNum(row.balanceAfter)}</td>
                                                             <td className="table-cell reference-col">
                                                                 {ref != null && ref !== '' && typeof ref === 'object' && !Array.isArray(ref) ? (
@@ -1472,6 +2511,9 @@ export default function StockMovementsSuperAdmin() {
                                                             </td>
                                                             <td className="table-cell text-muted" style={{ fontSize: '0.8125rem' }}>
                                                                 {displayCell(row.note)}
+                                                            </td>
+                                                            <td className="table-cell" style={{ fontSize: '0.8125rem' }}>
+                                                                {displayCell(row.actor)}
                                                             </td>
                                                         </tr>
                                                     );
@@ -1519,6 +2561,94 @@ export default function StockMovementsSuperAdmin() {
                     },
                 ]}
             />
+
+            {adjustProduct ? (
+                <Modal
+                    title={`Adjust stock — ${displayCell(adjustProduct.name)}`}
+                    onClose={closeAdjustModal}
+                    width="520px"
+                >
+                    <div style={{ padding: '4px 0 0' }}>
+                        <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#64748b', lineHeight: 1.5 }}>
+                            Branch: <strong>{displayCell(gridMeta.branch)}</strong> · Current stock:{' '}
+                            <strong>{formatNum(adjustProduct.currentQty)}</strong> {displayCell(adjustProduct.unit)}
+                        </p>
+                        <div className="form-group">
+                            <label className="form-label">Reason for adjustment</label>
+                            <select
+                                className="form-input-field"
+                                value={adjustReason}
+                                onChange={(e) => setAdjustReason(e.target.value)}
+                                disabled={adjustSaving}
+                            >
+                                <option value="">Select a reason…</option>
+                                {INVENTORY_ADJUST_REASON_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        {adjustReason !== INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY ? (
+                            <div className="form-group">
+                                <label className="form-label">
+                                    {adjustReason === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY
+                                        ? 'New opening quantity'
+                                        : 'New quantity (current stock)'}
+                                </label>
+                                <input
+                                    type="number"
+                                    className="form-input-field"
+                                    min={0}
+                                    step={1}
+                                    value={adjustNewQty}
+                                    onChange={(e) => setAdjustNewQty(e.target.value)}
+                                    disabled={adjustSaving}
+                                />
+                            </div>
+                        ) : (
+                            <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#64748b' }}>
+                                Sets unlimited stock for this product at this branch.
+                            </p>
+                        )}
+                        <div className="form-group">
+                            <label className="form-label">Note (optional)</label>
+                            <textarea
+                                className="form-input-field"
+                                rows={3}
+                                value={adjustNote}
+                                onChange={(e) => setAdjustNote(e.target.value)}
+                                disabled={adjustSaving}
+                                placeholder="Additional details about this adjustment…"
+                            />
+                        </div>
+                        {adjustError ? (
+                            <div style={{ padding: 12, marginBottom: 16, background: '#FEF2F2', color: '#B91C1C', borderRadius: 8, fontSize: '0.875rem' }}>
+                                {adjustError}
+                            </div>
+                        ) : null}
+                        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+                            <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={closeAdjustModal} disabled={adjustSaving}>
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-portal"
+                                style={{ flex: 2 }}
+                                onClick={() => void submitAdjust()}
+                                disabled={
+                                    adjustSaving ||
+                                    !adjustReason.trim() ||
+                                    (adjustReason !== INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY &&
+                                        (!Number.isFinite(Number(adjustNewQty)) || Number(adjustNewQty) < 0))
+                                }
+                            >
+                                {adjustSaving ? 'Saving…' : 'Apply adjustment'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            ) : null}
 
             {branchMovementProduct ? (
                 <BranchMovementModal

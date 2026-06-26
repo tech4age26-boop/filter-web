@@ -6,11 +6,13 @@ import {
     UserCircle2,
     PieChart,
     Boxes,
+    MessageCircle,
 } from 'lucide-react';
 
 export const NAV_GROUPS = [
     { label: 'MAIN', items: [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'platform-chat', label: 'Chat', icon: MessageCircle },
     ]},
     { label: 'OPERATIONS', items: [
         { id: 'order_queue', label: 'Order Queue', icon: ShoppingCart },
@@ -18,6 +20,7 @@ export const NAV_GROUPS = [
         { id: 'stock', label: 'Stock Inventory', icon: Warehouse },
         { id: 'stock_alerts', label: 'Workshop Alerts', icon: AlertTriangle },
         { id: 'employees', label: 'Staff & Roles', icon: Users },
+        { id: 'staff_app', label: 'Staff App Management', icon: UserCircle2 },
     ]},
     { label: 'STORAGE FACILITY', items: [
         { id: 'storage_facility', label: 'Storage brands', icon: Boxes },

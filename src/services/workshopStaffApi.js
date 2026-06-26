@@ -1,9 +1,13 @@
 import { apiFetch } from './api';
+import {
+    mergeAccountingScopeBody,
+    mergeAccountingScopeParams,
+} from '../utils/accountingWorkshopScope';
 
 /** Build a query string for GET requests (omits null/undefined/empty). */
 export function qs(params) {
     const p = new URLSearchParams();
-    for (const [k, v] of Object.entries(params || {})) {
+    for (const [k, v] of Object.entries(mergeAccountingScopeParams(params || {}))) {
         if (v != null && v !== '' && String(v) !== 'undefined') p.set(k, v);
     }
     const s = p.toString();
@@ -70,14 +74,24 @@ export const getWorkshopTechnicians = (params = {}) =>
 export const getWorkshopCashiers = (params = {}) =>
     apiFetch(`/workshop-staff/cashiers${qs(params)}`);
 
+/** Build query string without HQ accounting scope merge (monitor / on-behalf workshop tabs). */
+export function staffListQs(params = {}) {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+        if (v != null && v !== '' && String(v) !== 'undefined') p.set(k, String(v));
+    }
+    const s = p.toString();
+    return s ? `?${s}` : '';
+}
+
 /**
  * Workshop JWT — unified list (staff + technicians + cashiers merged on the server).
- * GET /workshop-staff/employees — optional: branchId, employeeType (staff | technician | cashier),
- * isActive, limit, offset.
- * POST /workshop-staff/employees — same filters in JSON body (GetEmployeesDto).
+ * Pass `{ explicitScope: true }` to skip HQ books scope merge (Super Admin monitor tabs).
  */
-export const getWorkshopEmployees = (params = {}, options = {}) =>
-    apiFetch(`/workshop-staff/employees${qs(params)}`, options);
+export const getWorkshopEmployees = (params = {}, options = {}) => {
+    const query = options.explicitScope ? staffListQs(params) : qs(params);
+    return apiFetch(`/workshop-staff/employees${query}`, options);
+};
 
 export const postWorkshopEmployees = (body = {}, options = {}) =>
     apiFetch('/workshop-staff/employees', {
@@ -470,16 +484,20 @@ export const deleteWorkshopPortalStaff = (id) =>
         method: 'DELETE',
     });
 
-export const getWorkshopBranches = () => apiFetch('/workshop-staff/branches');
+export const getWorkshopBranches = () => apiFetch(`/workshop-staff/branches${qs({})}`);
 
 /** Cash/bank registers — each row is auto-linked to a Current Asset COA account for the workshop. */
 export const listWorkshopCashBankAccounts = (params = {}) =>
     apiFetch(`/workshop-staff/cash-bank/accounts${qs(params)}`);
 
+/** Register ledger — KPIs + IN/OUT lines for Cash / Bank / Petty Cash. */
+export const getWorkshopCashBankRegister = (params = {}) =>
+    apiFetch(`/workshop-staff/cash-bank/register${qs(params)}`);
+
 export const createWorkshopCashBankAccount = (body) =>
     apiFetch('/workshop-staff/cash-bank/accounts', {
         method: 'POST',
-        body: JSON.stringify(body ?? {}),
+        body: JSON.stringify(mergeAccountingScopeBody(body ?? {})),
     });
 
 export const updateWorkshopCashBankAccount = (id, body) =>
@@ -489,14 +507,14 @@ export const updateWorkshopCashBankAccount = (id, body) =>
     });
 
 /** SoftPOS terminals — for linking a cash/bank register as settlement account (same branch). */
-export const listWorkshopCashBankPosTerminals = () =>
-    apiFetch('/workshop-staff/cash-bank/pos-terminals');
+export const listWorkshopCashBankPosTerminals = (params = {}) =>
+    apiFetch(`/workshop-staff/cash-bank/pos-terminals${qs(params)}`);
 
 /** Internal transfer between two workshop registers (debit + credit, same reference). */
 export const internalTransferWorkshopCashBank = (body) =>
     apiFetch('/workshop-staff/cash-bank/internal-transfer', {
         method: 'POST',
-        body: JSON.stringify(body ?? {}),
+        body: JSON.stringify(mergeAccountingScopeBody(body ?? {})),
     });
 
 /** Set or clear a branch's default cash/bank operating register. */
@@ -1216,6 +1234,9 @@ export async function loadWorkshopEmployeesCombined(params = {}) {
     }
     if (params.offset != null && params.offset !== '') {
         query.offset = String(params.offset);
+    }
+    if (params.workshopId != null && params.workshopId !== '') {
+        query.workshopId = String(params.workshopId);
     }
 
     try {

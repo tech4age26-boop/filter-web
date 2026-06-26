@@ -90,9 +90,9 @@ export const getCatalogServices = ({ departmentId, categoryId, q, page, pageSize
 // Every row now includes `branches: [{ id, name }]` and `branchNames: string[]`
 // listing every branch in the workshop that's currently holding the item.
 
-/** Optional `branchId`: when set, only items adopted for that branch (workshop JWT). */
-export const getMyDepartments = ({ branchId, signal } = {}) =>
-    apiFetch(`/workshop-catalog/my/departments${qs({ branchId })}`, { signal });
+/** Optional `branchId` and `workshopId` (super-admin workshop scope). */
+export const getMyDepartments = ({ branchId, workshopId, signal } = {}) =>
+    apiFetch(`/workshop-catalog/my/departments${qs({ branchId, workshopId })}`, { signal });
 
 export const getMyCategories = ({ departmentId, type, branchId, signal } = {}) =>
     apiFetch(`/workshop-catalog/my/categories${qs({ departmentId, type, branchId })}`, { signal });
@@ -183,8 +183,11 @@ export const adoptServicesToBranches = (body) =>
 
 // ─── Per-branch listing ──────────────────────────────────────────────────────
 
-export const getBranchDepartments = (branchId, { signal } = {}) =>
-    apiFetch(`/workshop-catalog/branches/${branchId}/departments`, { signal });
+export const getBranchDepartments = (branchId, { workshopId, signal } = {}) =>
+    apiFetch(
+        `/workshop-catalog/branches/${branchId}/departments${qs({ workshopId })}`,
+        { signal },
+    );
 
 export const getBranchCategories = (branchId, { type, departmentId, signal } = {}) =>
     apiFetch(`/workshop-catalog/branches/${branchId}/categories${qs({ type, departmentId })}`, { signal });

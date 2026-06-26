@@ -1,8 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { unwrapBrandAccounts } from '../../../../services/storageFacilityAccountingApi';
-import { useStorageFacilityAccountingApi } from '../StorageFacilityPortalContext';
-import { Plus } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import Modal from '../../../../components/Modal';
+import {
+    createBrandAccount,
+    deleteBrandAccount,
+    getBrandAccounts,
+    unwrapBrandAccounts,
+    updateBrandAccount,
+} from '../../../../services/storageFacilityAccountingApi';
+import { useStorageFacilityAccountingApi } from '../StorageFacilityPortalContext';
 import RowActionsMenu from '../../../../components/RowActionsMenu';
 
 import {
@@ -124,7 +130,6 @@ export default function StorageBrandAccountsTab({
     openAccountId = null,
     onLedgerOpened,
 }) {
-    const accountingApi = useStorageFacilityAccountingApi();
     const [accounts, setAccounts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -138,7 +143,7 @@ export default function StorageBrandAccountsTab({
         setLoading(true);
         setErr('');
         try {
-            const res = await accountingApi.getBrandAccounts(brandId);
+            const res = await getBrandAccounts(brandId);
             setAccounts(unwrapBrandAccounts(res));
         } catch (e) {
             setErr(e?.message || 'Failed to load accounts');
@@ -175,7 +180,7 @@ export default function StorageBrandAccountsTab({
         e.preventDefault();
         setSaving(true);
         try {
-            await accountingApi.createBrandAccount(brandId, {
+            await createBrandAccount(brandId, {
                 code: form.code,
                 name: form.name,
                 type: form.type,
@@ -195,7 +200,7 @@ export default function StorageBrandAccountsTab({
         if (!editing?.id) return;
         setSaving(true);
         try {
-            await accountingApi.updateBrandAccount(brandId, editing.id, {
+            await updateBrandAccount(brandId, editing.id, {
                 code: form.code,
                 name: form.name,
                 type: form.type,
@@ -220,7 +225,7 @@ export default function StorageBrandAccountsTab({
             return;
         }
         try {
-            await accountingApi.deleteBrandAccount(brandId, account.id);
+            await deleteBrandAccount(brandId, account.id);
             await load();
         } catch (ex) {
             window.alert(ex?.message || 'Delete failed');
@@ -232,7 +237,7 @@ export default function StorageBrandAccountsTab({
         const label = next === 'inactive' ? 'deactivate' : 'activate';
         if (!window.confirm(`${label} [${account.code}] ${account.name}?`)) return;
         try {
-            await accountingApi.updateBrandAccount(brandId, account.id, { status: next });
+            await updateBrandAccount(brandId, account.id, { status: next });
             await load();
         } catch (ex) {
             window.alert(ex?.message || 'Status update failed');

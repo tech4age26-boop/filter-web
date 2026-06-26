@@ -17,6 +17,20 @@
     background-color: var(--color-bg-canvas);
 }
 
+.admin-layout--chat-fullscreen {
+    display: block;
+    overflow: hidden;
+}
+
+.admin-layout--chat-fullscreen .main-content {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    max-width: none;
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
 /* ======================================================
    SIDEBAR — Dark Black
    ====================================================== */

@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ChevronRight, Truck, Warehouse } from 'lucide-react';
 import { getSupplier, getSuppliers } from '../../services/superAdminApi';
 import { useAdminPageMeta } from '../../context/AdminPageMetaContext';
+import { useAuth } from '../../context/AuthContext';
 import { ShimmerTable } from '../../components/supplier/Shimmer';
 import SupplierStorageFacility from '../supplier/storage-facility/SupplierStorageFacility';
 import { StorageFacilityPortalProvider } from '../supplier/storage-facility/StorageFacilityPortalContext';
@@ -194,6 +195,16 @@ function AdminStorageFacilitySupplierView({ supplierId }) {
 
 export default function AdminStorageFacilityPage() {
     const { supplierId } = useParams();
+    const { hasPermission } = useAuth();
+    const canView = hasPermission('storage-facility.view');
+
+    if (!canView) {
+        return (
+            <div className="mgr-si-page" style={{ padding: 20 }}>
+                <p style={{ color: '#64748b' }}>You do not have permission to view Storage Facility.</p>
+            </div>
+        );
+    }
 
     if (!supplierId) {
         return <AdminStorageFacilitySupplierList />;

@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, Search, Plus, Receipt, X, AlertCircle } from 'lucide-react';
+import {
+    normalizeCashierTechniciansList,
+    unwrapCashierTechniciansResponse,
+} from '../../utils/cashierTechnicians.util';
 import { apiFetch } from '../../services/api';
 import { resolvePlateDisplay } from '../../utils/formatPlate';
 import { usePOS } from '../../context/POSContext';
@@ -52,8 +56,7 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
                 // Fetch Technicians
                 try {
                     const techRes = await apiFetch('/cashier/technicians');
-                    const techs = Array.isArray(techRes) ? techRes : (techRes.data || techRes.technicians || []);
-                    setAvailableTechs(techs);
+                    setAvailableTechs(normalizeCashierTechniciansList(unwrapCashierTechniciansResponse(techRes)));
                 } catch (techErr) {
                     if (techErr.message?.includes('supplier_id')) {
                         console.warn('Technician list unavailable: Backend migration pending for supplier_id.');

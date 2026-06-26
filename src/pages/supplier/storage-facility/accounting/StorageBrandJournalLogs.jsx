@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useStorageFacilityAccountingApi } from '../StorageFacilityPortalContext';
-
+import {
+    getBrandJournalById,
+    listBrandGeneralJournals,
+    listBrandPayments,
+    listBrandReceipts,
+} from '../../../../services/storageFacilityAccountingApi';
 import {
     AcctCard,
     AcctEmpty,
@@ -10,6 +14,12 @@ import {
     money,
 } from '../../accounting/SupplierAccountingShared';
 
+const FETCHERS = {
+    payments: listBrandPayments,
+    receipts: listBrandReceipts,
+    journals: listBrandGeneralJournals,
+};
+
 const TITLES = {
     payments: 'Payments log',
     receipts: 'Receipts log',
@@ -17,7 +27,6 @@ const TITLES = {
 };
 
 export default function StorageBrandJournalLogs({ brandId, kind }) {
-    const accountingApi = useStorageFacilityAccountingApi();
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -28,12 +37,7 @@ export default function StorageBrandJournalLogs({ brandId, kind }) {
         setLoading(true);
         setErr('');
         try {
-            const fetchers = {
-                payments: accountingApi.listBrandPayments,
-                receipts: accountingApi.listBrandReceipts,
-                journals: accountingApi.listBrandGeneralJournals,
-            };
-            const res = await fetchers[kind](brandId, { limit: 100 });
+            const res = await FETCHERS[kind](brandId, { limit: 100 });
             setRows(Array.isArray(res?.journals) ? res.journals : []);
         } catch (e) {
             setErr(e?.message || 'Failed to load log');
@@ -41,7 +45,7 @@ export default function StorageBrandJournalLogs({ brandId, kind }) {
         } finally {
             setLoading(false);
         }
-    }, [brandId, kind, accountingApi]);
+    }, [brandId, kind]);
 
     useEffect(() => {
         load();
@@ -54,13 +58,13 @@ export default function StorageBrandJournalLogs({ brandId, kind }) {
         }
         (async () => {
             try {
-                const res = await accountingApi.getBrandJournalById(brandId, detailId);
+                const res = await getBrandJournalById(brandId, detailId);
                 setDetail(res?.journal ?? res);
             } catch {
                 setDetail(null);
             }
         })();
-    }, [brandId, detailId, accountingApi]);
+    }, [brandId, detailId]);
 
     return (
         <div>

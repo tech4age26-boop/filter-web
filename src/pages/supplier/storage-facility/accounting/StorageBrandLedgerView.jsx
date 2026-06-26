@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useStorageFacilityAccountingApi } from '../StorageFacilityPortalContext';
 import { ArrowLeft } from 'lucide-react';
-
+import { getBrandAccountLedger } from '../../../../services/storageFacilityAccountingApi';
 import {
     AcctCard,
     AcctEmpty,
@@ -18,7 +17,6 @@ import {
 const CATEGORIES = ['', 'Cash', 'Bank', 'AR', 'AP', 'Revenue', 'Expense', 'Equity', 'Other'];
 
 export default function StorageBrandLedgerView({ brandId, account, onBack }) {
-    const accountingApi = useStorageFacilityAccountingApi();
     const [from, setFrom] = useState('');
     const [to, setTo] = useState(todayISO());
     const [category, setCategory] = useState(account?.accountCategory || '');
@@ -31,7 +29,7 @@ export default function StorageBrandLedgerView({ brandId, account, onBack }) {
         setLoading(true);
         setErr('');
         try {
-            const res = await accountingApi.getBrandAccountLedger(brandId, account.id, {
+            const res = await getBrandAccountLedger(brandId, account.id, {
                 from: from || undefined,
                 to: to || undefined,
                 accountCategory: category || undefined,

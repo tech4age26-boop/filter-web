@@ -35,6 +35,7 @@ import {
 } from '../../../services/workshopStaffApi';
 import WorkshopSalaryTab from './WorkshopSalaryTab';
 import WorkshopEmployeeLedgerTab from './WorkshopEmployeeLedgerTab';
+import { useHqAdminBooksScope } from '../../../hooks/useHqAdminBooksScope';
 import '../../../styles/admin/AccountingPage.css';
 
 const fmt = (n) => {
@@ -59,6 +60,7 @@ const makeAdvanceRow = () => ({
 });
 
 export default function WorkshopAdvances({ branches = [], selectedBranchId = 'all' }) {
+    const { isAdminHqBooks } = useHqAdminBooksScope();
     const [activeTab, setActiveTab] = useState('By Employee');
     const [filter, setFilter] = useState('All');
     const [branchFilter, setBranchFilter] = useState(
@@ -97,8 +99,8 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
     const [submitting, setSubmitting] = useState(false);
 
     const branchParams = useMemo(
-        () => (branchFilter ? { branchId: branchFilter } : {}),
-        [branchFilter],
+        () => (isAdminHqBooks ? {} : (branchFilter ? { branchId: branchFilter } : {})),
+        [branchFilter, isAdminHqBooks],
     );
 
     const payableEmployees = useMemo(
@@ -147,10 +149,10 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
     }, [refresh]);
 
     useEffect(() => {
-        if (selectedBranchId && selectedBranchId !== 'all') {
+        if (!isAdminHqBooks && selectedBranchId && selectedBranchId !== 'all') {
             setBranchFilter(String(selectedBranchId));
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, isAdminHqBooks]);
 
     const filteredAdvances = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -262,8 +264,14 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                 <div className="adv-header-left">
                     <h2 className="adv-title">Employee Salary Advances</h2>
                     <p className="adv-desc">
-                        Branch-wise employee advances linked to{' '}
-                        <strong>{controlAccount?.code ?? '1250'} Salary Advances</strong> control account
+                        {isAdminHqBooks
+                            ? 'Platform HQ salary advances — not scoped to workshop branches.'
+                            : (
+                                <>
+                                    Branch-wise employee advances linked to{' '}
+                                    <strong>{controlAccount?.code ?? '1250'} Salary Advances</strong> control account
+                                </>
+                            )}
                     </p>
                 </div>
                 <div className="adv-header-actions">
@@ -361,12 +369,12 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                     <Search className="search-icon" size={16} />
                     <input
                         type="text"
-                        placeholder="Search by employee, branch, or reason..."
+                        placeholder={isAdminHqBooks ? 'Search by employee or reason...' : 'Search by employee, branch, or reason...'}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
-                {branches.length > 0 ? (
+                {!isAdminHqBooks && branches.length > 0 ? (
                     <div className="ps-select-wrapper" style={{ minWidth: 180 }}>
                         <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
                             <option value="">All branches</option>
@@ -404,12 +412,12 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             {loading ? (
                 <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Loading...</div>
             ) : activeTab === 'Salary' ? (
-                <WorkshopSalaryTab branchFilter={branchFilter} />
+                <WorkshopSalaryTab branchFilter={isAdminHqBooks ? '' : branchFilter} />
             ) : activeTab === 'Employee Ledger' ? (
                 <WorkshopEmployeeLedgerTab
                     employees={employees}
                     employeeByRecordId={employeeByRecordId}
-                    branchFilter={branchFilter}
+                    branchFilter={isAdminHqBooks ? '' : branchFilter}
                 />
             ) : activeTab === 'By Employee' ? (
                 <section className="premium-table advances-table">
@@ -474,7 +482,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                         <thead>
                             <tr className="table-header-row">
                                 <th className="table-th">DATE</th>
-                                <th className="table-th">BRANCH</th>
+                                {!isAdminHqBooks ? <th className="table-th">BRANCH</th> : null}
                                 <th className="table-th">EMPLOYEE</th>
                                 <th className="table-th">REASON</th>
                                 <th className="table-th">PAID FROM</th>
@@ -486,12 +494,12 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                         </thead>
                         <tbody>
                             {filteredAdvances.length === 0 ? (
-                                <tr><td colSpan={9} className="table-cell table-empty">No advances found</td></tr>
+                                <tr><td colSpan={isAdminHqBooks ? 8 : 9} className="table-cell table-empty">No advances found</td></tr>
                             ) : (
                                 filteredAdvances.map((a) => (
                                     <tr key={a.id} className="table-row">
                                         <td className="table-cell">{new Date(a.date).toLocaleDateString()}</td>
-                                        <td className="table-cell">{a.branchName || '—'}</td>
+                                        {!isAdminHqBooks ? <td className="table-cell">{a.branchName || '—'}</td> : null}
                                         <td className="table-cell" style={{ fontWeight: 700 }}>{a.employeeName}</td>
                                         <td className="table-cell">{a.reason || '—'}</td>
                                         <td className="table-cell">{a.payFromAccountName || '—'}</td>

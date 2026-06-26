@@ -1,8 +1,12 @@
 import { apiFetch } from './api';
 
-export const listApprovalLimits = () => apiFetch('/approvals/limits');
+import { qs } from './workshopStaffApi';
+
+export const listApprovalLimits = (params = {}) =>
+    apiFetch(`/approvals/limits${qs(params)}`);
 export const listApprovalRoles = () => apiFetch('/approvals/limits/roles');
-export const listApprovalApprovers = () => apiFetch('/approvals/limits/approvers');
+export const listApprovalApprovers = (params = {}) =>
+    apiFetch(`/approvals/limits/approvers${qs(params)}`);
 
 export const upsertApprovalLimit = (body) =>
     apiFetch('/approvals/limits', {
