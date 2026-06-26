@@ -1113,13 +1113,8 @@ function MarketingBudgetRequestDetailsModal({ id, item, onClose, onApprove, onRe
     );
 }
 
-<<<<<<< HEAD
 /** Admin personal wallet fund request detail for Super Admin Approvals. */
 function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onReject }) {
-=======
-/** Marketing expense detail — approve/reject + pay (posts HQ Chart of Accounts journal). */
-function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, onPay, payBusy }) {
->>>>>>> main
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -1128,20 +1123,12 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
         let cancelled = false;
         setLoading(true);
         setErr('');
-<<<<<<< HEAD
         fetchApprovalDetails('admin_wallet_fund_request', id)
-=======
-        fetchApprovalDetails('marketing_expense', id)
->>>>>>> main
             .then((res) => {
                 if (!cancelled) setData(res);
             })
             .catch((e) => {
-<<<<<<< HEAD
                 if (!cancelled) setErr(e?.message || 'Could not load request details');
-=======
-                if (!cancelled) setErr(e?.message || 'Could not load expense details');
->>>>>>> main
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -1149,7 +1136,6 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
         return () => { cancelled = true; };
     }, [id]);
 
-<<<<<<< HEAD
     const row = data ?? item?.raw ?? item ?? {};
     const currency = row.currencyCode ?? row.currency_code ?? item?.meta?.currencyCode ?? 'SAR';
     const amount = Number(row.amount ?? item?.meta?.amount ?? 0);
@@ -1159,49 +1145,19 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
 
     const money = (v) =>
         `${currency} ${Number(v || 0).toLocaleString(undefined, {
-=======
-    const row = data?.expense ?? data ?? item?.raw ?? item ?? {};
-    const amount = Number(row.amount ?? item?.meta?.amount ?? 0);
-    const expenseNumber = row.expenseNumber ?? row.expense_number ?? item?.meta?.expenseNumber ?? `#${id}`;
-    const status = String(row.status ?? data?.expenseStatus ?? item?.meta?.expenseStatus ?? item?.status ?? 'pending')
-        .toLowerCase()
-        .replace(/\s+/g, '_');
-
-    const money = (v) =>
-        `SAR ${Number(v || 0).toLocaleString(undefined, {
->>>>>>> main
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
         })}`;
 
-<<<<<<< HEAD
     return (
         <Modal
             title={`Admin wallet fund · ${requestNumber}`}
-=======
-    const showApproveReject = status === 'pending_approval' || status === 'pending';
-    const showPay = status === 'approved';
-
-    return (
-        <Modal
-            title={`Marketing expense · ${expenseNumber}`}
->>>>>>> main
             onClose={onClose}
             width={720}
             footer={(
                 <>
                     <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
-<<<<<<< HEAD
                     {status === 'pending' && (
-=======
-                    {showPay && onPay && (
-                        <button type="button" className="btn-approve" disabled={payBusy} onClick={onPay}>
-                            {payBusy ? <Loader size={16} className="spin" /> : <DollarSign size={16} />}
-                            Pay &amp; Post to CAO
-                        </button>
-                    )}
-                    {showApproveReject && (
->>>>>>> main
                         <>
                             {onReject && (
                                 <button type="button" className="btn-reject" onClick={onReject}>
@@ -1227,13 +1183,7 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
             ) : (
                 <div>
                     <div style={{ marginBottom: 14 }}>
-<<<<<<< HEAD
                         <span className={`status-badge status-${status}`}>{status}</span>
-=======
-                        <span className={`status-badge status-${status === 'pending_approval' ? 'pending' : status}`}>
-                            {status.replace(/_/g, ' ')}
-                        </span>
->>>>>>> main
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                         <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
@@ -1241,7 +1191,6 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
                             <p style={{ margin: '4px 0 0', fontWeight: 700, fontSize: '1.125rem' }}>{money(amount)}</p>
                         </div>
                         <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
-<<<<<<< HEAD
                             <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Admin user</p>
                             <p style={{ margin: '4px 0 0', fontWeight: 700 }}>
                                 {adminUser.name ?? row.adminUserName ?? item?.meta?.adminUserName ?? '—'}
@@ -1263,7 +1212,134 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
                             <p style={{ margin: '6px 0 0', fontWeight: 700 }}>
                                 {row.sourceAccountName ?? row.source_account_name ?? item?.meta?.sourceAccountName}
                             </p>
-=======
+                        </div>
+                    )}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Requested by</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                {row.requestedByName ?? row.requested_by_name ?? row.requestedBy ?? item?.submittedBy ?? '—'}
+                            </p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                {formatDate(row.createdAt ?? row.created_at ?? item?.date)}
+                            </p>
+                        </div>
+                        {(row.approvedBy ?? row.approved_by ?? row.approvedByName ?? row.rejectedBy ?? row.rejected_by) && (
+                            <div>
+                                <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
+                                    {row.rejectedBy ?? row.rejected_by ? 'Rejected by' : 'Approved by'}
+                                </p>
+                                <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                    {row.approvedByName ?? row.approved_by_name ?? row.approvedBy ?? row.approved_by
+                                        ?? row.rejectedByName ?? row.rejected_by_name ?? row.rejectedBy ?? row.rejected_by}
+                                </p>
+                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                    {formatDate(row.approvedAt ?? row.approved_at ?? row.rejectedAt ?? row.rejected_at)}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                    {(row.rejectionReason ?? row.rejection_reason ?? item?.meta?.rejectionReason) && (
+                        <div style={{ padding: 10, background: '#fef2f2', borderRadius: 10, fontSize: '0.875rem', color: '#991b1b' }}>
+                            <strong>Rejection reason:</strong>{' '}
+                            {row.rejectionReason ?? row.rejection_reason ?? item?.meta?.rejectionReason}
+                        </div>
+                    )}
+                </div>
+            )}
+        </Modal>
+    );
+}
+
+/** Marketing expense detail — approve/reject + pay (posts HQ Chart of Accounts journal). */
+function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, onPay, payBusy }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr('');
+        fetchApprovalDetails('marketing_expense', id)
+            .then((res) => {
+                if (!cancelled) setData(res);
+            })
+            .catch((e) => {
+                if (!cancelled) setErr(e?.message || 'Could not load expense details');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [id]);
+
+    const row = data?.expense ?? data ?? item?.raw ?? item ?? {};
+    const amount = Number(row.amount ?? item?.meta?.amount ?? 0);
+    const expenseNumber = row.expenseNumber ?? row.expense_number ?? item?.meta?.expenseNumber ?? `#${id}`;
+    const status = String(row.status ?? data?.expenseStatus ?? item?.meta?.expenseStatus ?? item?.status ?? 'pending')
+        .toLowerCase()
+        .replace(/\s+/g, '_');
+
+    const money = (v) =>
+        `SAR ${Number(v || 0).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        })}`;
+
+    const showApproveReject = status === 'pending_approval' || status === 'pending';
+    const showPay = status === 'approved';
+
+    return (
+        <Modal
+            title={`Marketing expense · ${expenseNumber}`}
+            onClose={onClose}
+            width={720}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
+                    {showPay && onPay && (
+                        <button type="button" className="btn-approve" disabled={payBusy} onClick={onPay}>
+                            {payBusy ? <Loader size={16} className="spin" /> : <DollarSign size={16} />}
+                            Pay &amp; Post to CAO
+                        </button>
+                    )}
+                    {showApproveReject && (
+                        <>
+                            {onReject && (
+                                <button type="button" className="btn-reject" onClick={onReject}>
+                                    <X size={16} /> Reject
+                                </button>
+                            )}
+                            {onApprove && (
+                                <button type="button" className="btn-approve" onClick={onApprove}>
+                                    <Check size={16} /> Approve
+                                </button>
+                            )}
+                        </>
+                    )}
+                </>
+            )}
+        >
+            {loading ? (
+                <div style={{ padding: 24, textAlign: 'center' }}>
+                    <Loader size={20} className="spin" /> Loading…
+                </div>
+            ) : err ? (
+                <p style={{ color: '#b91c1c' }}>{err}</p>
+            ) : (
+                <div>
+                    <div style={{ marginBottom: 14 }}>
+                        <span className={`status-badge status-${status === 'pending_approval' ? 'pending' : status}`}>
+                            {status.replace(/_/g, ' ')}
+                        </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Amount</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700, fontSize: '1.125rem' }}>{money(amount)}</p>
+                        </div>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
                             <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Category</p>
                             <p style={{ margin: '4px 0 0', fontWeight: 700 }}>
                                 {row.expenseCategory ?? item?.meta?.expenseCategory ?? '—'}
@@ -1284,32 +1360,10 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
                         <div style={{ marginBottom: 14 }}>
                             <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Description</p>
                             <p style={{ margin: '6px 0 0', fontSize: '0.9375rem' }}>{row.description ?? item?.meta?.description}</p>
->>>>>>> main
                         </div>
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                         <div>
-<<<<<<< HEAD
-                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Requested by</p>
-                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
-                                {row.requestedByName ?? row.requested_by_name ?? row.requestedBy ?? item?.submittedBy ?? '—'}
-                            </p>
-                            <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                                {formatDate(row.createdAt ?? row.created_at ?? item?.date)}
-                            </p>
-                        </div>
-                        {(row.approvedBy ?? row.approved_by ?? row.approvedByName ?? row.rejectedBy ?? row.rejected_by) && (
-                            <div>
-                                <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
-                                    {row.rejectedBy ?? row.rejected_by ? 'Rejected by' : 'Approved by'}
-                                </p>
-                                <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
-                                    {row.approvedByName ?? row.approved_by_name ?? row.approvedBy ?? row.approved_by
-                                        ?? row.rejectedByName ?? row.rejected_by_name ?? row.rejectedBy ?? row.rejected_by}
-                                </p>
-                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                                    {formatDate(row.approvedAt ?? row.approved_at ?? row.rejectedAt ?? row.rejected_at)}
-=======
                             <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Submitted by</p>
                             <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
                                 {row.submittedByName ?? row.submittedBy ?? item?.submittedBy ?? '—'}
@@ -1324,17 +1378,10 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
                                 <p style={{ margin: '4px 0 0', fontWeight: 600 }}>{row.approvedByName ?? row.approvedBy}</p>
                                 <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
                                     {formatDate(row.approvalDate ?? row.approval_date)}
->>>>>>> main
                                 </p>
                             </div>
                         )}
                     </div>
-<<<<<<< HEAD
-                    {(row.rejectionReason ?? row.rejection_reason ?? item?.meta?.rejectionReason) && (
-                        <div style={{ padding: 10, background: '#fef2f2', borderRadius: 10, fontSize: '0.875rem', color: '#991b1b' }}>
-                            <strong>Rejection reason:</strong>{' '}
-                            {row.rejectionReason ?? row.rejection_reason ?? item?.meta?.rejectionReason}
-=======
                     {status === 'approved' && (
                         <div style={{ padding: 10, background: '#eff6ff', borderRadius: 10, fontSize: '0.875rem', color: '#1e40af', marginBottom: 14 }}>
                             Approved — use <strong>Pay &amp; Post to CAO</strong> to debit the marketing wallet and book HQ journal (DR Marketing Expense / CR Marketing Wallet).
@@ -1343,7 +1390,6 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
                     {(row.rejectionReason ?? item?.meta?.rejectionReason) && (
                         <div style={{ padding: 10, background: '#fef2f2', borderRadius: 10, fontSize: '0.875rem', color: '#991b1b' }}>
                             <strong>Rejection reason:</strong> {row.rejectionReason ?? item?.meta?.rejectionReason}
->>>>>>> main
                         </div>
                     )}
                 </div>
@@ -2784,23 +2830,25 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 />
             )}
 
-<<<<<<< HEAD
             {detailsTarget && detailsTarget.entityType === 'admin_wallet_fund_request' && (
                 <AdminWalletFundRequestDetailsModal
-=======
-            {detailsTarget && detailsTarget.entityType === 'marketing_expense' && (
-                <MarketingExpenseDetailsModal
->>>>>>> main
                     id={detailsTarget.id}
                     item={detailsTarget.item}
                     onClose={() => setDetailsTarget(null)}
                     onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
                     onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
-<<<<<<< HEAD
-=======
+                />
+            )}
+
+            {detailsTarget && detailsTarget.entityType === 'marketing_expense' && (
+                <MarketingExpenseDetailsModal
+                    id={detailsTarget.id}
+                    item={detailsTarget.item}
+                    onClose={() => setDetailsTarget(null)}
+                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
+                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
                     onPay={canApproveType(detailsTarget.entityType) ? () => handlePayExpense(detailsTarget.item) : undefined}
                     payBusy={actionLoading === approvalItemKey(detailsTarget.item ?? { entityType: detailsTarget.entityType, id: detailsTarget.id })}
->>>>>>> main
                 />
             )}
 
@@ -2818,11 +2866,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 && detailsTarget.entityType !== 'corporate_payment_approval'
                 && detailsTarget.entityType !== 'sales_return'
                 && detailsTarget.entityType !== 'marketing_budget_request'
-<<<<<<< HEAD
                 && detailsTarget.entityType !== 'admin_wallet_fund_request'
-=======
                 && detailsTarget.entityType !== 'marketing_expense'
->>>>>>> main
                 && detailsTarget.entityType !== 'marketing_promotion' && (
                 <ApprovalDetailsModal
                     entityType={detailsTarget.entityType}
