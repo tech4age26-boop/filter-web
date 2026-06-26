@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Percent, RefreshCw, Eye, FileText } from 'lucide-react';
-import Modal from '../../components/Modal';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WorkshopDiscountTimelineScreen from './WorkshopDiscountTimelineScreen';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import { branchScopeParams, getWorkshopDiscounts } from '../../services/workshopStaffApi';
 import { getMyDepartments } from '../../services/workshopCatalogApi';
@@ -26,6 +26,7 @@ function fmtMoney(n) {
 const TIMELINE_LABELS = {
     line: 'Line / item discount timeline',
     invoice: 'Invoice discount timeline',
+    promo: 'Promo code discount timeline',
     total: 'Total discount timeline',
 };
 
@@ -38,10 +39,11 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
     const [summary, setSummary] = useState({
         lineDiscount: 0,
         invoiceDiscount: 0,
+        promoDiscount: 0,
         totalDiscount: 0,
         invoiceCount: 0,
     });
-    const [timeline, setTimeline] = useState({ line: [], invoice: [], total: [] });
+    const [timeline, setTimeline] = useState({ line: [], invoice: [], promo: [], total: [] });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
@@ -106,12 +108,14 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
             setSummary({
                 lineDiscount: Number(res?.summary?.lineDiscount) || 0,
                 invoiceDiscount: Number(res?.summary?.invoiceDiscount) || 0,
+                promoDiscount: Number(res?.summary?.promoDiscount) || 0,
                 totalDiscount: Number(res?.summary?.totalDiscount) || 0,
                 invoiceCount: Number(res?.summary?.invoiceCount) || 0,
             });
             setTimeline({
                 line: Array.isArray(res?.timeline?.line) ? res.timeline.line : [],
                 invoice: Array.isArray(res?.timeline?.invoice) ? res.timeline.invoice : [],
+                promo: Array.isArray(res?.timeline?.promo) ? res.timeline.promo : [],
                 total: Array.isArray(res?.timeline?.total) ? res.timeline.total : [],
             });
         } catch (e) {
@@ -126,6 +130,11 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
         load();
     }, [load]);
 
+    const selectedDepartmentName = useMemo(() => {
+        if (departmentId === 'all') return 'All departments';
+        return departments.find((d) => String(d.id) === String(departmentId))?.name || 'Department';
+    }, [departmentId, departments]);
+
     const timelineRows = timelineOpen ? timeline[timelineOpen] || [] : [];
 
     if (!canView) {
@@ -133,6 +142,21 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
             <div className="ws-section" style={{ padding: 24 }}>
                 <p>You do not have permission to view discount reports.</p>
             </div>
+        );
+    }
+
+    if (timelineOpen) {
+        return (
+            <WorkshopDiscountTimelineScreen
+                kind={timelineOpen}
+                title={TIMELINE_LABELS[timelineOpen]}
+                rows={timelineRows}
+                branchName={selectedBranchName}
+                departmentName={selectedDepartmentName}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onBack={() => setTimelineOpen(null)}
+            />
         );
     }
 
@@ -313,6 +337,10 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                 </div>
 
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <div className="ws-sr-kpi" title="Invoices with discounts in this period">
+                        <div className="ws-sr-kpi-label">Discounted invoices</div>
+                        <div className="ws-sr-kpi-value">{loading ? '—' : summary.invoiceCount}</div>
+                    </div>
                     <button
                         type="button"
                         className="ws-sr-kpi ws-sr-kpi-clickable"
@@ -330,6 +358,15 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                     >
                         <div className="ws-sr-kpi-label">Invoice discount</div>
                         <div className="ws-sr-kpi-value">SAR {loading ? '—' : fmtMoney(summary.invoiceDiscount)}</div>
+                    </button>
+                    <button
+                        type="button"
+                        className="ws-sr-kpi ws-sr-kpi-clickable"
+                        onClick={() => setTimelineOpen('promo')}
+                        title="View promo code discount timeline"
+                    >
+                        <div className="ws-sr-kpi-label">Promo code</div>
+                        <div className="ws-sr-kpi-value">SAR {loading ? '—' : fmtMoney(summary.promoDiscount)}</div>
                     </button>
                     <button
                         type="button"
@@ -497,48 +534,6 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                 <p style={{ marginTop: 12, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                     Showing {rows.length} of {total} discounted invoices
                 </p>
-            ) : null}
-
-            {timelineOpen ? (
-                <Modal title={TIMELINE_LABELS[timelineOpen]} onClose={() => setTimelineOpen(null)} size="large">
-                    <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
-                        {timelineRows.length === 0 ? (
-                            <p style={{ color: '#64748b', margin: 0 }}>No entries for the current filters.</p>
-                        ) : (
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
-                                <thead>
-                                    <tr style={{ background: '#F9FAFB', textAlign: 'left' }}>
-                                        <th style={{ padding: '8px 12px' }}>Date / time</th>
-                                        <th style={{ padding: '8px 12px' }}>Invoice #</th>
-                                        <th style={{ padding: '8px 12px' }}>Customer</th>
-                                        <th style={{ padding: '8px 12px' }}>Branch</th>
-                                        <th style={{ padding: '8px 12px' }}>Detail</th>
-                                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {timelineRows.map((entry, idx) => (
-                                        <tr key={`${entry.invoiceId}-${idx}`} style={{ borderTop: '1px solid #E5E7EB' }}>
-                                            <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{fmtDt(entry.at)}</td>
-                                            <td style={{ padding: '8px 12px', fontWeight: 700 }}>{entry.invoiceNo}</td>
-                                            <td style={{ padding: '8px 12px' }}>{entry.customerName || '—'}</td>
-                                            <td style={{ padding: '8px 12px' }}>{entry.branchName || '—'}</td>
-                                            <td style={{ padding: '8px 12px' }}>
-                                                {entry.label}
-                                                {entry.departmentName ? (
-                                                    <span style={{ color: '#64748b' }}> · {entry.departmentName}</span>
-                                                ) : null}
-                                            </td>
-                                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>
-                                                SAR {fmtMoney(entry.amount)}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
-                </Modal>
             ) : null}
         </div>
     );
