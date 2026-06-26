@@ -208,6 +208,10 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                                 <div className="ws-sr-kpi-value">SAR {fmtMoney(detail.invoiceDiscount)}</div>
                             </div>
                             <div className="ws-sr-kpi">
+                                <div className="ws-sr-kpi-label">Promo code</div>
+                                <div className="ws-sr-kpi-value">SAR {fmtMoney(detail.promoDiscount)}</div>
+                            </div>
+                            <div className="ws-sr-kpi">
                                 <div className="ws-sr-kpi-label">Total discount</div>
                                 <div className="ws-sr-kpi-value">SAR {fmtMoney(detail.totalDiscount)}</div>
                             </div>
@@ -466,6 +470,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                             <th style={{ padding: '12px 16px' }}>Branch</th>
                             <th style={{ padding: '12px 16px', textAlign: 'right' }}>Line discount</th>
                             <th style={{ padding: '12px 16px', textAlign: 'right' }}>Invoice discount</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>Promo code</th>
                             <th style={{ padding: '12px 16px', textAlign: 'right' }}>Total discount</th>
                             <th style={{ padding: '12px 16px', textAlign: 'right' }}>Invoice total</th>
                             <th style={{ padding: '12px 16px' }} />
@@ -473,10 +478,10 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                     </thead>
                     <tbody>
                         {loading ? (
-                            <ShimmerTableBodyRows cols={11} rows={8} />
+                            <ShimmerTableBodyRows cols={12} rows={8} />
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={11} style={{ padding: 44, textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                <td colSpan={12} style={{ padding: 44, textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
                                         <div
                                             style={{
@@ -511,6 +516,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                                     <td style={{ padding: '12px 16px' }}>{r.branchName || '—'}</td>
                                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>SAR {fmtMoney(r.lineDiscount)}</td>
                                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>SAR {fmtMoney(r.invoiceDiscount)}</td>
+                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>SAR {fmtMoney(r.promoDiscount)}</td>
                                     <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 900 }}>SAR {fmtMoney(r.totalDiscount)}</td>
                                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>SAR {fmtMoney(r.invoiceTotal)}</td>
                                     <td style={{ padding: '12px 16px' }}>
