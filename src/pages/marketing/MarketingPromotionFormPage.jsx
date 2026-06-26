@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   useLocation,
   useNavigate,
@@ -9,8 +9,6 @@ import {
   ArrowLeft,
   Building2,
   MapPin,
-  Package,
-  Gift,
   Image,
   Hourglass,
   Upload,
@@ -40,7 +38,21 @@ import {
   strategyOptions,
   Toggle,
 } from "./marketingPromotionShared";
+import PromotionApplicabilitySection from "../../components/promo/PromotionApplicabilitySection";
+import PromotionRewardSection from "../../components/promo/PromotionRewardSection";
+import PromotionGuide from "../../components/promo/PromotionGuide";
+import "../workshop/Workshop.css";
 import "./MarketingUniversal.css";
+
+const BUY_GET_STRATEGIES = [
+  "Buy X Get Y Free",
+  "Free Service",
+  "Free Service At Another Branch",
+];
+
+function isBuyGetPromotionType(promotionType) {
+  return BUY_GET_STRATEGIES.includes(String(promotionType || ""));
+}
 
 function validatePromotionForm(form) {
   if (!form.name.trim()) {
@@ -74,6 +86,32 @@ function validatePromotionForm(form) {
     return false;
   }
 
+  if (form.productScope === "selected" && !(form.productTriggerIds || []).length) {
+    alert('Select at least one product when Products is set to "Specific only".');
+    return false;
+  }
+
+  if (form.serviceScope === "selected" && !(form.serviceTriggerIds || []).length) {
+    alert('Select at least one service when Services is set to "Specific only".');
+    return false;
+  }
+
+  if (form.productScope === "none" && form.serviceScope === "none") {
+    alert("At least one of Products or Services must apply.");
+    return false;
+  }
+
+  if (form.rewardBenefitType && form.rewardBenefitType !== "none") {
+    if (!(form.rewardProductIds || []).length) {
+      alert("Select at least one reward product/service the customer will get.");
+      return false;
+    }
+    if (form.rewardBenefitType !== "free" && !Number(form.rewardDiscountValue)) {
+      alert("Enter a reward value for the percentage/fixed reward.");
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -94,6 +132,37 @@ export default function MarketingPromotionFormPage() {
   const [triggerItems, setTriggerItems] = useState([]);
   const [rewardItems, setRewardItems] = useState([]);
 
+  const productTriggerOptions = useMemo(
+    () => triggerItems.filter((item) => String(item.itemKind || item.type) !== "service"),
+    [triggerItems],
+  );
+  const serviceTriggerOptions = useMemo(
+    () => triggerItems.filter((item) => String(item.itemKind || item.type) === "service"),
+    [triggerItems],
+  );
+
+  const productComboOptions = useMemo(
+    () =>
+      productTriggerOptions.map((item) => ({
+        id: String(item.realId ?? item.id).replace(/^product-/, ""),
+        label: item.label,
+        name: item.label,
+      })),
+    [productTriggerOptions],
+  );
+  const serviceComboOptions = useMemo(
+    () =>
+      serviceTriggerOptions.map((item) => ({
+        id: String(item.realId ?? item.id).replace(/^service-/, ""),
+        label: item.label,
+        name: item.label,
+      })),
+    [serviceTriggerOptions],
+  );
+
+  const rewardActive =
+    Boolean(form.rewardBenefitType) && form.rewardBenefitType !== "none";
+
   const [loadingPage, setLoadingPage] = useState(isEdit);
   const [loadingDropdowns, setLoadingDropdowns] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -113,7 +182,18 @@ export default function MarketingPromotionFormPage() {
     !isRejected;
 
   const updateForm = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [field]: value };
+      // Convenience: selecting a Buy-X-Get-Y style strategy pre-arms the reward as "free".
+      if (
+        field === "promotionType" &&
+        isBuyGetPromotionType(value) &&
+        (!prev.rewardBenefitType || prev.rewardBenefitType === "none")
+      ) {
+        next.rewardBenefitType = "free";
+      }
+      return next;
+    });
   };
 
   const goBack = () => navigate(basePath);
@@ -152,17 +232,22 @@ export default function MarketingPromotionFormPage() {
     if (!triggerItems.length) return;
 
     setForm((prev) => {
-      const alignedTriggerIds = alignStoredIdsWithOptions(
-        prev.triggerProductIds,
-        triggerItems
-      );
+      const alignedProductTriggers = alignStoredIdsWithOptions(
+        (prev.productTriggerIds || []).map((id) => `product-${String(id).replace(/^product-/, '')}`),
+        productTriggerOptions,
+      ).map((id) => String(id).replace(/^product-/, ''));
+      const alignedServiceTriggers = alignStoredIdsWithOptions(
+        (prev.serviceTriggerIds || []).map((id) => `service-${String(id).replace(/^service-/, '')}`),
+        serviceTriggerOptions,
+      ).map((id) => String(id).replace(/^service-/, ''));
       const alignedRewardIds = alignStoredIdsWithOptions(
         prev.rewardProductIds,
         rewardItems.length ? rewardItems : triggerItems
       );
 
       if (
-        alignedTriggerIds.join('|') === prev.triggerProductIds.join('|') &&
+        alignedProductTriggers.join('|') === (prev.productTriggerIds || []).join('|') &&
+        alignedServiceTriggers.join('|') === (prev.serviceTriggerIds || []).join('|') &&
         alignedRewardIds.join('|') === prev.rewardProductIds.join('|')
       ) {
         return prev;
@@ -170,11 +255,12 @@ export default function MarketingPromotionFormPage() {
 
       return {
         ...prev,
-        triggerProductIds: alignedTriggerIds,
+        productTriggerIds: alignedProductTriggers,
+        serviceTriggerIds: alignedServiceTriggers,
         rewardProductIds: alignedRewardIds,
       };
     });
-  }, [triggerItems, rewardItems]);
+  }, [triggerItems, rewardItems, productTriggerOptions, serviceTriggerOptions]);
 
   useEffect(() => {
     if (!isEdit) return;
@@ -264,7 +350,9 @@ export default function MarketingPromotionFormPage() {
   return (
     <div
       className={
-        embeddedInPortal ? "mk-page mkp-form-page" : "mkp-page mkp-form-page"
+        embeddedInPortal
+          ? "mk-page mkp-form-page mkp-form-page-wide"
+          : "mkp-page mkp-form-page mkp-form-page-wide"
       }
     >
       <button type="button" className="mkp-back-btn" onClick={goBack}>
@@ -286,6 +374,8 @@ export default function MarketingPromotionFormPage() {
         </div>
       ) : null}
 
+      <div className="mkp-form-layout">
+        <div className="mkp-form-main">
       {loadingPage ? (
         <div className="mkp-empty">
           <Loader2 size={30} className="mkp-spin" />
@@ -448,22 +538,20 @@ export default function MarketingPromotionFormPage() {
               error={dropdownError}
             />
 
-            <MultiSelectApiField
-              label="Trigger Products / Services — Customer Must Buy"
-              icon={Package}
-              options={triggerItems}
-              selectedIds={form.triggerProductIds}
-              onChange={(ids) => updateForm("triggerProductIds", ids)}
+            <PromotionApplicabilitySection
+              form={form}
+              onChange={updateForm}
+              productOptions={productComboOptions}
+              serviceOptions={serviceComboOptions}
               loading={loadingDropdowns}
               error={dropdownError}
+              variant={rewardActive ? "trigger" : "discount"}
             />
 
-            <MultiSelectApiField
-              label="Reward Products / Services — Customer Gets Free or Discounted"
-              icon={Gift}
-              options={rewardItems}
-              selectedIds={form.rewardProductIds}
-              onChange={(ids) => updateForm("rewardProductIds", ids)}
+            <PromotionRewardSection
+              form={form}
+              onChange={updateForm}
+              rewardOptions={rewardItems}
               loading={loadingDropdowns}
               error={dropdownError}
             />
@@ -677,6 +765,9 @@ export default function MarketingPromotionFormPage() {
           </div>
         </form>
       )}
+        </div>
+        {!isEdit ? <PromotionGuide /> : null}
+      </div>
     </div>
   );
 }

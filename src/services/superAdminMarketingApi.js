@@ -44,6 +44,9 @@ export const marketingCreatePromoCode = (body) =>
 export const marketingListPromoCodes = (params = {}) =>
   apiFetch(`${ROOT}/promo-codes${qs(params)}`);
 
+export const marketingGetPromoCodeOptions = () =>
+  apiFetch(`${ROOT}/promo-code-options`);
+
 export const marketingGetPromoCode = (id) =>
   apiFetch(`${ROOT}/promo-codes/detail/${encodeURIComponent(String(id))}`);
 
@@ -328,6 +331,72 @@ export const marketingSimulateLoyaltyPoints = (body) =>
     method: 'POST',
     body: JSON.stringify(body),
   });
+
+/* =========================
+   Tier Management APIs (global loyalty tiers, rules, accounts, reports)
+========================= */
+
+// Tiers
+export const marketingListLoyaltyTiers = () =>
+  apiFetch(`${ROOT}/loyalty-tiers`);
+
+export const marketingCreateLoyaltyTier = (body) =>
+  apiFetch(`${ROOT}/loyalty-tiers`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const marketingUpdateLoyaltyTier = (id, body) =>
+  apiFetch(`${ROOT}/loyalty-tiers/${encodeURIComponent(String(id))}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const marketingDeleteLoyaltyTier = (id) =>
+  apiFetch(`${ROOT}/loyalty-tiers/${encodeURIComponent(String(id))}`, {
+    method: 'DELETE',
+  });
+
+export const marketingReorderLoyaltyTiers = (orderedIds) =>
+  apiFetch(`${ROOT}/loyalty-tiers/reorder`, {
+    method: 'PATCH',
+    body: JSON.stringify({ orderedIds }),
+  });
+
+// Rules (type = earn | redeem | tier_assign)
+export const marketingListLoyaltyRules = (params = {}) =>
+  apiFetch(`${ROOT}/loyalty-rules${qs(params)}`);
+
+export const marketingCreateLoyaltyRule = (body) =>
+  apiFetch(`${ROOT}/loyalty-rules`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const marketingUpdateLoyaltyRule = (id, body) =>
+  apiFetch(`${ROOT}/loyalty-rules/${encodeURIComponent(String(id))}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const marketingDeleteLoyaltyRule = (id) =>
+  apiFetch(`${ROOT}/loyalty-rules/${encodeURIComponent(String(id))}`, {
+    method: 'DELETE',
+  });
+
+export const marketingRunLoyaltyMonthlyReset = () =>
+  apiFetch(`${ROOT}/loyalty/monthly-reset`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+
+// Accounts
+export const marketingListLoyaltyAccounts = (params = {}) =>
+  apiFetch(`${ROOT}/loyalty-accounts${qs(params)}`);
+
+// Reports
+export const marketingGetLoyaltyReports = () =>
+  apiFetch(`${ROOT}/loyalty/reports`);
 
 export const marketingGetDashboard = (params = {}) =>
   apiFetch(`${ROOT}/dashboard${qs(params)}`);
