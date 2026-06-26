@@ -1085,9 +1085,8 @@ export function formatPromotionSar(value) {
 }
 
 export function resolvePromotionBasePath(pathname) {
-  if (pathname.includes('/admin/marketing')) return '/admin/marketing/promotions';
-  if (pathname.includes('/marketing/marketing-promotions')) return '/marketing/marketing-promotions';
-  return '/marketing/promotions';
+  if (pathname.includes('/admin/marketing')) return '/admin/marketing/marketing-promotions';
+  return '/marketing/marketing-promotions';
 }
 
 export function toDateTimeLocal(value) {

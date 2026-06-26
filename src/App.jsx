@@ -50,13 +50,19 @@ import { MarketingProvider } from './pages/marketing/MarketingUtils';
 import CampaignReports from './pages/marketing/CampaignReports';
 import AdPlatforms from './pages/marketing/AdPlatforms';
 import BudgetOptimizer from './pages/marketing/BudgetOptimizer';
+import Integrations from './pages/marketing/Integrations';
 import InfluencerReferrers from './pages/marketing/InfluencerReferrers';
 import ReferrerManagement from './pages/marketing/ReferrerManagement';
 import MarketingPromotions from './pages/marketing/MarketingPromotions';
 import MarketingPromotionFormPage from './pages/marketing/MarketingPromotionFormPage';
+import MarketingCampaigns from './pages/marketing/MarketingCampaigns';
+import MarketingCampaignFormPage from './pages/marketing/MarketingCampaignFormPage';
+import LegacyPromotionEditRedirect from './pages/marketing/LegacyPromotionEditRedirect';
 import MarketingPromotionReportPage from './pages/marketing/MarketingPromotionReportPage';
 import MarketingPromotionAutoReportPage from './pages/marketing/MarketingPromotionAutoReportPage';
 import PromoCodeFormPage from './pages/marketing/PromoCodeFormPage';
+import MarketingPromoCodeReportPage from './pages/marketing/MarketingPromoCodeReportPage';
+import MarketingPromoCodeAutoReportPage from './pages/marketing/MarketingPromoCodeAutoReportPage';
 import MarketingWalletBudgetRequestPage from './pages/marketing/MarketingWalletBudgetRequestPage';
 import ExpenseFormPage from './pages/marketing/ExpenseFormPage';
 import LoyaltyProgramFormPage from './pages/marketing/LoyaltyProgramFormPage';
@@ -85,6 +91,7 @@ import ReferrerSettings from './pages/referrer-portal/ReferrerSettings';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { PlatformChatUnreadProvider } from './context/PlatformChatUnreadContext';
 import { firstVisibleAdminPath } from './utils/permissions';
+import AppErrorBoundary from './components/AppErrorBoundary';
 
 /** Index redirect for `/admin` — picks the first sidebar page the user can view. */
 function AdminIndexRedirect() {
@@ -98,11 +105,12 @@ import PublicSspVerifyPage from './pages/PublicSspVerifyPage';
 
 function App() {
   return (
-    <AuthProvider>
-      <PlatformChatUnreadProvider>
-      <MarketingProvider>
-        <Router>
-          <Routes>
+    <AppErrorBoundary>
+      <AuthProvider>
+        <MarketingProvider>
+          <PlatformChatUnreadProvider>
+            <Router>
+              <Routes>
             <Route path="/" element={<PortalHubPage />} />
 
             <Route path="/verify/wpi/:id" element={<PublicWpiVerifyPage />} />
@@ -130,28 +138,45 @@ function App() {
               <Route path="marketing" element={<MarketingPortalPage />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<MarketingDashboard />} />
-                <Route path="promotions/new" element={<MarketingPromotionFormPage />} />
+                <Route path="campaigns/new" element={<MarketingCampaignFormPage />} />
+                <Route path="campaigns/:id/edit" element={<MarketingCampaignFormPage />} />
+                <Route path="campaigns" element={<MarketingCampaigns />} />
+                <Route path="campaign-requests" element={<CampaignRequests />} />
+                <Route path="promotions/new" element={<Navigate to="/admin/marketing/marketing-promotions/new" replace />} />
                 <Route path="promotions/:id/view" element={<MarketingPromotionReportPage />} />
                 <Route path="promotions/:id/auto-report" element={<MarketingPromotionAutoReportPage />} />
-                <Route path="promotions/:id/edit" element={<MarketingPromotionFormPage />} />
-                <Route path="promotions" element={<MarketingPromotions />} />
+                <Route path="promotions/:id/edit" element={<LegacyPromotionEditRedirect />} />
+                <Route path="promotions" element={<Navigate to="/admin/marketing/marketing-promotions" replace />} />
+                <Route path="marketing-promotions/new" element={<MarketingPromotionFormPage />} />
+                <Route path="marketing-promotions/:id/view" element={<MarketingPromotionReportPage />} />
+                <Route path="marketing-promotions/:id/auto-report" element={<MarketingPromotionAutoReportPage />} />
+                <Route path="marketing-promotions/:id/edit" element={<MarketingPromotionFormPage />} />
+                <Route path="marketing-promotions" element={<MarketingPromotions />} />
                 <Route path="promo-codes/new" element={<PromoCodeFormPage />} />
+                <Route path="promo-codes/:id/view" element={<MarketingPromoCodeReportPage />} />
+                <Route path="promo-codes/:id/auto-report" element={<MarketingPromoCodeAutoReportPage />} />
+                <Route path="promo-codes/:id/edit" element={<PromoCodeFormPage />} />
                 <Route path="promo-codes" element={<PromoCodes />} />
                 <Route path="referral-management/budget-request" element={<MarketingWalletBudgetRequestPage />} />
                 <Route path="marketing-wallet/budget-request" element={<MarketingWalletBudgetRequestPage />} />
                 <Route path="referral-management" element={<ReferralManagement />} />
                 <Route path="marketing-wallet" element={<ReferralManagement />} />
                 <Route path="budget-optimizer" element={<BudgetOptimizer />} />
+                <Route path="expenses/new" element={<ExpenseFormPage />} />
+                <Route path="expenses/:id/edit" element={<ExpenseFormPage />} />
+                <Route path="expenses" element={<ReferralRules />} />
                 <Route path="referral-types-rules/new" element={<ExpenseFormPage />} />
                 <Route path="referral-types-rules/:id/edit" element={<ExpenseFormPage />} />
                 <Route path="referral-types-rules" element={<ReferralRules />} />
                 <Route path="analytics-roi" element={<AnalyticsROI />} />
                 <Route path="loyalty-programs/new" element={<LoyaltyProgramFormPage />} />
+                <Route path="loyalty-programs/:id/edit" element={<LoyaltyProgramFormPage />} />
                 <Route path="loyalty-programs" element={<LoyaltyPrograms />} />
                 <Route path="customer-insights" element={<CustomerInsights />} />
                 <Route path="campaign-reports" element={<CampaignReports />} />
                 <Route path="ad-platforms/:platformKey/configure" element={<AdPlatformConfigurePage />} />
                 <Route path="ad-platforms" element={<AdPlatforms />} />
+                <Route path="integrations" element={<Integrations />} />
                 <Route path="influencer-referrers/new" element={<InfluencerReferrerFormPage />} />
                 <Route path="influencer-referrers/:id/edit" element={<InfluencerReferrerFormPage />} />
                 <Route path="influencer-referrers" element={<InfluencerReferrers />} />
@@ -236,41 +261,42 @@ function App() {
             >
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<MarketingDashboard />} />
-              <Route path="promotions/new" element={<MarketingPromotionFormPage />} />
+              <Route path="campaigns/new" element={<MarketingCampaignFormPage />} />
+              <Route path="campaigns/:id/edit" element={<MarketingCampaignFormPage />} />
+              <Route path="campaigns" element={<MarketingCampaigns />} />
+              <Route path="campaign-requests" element={<CampaignRequests />} />
+              <Route path="promotions/new" element={<Navigate to="/marketing/marketing-promotions/new" replace />} />
               <Route path="promotions/:id/view" element={<MarketingPromotionReportPage />} />
               <Route path="promotions/:id/auto-report" element={<MarketingPromotionAutoReportPage />} />
-              <Route path="promotions/:id/edit" element={<MarketingPromotionFormPage />} />
-              <Route path="promotions" element={<MarketingPromotions />} />
-              <Route path="campaign-requests" element={<CampaignRequests />} />
-              <Route path="promo-codes" element={<PromoCodes />} />
-              <Route path="referral-management" element={<ReferralManagement />} />
-              <Route path="referral-types-rules" element={<ReferralRules />} />
-              <Route path="analytics-roi" element={<AnalyticsROI />} />
-              <Route path="loyalty-programs" element={<LoyaltyPrograms />} />
-              <Route path="customer-insights" element={<CustomerInsights />} />
-              <Route path="campaign-reports" element={<CampaignReports />} />
-              <Route path="ad-platforms" element={<AdPlatforms />} />
-              <Route path="budget-optimizer" element={<BudgetOptimizer />} />
-              <Route path="influencer-referrers" element={<InfluencerReferrers />} />
-              <Route path="referrer-management" element={<ReferrerManagement />} />
+              <Route path="promotions/:id/edit" element={<LegacyPromotionEditRedirect />} />
+              <Route path="promotions" element={<Navigate to="/marketing/marketing-promotions" replace />} />
               <Route path="marketing-promotions/new" element={<MarketingPromotionFormPage />} />
               <Route path="marketing-promotions/:id/view" element={<MarketingPromotionReportPage />} />
               <Route path="marketing-promotions/:id/auto-report" element={<MarketingPromotionAutoReportPage />} />
               <Route path="marketing-promotions/:id/edit" element={<MarketingPromotionFormPage />} />
               <Route path="marketing-promotions" element={<MarketingPromotions />} />
               <Route path="promo-codes/new" element={<PromoCodeFormPage />} />
+              <Route path="promo-codes/:id/view" element={<MarketingPromoCodeReportPage />} />
+              <Route path="promo-codes/:id/auto-report" element={<MarketingPromoCodeAutoReportPage />} />
+              <Route path="promo-codes/:id/edit" element={<PromoCodeFormPage />} />
               <Route path="promo-codes" element={<PromoCodes />} />
-              <Route path="referral-management/budget-request" element={<MarketingWalletBudgetRequestPage />} />
+              <Route path="referral-management" element={<ReferralManagement />} />
+              <Route path="expenses/new" element={<ExpenseFormPage />} />
+              <Route path="expenses/:id/edit" element={<ExpenseFormPage />} />
+              <Route path="expenses" element={<ReferralRules />} />
               <Route path="referral-types-rules/new" element={<ExpenseFormPage />} />
               <Route path="referral-types-rules/:id/edit" element={<ExpenseFormPage />} />
               <Route path="referral-types-rules" element={<ReferralRules />} />
+              <Route path="analytics-roi" element={<AnalyticsROI />} />
               <Route path="loyalty-programs/new" element={<LoyaltyProgramFormPage />} />
+              <Route path="loyalty-programs/:id/edit" element={<LoyaltyProgramFormPage />} />
               <Route path="loyalty-programs" element={<LoyaltyPrograms />} />
               <Route path="influencer-referrers/new" element={<InfluencerReferrerFormPage />} />
               <Route path="influencer-referrers/:id/edit" element={<InfluencerReferrerFormPage />} />
               <Route path="influencer-referrers" element={<InfluencerReferrers />} />
               <Route path="ad-platforms/:platformKey/configure" element={<AdPlatformConfigurePage />} />
               <Route path="ad-platforms" element={<AdPlatforms />} />
+              <Route path="integrations" element={<Integrations />} />
               <Route path="referrer-management/referrers/new" element={<ReferrerFormPage />} />
               <Route path="referrer-management/referrers/:id/edit" element={<ReferrerFormPage />} />
               <Route path="referrer-management/rules/new" element={<ReferrerCommissionRuleFormPage />} />
@@ -349,9 +375,10 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>
+        </PlatformChatUnreadProvider>
       </MarketingProvider>
-      </PlatformChatUnreadProvider>
-    </AuthProvider>
+      </AuthProvider>
+    </AppErrorBoundary>
   );
 }
 

@@ -27,6 +27,7 @@ import StockProductUomEditModal from './StockProductUomEditModal';
 import StockProductPurchasePriceEditModal from './StockProductPurchasePriceEditModal';
 import StockProductSalesPriceEditModal from './StockProductSalesPriceEditModal';
 import StockProductCriticalLevelEditModal from './StockProductCriticalLevelEditModal';
+import SupplierStockProductTimelineScreen from './SupplierStockProductTimelineScreen';
 
 function stockRowMatchesSearch(row, searchText) {
     const q = String(searchText || '').trim().toLowerCase();
@@ -55,8 +56,6 @@ import {
     exportMovementsPdf,
     exportStockInventoryExcel,
     exportStockInventoryPdf,
-    exportTimelineExcel,
-    exportTimelinePdf,
 } from './supplierInventoryExport';
 
 function fmtQty(n) {
@@ -124,7 +123,6 @@ export default function SupplierStockInventory() {
     const [loading, setLoading] = useState(true);
     const [apiError, setApiError] = useState('');
 
-    const [timelineOpen, setTimelineOpen] = useState(false);
     const [timelineProduct, setTimelineProduct] = useState(null);
     const [timelineEntries, setTimelineEntries] = useState([]);
     const [timelineLoading, setTimelineLoading] = useState(false);
@@ -407,8 +405,8 @@ export default function SupplierStockInventory() {
             });
             const hist = Array.isArray(res?.transactionHistory) ? res.transactionHistory : [];
             const currentQty =
-                currentQtyHint ??
                 res?.currentBalanceWarehouse ??
+                currentQtyHint ??
                 stock.find((p) => String(p.id) === String(productId))?.warehouseQty ??
                 0;
             const uom = productUomByProductId[String(productId)] || {};
@@ -423,13 +421,11 @@ export default function SupplierStockInventory() {
 
     const openTimeline = async (row) => {
         setTimelineProduct(row);
-        setTimelineOpen(true);
         setTimelineEntries([]);
         await refreshTimelineForProduct(row?.id, row?.warehouseQty ?? row?.qty);
     };
 
     const closeTimeline = () => {
-        setTimelineOpen(false);
         setTimelineProduct(null);
         setTimelineEntries([]);
         setTimelineError('');
@@ -529,7 +525,7 @@ export default function SupplierStockInventory() {
             setAdjustQty('');
             setAdjustNotes('');
             await loadStock({ silent: true });
-            if (timelineOpen && timelineProduct && String(timelineProduct.id) === String(savedId)) {
+            if (timelineProduct && String(timelineProduct.id) === String(savedId)) {
                 await refreshTimelineForProduct(
                     savedId,
                     timelineProduct?.warehouseQty ?? timelineProduct?.qty,
@@ -542,10 +538,20 @@ export default function SupplierStockInventory() {
         }
     };
 
-    const showRefCol = timelineEntries.some(
-        (e) => e.source !== 'manual' || e.reference?.id || e.invoiceNo,
-    );
-    const showByCol = timelineEntries.some((e) => e.adjustedBy?.name || e.adjustedBy?.id);
+    if (timelineProduct) {
+        const stockRow = stock.find((p) => String(p.id) === String(timelineProduct.id));
+        return (
+            <SupplierStockProductTimelineScreen
+                product={timelineProduct}
+                stockRow={stockRow}
+                entries={timelineEntries}
+                loading={timelineLoading}
+                error={timelineError}
+                locationSummary={locationSummary}
+                onBack={closeTimeline}
+            />
+        );
+    }
 
     return (
         <div>
@@ -1712,394 +1718,6 @@ export default function SupplierStockInventory() {
                         )}
                     </div>
                 ))}
-
-            <AnimatePresence>
-                {timelineOpen && timelineProduct && (
-                    <Modal
-                        title="Inventory stock timeline"
-                        width="780px"
-                        onClose={closeTimeline}
-                    >
-                        <div style={{ padding: '0 24px 24px' }}>
-                            <div
-                                style={{
-                                    marginBottom: 20,
-                                    padding: '14px 16px',
-                                    background: '#F9FAFB',
-                                    borderRadius: 12,
-                                    border: '1px solid var(--color-border-light)',
-                                }}
-                            >
-                                <p
-                                    style={{
-                                        fontSize: '0.7rem',
-                                        fontWeight: 700,
-                                        color: 'var(--color-text-muted)',
-                                        textTransform: 'uppercase',
-                                        margin: '0 0 6px',
-                                    }}
-                                >
-                                    Product
-                                </p>
-                                <h4
-                                    style={{
-                                        margin: 0,
-                                        fontSize: '1.05rem',
-                                        fontWeight: 800,
-                                    }}
-                                >
-                                    {timelineProduct.name}
-                                </h4>
-                                <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                    SKU: <strong>{timelineProduct.sku || '—'}</strong> · Opening (adoption):{' '}
-                                    <strong>{fmtQty(timelineProduct.openingAdoption)}</strong> · Current stock:{' '}
-                                    <strong>
-                                        {formatDualUomQty(
-                                            stock.find((p) => String(p.id) === String(timelineProduct.id))
-                                                ?.warehouseQty ?? timelineProduct.warehouseQty ?? 0,
-                                            timelineProduct.warehouseUnit || 'Box',
-                                            stock.find((p) => String(p.id) === String(timelineProduct.id))?.qty ??
-                                                timelineProduct.qty ??
-                                                0,
-                                            timelineProduct.unit || 'Liter',
-                                        )}
-                                    </strong>
-                                </p>
-                                <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                    {locationSummary(timelineProduct)}
-                                </p>
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        flexWrap: 'wrap',
-                                        gap: 8,
-                                        marginTop: 12,
-                                    }}
-                                >
-                                    <button
-                                        type="button"
-                                        disabled={
-                                            timelineLoading ||
-                                            timelineError ||
-                                            !timelineEntries.length
-                                        }
-                                        title={
-                                            timelineLoading
-                                                ? 'Loading…'
-                                                : timelineError
-                                                  ? 'Fix load error before export'
-                                                  : !timelineEntries.length
-                                                    ? 'No timeline rows to export'
-                                                    : 'Download spreadsheet (.xlsx)'
-                                        }
-                                        onClick={() => {
-                                            exportTimelineExcel(
-                                                timelineProduct,
-                                                timelineEntries,
-                                                `timeline-${String(timelineProduct.name || 'product').replace(/\s+/g, '-')}`,
-                                            );
-                                        }}
-                                        style={{
-                                            ...exportToolbarBtnStyle,
-                                            opacity:
-                                                timelineLoading ||
-                                                timelineError ||
-                                                !timelineEntries.length
-                                                    ? 0.5
-                                                    : 1,
-                                            cursor:
-                                                timelineLoading ||
-                                                timelineError ||
-                                                !timelineEntries.length
-                                                    ? 'not-allowed'
-                                                    : 'pointer',
-                                        }}
-                                    >
-                                        <FileSpreadsheet size={14} aria-hidden /> Excel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        disabled={
-                                            timelineLoading ||
-                                            timelineError ||
-                                            !timelineEntries.length
-                                        }
-                                        title={
-                                            timelineLoading
-                                                ? 'Loading…'
-                                                : timelineError
-                                                  ? 'Fix load error before export'
-                                                  : !timelineEntries.length
-                                                    ? 'No timeline rows to export'
-                                                    : 'Download PDF'
-                                        }
-                                        onClick={() => {
-                                            exportTimelinePdf(
-                                                timelineProduct,
-                                                timelineEntries,
-                                                `timeline-${String(timelineProduct.name || 'product').replace(/\s+/g, '-')}`,
-                                            );
-                                        }}
-                                        style={{
-                                            ...exportToolbarBtnStyle,
-                                            opacity:
-                                                timelineLoading ||
-                                                timelineError ||
-                                                !timelineEntries.length
-                                                    ? 0.5
-                                                    : 1,
-                                            cursor:
-                                                timelineLoading ||
-                                                timelineError ||
-                                                !timelineEntries.length
-                                                    ? 'not-allowed'
-                                                    : 'pointer',
-                                        }}
-                                    >
-                                        <FileText size={14} aria-hidden /> PDF
-                                    </button>
-                                </div>
-                            </div>
-                            {timelineError ? (
-                                <p
-                                    style={{
-                                        margin: '0 0 12px',
-                                        padding: '10px 12px',
-                                        background: '#FEF3C7',
-                                        borderRadius: 8,
-                                        color: '#92400E',
-                                        fontSize: '0.8125rem',
-                                    }}
-                                >
-                                    {timelineError}
-                                </p>
-                            ) : null}
-                            {timelineLoading ? (
-                                <p
-                                    style={{
-                                        margin: 0,
-                                        padding: '40px 0',
-                                        textAlign: 'center',
-                                        color: 'var(--color-text-muted)',
-                                        fontSize: '0.875rem',
-                                    }}
-                                >
-                                    Loading history…
-                                </p>
-                            ) : !timelineEntries.length ? (
-                                <p
-                                    style={{
-                                        margin: 0,
-                                        padding: '24px 0',
-                                        textAlign: 'center',
-                                        color: 'var(--color-text-muted)',
-                                        fontSize: '0.875rem',
-                                    }}
-                                >
-                                    No timeline entries yet for this product.
-                                </p>
-                            ) : (
-                                <div
-                                    style={{
-                                        overflowX: 'auto',
-                                        maxHeight: 'min(420px, 55vh)',
-                                        overflowY: 'auto',
-                                        border: '1px solid var(--color-border-light)',
-                                        borderRadius: 12,
-                                    }}
-                                >
-                                    <table
-                                        style={{
-                                            width: '100%',
-                                            borderCollapse: 'collapse',
-                                            fontSize: '0.8125rem',
-                                        }}
-                                    >
-                                        <thead>
-                                            <tr style={{ background: '#F9FAFB', position: 'sticky', top: 0 }}>
-                                                <th
-                                                    style={{
-                                                        textAlign: 'left',
-                                                        padding: '12px 14px',
-                                                        fontWeight: 800,
-                                                        color: 'var(--color-text-muted)',
-                                                        textTransform: 'uppercase',
-                                                        fontSize: '0.7rem',
-                                                    }}
-                                                >
-                                                    When
-                                                </th>
-                                                <th
-                                                    style={{
-                                                        textAlign: 'right',
-                                                        padding: '12px 14px',
-                                                        fontWeight: 800,
-                                                        color: 'var(--color-text-muted)',
-                                                        textTransform: 'uppercase',
-                                                        fontSize: '0.7rem',
-                                                    }}
-                                                >
-                                                    From (warehouse)
-                                                </th>
-                                                <th
-                                                    style={{
-                                                        textAlign: 'right',
-                                                        padding: '12px 14px',
-                                                        fontWeight: 800,
-                                                        color: 'var(--color-text-muted)',
-                                                        textTransform: 'uppercase',
-                                                        fontSize: '0.7rem',
-                                                    }}
-                                                >
-                                                    To (warehouse)
-                                                </th>
-                                                <th
-                                                    style={{
-                                                        textAlign: 'right',
-                                                        padding: '12px 14px',
-                                                        fontWeight: 800,
-                                                        color: 'var(--color-text-muted)',
-                                                        textTransform: 'uppercase',
-                                                        fontSize: '0.7rem',
-                                                    }}
-                                                >
-                                                    Δ (warehouse)
-                                                </th>
-                                                <th
-                                                    style={{
-                                                        textAlign: 'right',
-                                                        padding: '12px 14px',
-                                                        fontWeight: 800,
-                                                        color: 'var(--color-text-muted)',
-                                                        textTransform: 'uppercase',
-                                                        fontSize: '0.7rem',
-                                                    }}
-                                                >
-                                                    Workshop equiv.
-                                                </th>
-                                                <th
-                                                    style={{
-                                                        textAlign: 'left',
-                                                        padding: '12px 14px',
-                                                        fontWeight: 800,
-                                                        color: 'var(--color-text-muted)',
-                                                        textTransform: 'uppercase',
-                                                        fontSize: '0.7rem',
-                                                    }}
-                                                >
-                                                    Reason
-                                                </th>
-                                                {showRefCol ? (
-                                                    <th
-                                                        style={{
-                                                            textAlign: 'left',
-                                                            padding: '12px 14px',
-                                                            fontWeight: 800,
-                                                            color: 'var(--color-text-muted)',
-                                                            textTransform: 'uppercase',
-                                                            fontSize: '0.7rem',
-                                                        }}
-                                                    >
-                                                        Source / Ref
-                                                    </th>
-                                                ) : null}
-                                                {showByCol ? (
-                                                    <th
-                                                        style={{
-                                                            textAlign: 'left',
-                                                            padding: '12px 14px',
-                                                            fontWeight: 800,
-                                                            color: 'var(--color-text-muted)',
-                                                            textTransform: 'uppercase',
-                                                            fontSize: '0.7rem',
-                                                        }}
-                                                    >
-                                                        By
-                                                    </th>
-                                                ) : null}
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {timelineEntries.map((e) => (
-                                                <tr
-                                                    key={e.id}
-                                                    style={{
-                                                        borderBottom: '1px solid var(--color-border-light)',
-                                                    }}
-                                                >
-                                                    <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
-                                                        {new Date(e.at).toLocaleString()}
-                                                    </td>
-                                                    <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>
-                                                        {formatDualUomQty(
-                                                            e.previousQty,
-                                                            e.warehouseUnit,
-                                                            e.previousQtyWorkshop,
-                                                            e.workshopUnit,
-                                                        )}
-                                                    </td>
-                                                    <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>
-                                                        {formatDualUomQty(
-                                                            e.newQty,
-                                                            e.warehouseUnit,
-                                                            e.newQtyWorkshop,
-                                                            e.workshopUnit,
-                                                        )}
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            padding: '12px 14px',
-                                                            textAlign: 'right',
-                                                            fontWeight: 700,
-                                                            color:
-                                                                e.delta == null ||
-                                                                !Number.isFinite(Number(e.delta))
-                                                                    ? 'var(--color-text-muted)'
-                                                                    : Number(e.delta) >= 0
-                                                                      ? '#047857'
-                                                                      : '#B91C1C',
-                                                        }}
-                                                    >
-                                                        {fmtDelta(e.delta)} {e.warehouseUnit || 'Box'}
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            padding: '12px 14px',
-                                                            textAlign: 'right',
-                                                            color: 'var(--color-text-muted)',
-                                                        }}
-                                                    >
-                                                        {e.deltaWorkshop != null
-                                                            ? `${fmtDelta(e.deltaWorkshop)} ${e.workshopUnit || 'Liter'}`
-                                                            : '—'}
-                                                    </td>
-                                                    <td style={{ padding: '12px 14px' }}>{e.reason}</td>
-                                                    {showRefCol ? (
-                                                        <td
-                                                            style={{
-                                                                padding: '12px 14px',
-                                                                color: 'var(--color-text-muted)',
-                                                                maxWidth: 320,
-                                                            }}
-                                                        >
-                                                            {formatSupplierTimelineSourceRef(e)}
-                                                        </td>
-                                                    ) : null}
-                                                    {showByCol ? (
-                                                        <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>
-                                                            {e.adjustedBy?.name || '—'}
-                                                        </td>
-                                                    ) : null}
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
-                        </div>
-                    </Modal>
-                )}
-            </AnimatePresence>
 
             <AnimatePresence>
                 {adjustModalOpen && adjustItem && (

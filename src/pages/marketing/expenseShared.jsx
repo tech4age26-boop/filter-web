@@ -18,7 +18,7 @@ export const initialForm = {
   expenseCategory: 'social_media_ads',
   vendorName: '',
   description: '',
-  amount: '0',
+  amount: '',
   expenseDate: new Date().toISOString().slice(0, 10),
   receiptUrl: '',
   notes: '',
@@ -148,9 +148,9 @@ export const ExpenseStatus = ({ status }) => {
 };
 
 export const SelectField = ({ value, onChange, options, placeholder }) => (
-  <div className="mk-expense-select-wrap">
+  <div className="mkp-select-wrap">
     <select
-      className="mk-expense-input mk-expense-select"
+      className="mkp-select"
       value={value}
       onChange={(e) => onChange(e.target.value)}
     >
@@ -159,7 +159,7 @@ export const SelectField = ({ value, onChange, options, placeholder }) => (
         if (typeof option === 'string') {
           return (
             <option key={option} value={option}>
-              {humanizeLower(option)}
+              {humanize(option)}
             </option>
           );
         }
@@ -170,6 +170,6 @@ export const SelectField = ({ value, onChange, options, placeholder }) => (
         );
       })}
     </select>
-    <ChevronDown className="mk-expense-select-icon" size={15} strokeWidth={2} />
+    <ChevronDown className="mkp-select-icon" size={15} strokeWidth={2} />
   </div>
 );

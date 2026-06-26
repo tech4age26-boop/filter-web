@@ -12,7 +12,8 @@ import {
 } from '../../../services/storageFacilityApi';
 
 const KIND_LABEL = {
-    brand_storage: 'Brand storage',
+    brand_storage: 'Storage facility',
+    brand_site: 'Transfer source (factory / external site)',
     owner_warehouse: 'Your main warehouse',
 };
 
@@ -68,11 +69,13 @@ export default function StorageFacilityLocationsTab({ brandId }) {
                 await updateStorageLocation(brandId, editing.id, {
                     name: form.name.trim(),
                     code: form.code.trim() || undefined,
+                    companyName: form.companyName.trim() || undefined,
                 });
             } else {
                 await createStorageLocation(brandId, {
                     name: form.name.trim(),
                     code: form.code.trim() || undefined,
+                    companyName: form.companyName.trim() || undefined,
                 });
             }
             setModalOpen(false);
@@ -111,8 +114,8 @@ export default function StorageFacilityLocationsTab({ brandId }) {
             {err ? <div className="mgr-si-error" style={{ marginBottom: 12 }}>{err}</div> : null}
 
             <p className="mgr-si-subtitle" style={{ marginBottom: 12 }}>
-                Manage where stock can move. System rows include brand storage and your main
-                warehouse; add custom bins or sites for transfers between locations.
+                Add transfer sources for brand factories or off-site depots (e.g. Riyadh, CASTROL).
+                Receive stock from those locations into your storage facility via Stock transfers.
             </p>
 
             <button type="button" className="mgr-si-btn-new" style={{ marginBottom: 16 }} onClick={openAdd}>
@@ -191,7 +194,7 @@ export default function StorageFacilityLocationsTab({ brandId }) {
                                 value={form.name}
                                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                                 required
-                                placeholder="e.g. Shelf A, Riyadh depot"
+                                placeholder="e.g. Riyadh depot, CASTROL factory"
                             />
                         </div>
                         <div>

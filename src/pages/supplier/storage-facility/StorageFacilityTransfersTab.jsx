@@ -1,13 +1,46 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeftRight, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Pencil, Plus, Trash2 } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
 import {
     createStorageTransfer,
+    getStorageTransfer,
     listStorageLocations,
     listStorageTransfers,
+    updateStorageTransfer,
 } from '../../../services/storageFacilityApi';
 import ProductLineCombobox from './ProductLineCombobox';
+import {
+    defaultEntryUnitForProduct,
+    productEffectiveUom,
+    stockQtyToEntryQty,
+} from './storageFacilityUomUtils';
+
+function isStorageHub(loc) {
+    return loc?.locationKind === 'brand_storage' && loc?.isSystem;
+}
+
+function isTransferSource(loc) {
+    return (
+        loc?.locationKind === 'brand_site' ||
+        (loc?.locationKind === 'brand_storage' && !loc?.isSystem)
+    );
+}
+
+function formatTransferLocationLabel(loc) {
+    if (!loc) return '';
+    if (loc.locationKind === 'owner_warehouse') {
+        return `${loc.name} (main warehouse)`;
+    }
+    if (isTransferSource(loc)) {
+        const company = loc.companyName ? ` — ${loc.companyName}` : '';
+        return `${loc.name}${company} (transfer source)`;
+    }
+    if (isStorageHub(loc)) {
+        return `${loc.name} (storage facility)`;
+    }
+    return loc.name;
+}
 
 function newLine() {
     return {
@@ -15,6 +48,8 @@ function newLine() {
         storageProductId: '',
         search: '',
         qty: '',
+        unit: '',
+        uomProfileId: '',
         unitCost: '',
     };
 }
@@ -29,6 +64,7 @@ export default function StorageFacilityTransfersTab({
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
+    const [editingTransferId, setEditingTransferId] = useState(null);
     const [busy, setBusy] = useState(false);
     const [form, setForm] = useState({
         transferDate: new Date().toISOString().slice(0, 10),
@@ -68,12 +104,31 @@ export default function StorageFacilityTransfersTab({
         () =>
             locations.map((l) => ({
                 ...l,
-                label:
-                    l.locationKind === 'owner_warehouse'
-                        ? `${l.name} (main warehouse)`
-                        : l.name,
+                label: formatTransferLocationLabel(l),
             })),
         [locations],
+    );
+
+    const fromLocationOptions = useMemo(
+        () =>
+            locationOptions.filter(
+                (l) =>
+                    isTransferSource(l) ||
+                    isStorageHub(l) ||
+                    l.locationKind === 'owner_warehouse',
+            ),
+        [locationOptions],
+    );
+
+    const toLocationOptions = useMemo(
+        () =>
+            locationOptions.filter(
+                (l) =>
+                    isStorageHub(l) ||
+                    isTransferSource(l) ||
+                    l.locationKind === 'owner_warehouse',
+            ),
+        [locationOptions],
     );
 
     const updateLine = (key, patch) => {
@@ -125,16 +180,69 @@ export default function StorageFacilityTransfersTab({
     );
 
     const openNew = () => {
-        const brandDefault = locations.find((l) => l.locationKind === 'brand_storage');
-        const ownerDefault = locations.find((l) => l.locationKind === 'owner_warehouse');
+        setEditingTransferId(null);
+        const hubDefault = locations.find((l) => isStorageHub(l));
+        const sourceDefault = locations.find((l) => isTransferSource(l));
         setForm({
             transferDate: new Date().toISOString().slice(0, 10),
-            fromLocationId: brandDefault?.id || locations[0]?.id || '',
-            toLocationId: ownerDefault?.id || locations[1]?.id || '',
+            fromLocationId: sourceDefault?.id || locations[0]?.id || '',
+            toLocationId: hubDefault?.id || locations[1]?.id || '',
             notes: '',
         });
         setLines([newLine(), newLine()]);
         setModalOpen(true);
+    };
+
+    const openEdit = async (transfer) => {
+        setBusy(true);
+        try {
+            const res = await getStorageTransfer(brandId, transfer.id);
+            const t = res?.transfer ?? transfer;
+            setEditingTransferId(t.id);
+            setForm({
+                transferDate: t.transferDate || new Date().toISOString().slice(0, 10),
+                fromLocationId: t.fromLocation?.id || '',
+                toLocationId: t.toLocation?.id || '',
+                notes: t.notes || '',
+            });
+            const mapped =
+                t.items?.length > 0
+                    ? t.items.map((ln) => {
+                          const p = products.find(
+                              (x) => String(x.id) === String(ln.storageProductId),
+                          );
+                          return {
+                              key: `tr-${ln.id || ln.storageProductId}-${Math.random().toString(36).slice(2, 6)}`,
+                              storageProductId: String(ln.storageProductId || ''),
+                              search: ln.productName || p?.name || '',
+                              qty:
+                                  ln.qty != null
+                                      ? stockQtyToEntryQty(ln.qty, p || {})
+                                      : '',
+                              unit: defaultEntryUnitForProduct(p || {}),
+                              uomProfileId: p?.uomProfileId
+                                  ? String(p.uomProfileId)
+                                  : '',
+                              unitCost:
+                                  ln.unitCost != null && Number(ln.unitCost) > 0
+                                      ? String(ln.unitCost)
+                                      : '',
+                          };
+                      })
+                    : [newLine(), newLine()];
+            setLines(mapped);
+            setModalOpen(true);
+        } catch (ex) {
+            window.alert(ex?.message || 'Could not load transfer');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const closeModal = () => {
+        if (busy) return;
+        setModalOpen(false);
+        setEditingTransferId(null);
     };
 
     const submit = async (e) => {
@@ -153,18 +261,32 @@ export default function StorageFacilityTransfersTab({
         }
         setBusy(true);
         try {
-            await createStorageTransfer(brandId, {
+            const payload = {
                 transferDate: form.transferDate,
                 fromLocationId: form.fromLocationId,
                 toLocationId: form.toLocationId,
                 notes: form.notes.trim() || undefined,
-                lines: validLines.map((ln) => ({
-                    storageProductId: ln.storageProductId,
-                    qty: Number(ln.qty),
-                    unitCost: ln.unitCost !== '' ? Number(ln.unitCost) : undefined,
-                })),
-            });
-            setModalOpen(false);
+                lines: validLines.map((ln) => {
+                    const p = products.find(
+                        (x) => String(x.id) === String(ln.storageProductId),
+                    );
+                    return {
+                        storageProductId: ln.storageProductId,
+                        qty: Number(ln.qty),
+                        unit:
+                            ln.unit?.trim() ||
+                            defaultEntryUnitForProduct(p || {}),
+                        uomProfileId: ln.uomProfileId || p?.uomProfileId || undefined,
+                        unitCost: ln.unitCost !== '' ? Number(ln.unitCost) : undefined,
+                    };
+                }),
+            };
+            if (editingTransferId) {
+                await updateStorageTransfer(brandId, editingTransferId, payload);
+            } else {
+                await createStorageTransfer(brandId, payload);
+            }
+            closeModal();
             await load();
             await onReload?.();
         } catch (ex) {
@@ -187,8 +309,8 @@ export default function StorageFacilityTransfersTab({
             {err ? <div className="mgr-si-error" style={{ marginBottom: 12 }}>{err}</div> : null}
 
             <p className="mgr-si-subtitle" style={{ marginBottom: 12 }}>
-                Move stock between brand storage, your main warehouse, and custom locations defined
-                under Inventory locations.
+                Receive stock from external transfer sources (factory, brand depot) into your
+                storage facility, or move stock between your storage facility and main warehouse.
             </p>
 
             <button type="button" className="mgr-si-btn-new" style={{ marginBottom: 16 }} onClick={openNew}>
@@ -204,6 +326,7 @@ export default function StorageFacilityTransfersTab({
                             <th>From → To</th>
                             <th>Lines</th>
                             <th>Notes</th>
+                            <th style={{ width: 72 }}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -229,6 +352,25 @@ export default function StorageFacilityTransfersTab({
                                 <td style={{ fontSize: '0.8125rem', color: '#64748b' }}>
                                     {t.notes || '—'}
                                 </td>
+                                <td>
+                                    <button
+                                        type="button"
+                                        className="btn-portal-outline"
+                                        title="Edit transfer"
+                                        aria-label={`Edit transfer ${t.transferNo}`}
+                                        disabled={busy}
+                                        onClick={() => openEdit(t)}
+                                        style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            padding: '6px 10px',
+                                            fontSize: '0.75rem',
+                                        }}
+                                    >
+                                        <Pencil size={14} /> Edit
+                                    </button>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -243,9 +385,9 @@ export default function StorageFacilityTransfersTab({
 
             {modalOpen ? (
                 <Modal
-                    title="Stock transfer"
+                    title={editingTransferId ? 'Edit stock transfer' : 'Stock transfer'}
                     size="large"
-                    onClose={() => !busy && setModalOpen(false)}
+                    onClose={closeModal}
                     contentClassName="sf-doc-modal sf-transfer-modal"
                     disableClose={busy}
                 >
@@ -264,7 +406,7 @@ export default function StorageFacilityTransfersTab({
                                     required
                                 >
                                     <option value="">Choose…</option>
-                                    {locationOptions.map((l) => (
+                                    {fromLocationOptions.map((l) => (
                                         <option key={l.id} value={l.id}>
                                             {l.label}
                                         </option>
@@ -283,7 +425,7 @@ export default function StorageFacilityTransfersTab({
                                     required
                                 >
                                     <option value="">Choose…</option>
-                                    {locationOptions.map((l) => (
+                                    {toLocationOptions.map((l) => (
                                         <option key={l.id} value={l.id}>
                                             {l.label}
                                         </option>
@@ -313,7 +455,7 @@ export default function StorageFacilityTransfersTab({
                                     <tr>
                                         <th className="sf-bulk-col-num">#</th>
                                         <th className="sf-bulk-col-product">Product</th>
-                                        <th className="sf-bulk-col-qty">Quantity</th>
+                                        <th className="sf-bulk-col-qty">Quantity (unit)</th>
                                         <th className="sf-bulk-col-cost">Unit cost (SAR)</th>
                                         <th className="sf-bulk-col-actions" />
                                     </tr>
@@ -340,31 +482,71 @@ export default function StorageFacilityTransfersTab({
                                                         updateLine(ln.key, {
                                                             storageProductId: String(p.id),
                                                             search: p.name || '',
+                                                            unit: defaultEntryUnitForProduct(p),
+                                                            uomProfileId: p.uomProfileId
+                                                                ? String(p.uomProfileId)
+                                                                : '',
                                                         })
                                                     }
                                                     onTabAdvance={() => focusQty(rowIndex)}
                                                 />
                                             </td>
                                             <td className="sf-bulk-col-qty">
-                                                <input
-                                                    ref={(el) => {
-                                                        qtyRefs.current[rowIndex] = el;
+                                                <div
+                                                    style={{
+                                                        display: 'flex',
+                                                        gap: 6,
+                                                        alignItems: 'center',
                                                     }}
-                                                    type="number"
-                                                    min="0.001"
-                                                    step="any"
-                                                    className="sf-bulk-grid-input"
-                                                    value={ln.qty}
-                                                    onChange={(e) =>
-                                                        updateLine(ln.key, { qty: e.target.value })
-                                                    }
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Tab' && !e.shiftKey) {
-                                                            e.preventDefault();
-                                                            focusCost(rowIndex);
+                                                >
+                                                    <input
+                                                        ref={(el) => {
+                                                            qtyRefs.current[rowIndex] = el;
+                                                        }}
+                                                        type="number"
+                                                        min="0.001"
+                                                        step="any"
+                                                        className="sf-bulk-grid-input"
+                                                        style={{ flex: 1 }}
+                                                        value={ln.qty}
+                                                        onChange={(e) =>
+                                                            updateLine(ln.key, {
+                                                                qty: e.target.value,
+                                                            })
                                                         }
-                                                    }}
-                                                />
+                                                        onKeyDown={(e) => {
+                                                            if (
+                                                                e.key === 'Tab' &&
+                                                                !e.shiftKey
+                                                            ) {
+                                                                e.preventDefault();
+                                                                focusCost(rowIndex);
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span
+                                                        style={{
+                                                            fontSize: '0.75rem',
+                                                            color: '#64748b',
+                                                            whiteSpace: 'nowrap',
+                                                        }}
+                                                    >
+                                                        {ln.unit ||
+                                                            (ln.storageProductId
+                                                                ? defaultEntryUnitForProduct(
+                                                                      products.find(
+                                                                          (p) =>
+                                                                              String(
+                                                                                  p.id,
+                                                                              ) ===
+                                                                              String(
+                                                                                  ln.storageProductId,
+                                                                              ),
+                                                                      ) || {},
+                                                                  )
+                                                                : '—')}
+                                                    </span>
+                                                </div>
                                             </td>
                                             <td className="sf-bulk-col-cost">
                                                 <input
@@ -436,7 +618,7 @@ export default function StorageFacilityTransfersTab({
                                 type="button"
                                 className="btn-portal-outline"
                                 disabled={busy}
-                                onClick={() => setModalOpen(false)}
+                                onClick={closeModal}
                             >
                                 Cancel
                             </button>
@@ -445,7 +627,11 @@ export default function StorageFacilityTransfersTab({
                                 className="mgr-si-btn-new"
                                 disabled={busy || validLines.length === 0}
                             >
-                                {busy ? 'Saving…' : `Post transfer (${validLines.length} line(s))`}
+                                {busy
+                                    ? 'Saving…'
+                                    : editingTransferId
+                                      ? `Save changes (${validLines.length} line(s))`
+                                      : `Post transfer (${validLines.length} line(s))`}
                             </button>
                         </div>
                         </div>

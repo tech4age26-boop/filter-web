@@ -14,6 +14,7 @@ export const NAV_ITEMS = [
     { id: 'inventory', label: 'Manage Inventory', icon: Archive, permission: 'workshop.inventory.view' },
     { id: 'purchases', label: 'Purchase Invoices', icon: ShoppingCart, permission: 'workshop.purchases.view' },
     { id: 'sales-returns', label: 'Sales Returns', icon: RotateCcw, permission: 'workshop.sales-returns.view' },
+    { id: 'discounts', label: 'Discounts', icon: TicketPercent, permission: 'workshop.reports.view' },
     { id: 'suppliers', label: 'Suppliers & Purchases', icon: Truck, permission: 'workshop.suppliers.view' },
     { id: 'affiliated-suppliers', label: 'Filter Affiliated Suppliers', icon: Truck, permission: 'workshop.affiliated-suppliers.view' },
     { id: 'non-affiliated-suppliers', label: 'Non-Affiliated Suppliers', icon: Truck, permission: 'workshop.non-affiliated-suppliers.view' },

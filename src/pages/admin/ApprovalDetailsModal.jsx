@@ -1527,6 +1527,59 @@ function MarketingBudgetRequestBody({ data }) {
     );
 }
 
+function MarketingExpenseBody({ data }) {
+    const row = data?.expense ?? data ?? {};
+    const amount = Number(row.amount ?? 0);
+
+    return (
+        <>
+            <Section title="Marketing expense">
+                <KVGrid>
+                    <Field label="Expense #" kind="id" value={row.expenseNumber ?? row.expense_number} />
+                    <Field label="Status" value={row.status ?? data?.expenseStatus} />
+                    <Field label="Category" value={row.expenseCategory ?? row.expense_category} />
+                    <Field label="Vendor" value={row.vendorName ?? row.vendor_name} />
+                    <Field label="Amount" value={`SAR ${amount.toLocaleString()}`} />
+                    <Field label="Campaign" value={row.campaignName ?? row.campaign_name} />
+                    <Field label="Expense date" kind="date" value={row.expenseDate ?? row.expense_date} />
+                    <Field label="Submitted by" value={row.submittedByName ?? row.submittedBy ?? data?.submittedBy} />
+                    <Field label="Description" value={row.description} span2 />
+                    <Field label="Receipt URL" value={row.receiptUrl ?? row.receipt_url} span2 />
+                    <Field label="Notes" value={row.notes} span2 />
+                    <Field label="Rejection reason" value={row.rejectionReason ?? data?.rejectionReason} span2 />
+                </KVGrid>
+            </Section>
+        </>
+    );
+}
+
+function MarketingCampaignBody({ data }) {
+    const row = data?.campaign ?? data ?? {};
+    const budget = Number(row.budgetAllocated ?? row.budget ?? 0);
+
+    return (
+        <>
+            <Section title="Campaign">
+                <KVGrid>
+                    <Field label="Campaign name" value={row.campaignName ?? row.name} />
+                    <Field label="Status" value={row.status ?? data?.campaignStatus} />
+                    <Field label="Workshop" value={row.workshopName ?? row.requestedByName} />
+                    <Field label="Platform" value={row.platform} />
+                    <Field label="Type" value={row.campaignType ?? row.type} />
+                    <Field label="Budget" value={`SAR ${budget.toLocaleString()}`} />
+                    <Field label="Start date" kind="date" value={row.startDate} />
+                    <Field label="End date" kind="date" value={row.endDate} />
+                    <Field label="Submitted by" value={row.createdByUserName ?? row.submittedByName ?? data?.submittedBy} />
+                    <Field label="Submitted" kind="date" value={row.createdAt ?? data?.createdAt} />
+                    <Field label="Description" value={row.description} span2 />
+                    <Field label="Notes" value={row.notes} span2 />
+                    <Field label="Rejection reason" value={row.rejectionReason ?? data?.rejectionReason} span2 />
+                </KVGrid>
+            </Section>
+        </>
+    );
+}
+
 function renderBody(entityType, data) {
     switch (entityType) {
         case 'workshop_registration':  return <WorkshopBody data={data} />;
@@ -1544,6 +1597,10 @@ function renderBody(entityType, data) {
             return <CorporateWalkInBookingBody data={data} />;
         case 'marketing_budget_request':
             return <MarketingBudgetRequestBody data={data} />;
+        case 'marketing_expense':
+            return <MarketingExpenseBody data={data} />;
+        case 'marketing_campaign':
+            return <MarketingCampaignBody data={data} />;
         default:                       return <RawObjectBody data={data} />;
     }
 }

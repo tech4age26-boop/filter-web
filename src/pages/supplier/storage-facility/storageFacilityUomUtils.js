@@ -81,9 +81,7 @@ export function parseProductUomSelectValue(value) {
     return { uomProfileId: null, unit: v || 'pcs' };
 }
 
-/**
- * Stock is stored in workshop/stock units (e.g. Liter). Show warehouse packing (Box) as primary.
- */
+/** Stock is stored in workshop/stock units (e.g. Liter). Show warehouse packing (Box) as primary. */
 export function formatStockOnHandDisplay(qtyOnHand, eff) {
     const qty = Number(qtyOnHand) || 0;
     const cf = Number(eff?.conversionFactor) || 1;
@@ -99,6 +97,51 @@ export function formatStockOnHandDisplay(qtyOnHand, eff) {
         primary: `${whQty.toLocaleString()} ${wu}`,
         secondary: `${qty.toLocaleString()} ${wsu} in stock`,
     };
+}
+
+/** Movement/timeline qty (stored in workshop units) → warehouse display when split UOM. */
+export function formatStorageMovementQtyDisplay(wsQty, eff) {
+    const qty = Number(wsQty);
+    if (!Number.isFinite(qty)) return '—';
+    const cf = Number(eff?.conversionFactor) || 1;
+    const wu = String(eff?.warehouseUnit || '').trim() || 'pcs';
+    const wsu = String(eff?.workshopUnit || '').trim() || wu;
+    const split =
+        wu &&
+        wsu &&
+        normUomKey(wu) !== normUomKey(wsu) &&
+        cf > 1;
+    if (!split) {
+        return `${qty.toLocaleString()} ${wsu}`;
+    }
+    const whQty = Math.round((qty / cf) * 1000) / 1000;
+    return `${whQty.toLocaleString()} ${wu}`;
+}
+
+/** Default qty entry unit for transfers / movements (warehouse pack when split UOM). */
+export function defaultEntryUnitForProduct(product) {
+    const eff = productEffectiveUom(product || {});
+    const cf = Number(eff.conversionFactor) || 1;
+    const wu = String(eff.warehouseUnit || '').trim();
+    const wsu = String(eff.workshopUnit || '').trim();
+    const split =
+        wu && wsu && normUomKey(wu) !== normUomKey(wsu) && cf > 1;
+    return split ? wu : wsu || wu || 'pcs';
+}
+
+/** Stored stock qty (workshop) → qty for user entry field (warehouse when split). */
+export function stockQtyToEntryQty(stockQty, product) {
+    const qty = Number(stockQty);
+    if (!Number.isFinite(qty)) return '';
+    const eff = productEffectiveUom(product || {});
+    const cf = Number(eff.conversionFactor) || 1;
+    const wu = String(eff.warehouseUnit || '').trim();
+    const wsu = String(eff.workshopUnit || '').trim();
+    const split =
+        wu && wsu && normUomKey(wu) !== normUomKey(wsu) && cf > 1;
+    if (!split) return String(qty);
+    const wh = Math.round((qty / cf) * 1000) / 1000;
+    return String(wh);
 }
 
 /** Invoice line caps — use selected profile conversion when line picks a profile. */

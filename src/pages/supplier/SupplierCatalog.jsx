@@ -219,20 +219,23 @@ export default function SupplierCatalog() {
     }, [masterProducts]);
 
     const myInventoryKeyset = useMemo(() => {
+        const byMasterId = new Set();
         const bySku = new Set();
         const byName = new Set();
         (existingSupplierProducts || []).forEach((p) => {
-            // treat inactive items as "not added" so they appear in Not Added tab for re-add
-            if (p?.isActive === false) return;
+            const masterId = String(p?.masterProductId || '').trim();
+            if (masterId) byMasterId.add(masterId);
             if (p?.sku) bySku.add(String(p.sku).trim().toLowerCase());
             const nm = String(p?.productName || p?.name || '').trim().toLowerCase();
             if (nm) byName.add(nm);
         });
-        return { bySku, byName };
+        return { byMasterId, bySku, byName };
     }, [existingSupplierProducts]);
 
     const isAlreadyAdded = useCallback(
         (p) => {
+            const masterId = String(p?.id || '').trim();
+            if (masterId && myInventoryKeyset.byMasterId.has(masterId)) return true;
             const skuKey = String(p?.sku || '').trim().toLowerCase();
             const nameKey = String(p?.name || '').trim().toLowerCase();
             return (
@@ -429,9 +432,11 @@ export default function SupplierCatalog() {
         const defaults = {};
         selectedMasterProducts.forEach((p) => {
             const id = String(p.id);
+            const masterId = String(p.id);
             const existingProduct =
                 existing.find(
                     (ep) =>
+                        String(ep.masterProductId || '') === masterId ||
                         String(ep.sku || '').trim().toLowerCase() ===
                             String(p.sku || '').trim().toLowerCase() ||
                         String(ep.name || ep.productName || '')
@@ -475,9 +480,13 @@ export default function SupplierCatalog() {
         setInventorySuccess('');
 
         try {
+            const byMasterId = new Map();
             const bySku = new Map();
             const byName = new Map();
             existingSupplierProducts.forEach((p) => {
+                if (p?.masterProductId) {
+                    byMasterId.set(String(p.masterProductId).trim(), p);
+                }
                 if (p?.sku) bySku.set(String(p.sku).trim().toLowerCase(), p);
                 if (p?.name || p?.productName) {
                     byName.set(String(p.name || p.productName).trim().toLowerCase(), p);
@@ -518,15 +527,20 @@ export default function SupplierCatalog() {
 
                 const skuKey = String(master.sku || '').trim().toLowerCase();
                 const nameKey = String(master.name || '').trim().toLowerCase();
+                const masterIdKey = String(master.id || '').trim();
 
                 let supplierProductId =
-                    bySku.get(skuKey)?.id || byName.get(nameKey)?.id || null;
+                    byMasterId.get(masterIdKey)?.id ||
+                    bySku.get(skuKey)?.id ||
+                    byName.get(nameKey)?.id ||
+                    null;
                 const wasExistingSupplierProduct = !!supplierProductId;
 
                 if (!supplierProductId) {
                     const created = await createSupplierProduct({
                         productName: master.name,
                         sku: master.sku || `MC-${master.id}`,
+                        masterProductId: masterIdKey,
                         categoryId: master.categoryId ? String(master.categoryId) : undefined,
                         warehouseUnit,
                         workshopUnit,
@@ -550,6 +564,9 @@ export default function SupplierCatalog() {
                 }
                 if (nameKey) {
                     byName.set(nameKey, { id: supplierProductId });
+                }
+                if (masterIdKey) {
+                    byMasterId.set(masterIdKey, { id: supplierProductId });
                 }
 
                 await setSupplierStock({
@@ -581,6 +598,7 @@ export default function SupplierCatalog() {
             );
             setAddInventoryOpen(false);
             setSelectedProductIds(new Set());
+            await loadMyInventoryProducts();
         } catch (err) {
             setInventoryError(err?.message || 'Failed to add selected products to inventory.');
         } finally {
@@ -903,6 +921,40 @@ export default function SupplierCatalog() {
                         const sup = getBrandRow(item.supplier_id);
                         const inStock = (item.stock_qty || 0) > 0;
                         const isSelected = selectedProductIds.has(String(item.id));
+                        const masterProduct = masterProducts.find(
+                            (p) => String(p.id) === String(item.id),
+                        );
+                        const added = masterProduct ? isAlreadyAdded(masterProduct) : false;
+                        let supplierWhQty = 0;
+                        if (added && masterProduct) {
+                            const skuKey = String(masterProduct.sku || '')
+                                .trim()
+                                .toLowerCase();
+                            const nameKey = String(masterProduct.name || '')
+                                .trim()
+                                .toLowerCase();
+                            const sp =
+                                existingSupplierProducts.find(
+                                    (p) =>
+                                        String(p.masterProductId || '') ===
+                                        String(masterProduct.id),
+                                ) ||
+                                existingSupplierProducts.find(
+                                    (p) =>
+                                        skuKey &&
+                                        String(p.sku || '').trim().toLowerCase() === skuKey,
+                                ) ||
+                                existingSupplierProducts.find(
+                                    (p) =>
+                                        nameKey &&
+                                        String(p.name || p.productName || '')
+                                            .trim()
+                                            .toLowerCase() === nameKey,
+                                );
+                            supplierWhQty = Number(
+                                sp?.warehouseQty ?? sp?.qty ?? sp?.currentQuantity ?? 0,
+                            );
+                        }
                         return (
                             <div
                                 key={item.id}

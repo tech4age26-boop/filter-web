@@ -9,7 +9,9 @@ import {
   Zap,
 } from 'lucide-react';
 import {
+  marketingApplyBudgetOptimizer,
   marketingGetBudgetOptimizer,
+  marketingGetBudgetOptimizerInsights,
   marketingOptimizeBudget,
 } from '../../services/superAdminMarketingApi';
 import './MarketingUniversal.css';
@@ -262,6 +264,10 @@ export const BudgetOptimizer = () => {
   const [optimizing, setOptimizing] = useState(false);
   const [error, setError] = useState('');
 
+  const [insights, setInsights] = useState(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+
   const effectiveBudget = useMemo(() => {
     const typed = toNumber(budget);
     if (typed > 0) return typed;
@@ -347,6 +353,54 @@ export const BudgetOptimizer = () => {
 
   const handleManageAlerts = () => {
     setDismissedWarnings([]);
+  };
+
+  const loadInsights = async () => {
+    try {
+      setInsightsLoading(true);
+      setError('');
+
+      const res = await marketingGetBudgetOptimizerInsights({ status: 'all' });
+      setInsights(res || null);
+    } catch (err) {
+      alert(err?.message || 'Failed to generate AI insights.');
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
+
+  const handleApplyInsights = async () => {
+    const items = asArray(insights?.recommendations)
+      .filter((rec) => toNumber(rec.suggestedBudget) >= 0 && rec.campaignId)
+      .map((rec) => ({
+        campaignId: rec.campaignId,
+        suggestedBudget: toNumber(rec.suggestedBudget),
+      }));
+
+    if (items.length === 0) {
+      alert('No applicable recommendations to apply.');
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Apply ${items.length} AI-recommended budget${items.length === 1 ? '' : 's'} to campaigns?`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setApplying(true);
+      await marketingApplyBudgetOptimizer({ items });
+      await loadOptimizer();
+      await loadInsights();
+      alert('AI-recommended budgets applied.');
+    } catch (err) {
+      alert(err?.message || 'Failed to apply recommendations.');
+    } finally {
+      setApplying(false);
+    }
   };
 
   return (
@@ -453,6 +507,97 @@ export const BudgetOptimizer = () => {
             <RefreshCw size={14} className={loading ? 'bo-spin' : ''} />
           </button>
         </div>
+      </section>
+
+      <section className="bo-ai-card">
+        <div className="bo-ai-head">
+          <div className="bo-title-wrap">
+            <div className="bo-icon bo-icon-ai">
+              <Bot size={18} />
+            </div>
+            <div>
+              <h2>AI Insights {insights?.llmUsed ? '(LLM)' : ''}</h2>
+              <p>
+                LLM-driven assessment, reallocation recommendations and alert
+                rules.
+              </p>
+            </div>
+          </div>
+
+          <div className="bo-ai-actions">
+            <button
+              type="button"
+              className="bo-alert-btn"
+              onClick={loadInsights}
+              disabled={insightsLoading}
+            >
+              <Sparkles size={13} />
+              {insightsLoading ? 'Analyzing...' : 'Generate AI Insights'}
+            </button>
+
+            {insights?.recommendations?.length ? (
+              <button
+                type="button"
+                className="bo-optimize-btn"
+                onClick={handleApplyInsights}
+                disabled={applying}
+              >
+                {applying ? 'Applying...' : 'Apply Recommendations'}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {insights ? (
+          <>
+            <div className="bo-ai-assessment">
+              <div className="bo-ai-score">
+                <span>Performance Score</span>
+                <strong>{toNumber(insights.performanceScore).toFixed(0)}</strong>
+              </div>
+              <p>{insights.assessment}</p>
+            </div>
+
+            {asArray(insights.alerts).length > 0 ? (
+              <div className="bo-ai-alerts">
+                {asArray(insights.alerts).map((alert, index) => (
+                  <div
+                    key={`${alert.type}-${index}`}
+                    className={`bo-ai-alert bo-sev-${alert.severity || 'warning'}`}
+                  >
+                    <strong>{alert.title || humanize(alert.type)}</strong>
+                    <span>{alert.message}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {asArray(insights.recommendations).length > 0 ? (
+              <div className="bo-ai-rec-list">
+                {asArray(insights.recommendations).map((rec, index) => (
+                  <div className="bo-ai-rec" key={`${rec.campaignId}-${index}`}>
+                    <div className="bo-ai-rec-main">
+                      <strong>{rec.campaignName}</strong>
+                      <span className={`bo-action bo-action-${rec.action}`}>
+                        {humanize(rec.action)}
+                      </span>
+                    </div>
+                    <p>{rec.rationale}</p>
+                    <div className="bo-ai-rec-budget">
+                      <span>{formatSar(rec.currentBudget)}</span>
+                      <span className="bo-arrow">→</span>
+                      <strong>{formatSar(rec.suggestedBudget)}</strong>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <p className="bo-ai-empty">
+            Click “Generate AI Insights” to analyze your campaigns.
+          </p>
+        )}
       </section>
 
       {recommendations.length > 0 ? (
@@ -856,6 +1001,205 @@ export const BudgetOptimizer = () => {
             color: #111827;
             font-size: 11px;
             font-weight: 900;
+          }
+
+          .bo-ai-card {
+            margin-top: 14px;
+            background: #ffffff;
+            border: 1px solid #dfe4ec;
+            border-radius: 9px;
+            padding: 15px;
+            box-sizing: border-box;
+          }
+
+          .bo-ai-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+          }
+
+          .bo-icon-ai {
+            background: #eef2ff;
+            color: #4f46e5;
+          }
+
+          .bo-ai-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+          }
+
+          .bo-ai-assessment {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            background: #f8fafc;
+            border-radius: 9px;
+            padding: 12px;
+            margin-bottom: 12px;
+          }
+
+          .bo-ai-score {
+            text-align: center;
+            flex: 0 0 auto;
+            border-right: 1px solid #e5e7eb;
+            padding-right: 14px;
+          }
+
+          .bo-ai-score span {
+            display: block;
+            font-size: 8px;
+            font-weight: 850;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #94a3b8;
+            margin-bottom: 4px;
+          }
+
+          .bo-ai-score strong {
+            font-size: 24px;
+            font-weight: 950;
+            color: #4f46e5;
+          }
+
+          .bo-ai-assessment p {
+            margin: 0;
+            font-size: 11px;
+            font-weight: 600;
+            color: #334155;
+            line-height: 1.5;
+          }
+
+          .bo-ai-alerts {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            margin-bottom: 12px;
+          }
+
+          .bo-ai-alert {
+            border-radius: 7px;
+            padding: 8px 10px;
+            border: 1px solid #e5e7eb;
+            background: #f8fafc;
+          }
+
+          .bo-ai-alert strong {
+            display: block;
+            font-size: 11px;
+            font-weight: 850;
+            color: #111827;
+            margin-bottom: 2px;
+          }
+
+          .bo-ai-alert span {
+            font-size: 10px;
+            font-weight: 600;
+            color: #64748b;
+          }
+
+          .bo-sev-high {
+            border-color: #fca5a5;
+            background: #fff1f2;
+          }
+
+          .bo-sev-high strong {
+            color: #dc2626;
+          }
+
+          .bo-sev-warning {
+            border-color: #fde68a;
+            background: #fffbeb;
+          }
+
+          .bo-ai-rec-list {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+          }
+
+          .bo-ai-rec {
+            border: 1px solid #e5e7eb;
+            border-radius: 9px;
+            padding: 11px;
+          }
+
+          .bo-ai-rec-main {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 6px;
+          }
+
+          .bo-ai-rec-main strong {
+            font-size: 12px;
+            font-weight: 850;
+            color: #111827;
+          }
+
+          .bo-action {
+            font-size: 8px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            padding: 3px 7px;
+            border-radius: 999px;
+          }
+
+          .bo-action-increase {
+            background: #ecfdf5;
+            color: #059669;
+          }
+
+          .bo-action-decrease,
+          .bo-action-pause {
+            background: #fff1f2;
+            color: #dc2626;
+          }
+
+          .bo-action-keep {
+            background: #f1f5f9;
+            color: #475569;
+          }
+
+          .bo-ai-rec p {
+            margin: 0 0 8px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #64748b;
+            line-height: 1.45;
+          }
+
+          .bo-ai-rec-budget {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 800;
+          }
+
+          .bo-ai-rec-budget span {
+            color: #94a3b8;
+          }
+
+          .bo-ai-rec-budget .bo-arrow {
+            color: #cbd5e1;
+          }
+
+          .bo-ai-rec-budget strong {
+            color: #4f46e5;
+          }
+
+          .bo-ai-empty {
+            margin: 0;
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 650;
+            text-align: center;
+            padding: 12px 0;
           }
 
           .bo-spin {

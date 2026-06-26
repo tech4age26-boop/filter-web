@@ -105,8 +105,8 @@ export default function PromotionsScreen({ onBack }) {
                 {/* Right: Available Promos */}
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                        <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#1E2124' }}>Recent Promotions</h3>
-                        {!loading && <span style={{ background: '#fff', padding: '4px 12px', borderRadius: 10, fontSize: '0.8rem', fontWeight: 800, color: '#94a3b8', border: '1.5px solid #f1f5f9' }}>{promos.length} ACTIVE</span>}
+                        <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#1E2124' }}>Active Promo Codes</h3>
+                        {!loading && <span style={{ background: '#fff', padding: '4px 12px', borderRadius: 10, fontSize: '0.8rem', fontWeight: 800, color: '#94a3b8', border: '1.5px solid #f1f5f9' }}>{promos.length} APPROVED</span>}
                     </div>
 
                     {loading ? (
@@ -116,15 +116,20 @@ export default function PromotionsScreen({ onBack }) {
                     ) : promos.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '80px 0', background: '#fff', borderRadius: 24, border: '1.5px dashed #e5e7eb' }}>
                             <Tag size={48} style={{ opacity: 0.1, marginBottom: 16 }} />
-                            <p style={{ margin: 0, fontWeight: 800, color: '#94a3b8' }}>No active promotions found</p>
+                            <p style={{ margin: 0, fontWeight: 800, color: '#94a3b8' }}>No approved promo codes for this branch yet</p>
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                             {promos.map((p, i) => {
                                 const code = p.code || p.promoCode || p.name || '';
                                 const discount = p.discountValue || p.discountAmount || p.discount || 0;
-                                const discountType = p.discountType || (p.discountPercent ? 'percent' : 'amount');
-                                const expiry = p.expiresAt || p.endsAt || p.expiryDate;
+                                const discountType = String(p.discountType || '').toLowerCase();
+                                const isPercent = discountType.includes('percent') || discountType === 'percentage';
+                                const expiry = p.validTo || p.expiresAt || p.endsAt || p.expiryDate;
+                                const usageLimit = p.usageLimit ?? null;
+                                const usageCount = p.usageCount ?? 0;
+                                const remaining = p.remainingUses ?? (usageLimit != null ? Math.max(0, usageLimit - usageCount) : null);
+                                const isAvailable = p.isAvailable !== false && (remaining == null || remaining > 0);
                                 
                                 return (
                                     <div key={p.id || i} style={{ background: '#fff', borderRadius: 24, padding: 24, border: '1.5px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 24, boxShadow: '0 4px 12px rgba(0,0,0,0.02)', position: 'relative', overflow: 'hidden' }}>
@@ -133,14 +138,23 @@ export default function PromotionsScreen({ onBack }) {
                                         </div>
 
                                         <div style={{ flex: 1 }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4, flexWrap: 'wrap' }}>
                                                 <p style={{ margin: 0, fontWeight: 900, fontSize: '1.1rem', color: '#1E2124', fontFamily: 'monospace', letterSpacing: 1 }}>{code}</p>
-                                                <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#15803D', background: '#DCFCE7', padding: '3px 8px', borderRadius: 6 }}>ACTIVE</span>
+                                                <span style={{ fontSize: '0.7rem', fontWeight: 900, color: isAvailable ? '#15803D' : '#B91C1C', background: isAvailable ? '#DCFCE7' : '#FEE2E2', padding: '3px 8px', borderRadius: 6 }}>
+                                                    {isAvailable ? 'AVAILABLE' : 'UNAVAILABLE'}
+                                                </span>
                                             </div>
                                             <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>
-                                                {discountType === 'percent' ? `${discount}% Discount` : `SAR ${discount} Fixed Discount`}
+                                                {isPercent ? `${discount}% Discount` : `SAR ${discount} Fixed Discount`}
+                                                {p.promotionName ? ` · ${p.promotionName}` : ''}
                                                 {expiry && ` · Valid until ${new Date(expiry).toLocaleDateString('en-SA', { day: '2-digit', month: 'short', year: 'numeric' })}`}
                                             </p>
+                                            {usageLimit != null && (
+                                                <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>
+                                                    Uses: {usageCount} / {usageLimit}
+                                                    {remaining != null ? ` · ${remaining} remaining` : ''}
+                                                </p>
+                                            )}
                                         </div>
 
                                         <button onClick={() => copyCode(code)}

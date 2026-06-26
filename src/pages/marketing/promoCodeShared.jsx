@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search, Loader2, AlertCircle } from 'lucide-react';
 
-const statusOptions = ['Active', 'Inactive'];
+const statusOptions = ['Pending Approval', 'Active', 'Inactive', 'Rejected'];
 
 const discountTypeOptions = [
   { label: 'Percentage (%)', value: 'Percentage (%)' },
@@ -86,6 +86,9 @@ const normalizePromoCode = (item) => {
     active: 'Active',
     inactive: 'Inactive',
     expired: 'Expired',
+    pending_approval: 'Pending Approval',
+    pending: 'Pending Approval',
+    rejected: 'Rejected',
   };
 
   return {
@@ -120,9 +123,71 @@ const normalizePromoCode = (item) => {
     validUntil: item?.valid_until || item?.validTo || '',
     showSavings: Boolean(item?.show_on_invoice ?? item?.showOnInvoice ?? false),
     notes: item?.notes || item?.description || '',
-    status: statusMap[statusRaw] || 'Active',
+    status: statusMap[statusRaw] || (item?.isActive === true ? 'Active' : 'Pending Approval'),
+    isActive: Boolean(item?.isActive ?? item?.is_active ?? false),
+    totalDiscountProvided:
+      item?.totalDiscountProvided ?? item?.total_discount_provided ?? 0,
+    totalRevenue: item?.totalRevenue ?? item?.total_revenue ?? 0,
+    remainingUsage: item?.remainingUsage ?? item?.remaining_usage ?? null,
   };
 };
+
+const formatPromoCodeSar = (value) => {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount)) return '0 SAR';
+  return `${amount.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })} SAR`;
+};
+
+const formatPromoCodeUsageLabel = (item) => {
+  const used = Number(item?.currentUsage ?? 0);
+  const max = Number(item?.maxUsage ?? 0);
+
+  if (max > 0) return `${used} / ${max}`;
+  return `${used} (unlimited)`;
+};
+
+const canTogglePromoCodeActivation = (item) => {
+  const status = String(item?.status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+
+  const blocked = ['pending_approval', 'rejected', 'expired', 'draft'];
+  return !blocked.includes(status);
+};
+
+const activationToggleHint = (item) => {
+  const status = String(item?.status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+
+  if (status === 'pending_approval' || status === 'pending') {
+    return 'Waiting for Super Admin approval before POS use.';
+  }
+
+  if (status === 'rejected') {
+    return 'Rejected promo codes cannot be activated.';
+  }
+
+  if (status === 'expired') {
+    return 'Expired promo codes cannot be activated.';
+  }
+
+  return item?.isActive
+    ? 'Available on POS when customers apply this code.'
+    : 'Disabled — will not apply on POS invoices.';
+};
+
+const isPromoCodeLiveOnPos = (item) =>
+  Boolean(item?.isActive) &&
+  String(item?.status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_') === 'active';
 
 const mapDiscountTypeToBackend = (value) => {
   const raw = String(value || '').toLowerCase();
@@ -141,10 +206,91 @@ const mapDiscountTypeToUi = (value) => {
 };
 
 const mapStatusToIsActive = (value) => {
-  const raw = String(value || '').toLowerCase();
+  const raw = String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, '_');
 
-  return raw !== 'inactive';
+  return raw === 'active';
 };
+
+const CLEAR_PROMOTION_OPTION = { id: '', label: 'Select promotion...' };
+
+function usePromotionDropdownKeyboard({
+  open,
+  setOpen,
+  optionCount,
+  onPickIndex,
+  resetKeys = [],
+}) {
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  const listRef = useRef(null);
+
+  useEffect(() => {
+    if (open) setHighlightIndex(0);
+  }, [open, optionCount, ...resetKeys]);
+
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    const el = listRef.current.querySelector(
+      `[data-option-index="${highlightIndex}"]`
+    );
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [highlightIndex, open]);
+
+  const handleListKeyDown = (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (!open) {
+        setOpen(true);
+        return;
+      }
+      setHighlightIndex((index) =>
+        Math.min(index + 1, Math.max(optionCount - 1, 0))
+      );
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!open) {
+        setOpen(true);
+        return;
+      }
+      setHighlightIndex((index) => Math.max(index - 1, 0));
+      return;
+    }
+
+    if (event.key === 'Enter' && open && optionCount > 0) {
+      event.preventDefault();
+      onPickIndex(highlightIndex);
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setOpen(false);
+    }
+  };
+
+  const handleTriggerKeyDown = (event) => {
+    if (
+      event.key === 'ArrowDown' ||
+      event.key === 'Enter' ||
+      event.key === ' '
+    ) {
+      event.preventDefault();
+      setOpen(true);
+    }
+  };
+
+  return {
+    highlightIndex,
+    setHighlightIndex,
+    listRef,
+    handleListKeyDown,
+    handleTriggerKeyDown,
+  };
+}
 
 const SelectField = ({ value, onChange, options }) => {
   return (
@@ -168,12 +314,56 @@ const SelectField = ({ value, onChange, options }) => {
 
 const PromotionSelect = ({ value, onChange, options, loading, error }) => {
   const wrapRef = useRef(null);
+  const searchInputRef = useRef(null);
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const normalizedOptions = useMemo(
+    () => [CLEAR_PROMOTION_OPTION, ...options],
+    [options]
+  );
+
+  const filteredOptions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return normalizedOptions;
+
+    return normalizedOptions.filter((item) =>
+      String(item.label || '').toLowerCase().includes(q)
+    );
+  }, [normalizedOptions, search]);
+
+  const selected = useMemo(() => {
+    return options.find((item) => item.id === value) || null;
+  }, [options, value]);
+
+  const pickOption = (id) => {
+    onChange(id);
+    setOpen(false);
+    setSearch('');
+  };
+
+  const {
+    highlightIndex,
+    setHighlightIndex,
+    listRef,
+    handleListKeyDown,
+    handleTriggerKeyDown,
+  } = usePromotionDropdownKeyboard({
+    open,
+    setOpen,
+    optionCount: filteredOptions.length,
+    onPickIndex: (index) => {
+      const item = filteredOptions[index];
+      if (item) pickOption(item.id);
+    },
+    resetKeys: [search],
+  });
 
   useEffect(() => {
     const handleOutside = (event) => {
       if (wrapRef.current && !wrapRef.current.contains(event.target)) {
         setOpen(false);
+        setSearch('');
       }
     };
 
@@ -184,9 +374,11 @@ const PromotionSelect = ({ value, onChange, options, loading, error }) => {
     };
   }, []);
 
-  const selected = useMemo(() => {
-    return options.find((item) => item.id === value) || null;
-  }, [options, value]);
+  useEffect(() => {
+    if (open) {
+      window.setTimeout(() => searchInputRef.current?.focus(), 0);
+    }
+  }, [open]);
 
   return (
     <div className="mk-code-form-group mk-code-dd-wrap" ref={wrapRef}>
@@ -195,17 +387,33 @@ const PromotionSelect = ({ value, onChange, options, loading, error }) => {
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
+        onKeyDown={handleTriggerKeyDown}
         className={`mk-code-dd-btn ${open ? 'open' : ''}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
       >
         <span>
-          {loading ? 'Loading...' : selected?.label || 'Select promotion...'}
+          {loading ? 'Loading...' : selected?.label || CLEAR_PROMOTION_OPTION.label}
         </span>
         <ChevronDown size={14} />
       </button>
 
       {open ? (
         <div className="mk-code-dd-menu">
-          <div className="mk-code-dd-list no-search">
+          <div className="mk-code-dd-search">
+            <Search size={14} />
+            <input
+              ref={searchInputRef}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={handleListKeyDown}
+              placeholder="Search promotions..."
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </div>
+
+          <div className="mk-code-dd-list" ref={listRef} role="listbox">
             {loading ? (
               <div className="mk-code-dd-empty">
                 <Loader2 size={14} className="mk-code-spin" />
@@ -216,35 +424,23 @@ const PromotionSelect = ({ value, onChange, options, loading, error }) => {
                 <AlertCircle size={14} />
                 {error}
               </div>
+            ) : filteredOptions.length === 0 ? (
+              <div className="mk-code-dd-empty">No promotions found</div>
             ) : (
-              <>
+              filteredOptions.map((item, index) => (
                 <button
                   type="button"
-                  className={`mk-code-dd-option ${value === '' ? 'selected' : ''}`}
-                  onClick={() => {
-                    onChange('');
-                    setOpen(false);
-                  }}
+                  key={item.id || 'clear'}
+                  data-option-index={index}
+                  className={`mk-code-dd-option ${
+                    value === item.id ? 'selected' : ''
+                  } ${index === highlightIndex ? 'active' : ''}`}
+                  onClick={() => pickOption(item.id)}
+                  onMouseEnter={() => setHighlightIndex(index)}
                 >
-                  Select promotion...
+                  {item.label}
                 </button>
-
-                {options.map((item) => (
-                  <button
-                    type="button"
-                    key={item.id}
-                    className={`mk-code-dd-option ${
-                      value === item.id ? 'selected' : ''
-                    }`}
-                    onClick={() => {
-                      onChange(item.id);
-                      setOpen(false);
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </>
+              ))
             )}
           </div>
         </div>
@@ -280,6 +476,11 @@ export {
   mapDiscountTypeToBackend,
   mapDiscountTypeToUi,
   mapStatusToIsActive,
+  formatPromoCodeSar,
+  formatPromoCodeUsageLabel,
+  canTogglePromoCodeActivation,
+  activationToggleHint,
+  isPromoCodeLiveOnPos,
   SelectField,
   PromotionSelect,
   Toggle,

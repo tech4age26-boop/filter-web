@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, NavLink } from 'react-router-dom';
+import { useParams, NavLink, useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Package, FileText, TrendingUp, TrendingDown, Minus, Search, Folder, Layers, ChevronDown, Loader } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -20,6 +20,8 @@ const SUB_TABS = [
     { path: 'stock-movements',  label: 'Stock Movements',   permission: 'inventory.stock-movements.view' },
     { path: 'units-of-measure', label: 'Units of Measure',  permission: 'inventory.units-of-measure.view' },
 ];
+
+const VALID_INVENTORY_SUB_PATHS = SUB_TABS.map((t) => t.path);
 
 
 const MOCK_DEPARTMENTS = [
@@ -44,9 +46,25 @@ const MOCK_UOM = [
 
 export default function InventoryPage() {
     const { subTab } = useParams();
+    const navigate = useNavigate();
     const { hasPermission } = useAuth();
     const visibleSubTabs = SUB_TABS.filter((t) => hasPermission(t.permission));
-    const activeSub = subTab || 'master-catalog';
+    const normalizedSubTab =
+        subTab && subTab.replace(/\s+/g, '-').toLowerCase() !== subTab
+            ? subTab.replace(/\s+/g, '-').toLowerCase()
+            : subTab;
+    const activeSub = VALID_INVENTORY_SUB_PATHS.includes(normalizedSubTab)
+        ? normalizedSubTab
+        : (subTab || 'master-catalog');
+
+    useEffect(() => {
+        if (!subTab) return;
+        if (VALID_INVENTORY_SUB_PATHS.includes(subTab)) return;
+        const fixed = subTab.replace(/\s+/g, '-').toLowerCase();
+        if (VALID_INVENTORY_SUB_PATHS.includes(fixed)) {
+            navigate(`/admin/inventory/${fixed}`, { replace: true });
+        }
+    }, [subTab, navigate]);
     const [viewTab, setViewTab] = useState('Products');
     const [products, setProducts] = useState([]);
     const [typeFilter, setTypeFilter] = useState('All');

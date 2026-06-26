@@ -17,8 +17,10 @@ import {
 import { useColumnSort, SortableTh } from '../../../components/TableSort';
 
 import StorageUomSelect from './StorageUomSelect';
+import StorageProductStockAdjustModal from './StorageProductStockAdjustModal';
 import {
     formatStockOnHandDisplay,
+    formatStorageMovementQtyDisplay,
     parseProductUomSelectValue,
     productEffectiveUom,
     productUomSelectValue,
@@ -76,6 +78,7 @@ export default function StorageFacilityProductsTab({
     const [catalogSearch, setCatalogSearch] = useState('');
     const [linkMapId, setLinkMapId] = useState('');
     const [linkMapSearch, setLinkMapSearch] = useState('');
+    const [adjustProduct, setAdjustProduct] = useState(null);
     const [catalogLoading, setCatalogLoading] = useState(false);
     const [catalogTotal, setCatalogTotal] = useState(0);
     const [busy, setBusy] = useState(false);
@@ -264,6 +267,19 @@ export default function StorageFacilityProductsTab({
         const p = timeline?.product ?? products.find((x) => x.id === timelineProductId);
         const rows = timeline?.rows ?? [];
         const kpis = timeline?.kpis ?? {};
+        const timelineUom = productEffectiveUom(p || {});
+        const splitTimelineUom =
+            timelineUom.warehouseUnit &&
+            timelineUom.workshopUnit &&
+            String(timelineUom.warehouseUnit).toLowerCase() !==
+                String(timelineUom.workshopUnit).toLowerCase() &&
+            Number(timelineUom.conversionFactor) > 1;
+        const qtyColLabel = splitTimelineUom
+            ? `Qty owned (${timelineUom.warehouseUnit})`
+            : 'Qty owned';
+        const balanceColLabel = splitTimelineUom
+            ? `Balance (${timelineUom.warehouseUnit})`
+            : 'Balance';
 
         return (
             <div className="mgr-sf-ar-page">
@@ -328,14 +344,23 @@ export default function StorageFacilityProductsTab({
                         type="button"
                         className="mgr-si-search-btn"
                         disabled={!rows.length}
-                        onClick={() =>
+                        onClick={() => {
+                            const exportOpts = {
+                                dateFrom,
+                                dateTo,
+                                asOfDate: kpis.asOfDate || asOfDate,
+                                unit: timelineUom.warehouseUnit || p?.unit || '',
+                                qtyColLabel,
+                                balanceColLabel,
+                            };
                             exportStorageTimelineExcel(
                                 p,
                                 rows,
                                 kpis,
                                 `storage-timeline-${p?.sku || p?.id}`,
-                            )
-                        }
+                                exportOpts,
+                            );
+                        }}
                     >
                         <FileSpreadsheet size={14} /> Excel
                     </button>
@@ -343,14 +368,23 @@ export default function StorageFacilityProductsTab({
                         type="button"
                         className="mgr-si-search-btn"
                         disabled={!rows.length}
-                        onClick={() =>
+                        onClick={() => {
+                            const exportOpts = {
+                                dateFrom,
+                                dateTo,
+                                asOfDate: kpis.asOfDate || asOfDate,
+                                unit: timelineUom.warehouseUnit || p?.unit || '',
+                                qtyColLabel,
+                                balanceColLabel,
+                            };
                             exportStorageTimelinePdf(
                                 p,
                                 rows,
                                 kpis,
                                 `storage-timeline-${p?.sku || p?.id}`,
-                            )
-                        }
+                                exportOpts,
+                            );
+                        }}
                     >
                         <FileText size={14} /> PDF
                     </button>
@@ -408,8 +442,8 @@ export default function StorageFacilityProductsTab({
                                     <th className="table-th">Transaction</th>
                                     <th className="table-th">Reference</th>
                                     <th className="table-th">Inventory Item</th>
-                                    <th className="table-th mgr-si-cell-amount">Qty owned</th>
-                                    <th className="table-th mgr-si-cell-amount">Balance</th>
+                                    <th className="table-th mgr-si-cell-amount">{qtyColLabel}</th>
+                                    <th className="table-th mgr-si-cell-amount">{balanceColLabel}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -438,10 +472,16 @@ export default function StorageFacilityProductsTab({
                                                 }}
                                             >
                                                 {r.qtyOwned > 0 ? '+' : ''}
-                                                {fmtQty(r.qtyOwned)}
+                                                {formatStorageMovementQtyDisplay(
+                                                    r.qtyOwned,
+                                                    timelineUom,
+                                                )}
                                             </td>
                                             <td className="table-cell mgr-si-cell-amount">
-                                                {fmtQty(r.balance)}
+                                                {formatStorageMovementQtyDisplay(
+                                                    r.balance,
+                                                    timelineUom,
+                                                )}
                                             </td>
                                         </tr>
                                     ))
@@ -502,6 +542,10 @@ export default function StorageFacilityProductsTab({
                                     <RowActionsMenu
                                         ariaLabel={`Actions for ${p.name || 'product'}`}
                                         items={[
+                                            {
+                                                label: 'Adjust stock',
+                                                onClick: () => setAdjustProduct(p),
+                                            },
                                             {
                                                 label: 'Edit',
                                                 onClick: () =>
@@ -850,6 +894,20 @@ export default function StorageFacilityProductsTab({
                         </button>
                     </div>
                 </Modal>
+            ) : null}
+
+            {adjustProduct ? (
+                <StorageProductStockAdjustModal
+                    brandId={brandId}
+                    product={adjustProduct}
+                    onClose={() => setAdjustProduct(null)}
+                    onSaved={async () => {
+                        await onReload();
+                        if (timelineProductId === adjustProduct.id) {
+                            await loadTimeline();
+                        }
+                    }}
+                />
             ) : null}
         </>
     );
