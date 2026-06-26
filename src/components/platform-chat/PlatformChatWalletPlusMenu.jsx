@@ -3,7 +3,8 @@ import { Loader2, Plus, Banknote, History, Receipt } from 'lucide-react';
 import Modal from '../Modal';
 import SearchableEntityCombobox from '../SearchableEntityCombobox';
 import ExpenseProofPicker from '../accounting/ExpenseProofPicker';
-import ExpenseProofThumbnail from '../accounting/ExpenseProofThumbnail';
+import { listExpenseWorkshopBranches } from '../../services/employeeExpenseApi';
+import { getWorkshopOptions } from '../../services/superAdminApi';
 import { adminWalletExpenseComboboxOptions } from '../../constants/adminWalletExpenseCategories';
 import { formatSar } from './PlatformChatWalletMessage';
 import '../../styles/admin/PlatformChatWallet.css';
@@ -32,6 +33,10 @@ export default function PlatformChatWalletPlusMenu({
     const [expenseDescription, setExpenseDescription] = useState('');
     const [expenseVendor, setExpenseVendor] = useState('');
     const [expenseProofPreview, setExpenseProofPreview] = useState(null);
+    const [expenseWorkshopId, setExpenseWorkshopId] = useState('');
+    const [expenseBranchId, setExpenseBranchId] = useState('');
+    const [expenseWorkshops, setExpenseWorkshops] = useState([]);
+    const [expenseBranches, setExpenseBranches] = useState([]);
 
     const expenseCategoryOptions = useMemo(() => adminWalletExpenseComboboxOptions(), []);
 
@@ -53,6 +58,32 @@ export default function PlatformChatWalletPlusMenu({
         document.addEventListener('mousedown', onDoc);
         return () => document.removeEventListener('mousedown', onDoc);
     }, [menuOpen]);
+
+    useEffect(() => {
+        if (!expenseOpen) return;
+        getWorkshopOptions()
+            .then((res) => {
+                const rows = res?.workshops ?? res?.items ?? res?.data ?? [];
+                setExpenseWorkshops(Array.isArray(rows) ? rows : []);
+            })
+            .catch(() => setExpenseWorkshops([]));
+    }, [expenseOpen]);
+
+    useEffect(() => {
+        if (!expenseWorkshopId) {
+            setExpenseBranches([]);
+            return;
+        }
+        listExpenseWorkshopBranches({ workshopId: expenseWorkshopId })
+            .then((res) => setExpenseBranches(res?.branches ?? []))
+            .catch(() => setExpenseBranches([]));
+    }, [expenseWorkshopId]);
+
+    useEffect(() => {
+        if (expenseWorkshops.length === 1 && !expenseWorkshopId) {
+            setExpenseWorkshopId(String(expenseWorkshops[0].id));
+        }
+    }, [expenseWorkshops, expenseWorkshopId]);
 
     const loadHistory = async () => {
         setHistoryLoading(true);
@@ -103,6 +134,18 @@ export default function PlatformChatWalletPlusMenu({
             onError?.('Select an account category.');
             return;
         }
+        if (!expenseProofPreview) {
+            onError?.('Expense proof image is required.');
+            return;
+        }
+        if (!expenseWorkshopId) {
+            onError?.('Select a workshop.');
+            return;
+        }
+        if (!expenseBranchId) {
+            onError?.('Select a branch.');
+            return;
+        }
         setBusy(true);
         try {
             const res = await api.recordWalletExpense(conversationId, {
@@ -110,7 +153,9 @@ export default function PlatformChatWalletPlusMenu({
                 description,
                 vendorName: expenseVendor.trim() || undefined,
                 expenseCategory,
-                ...(expenseProofPreview ? { proofUrl: expenseProofPreview } : {}),
+                proofUrl: expenseProofPreview,
+                workshopId: expenseWorkshopId,
+                branchId: expenseBranchId,
             });
             const msg = res?.message ?? res?.data?.message;
             if (msg) onMessageSent?.(msg);
@@ -121,6 +166,8 @@ export default function PlatformChatWalletPlusMenu({
             setExpenseDescription('');
             setExpenseVendor('');
             setExpenseProofPreview(null);
+            setExpenseWorkshopId('');
+            setExpenseBranchId('');
             setMenuOpen(false);
         } catch (err) {
             onError?.(err?.message || 'Could not record expense');
@@ -244,7 +291,7 @@ export default function PlatformChatWalletPlusMenu({
                 <Modal
                     title="Record Expense"
                     onClose={busy ? undefined : () => setExpenseOpen(false)}
-                    width={440}
+                    width={480}
                     disableClose={busy}
                     footer={(
                         <>
@@ -258,6 +305,35 @@ export default function PlatformChatWalletPlusMenu({
                     )}
                 >
                     <form onSubmit={submitExpense}>
+                        <label className="pc-wallet-field-label">Workshop</label>
+                        <select
+                            className="pc-wallet-field"
+                            value={expenseWorkshopId}
+                            onChange={(e) => {
+                                setExpenseWorkshopId(e.target.value);
+                                setExpenseBranchId('');
+                            }}
+                            disabled={busy}
+                            required
+                        >
+                            <option value="">Select workshop</option>
+                            {expenseWorkshops.map((w) => (
+                                <option key={w.id} value={w.id}>{w.name || w.label || `#${w.id}`}</option>
+                            ))}
+                        </select>
+                        <label className="pc-wallet-field-label">Branch</label>
+                        <select
+                            className="pc-wallet-field"
+                            value={expenseBranchId}
+                            onChange={(e) => setExpenseBranchId(e.target.value)}
+                            disabled={busy || !expenseWorkshopId}
+                            required
+                        >
+                            <option value="">Select branch</option>
+                            {expenseBranches.map((b) => (
+                                <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                        </select>
                         <label className="pc-wallet-field-label">Amount (SAR)</label>
                         <input
                             type="number"

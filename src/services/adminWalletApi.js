@@ -66,7 +66,7 @@ export function shareFundRequestInChat(fundRequestId) {
     );
 }
 
-/** payload = { amount, description, vendorName? } */
+/** payload = { amount, description, vendorName?, expenseCategory, proofUrl } */
 export function recordMyWalletExpense(payload) {
     return apiFetch('/super-admin/my-wallet/expenses', {
         method: 'POST',

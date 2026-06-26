@@ -9,7 +9,7 @@ import { STAFF_APP_TAB_SLUG, STAFF_APP_PERMISSION_FALLBACK, STAFF_APP_LEGACY_ROU
 import StaffAppPage from './workshop/staff-app/StaffAppPage';
 import WorkshopEmployees from './workshop/WorkshopEmployees';
 import WorkshopApprovals from './workshop/WorkshopApprovals';
-import WorkshopPettyCashManagement from './workshop/WorkshopPettyCashManagement';
+import WorkshopMyPettyCash from './workshop/WorkshopMyPettyCash';
 import WorkshopDashboard from './workshop/WorkshopDashboard';
 import WorkshopDepartments from './workshop/WorkshopDepartments';
 import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
@@ -584,7 +584,7 @@ export default function WorkshopLayout() {
             case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'my-petty-cash':
                 return (
-                    <WorkshopPettyCashManagement
+                    <WorkshopMyPettyCash
                         selectedBranchId={selectedBranch}
                         branches={activeBranches}
                     />

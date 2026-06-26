@@ -14,6 +14,8 @@ import {
     recordMyWalletExpense,
     shareFundRequestInChat,
 } from '../../services/adminWalletApi';
+import { listExpenseWorkshopBranches } from '../../services/employeeExpenseApi';
+import { getWorkshopOptions } from '../../services/superAdminApi';
 import { firstVisibleAdminPath } from '../../utils/permissions';
 import {
     coerceWalletFieldText,
@@ -61,6 +63,10 @@ export default function MyWalletPage() {
     const [expenseDescription, setExpenseDescription] = useState('');
     const [expenseVendor, setExpenseVendor] = useState('');
     const [expenseProofPreview, setExpenseProofPreview] = useState(null);
+    const [expenseWorkshopId, setExpenseWorkshopId] = useState('');
+    const [expenseBranchId, setExpenseBranchId] = useState('');
+    const [expenseWorkshops, setExpenseWorkshops] = useState([]);
+    const [expenseBranches, setExpenseBranches] = useState([]);
     const [expenseSaving, setExpenseSaving] = useState(false);
     const [walletChatNotice, setWalletChatNotice] = useState('');
     const [lastChatConversationId, setLastChatConversationId] = useState('');
@@ -122,6 +128,37 @@ export default function MyWalletPage() {
         if (walletEnabled) loadData();
     }, [walletEnabled, loadData]);
 
+    useEffect(() => {
+        getWorkshopOptions()
+            .then((res) => {
+                const rows = res?.workshops ?? res?.items ?? res?.data ?? [];
+                setExpenseWorkshops(Array.isArray(rows) ? rows : []);
+            })
+            .catch(() => setExpenseWorkshops([]));
+    }, []);
+
+    useEffect(() => {
+        if (!expenseWorkshopId) {
+            setExpenseBranches([]);
+            setExpenseBranchId('');
+            return;
+        }
+        listExpenseWorkshopBranches({ workshopId: expenseWorkshopId })
+            .then((res) => {
+                setExpenseBranches(res?.branches ?? []);
+                if (res?.workshopId && !expenseWorkshopId) {
+                    setExpenseWorkshopId(String(res.workshopId));
+                }
+            })
+            .catch(() => setExpenseBranches([]));
+    }, [expenseWorkshopId]);
+
+    useEffect(() => {
+        if (expenseWorkshops.length === 1 && !expenseWorkshopId) {
+            setExpenseWorkshopId(String(expenseWorkshops[0].id));
+        }
+    }, [expenseWorkshops, expenseWorkshopId]);
+
     const handleFundSubmit = async (e) => {
         e.preventDefault();
         const amount = Number(fundAmount);
@@ -174,6 +211,18 @@ export default function MyWalletPage() {
             alert('Select an account category.');
             return;
         }
+        if (!expenseProofPreview) {
+            alert('Expense proof image is required.');
+            return;
+        }
+        if (!expenseWorkshopId) {
+            alert('Select a workshop.');
+            return;
+        }
+        if (!expenseBranchId) {
+            alert('Select a branch.');
+            return;
+        }
         setExpenseSaving(true);
         setWalletChatNotice('');
         try {
@@ -182,7 +231,9 @@ export default function MyWalletPage() {
                 description: expenseDescription.trim(),
                 vendorName: expenseVendor.trim() || undefined,
                 expenseCategory,
-                ...(expenseProofPreview ? { proofUrl: expenseProofPreview } : {}),
+                proofUrl: expenseProofPreview,
+                workshopId: expenseWorkshopId,
+                branchId: expenseBranchId,
             });
             setExpenseOpen(false);
             setExpenseAmount('');
@@ -191,6 +242,7 @@ export default function MyWalletPage() {
             setExpenseDescription('');
             setExpenseVendor('');
             setExpenseProofPreview(null);
+            setExpenseBranchId('');
             if (canPostToChat) {
                 applyChatResult(
                     res?.chat,
@@ -386,6 +438,39 @@ export default function MyWalletPage() {
                                         : 'Amount is deducted from your wallet immediately.'}
                                 </p>
                                 <div className="ws-field">
+                                    <label>Workshop *</label>
+                                    <select
+                                        className="form-input-field"
+                                        value={expenseWorkshopId}
+                                        onChange={(e) => {
+                                            setExpenseWorkshopId(e.target.value);
+                                            setExpenseBranchId('');
+                                        }}
+                                        disabled={expenseSaving}
+                                    >
+                                        <option value="">Select workshop</option>
+                                        {expenseWorkshops.map((w) => (
+                                            <option key={w.id} value={w.id}>
+                                                {w.name || w.label || `#${w.id}`}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="ws-field">
+                                    <label>Branch *</label>
+                                    <select
+                                        className="form-input-field"
+                                        value={expenseBranchId}
+                                        onChange={(e) => setExpenseBranchId(e.target.value)}
+                                        disabled={expenseSaving || !expenseWorkshopId}
+                                    >
+                                        <option value="">Select branch</option>
+                                        {expenseBranches.map((b) => (
+                                            <option key={b.id} value={b.id}>{b.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="ws-field">
                                     <label>Amount (SAR) *</label>
                                     <input type="number" min="0.01" step="0.01" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} />
                                 </div>
@@ -412,7 +497,7 @@ export default function MyWalletPage() {
                                         disabled={expenseSaving}
                                     />
                                     <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-                                        Posted to HQ Petty Cash Expense account (6100).
+                                        GL: DR branch [6100] Employee Petty Cash Expense · CR [1335] admin wallet (HQ) or branch [1280] fund (franchise).
                                     </p>
                                 </div>
                                 <div className="ws-field">

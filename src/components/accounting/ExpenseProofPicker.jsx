@@ -1,17 +1,12 @@
 import React, { useRef } from 'react';
 import { ImagePlus, X } from 'lucide-react';
 
-export const EXPENSE_PROOF_MAX_BYTES = Math.floor(1.5 * 1024 * 1024);
 export const EXPENSE_PROOF_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
 
 export function readExpenseProofFile(file, { onReady, onError } = {}) {
     if (!file) return;
     if (!String(file.type || '').startsWith('image/')) {
         onError?.('Please choose an image file (JPEG, PNG, or WebP).');
-        return;
-    }
-    if (file.size > EXPENSE_PROOF_MAX_BYTES) {
-        onError?.('Image is too large (max 1.5 MB).');
         return;
     }
     const reader = new FileReader();
@@ -23,7 +18,7 @@ export function readExpenseProofFile(file, { onReady, onError } = {}) {
 export default function ExpenseProofPicker({
     preview,
     onChange,
-    label = 'Expense proof (optional)',
+    label = 'Expense proof *',
     id = 'expense-proof',
     disabled = false,
 }) {
@@ -118,7 +113,7 @@ export default function ExpenseProofPicker({
                     <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.875rem' }}>
                         <ImagePlus size={22} style={{ marginBottom: 6, opacity: 0.7 }} />
                         <div>Tap to upload receipt or proof photo</div>
-                        <div style={{ fontSize: '0.75rem', marginTop: 4 }}>JPEG, PNG, WebP · max 1.5 MB</div>
+                        <div style={{ fontSize: '0.75rem', marginTop: 4 }}>JPEG, PNG, or WebP</div>
                     </div>
                 )}
             </div>

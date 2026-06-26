@@ -1235,6 +1235,7 @@ function ToggleSwitch({ checked, onChange }) {
 
 function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
     const [roleId, setRoleId] = useState(user.role?.id ?? '');
+    const [resetPassword, setResetPassword] = useState('');
 
     // Workshop / branch are editable only for non-platform-admin users
     // (Super Admin users are unscoped — they don't belong to any workshop).
@@ -1302,6 +1303,11 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
     const portalMismatch = selectedRole && userPortal && selectedRole.portal !== userPortal;
 
     const handleSubmit = () => {
+        const pwd = resetPassword.trim();
+        if (pwd && pwd.length < 6) {
+            alert('Password must be at least 6 characters');
+            return;
+        }
         // Build the patch payload: include workshop/branch only if changed
         // (or whenever user is workshop-scoped — backend ignores "undefined"
         // semantics, so we send only fields the admin can actually change).
@@ -1310,12 +1316,13 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
             opts.workshopId = workshopId || null;
             opts.branchId   = branchId   || null;
         }
+        if (pwd) opts.password = pwd;
         onSave(user.id, roleId ? String(roleId) : null, opts);
     };
 
     return (
         <Modal
-            title={`Edit role — ${user.name || user.email}`}
+            title={`Edit user — ${user.name || user.email}`}
             onClose={onClose}
             className="create-role-modal"
             footer={(
@@ -1436,6 +1443,23 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
                                 </option>
                             ))}
                         </select>
+                    </div>
+                </div>
+
+                <div className="form-row">
+                    <div className="form-group flex-1">
+                        <label>Reset password</label>
+                        <input
+                            type="password"
+                            className="form-input"
+                            autoComplete="new-password"
+                            placeholder="Leave empty to keep current password"
+                            value={resetPassword}
+                            onChange={(e) => setResetPassword(e.target.value)}
+                        />
+                        <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                            Min 6 characters. Applies to this user&apos;s portal login.
+                        </p>
                     </div>
                 </div>
 
