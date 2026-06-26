@@ -99,7 +99,6 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/dashboard',        permission: 'dashboard.view' },
     { path: '/admin/approvals',        permission: 'approvals.view' },
     { path: '/admin/zone-management',  permission: 'zone-management.view' },
-    { path: '/admin/tier-management',  permission: 'tier-management.view' },
     { path: '/admin/tax-codes',        permission: 'tax-codes.view' },
     { path: '/admin/marketing',        permission: 'marketing.view' },
     { path: '/admin/permissions',      permission: 'permissions.view' },

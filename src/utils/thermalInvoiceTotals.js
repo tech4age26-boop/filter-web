@@ -309,6 +309,9 @@ export function normalizeCashierInvoice(raw) {
     maintenanceChecklist: raw.maintenanceChecklist || raw.maintenance_checklist,
     publicInvoicePath: raw.publicInvoicePath || raw.public_invoice_path,
     publicInvoiceUrl: raw.publicInvoiceUrl || raw.public_invoice_url,
+    appliedPromotions: raw.appliedPromotions || raw.applied_promotions || [],
+    promotionDiscountTotal:
+      raw.promotionDiscountTotal ?? raw.promotion_discount_total ?? 0,
     jobs,
     order,
   };

@@ -254,6 +254,44 @@
   color: #23262d;
 }
 
+.cti-promo-banner {
+  margin-top: 8px;
+  border: 0.75px solid #1a1a1a;
+  background: #fff7e6;
+}
+
+.cti-promo-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1a1a1a;
+  border-bottom: 0.5px dashed #d8b65a;
+}
+
+.cti-promo-row:last-child {
+  border-bottom: none;
+}
+
+.cti-promo-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cti-promo-name::before {
+  content: '🎁';
+  font-size: 11px;
+}
+
+.cti-promo-amount {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .cti-checklist-banner {
   background: #e2e8f0;
   border: 0.75px solid #ccc;

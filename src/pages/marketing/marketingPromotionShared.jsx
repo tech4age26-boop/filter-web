@@ -270,6 +270,10 @@ const normalizePromotion = (item) => {
     targetZoneIds: item?.targetZoneIds || item?.targetZones || [],
     targetZones: item?.targetZones || item?.targetZoneIds || [],
     triggerProductIds: item?.triggerProductIds || [],
+    triggerServiceIds: item?.triggerServiceIds || [],
+    productScope: item?.productScope || 'all',
+    serviceScope: item?.serviceScope || 'all',
+    selectedItemMatchMode: item?.selectedItemMatchMode || 'all_required',
     rewardProductIds: item?.rewardProductIds || item?.rewardItemIds || [],
     rewardItemIds: item?.rewardItemIds || item?.rewardProductIds || [],
     invoiceBannerText: item?.invoiceBannerText || "",
@@ -1032,6 +1036,12 @@ const Toggle = ({ checked, onChange, label }) => {
     </button>
   );
 };
+const inferPromotionScope = (explicit, ids) => {
+  const scope = String(explicit ?? '').trim().toLowerCase();
+  if (scope === 'all' || scope === 'selected' || scope === 'none') return scope;
+  return Array.isArray(ids) && ids.length > 0 ? 'selected' : 'all';
+};
+
 export const EMPTY_PROMOTION_FORM = {
   name: '',
   strategy: 'Standard Promotion',
@@ -1044,7 +1054,15 @@ export const EMPTY_PROMOTION_FORM = {
   targetBranchIds: [],
   targetZoneIds: [],
   triggerProductIds: [],
+  productScope: 'all',
+  productTriggerIds: [],
+  serviceScope: 'all',
+  serviceTriggerIds: [],
+  selectedItemMatchMode: 'all_required',
   rewardProductIds: [],
+  rewardBenefitType: 'none',
+  rewardDiscountValue: '',
+  rewardMaxQuantity: '',
   customerSegment: 'All Customers',
   minPurchase: '0',
   maxUsage: '0',
@@ -1099,6 +1117,29 @@ export function toDateTimeLocal(value) {
 }
 
 export function promotionFormFromItem(item) {
+  const legacyTriggerIds = (item.triggerProductIds || []).map((id) => String(id));
+  const explicitProductIds = (item.productTriggerIds || item.triggerProductIdsOnly || []).map(
+    String,
+  );
+  const explicitServiceIds = (item.triggerServiceIds || item.serviceTriggerIds || []).map(
+    String,
+  );
+
+  const productTriggerIds =
+    explicitProductIds.length > 0
+      ? explicitProductIds
+      : legacyTriggerIds.filter((id) => !id.startsWith('service-'));
+
+  const serviceTriggerIds =
+    explicitServiceIds.length > 0
+      ? explicitServiceIds
+      : legacyTriggerIds
+          .filter((id) => id.startsWith('service-'))
+          .map((id) => id.replace(/^service-/, ''));
+
+  const productScope = inferPromotionScope(item.productScope, productTriggerIds);
+  const serviceScope = inferPromotionScope(item.serviceScope, serviceTriggerIds);
+
   return {
     ...EMPTY_PROMOTION_FORM,
     name: item.name || '',
@@ -1117,8 +1158,22 @@ export function promotionFormFromItem(item) {
     sourceBranchIds: item.sourceBranchId ? [item.sourceBranchId] : [],
     targetBranchIds: item.targetBranchIds || [],
     targetZoneIds: item.targetZoneIds || item.targetZones || [],
-    triggerProductIds: item.triggerProductIds || [],
+    triggerProductIds: legacyTriggerIds,
+    productScope,
+    productTriggerIds,
+    serviceScope,
+    serviceTriggerIds,
+    selectedItemMatchMode: item.selectedItemMatchMode || 'all_required',
     rewardProductIds: item.rewardProductIds || item.rewardItemIds || [],
+    rewardBenefitType: item.rewardBenefitType || 'none',
+    rewardDiscountValue:
+      item.rewardDiscountValue != null && item.rewardDiscountValue !== ''
+        ? String(item.rewardDiscountValue)
+        : '',
+    rewardMaxQuantity:
+      item.rewardMaxQuantity != null && item.rewardMaxQuantity !== ''
+        ? String(item.rewardMaxQuantity)
+        : '',
     bannerText: item.invoiceBannerText || '',
     terms: item.termsConditions || '',
     autoClose: Boolean(item.autoCloseOnEndDate ?? true),
@@ -1140,9 +1195,19 @@ export function buildPromotionPayload(
   const selectedRewardIds = form.rewardProductIds.map((id) =>
     String(id).replace('product-', '').replace('service-', '')
   );
-  const selectedTriggerIds = form.triggerProductIds.map((id) =>
-    String(id).replace('product-', '').replace('service-', '')
-  );
+  const selectedProductTriggerIds =
+    form.productScope === 'selected'
+      ? (form.productTriggerIds || []).map((id) =>
+          String(id).replace(/^product-/, ''),
+        )
+      : [];
+  const selectedServiceTriggerIds =
+    form.serviceScope === 'selected'
+      ? (form.serviceTriggerIds || []).map((id) =>
+          String(id).replace(/^service-/, ''),
+        )
+      : [];
+  const selectedTriggerIds = [...selectedProductTriggerIds, ...selectedServiceTriggerIds];
   const selectedSourceBranch = branches.find((item) => item.id === form.sourceBranchIds[0]);
   const selectedTargetBranch = branches.find((item) => item.id === form.targetBranchIds[0]);
   const sourceWorkshopId =
@@ -1181,8 +1246,21 @@ export function buildPromotionPayload(
     targetBranchIds: form.targetBranchIds,
     targetZoneIds: form.targetZoneIds,
     targetZones: form.targetZoneIds,
-    triggerProductIds: selectedTriggerIds,
+    triggerProductIds: selectedProductTriggerIds,
+    triggerServiceIds: selectedServiceTriggerIds,
+    productScope: form.productScope || 'all',
+    serviceScope: form.serviceScope || 'all',
+    selectedItemMatchMode: form.selectedItemMatchMode || 'all_required',
     rewardProductIds: selectedRewardIds,
+    rewardBenefitType: form.rewardBenefitType || 'none',
+    rewardDiscountValue:
+      form.rewardDiscountValue === '' || form.rewardDiscountValue == null
+        ? 0
+        : Number(form.rewardDiscountValue),
+    rewardMaxQuantity:
+      form.rewardMaxQuantity === '' || form.rewardMaxQuantity == null
+        ? 0
+        : Number(form.rewardMaxQuantity),
     rewardItemIds: selectedRewardIds,
     startAt: toIsoDateTimeOrNull(form.startDate),
     startDate: toIsoDateTimeOrNull(form.startDate),

@@ -322,6 +322,13 @@ export default function ProductsScreen() {
                     orderAmount: afterGlobalDisc,
                     productIds,
                     serviceIds,
+                    lineItems: cartLines.map((l) => ({
+                        itemType: isService(l.product) ? 'service' : 'product',
+                        ...(isService(l.product)
+                            ? { serviceId: String(l.product.id) }
+                            : { productId: String(l.product.id) }),
+                        lineAmount: l.lineAfterDisc,
+                    })),
                 }),
             });
             if (res?.valid === false) {

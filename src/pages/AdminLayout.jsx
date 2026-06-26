@@ -6,7 +6,7 @@ import {
     LayoutDashboard, Package, Users, BadgeDollarSign, DollarSign, BookOpen,
     Bell, Search, ChevronDown, ChevronRight,
     Shield, Map, Truck, Building, UserCheck, Receipt, ArrowLeftRight, FileSpreadsheet,
-    Landmark, FileText, Car, Warehouse, Box, ShoppingCart, UserPlus, Globe, Megaphone, Trophy,
+    Landmark, FileText, Car, Warehouse, Box, ShoppingCart, UserPlus, Globe, Megaphone,
     Menu, X, Percent, Wrench, GitBranch, Radio, BarChart2, ClipboardList, CreditCard,
     FlaskConical, Smartphone,
 } from 'lucide-react';
@@ -108,7 +108,6 @@ const NAV_CONFIG = [
             { label: 'Dashboard', path: 'dashboard', icon: LayoutDashboard },
             { label: 'Approvals', path: 'approvals', icon: FileText },
             { label: 'Zone Management', path: 'zone-management', icon: Map },
-            { label: 'Tier Management', path: 'tier-management', icon: Trophy },
             { label: 'Tax Codes', path: 'tax-codes', icon: Percent },
             { label: 'Marketing', path: 'marketing', icon: Megaphone },
             { label: 'Permissions', path: 'permissions', icon: Shield },

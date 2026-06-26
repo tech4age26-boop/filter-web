@@ -18,7 +18,7 @@ import {
     Star,
     Eye,
     Tags,
-    Trophy,
+    Award,
     Plug,
 } from 'lucide-react';
 
@@ -107,7 +107,6 @@ const PAGE_TITLES = {
     expenses: 'Expenses',
     'referral-types-rules': 'Expenses',
     'analytics-roi': 'Analytics & ROI',
-    'loyalty-programs': 'Loyalty Programs',
     'campaign-reports': 'Campaign Reports',
     'ad-platforms': 'Ad Platforms',
     'budget-optimizer': 'Budget Optimizer',
@@ -117,6 +116,7 @@ const PAGE_TITLES = {
     'referrer-management': 'Referrer Management',
     'marketing-promotions': 'Promotions',
     'promo-codes': 'Promo Codes',
+    'tier-management': 'Tier Management',
 };
 
 function getPageTitle(pathname) {
@@ -129,7 +129,6 @@ function getPageTitle(pathname) {
         if (prev === 'campaigns') return 'New Campaign';
         if (prev === 'marketing-promotions' || (prev === 'promotions' && parts.includes('marketing'))) return 'New Promotion';
         if (prev === 'expenses' || prev === 'referral-types-rules') return 'New Expense';
-        if (prev === 'loyalty-programs') return 'New Loyalty Program';
         if (prev === 'influencer-referrers') return 'Add Influencer';
         if (prev === 'referrers') return 'Add Referrer';
         if (prev === 'rules') return 'New Commission Rule';
@@ -188,7 +187,7 @@ const NAV_CONFIG = [
         items: [
             { label: 'Promotions', path: 'marketing-promotions', icon: Tags },
             { label: 'Promo Codes', path: 'promo-codes', icon: Gift },
-            { label: 'Loyalty Programs', path: 'loyalty-programs', icon: Trophy },
+            { label: 'Tier Management', path: 'tier-management', icon: Award },
         ],
     },
     {
@@ -307,6 +306,9 @@ export default function MarketingLayout() {
     };
 
     const pageTitle = getPageTitle(location.pathname);
+    const marketingBasePath = location.pathname.startsWith('/admin/marketing')
+        ? '/admin/marketing'
+        : '/marketing';
 
     return (
         <div
@@ -360,7 +362,7 @@ export default function MarketingLayout() {
                                 <SidebarNavItem
                                     key={`${sec.section || 'main'}-${item.path}-${item.label}`}
                                     item={item}
-                                    basePath="/marketing"
+                                    basePath={marketingBasePath}
                                 />
                             ))}
                         </div>
