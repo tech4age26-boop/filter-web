@@ -133,6 +133,62 @@ function pickPagination(res, fallbackPageSize = PAGE_SIZE) {
     };
 }
 
+function isCatalogRowAdopted(row, catalogBranchId) {
+    return catalogBranchId ? Boolean(row?.inBranch) : Boolean(row?.inWorkshop);
+}
+
+/**
+ * Walks catalog pages and returns rows already adopted for the current branch scope.
+ * Uses the same `inBranch` / `inWorkshop` flags as the not-added browse list.
+ */
+async function fetchAdoptedCatalogRows({
+    fetchPage,
+    pickKeys,
+    filter,
+    branchId,
+    pageSize = PAGE_SIZE,
+    signal,
+}) {
+    const adopted = [];
+    let page = 1;
+    for (;;) {
+        const params = {
+            departmentId: filter.departmentId === 'all' ? undefined : filter.departmentId,
+            categoryId: filter.categoryId === 'all' ? undefined : filter.categoryId,
+            q: filter.q || undefined,
+            page,
+            pageSize,
+            branchId,
+            signal,
+        };
+        const res = await fetchPage(params);
+        if (signal?.aborted) {
+            const err = new Error('Aborted');
+            err.name = 'AbortError';
+            throw err;
+        }
+        const rows = pickArray(res, pickKeys);
+        const meta = pickPagination(res, pageSize);
+        for (const r of rows) {
+            if (isCatalogRowAdopted(r, branchId)) adopted.push(r);
+        }
+
+        if (rows.length === 0) break;
+        if (meta.hasNext === false) break;
+        if (meta.hasNext === true) {
+            page += 1;
+            continue;
+        }
+        const totalPagesKnown =
+            meta.total > 0 ? Math.max(1, Math.ceil(meta.total / meta.pageSize)) : null;
+        if (totalPagesKnown != null && page >= totalPagesKnown) break;
+        if (rows.length < pageSize) break;
+        page += 1;
+        if (page > 5000) break;
+    }
+    return adopted;
+}
+
 /**
  * Walks catalog list pages with the same filters until the server has no more rows,
  * then returns every row `id` (for “select all” across pagination).
@@ -757,20 +813,42 @@ export default function WorkshopCatalogNew({
         Promise.all([
             // Total matching master rows (use pageSize=1 to keep payload tiny)
             getCatalogProducts({ ...params, page: 1, pageSize: 1 }),
-            // Full adopted list (already small enough) to count branch-scoped matches
-            getMyProducts({
-                departmentId: params.departmentId,
-                categoryId: params.categoryId,
-                isActive: true,
-                signal,
-            }),
+            mode === 'added'
+                ? fetchAdoptedCatalogRows({
+                      fetchPage: getCatalogProducts,
+                      pickKeys: ['products', 'items'],
+                      filter: prodFilter,
+                      branchId: catalogBranchId,
+                      pageSize: PAGE_SIZE,
+                      signal,
+                  })
+                : getMyProducts({
+                      departmentId: params.departmentId,
+                      categoryId: params.categoryId,
+                      signal,
+                  }),
             // Page rows for not-added browse (keeps pagination behavior)
             mode === 'added' ? Promise.resolve(null) : getCatalogProducts(params),
         ])
-            .then(([masterRes, myRes, pageRes]) => {
+            .then(([masterRes, adoptedSource, pageRes]) => {
                 const masterMeta = pickPagination(masterRes);
                 const masterTotal = masterMeta.total;
-                const myRowsRaw = pickArray(myRes, ['products', 'items']);
+
+                if (mode === 'added') {
+                    const adoptedRows = Array.isArray(adoptedSource) ? adoptedSource : [];
+                    const addedCount = adoptedRows.length;
+                    const notAddedCount = Math.max(0, masterTotal - addedCount);
+                    setProdCounts({ added: addedCount, not_added: notAddedCount });
+                    const totalPages = Math.max(1, Math.ceil(addedCount / PAGE_SIZE));
+                    const page = Math.min(Math.max(1, prodPage), totalPages);
+                    const slice = adoptedRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+                    setProdRows(slice);
+                    setProdTotal(addedCount);
+                    setProdHasNext(page < totalPages);
+                    return;
+                }
+
+                const myRowsRaw = pickArray(adoptedSource, ['products', 'items']);
                 const myAdded = myRowsRaw
                     .filter((r) => isInSelectedBranch(r, effectiveBranchScopeId))
                     .filter((r) => matchesCatalogSearch(r, prodFilter.q));
@@ -778,22 +856,9 @@ export default function WorkshopCatalogNew({
                 const notAddedCount = Math.max(0, masterTotal - addedCount);
                 setProdCounts({ added: addedCount, not_added: notAddedCount });
 
-                if (mode === 'added') {
-                    const totalPages = Math.max(1, Math.ceil(addedCount / PAGE_SIZE));
-                    const page = Math.min(Math.max(1, prodPage), totalPages);
-                    const slice = myAdded.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-                    setProdRows(slice);
-                    setProdTotal(addedCount);
-                    setProdHasNext(page < totalPages);
-                    return;
-                }
-
                 const res = pageRes || masterRes;
                 const rows = pickArray(res, ['products', 'items']);
-                const filtered = rows.filter((r) => {
-                    const inScope = catalogBranchId ? Boolean(r?.inBranch) : Boolean(r?.inWorkshop);
-                    return !inScope;
-                });
+                const filtered = rows.filter((r) => !isCatalogRowAdopted(r, catalogBranchId));
                 const meta = pickPagination(res);
                 setProdRows(filtered);
                 setProdTotal(meta.total);
@@ -832,18 +897,41 @@ export default function WorkshopCatalogNew({
         };
         Promise.all([
             getCatalogServices({ ...params, page: 1, pageSize: 1 }),
-            getMyServices({
-                departmentId: params.departmentId,
-                categoryId: params.categoryId,
-                isActive: true,
-                signal,
-            }),
+            mode === 'added'
+                ? fetchAdoptedCatalogRows({
+                      fetchPage: getCatalogServices,
+                      pickKeys: ['services', 'items'],
+                      filter: svcFilter,
+                      branchId: catalogBranchId,
+                      pageSize: PAGE_SIZE,
+                      signal,
+                  })
+                : getMyServices({
+                      departmentId: params.departmentId,
+                      categoryId: params.categoryId,
+                      signal,
+                  }),
             mode === 'added' ? Promise.resolve(null) : getCatalogServices(params),
         ])
-            .then(([masterRes, myRes, pageRes]) => {
+            .then(([masterRes, adoptedSource, pageRes]) => {
                 const masterMeta = pickPagination(masterRes);
                 const masterTotal = masterMeta.total;
-                const myRowsRaw = pickArray(myRes, ['services', 'items']);
+
+                if (mode === 'added') {
+                    const adoptedRows = Array.isArray(adoptedSource) ? adoptedSource : [];
+                    const addedCount = adoptedRows.length;
+                    const notAddedCount = Math.max(0, masterTotal - addedCount);
+                    setSvcCounts({ added: addedCount, not_added: notAddedCount });
+                    const totalPages = Math.max(1, Math.ceil(addedCount / PAGE_SIZE));
+                    const page = Math.min(Math.max(1, svcPage), totalPages);
+                    const slice = adoptedRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+                    setSvcRows(slice);
+                    setSvcTotal(addedCount);
+                    setSvcHasNext(page < totalPages);
+                    return;
+                }
+
+                const myRowsRaw = pickArray(adoptedSource, ['services', 'items']);
                 const myAdded = myRowsRaw
                     .filter((r) => isInSelectedBranch(r, effectiveBranchScopeId))
                     .filter((r) => matchesCatalogSearch(r, svcFilter.q));
@@ -851,22 +939,9 @@ export default function WorkshopCatalogNew({
                 const notAddedCount = Math.max(0, masterTotal - addedCount);
                 setSvcCounts({ added: addedCount, not_added: notAddedCount });
 
-                if (mode === 'added') {
-                    const totalPages = Math.max(1, Math.ceil(addedCount / PAGE_SIZE));
-                    const page = Math.min(Math.max(1, svcPage), totalPages);
-                    const slice = myAdded.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-                    setSvcRows(slice);
-                    setSvcTotal(addedCount);
-                    setSvcHasNext(page < totalPages);
-                    return;
-                }
-
                 const res = pageRes || masterRes;
                 const rows = pickArray(res, ['services', 'items']);
-                const filtered = rows.filter((r) => {
-                    const inScope = catalogBranchId ? Boolean(r?.inBranch) : Boolean(r?.inWorkshop);
-                    return !inScope;
-                });
+                const filtered = rows.filter((r) => !isCatalogRowAdopted(r, catalogBranchId));
                 const meta = pickPagination(res);
                 setSvcRows(filtered);
                 setSvcTotal(meta.total);
