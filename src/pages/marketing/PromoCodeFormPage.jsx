@@ -1,31 +1,58 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Hourglass, Loader2 } from 'lucide-react';
+import PromoCodeFormFields from '../../components/promo/PromoCodeFormFields';
+import {
+  buildMarketingPromoPayload,
+  catalogItemId,
+  emptyPromoForm,
+  generatePromoCode,
+  promoToForm,
+  validatePromoForm,
+} from '../../components/promo/promoCodeFormUtils';
 import {
   marketingCreatePromoCode,
   marketingGetPromoCode,
-  marketingListPromotions,
+  marketingGetPromoCodeOptions,
+  marketingListTargetProducts,
   marketingUpdatePromoCode,
 } from '../../services/superAdminMarketingApi';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
+import { normalizePromoCode } from './promoCodeShared';
+import '../workshop/Workshop.css';
 import './MarketingUniversal.css';
 
-// Re-use list helpers from PromoCodes
-import {
-  discountTypeOptions,
-  mapDiscountTypeToBackend,
-  mapDiscountTypeToUi,
-  normalizeOption,
-  normalizePromoCode,
-  PromotionSelect,
-  randomCode,
-  safeArray,
-  SelectField,
-  Toggle,
-  toDateOnly,
-  toDateTimeLocal,
-} from './promoCodeShared';
+function normalizeBranches(payload) {
+  const list = Array.isArray(payload?.branches)
+    ? payload.branches
+    : Array.isArray(payload?.applicableBranches)
+      ? payload.applicableBranches
+      : Array.isArray(payload?.items)
+        ? payload.items
+        : [];
+
+  return list.map((row) => ({
+    id: String(row.id ?? row.value ?? ''),
+    name: row.name ?? row.label ?? row.branchName ?? `Branch ${row.id}`,
+    isActive: row.isActive !== false,
+  }));
+}
+
+function normalizeCatalogRows(rows, kind) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => {
+      const id = catalogItemId(row, kind);
+      if (!id) return null;
+      return {
+        ...row,
+        id,
+        name: row.name ?? row.label ?? row.product?.name ?? row.service?.name,
+      };
+    })
+    .filter(Boolean);
+}
 
 export default function PromoCodeFormPage() {
   const navigate = useNavigate();
@@ -34,33 +61,27 @@ export default function PromoCodeFormPage() {
   const isEdit = Boolean(id);
   const listPath = marketingSectionPath(location.pathname, 'promo-codes');
 
-  const [promotions, setPromotions] = useState([]);
+  const [form, setForm] = useState(emptyPromoForm);
+  const [branches, setBranches] = useState([]);
+  const [catalogProducts, setCatalogProducts] = useState([]);
+  const [catalogServices, setCatalogServices] = useState([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [loadingRecord, setLoadingRecord] = useState(isEdit);
   const [optionsError, setOptionsError] = useState('');
   const [recordError, setRecordError] = useState('');
+  const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-
-  const [form, setForm] = useState({
-    code: '',
-    promotionId: '',
-    promotionName: '',
-    discountType: 'Percentage (%)',
-    discountValue: '',
-    minPurchase: '0',
-    maxUsage: '0',
-    validFrom: '',
-    validUntil: '',
-    status: 'Pending Approval',
-    showSavings: true,
-    notes: '',
-  });
-
-  const update = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
+  const [usageCount, setUsageCount] = useState(null);
 
   const goBack = () => navigate(listPath);
+
+  const branchIdsForCatalog = useMemo(() => {
+    if (form.branchMode === 'all') {
+      return branches.map((b) => String(b.id)).filter(Boolean);
+    }
+    return form.branchIds;
+  }, [form.branchMode, form.branchIds, branches]);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,26 +90,15 @@ export default function PromoCodeFormPage() {
       try {
         setLoadingOptions(true);
         setOptionsError('');
-        const data = await marketingListPromotions({
-          limit: 200,
-          offset: 0,
-          status: 'all',
-        });
+        const data = await marketingGetPromoCodeOptions();
         if (cancelled) return;
-        const promotionOptions = safeArray(data, ['promotions']).map((item) => {
-          const option = normalizeOption(item, 'Promotion');
-          return {
-            ...option,
-            discountType: item.discountType || item.discount_type || '',
-            discountValue: item.discountValue ?? item.discount_value ?? '',
-            validFrom: item.validFrom || item.valid_from || item.startAt || '',
-            validTo: item.validTo || item.valid_until || item.endAt || '',
-          };
-        });
-        setPromotions(promotionOptions);
+
+        setBranches(normalizeBranches(data));
+        setCatalogProducts(normalizeCatalogRows(data.products, 'products'));
+        setCatalogServices(normalizeCatalogRows(data.services, 'services'));
       } catch (error) {
         if (!cancelled) {
-          setOptionsError(error?.message || 'Options load nahi huay.');
+          setOptionsError(error?.message || 'Failed to load form options.');
         }
       } finally {
         if (!cancelled) setLoadingOptions(false);
@@ -113,26 +123,14 @@ export default function PromoCodeFormPage() {
         if (cancelled) return;
 
         const item = normalizePromoCode(
-          data?.promoCode || data?.data || data?.item || data
+          data?.promoCode || data?.data || data?.item || data,
         );
 
-        setForm({
-          code: item.code || '',
-          promotionId: item.promotionId || '',
-          promotionName: item.promotion || '',
-          discountType: mapDiscountTypeToUi(item.discountType),
-          discountValue: String(item.discountValue ?? ''),
-          minPurchase: String(item.minPurchase ?? '0'),
-          maxUsage: String(item.maxUsage ?? '0'),
-          validFrom: item.validFrom ? toDateTimeLocal(item.validFrom) : '',
-          validUntil: item.validUntil ? toDateTimeLocal(item.validUntil) : '',
-          status: item.status || 'Pending Approval',
-          showSavings: Boolean(item.showSavings),
-          notes: item.notes || '',
-        });
+        setForm(promoToForm(item));
+        setUsageCount(item.currentUsage ?? item.current_usage_count ?? null);
       } catch (error) {
         if (!cancelled) {
-          setRecordError(error?.message || 'Promo code load nahi hua.');
+          setRecordError(error?.message || 'Promo code load failed.');
         }
       } finally {
         if (!cancelled) setLoadingRecord(false);
@@ -144,95 +142,78 @@ export default function PromoCodeFormPage() {
     };
   }, [id, isEdit]);
 
-  const handlePromotionChange = (promotionId) => {
-    const selected = promotions.find((item) => item.id === promotionId);
-    setForm((prev) => ({
-      ...prev,
-      promotionId,
-      promotionName: selected?.label || '',
-      discountType: selected?.discountType
-        ? mapDiscountTypeToUi(selected.discountType)
-        : prev.discountType,
-      discountValue:
-        selected?.discountValue !== undefined && selected?.discountValue !== null
-          ? String(selected.discountValue)
-          : prev.discountValue,
-      validFrom: selected?.validFrom
-        ? toDateTimeLocal(selected.validFrom)
-        : prev.validFrom,
-      validUntil: selected?.validTo
-        ? toDateTimeLocal(selected.validTo)
-        : prev.validUntil,
-    }));
-  };
+  useEffect(() => {
+    let cancelled = false;
 
-  const buildPayload = () => {
-    const descriptionParts = [];
-    if (form.promotionName) descriptionParts.push(`Promotion: ${form.promotionName}`);
-    if (form.notes) descriptionParts.push(form.notes);
+    const loadCatalog = async () => {
+      if (branchIdsForCatalog.length === 0) {
+        return;
+      }
 
-    return {
-      code: form.code.trim().toUpperCase(),
-      promotionId: form.promotionId || null,
-      promotion_id: form.promotionId || null,
-      promotionName: form.promotionName || null,
-      promotion_name: form.promotionName || null,
-      discountType: mapDiscountTypeToBackend(form.discountType),
-      discount_type: mapDiscountTypeToBackend(form.discountType),
-      discountValue: Number(form.discountValue || 0),
-      discount_value: Number(form.discountValue || 0),
-      minOrderAmount: Number(form.minPurchase || 0),
-      minPurchaseAmount: Number(form.minPurchase || 0),
-      min_purchase_amount: Number(form.minPurchase || 0),
-      usageLimit: Number(form.maxUsage || 0),
-      maxUsageCount: Number(form.maxUsage || 0),
-      max_usage_count: Number(form.maxUsage || 0),
-      validFrom: toDateOnly(form.validFrom),
-      valid_from: toDateOnly(form.validFrom),
-      validTo: toDateOnly(form.validUntil),
-      valid_until: toDateOnly(form.validUntil),
-      description: descriptionParts.join(' | ') || null,
-      notes: form.notes || null,
-      showOnInvoice: form.showSavings,
-      show_on_invoice: form.showSavings,
+      setCatalogLoading(true);
+      try {
+        const [productRes, optionsRes] = await Promise.all([
+          marketingListTargetProducts({
+            branchIds: branchIdsForCatalog.join(','),
+            limit: 200,
+            offset: 0,
+          }).catch(() => null),
+          marketingGetPromoCodeOptions().catch(() => null),
+        ]);
+
+        if (cancelled) return;
+
+        const scopedProducts = normalizeCatalogRows(
+          productRes?.products ?? productRes?.items ?? productRes?.data,
+          'products',
+        );
+
+        const allProducts = normalizeCatalogRows(
+          optionsRes?.products,
+          'products',
+        );
+        const allServices = normalizeCatalogRows(
+          optionsRes?.services,
+          'services',
+        );
+
+        setCatalogProducts(
+          scopedProducts.length > 0 ? scopedProducts : allProducts,
+        );
+        setCatalogServices(allServices);
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
     };
-  };
 
-  const createPayload = () => ({
-    ...buildPayload(),
-    status: 'pending_approval',
-    isActive: false,
-  });
+    loadCatalog();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [branchIdsForCatalog.join('|')]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setFormError('');
 
-    if (!form.code.trim()) {
-      alert('Promo code is required.');
-      return;
-    }
-    if (!form.discountValue) {
-      alert('Discount value is required.');
-      return;
-    }
-    if (!form.validFrom || !form.validUntil) {
-      alert('Valid from and valid until are required.');
-      return;
-    }
-    if (new Date(form.validUntil) < new Date(form.validFrom)) {
-      alert('Valid until must be after valid from.');
+    const validationMsg = validatePromoForm(form, { catalogLoading });
+    if (validationMsg) {
+      setFormError(validationMsg);
       return;
     }
 
     try {
       setSubmitting(true);
+      const payload = buildMarketingPromoPayload(form, { isEdit });
+
       if (isEdit) {
-        await marketingUpdatePromoCode(id, buildPayload());
+        await marketingUpdatePromoCode(id, payload);
         navigate(listPath, {
           state: { successMessage: 'Promo code updated successfully.' },
         });
       } else {
-        await marketingCreatePromoCode(createPayload());
+        await marketingCreatePromoCode(payload);
         navigate(listPath, {
           state: {
             successMessage:
@@ -241,179 +222,98 @@ export default function PromoCodeFormPage() {
         });
       }
     } catch (error) {
-      alert(error?.message || 'Promo code save nahi hua.');
+      setFormError(error?.message || 'Promo code save failed.');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const needsCatalogForSave =
+    form.productScope === 'selected'
+    || form.serviceScope === 'selected'
+    || (form.branchMode === 'selected' && form.branchIds.length > 0);
+  const saveBlockedByCatalog = catalogLoading && needsCatalogForSave;
+
   return (
     <MarketingFormShell
-      title={isEdit ? 'Edit Promo Code' : 'Generate Promo Code'}
+      title={isEdit ? 'Edit Promo Code' : 'Create Promo Code'}
       subtitle={
         isEdit
-          ? 'Update promo code details. POS activation is controlled from the list page.'
-          : 'Create a promo code for POS and invoices. It will be sent for Super Admin approval.'
+          ? 'Discount rules, branch scope, and catalog eligibility.'
+          : 'Requires cashier to enter this code at POS. Does not auto-apply on invoices.'
       }
       backLabel="Back to Promo Codes"
       onBack={goBack}
-      className="mk-page mk-code-page mkp-form-page"
+      className="mk-page mk-code-page mkp-form-page ws-promo-sub-screen"
     >
-      {loadingRecord ? (
+      {loadingRecord || loadingOptions ? (
         <div className="mk-code-empty-state">
           <Loader2 size={28} className="mk-code-spin" />
-          <div>Loading promo code...</div>
+          <div>Loading promo code form...</div>
         </div>
       ) : recordError ? (
         <div className="mk-code-error-banner">{recordError}</div>
+      ) : optionsError ? (
+        <div className="mk-code-error-banner">{optionsError}</div>
       ) : (
-      <form onSubmit={handleSubmit} className="mkp-form-page-body mk-code-modal-form">
-        <div className="mk-code-form-group">
-          <label className="mk-code-label">Promo Code *</label>
-          <div className="mk-code-row">
-            <input
-              autoFocus
-              value={form.code}
-              onChange={(e) => update('code', e.target.value.toUpperCase())}
-              placeholder="e.g. RAMADAN50"
-              className="mk-code-input mk-code-focus-input mk-code-flex-input"
-              readOnly={isEdit}
+        <form onSubmit={handleSubmit} className="mkp-form-page-body ws-promo-form-body" noValidate>
+          <div className="ws-section" style={{ padding: 20, background: '#fff', borderRadius: 12 }}>
+            <PromoCodeFormFields
+              form={form}
+              setForm={setForm}
+              branches={branches}
+              catalogProducts={catalogProducts}
+              catalogServices={catalogServices}
+              catalogLoading={catalogLoading}
+              codeReadOnly={isEdit}
+              usageCount={usageCount}
+              formError={formError}
+              showStatus={isEdit}
+              onAutoGenerate={
+                isEdit ? undefined : () => setForm((prev) => ({ ...prev, code: generatePromoCode() }))
+              }
             />
+
             {!isEdit ? (
-            <button
-              type="button"
-              onClick={() => update('code', randomCode())}
-              className="mk-code-auto-btn"
-            >
-              Auto
-            </button>
+              <div className="mk-code-approval-note" style={{ marginTop: 16 }}>
+                <Hourglass size={14} strokeWidth={2} />
+                <span>
+                  Cashier must enter this code at POS. It does <b>not</b> auto-apply.
+                  Super Admin approval is required before activation.
+                </span>
+              </div>
             ) : null}
+
+            <div className="mkp-form-page-footer" style={{ marginTop: 20 }}>
+              <button
+                type="button"
+                onClick={goBack}
+                className="btn-secondary"
+                disabled={submitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="btn-submit"
+                disabled={submitting || saveBlockedByCatalog}
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 size={14} className="mk-code-spin" />
+                    {isEdit ? 'Saving...' : 'Submitting...'}
+                  </>
+                ) : saveBlockedByCatalog ? (
+                  'Loading catalog...'
+                ) : isEdit ? (
+                  'Update Promo'
+                ) : (
+                  'Create Promo'
+                )}
+              </button>
+            </div>
           </div>
-        </div>
-
-        <PromotionSelect
-          value={form.promotionId}
-          onChange={handlePromotionChange}
-          options={promotions}
-          loading={loadingOptions}
-          error={optionsError}
-        />
-
-        <div className="mk-code-two-col">
-          <div className="mk-code-form-group">
-            <label className="mk-code-label">Discount Type</label>
-            <SelectField
-              value={form.discountType}
-              onChange={(value) => update('discountType', value)}
-              options={discountTypeOptions}
-            />
-          </div>
-          <div className="mk-code-form-group">
-            <label className="mk-code-label">Discount Value</label>
-            <input
-              value={form.discountValue}
-              onChange={(e) => update('discountValue', e.target.value)}
-              className="mk-code-input"
-            />
-          </div>
-        </div>
-
-        <div className="mk-code-two-col">
-          <div className="mk-code-form-group">
-            <label className="mk-code-label">Min. Purchase (SAR)</label>
-            <input
-              type="number"
-              value={form.minPurchase}
-              onChange={(e) => update('minPurchase', e.target.value)}
-              className="mk-code-input"
-            />
-          </div>
-          <div className="mk-code-form-group">
-            <label className="mk-code-label">Max Usage (0=unlimited)</label>
-            <input
-              type="number"
-              value={form.maxUsage}
-              onChange={(e) => update('maxUsage', e.target.value)}
-              className="mk-code-input"
-            />
-          </div>
-        </div>
-
-        <div className="mk-code-two-col">
-          <div className="mk-code-form-group">
-            <label className="mk-code-label">Valid From</label>
-            <input
-              type="datetime-local"
-              value={form.validFrom}
-              onChange={(e) => update('validFrom', e.target.value)}
-              className="mk-code-input"
-            />
-          </div>
-          <div className="mk-code-form-group">
-            <label className="mk-code-label">Valid Until</label>
-            <input
-              type="datetime-local"
-              value={form.validUntil}
-              onChange={(e) => update('validUntil', e.target.value)}
-              className="mk-code-input"
-            />
-          </div>
-        </div>
-
-        <div className="mk-code-form-group">
-          <label className="mk-code-label">Activation</label>
-          <div className="mk-code-input" style={{ background: '#f8fafc', color: '#64748b' }}>
-            {isEdit
-              ? `${form.status} — use the list page toggle after Super Admin approval`
-              : 'Pending Super Admin approval (required before POS use)'}
-          </div>
-        </div>
-
-        <div className="mk-code-form-group">
-          <Toggle
-            checked={form.showSavings}
-            onChange={(value) => update('showSavings', value)}
-            label="Show code savings on invoice"
-          />
-        </div>
-
-        <div className="mk-code-form-group">
-          <label className="mk-code-label">Notes</label>
-          <textarea
-            value={form.notes}
-            onChange={(e) => update('notes', e.target.value)}
-            placeholder="Internal notes..."
-            className="mk-code-textarea"
-          />
-        </div>
-
-        {!isEdit ? (
-        <div className="mk-code-approval-note">
-          <Hourglass size={14} strokeWidth={2} />
-          <span>
-            This code will be sent to <b>Super Admin for approval</b> before activation.
-          </span>
-        </div>
-        ) : null}
-
-        <div className="mkp-form-page-footer">
-          <button type="button" onClick={goBack} className="mk-code-cancel-btn" disabled={submitting}>
-            Cancel
-          </button>
-          <button type="submit" className="mk-code-submit-btn" disabled={submitting}>
-            {submitting ? (
-              <>
-                <Loader2 size={14} className="mk-code-spin" />
-                {isEdit ? 'Saving...' : 'Submitting...'}
-              </>
-            ) : isEdit ? (
-              'Save Changes'
-            ) : (
-              'Submit for Approval'
-            )}
-          </button>
-        </div>
-      </form>
+        </form>
       )}
     </MarketingFormShell>
   );

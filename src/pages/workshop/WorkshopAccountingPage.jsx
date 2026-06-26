@@ -43,6 +43,7 @@ import WorkshopAdvances from './accounting/WorkshopAdvances';
 import WorkshopLedgerView from './accounting/WorkshopLedgerView';
 import CashBankRegisterPanel from '../../components/accounting/CashBankRegisterPanel';
 import CoaAccountSearchCombobox, { CashBankAccountSearchCombobox } from '../../components/accounting/CoaAccountSearchCombobox';
+import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
 import { useHqAdminBooksScope } from '../../hooks/useHqAdminBooksScope';
 import '../../styles/admin/AccountingPage.css';
 
@@ -257,6 +258,7 @@ const blankPaymentRow = (i, voucher) => ({
     type: 'Supplier',
     payeeId: '',
     payeeName: '',
+    payeeDisplay: '',
     accountId: '',
     amount: '',
     ref: '',
@@ -270,6 +272,7 @@ const blankReceiptRow = (i, voucher) => ({
     type: 'Customer',
     payeeId: '',
     payeeName: '',
+    payeeDisplay: '',
     accountId: '',
     amount: '',
     ref: '',
@@ -312,8 +315,6 @@ function TransactionEntryView({ branches = [] }) {
     const [paidFromAccountId, setPaidFromAccountId] = useState('');
 
     const [cashBankAccounts, setCashBankAccounts] = useState([]);
-    const [coaPayableExpense, setCoaPayableExpense] = useState([]);
-    const [coaReceivableRevenue, setCoaReceivableRevenue] = useState([]);
     const [coaAll, setCoaAll] = useState([]);
     const [payeesBySupplier, setPayeesBySupplier] = useState([]);
     const [payeesByEmployee, setPayeesByEmployee] = useState([]);
@@ -325,18 +326,14 @@ function TransactionEntryView({ branches = [] }) {
 
     const reloadLookups = useCallback(async () => {
         try {
-            const [cb, payExp, recRev, all, sup, emp, cust] = await Promise.all([
+            const [cb, all, sup, emp, cust] = await Promise.all([
                 listAcctCashBank(),
-                listAcctCoa('payable_expense'),
-                listAcctCoa('receivable_revenue'),
                 listAcctCoa('all'),
                 listAcctPayees('supplier'),
                 listAcctPayees('employee'),
                 listAcctPayees('customer'),
             ]);
             setCashBankAccounts(cb?.accounts ?? []);
-            setCoaPayableExpense(payExp?.accounts ?? []);
-            setCoaReceivableRevenue(recRev?.accounts ?? []);
             setCoaAll(all?.accounts ?? []);
             setPayeesBySupplier(sup?.payees ?? []);
             setPayeesByEmployee(emp?.payees ?? []);
@@ -422,6 +419,16 @@ function TransactionEntryView({ branches = [] }) {
         if (t === 'Customer') return payeesByCustomer;
         return [];
     };
+
+    const payeeComboboxOptionsForType = useCallback((t) => {
+        return payeeOptionsForType(t).map((o) => ({
+            id: String(o.id),
+            label: o.name,
+            subtitle: o.sublabel || '',
+            searchText: [o.name, o.sublabel, o.defaultAccountLabel].filter(Boolean).join(' '),
+            payee: o,
+        }));
+    }, [payeesBySupplier, payeesByEmployee, payeesByCustomer]);
 
     const addRow = useCallback(() => {
         if (activeTab === 'Payments') {
@@ -600,7 +607,6 @@ function TransactionEntryView({ branches = [] }) {
         : 'Select Cash / Bank / Petty Cash';
 
     const renderPayeeSelect = (row, update) => {
-        const options = payeeOptionsForType(row.type);
         if (row.type === 'Other') {
             return (
                 <input
@@ -608,25 +614,51 @@ function TransactionEntryView({ branches = [] }) {
                     className="table-input-field"
                     placeholder="Payee name"
                     value={row.payeeName}
-                    onChange={(e) => update(row.id, { payeeName: e.target.value, payeeId: '' })}
+                    onChange={(e) => update(row.id, { payeeName: e.target.value, payeeId: '', payeeDisplay: e.target.value })}
                 />
             );
         }
+
+        const options = payeeComboboxOptionsForType(row.type);
+        const selectedPayee = payeeOptionsForType(row.type).find((o) => String(o.id) === String(row.payeeId));
+        const displayValue = row.payeeDisplay ?? selectedPayee?.name ?? '';
+
         return (
-            <select
-                className="table-input-field"
+            <SearchableEntityCombobox
+                className="trans-account-combobox"
+                options={options}
                 value={row.payeeId}
-                onChange={(e) => {
-                    const pid = e.target.value;
-                    const opt = options.find((o) => String(o.id) === String(pid));
-                    update(row.id, { payeeId: pid, payeeName: opt?.name ?? '' });
+                displayText={displayValue}
+                entityLabel={row.type.toLowerCase()}
+                placeholder={`Type ${row.type.toLowerCase()}… (↑↓ Enter)`}
+                emptyHint={
+                    isAdminHqBooks && row.type === 'Customer'
+                        ? 'No corporate customers — try company name or VAT'
+                        : `No ${row.type.toLowerCase()}s match — type to search`
+                }
+                onDisplayTextChange={(text) => {
+                    update(row.id, { payeeDisplay: text });
+                    if (!text.trim()) {
+                        update(row.id, { payeeId: '', payeeName: '', accountId: '' });
+                        return;
+                    }
+                    if (row.payeeId) {
+                        const name = (selectedPayee?.name || '').trim();
+                        if (name && text.trim() !== name) {
+                            update(row.id, { payeeId: '', payeeName: '', accountId: '' });
+                        }
+                    }
                 }}
-            >
-                <option value="">Select {row.type.toLowerCase()}</option>
-                {options.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name}{o.sublabel ? ` — ${o.sublabel}` : ''}</option>
-                ))}
-            </select>
+                onSelect={(opt) => {
+                    const p = opt.payee;
+                    update(row.id, {
+                        payeeId: opt.id,
+                        payeeName: p?.name || opt.label || '',
+                        payeeDisplay: p?.name || opt.label || '',
+                        accountId: p?.defaultAccountId || '',
+                    });
+                }}
+            />
         );
     };
 
@@ -650,7 +682,7 @@ function TransactionEntryView({ branches = [] }) {
                     <h2 className="trans-entry-title">Transaction Entry</h2>
                     <p className="trans-entry-subtitle">
                         {isAdminHqBooks
-                            ? 'Record Platform HQ payments, receipts, and journal entries (not linked to workshop branches).'
+                            ? 'HQ Transaction Hub — select Customer, Employee, or Supplier; the control account auto-fills (AR 1110, Advances 1250, AP 2001/2010). Override the account column for expense or income postings.'
                             : 'Record payments, receipts, and journal entries'}
                     </p>
                 </div>
@@ -770,7 +802,7 @@ function TransactionEntryView({ branches = [] }) {
                                     <th style={{ width: '150px' }}>Date</th>
                                     <th style={{ width: '150px' }}>Type</th>
                                     <th>{activeTab === 'Payments' ? 'Payee (To)' : 'Received From'}</th>
-                                    <th>{activeTab === 'Payments' ? 'Account Dr — Payable/Expense/Equity' : 'Account Cr — Receivable/Revenue/Equity'}</th>
+                                    <th>{activeTab === 'Payments' ? 'Account Dr — COA (all types)' : 'Account Cr — COA (all types)'}</th>
                                     <th style={{ width: '120px' }}>Amount (SAR)</th>
                                     <th>Reference</th>
                                     <th>Notes</th>
@@ -784,12 +816,12 @@ function TransactionEntryView({ branches = [] }) {
                                     <td><input type="text" className="table-input-field voucher-input" value={row.voucher} readOnly /></td>
                                     <td><input type="date" className="table-input-field" value={row.date} onChange={(e) => updatePaymentRow(row.id, { date: e.target.value })} /></td>
                                     <td>
-                                        <select className="table-input-field" value={row.type} onChange={(e) => updatePaymentRow(row.id, { type: e.target.value, payeeId: '', payeeName: '' })}>
+                                        <select className="table-input-field" value={row.type} onChange={(e) => updatePaymentRow(row.id, { type: e.target.value, payeeId: '', payeeName: '', payeeDisplay: '', accountId: '' })}>
                                             {PAYEE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                                         </select>
                                     </td>
                                     <td>{renderPayeeSelect(row, updatePaymentRow)}</td>
-                                    <td>{renderAccountSelect(row, updatePaymentRow, coaPayableExpense)}</td>
+                                    <td>{renderAccountSelect(row, updatePaymentRow, coaAll)}</td>
                                     <td><input type="number" step="0.01" min="0" className="table-input-field" value={row.amount} onChange={(e) => updatePaymentRow(row.id, { amount: e.target.value })} placeholder="0.00" /></td>
                                     <td><input type="text" className="table-input-field" placeholder="Ref #" value={row.ref} onChange={(e) => updatePaymentRow(row.id, { ref: e.target.value })} /></td>
                                     <td>
@@ -818,12 +850,12 @@ function TransactionEntryView({ branches = [] }) {
                                         </div>
                                     </td>
                                     <td>
-                                        <select className="table-input-field" value={row.type} onChange={(e) => updateReceiptRow(row.id, { type: e.target.value, payeeId: '', payeeName: '' })}>
+                                        <select className="table-input-field" value={row.type} onChange={(e) => updateReceiptRow(row.id, { type: e.target.value, payeeId: '', payeeName: '', payeeDisplay: '', accountId: '' })}>
                                             {PAYEE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                                         </select>
                                     </td>
                                     <td>{renderPayeeSelect(row, updateReceiptRow)}</td>
-                                    <td>{renderAccountSelect(row, updateReceiptRow, coaReceivableRevenue)}</td>
+                                    <td>{renderAccountSelect(row, updateReceiptRow, coaAll)}</td>
                                     <td><input type="number" step="0.01" min="0" className="table-input-field" value={row.amount} onChange={(e) => updateReceiptRow(row.id, { amount: e.target.value })} placeholder="0.00" /></td>
                                     <td><input type="text" className="table-input-field" placeholder="Ref #" value={row.ref} onChange={(e) => updateReceiptRow(row.id, { ref: e.target.value })} /></td>
                                     <td>

@@ -42,6 +42,7 @@ import {
     marketingRejectPromoCode,
     marketingRejectExpense,
     marketingPayExpense,
+    marketingListWalletCashAccounts,
 } from '../../services/superAdminMarketingApi';
 import Modal from '../../components/Modal';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
@@ -781,6 +782,173 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error })
     );
 }
 
+function normalizeApprovalCashAccounts(res) {
+    const list = Array.isArray(res?.accounts)
+        ? res.accounts
+        : Array.isArray(res?.cashAccounts)
+            ? res.cashAccounts
+            : [];
+    return list.map((a) => ({
+        id: String(a.id),
+        name: a.name || a.accountName || a.account_name || `Account ${a.id}`,
+        balance: Number(a.currentBalance ?? a.balance ?? 0),
+        currencyCode: a.currencyCode || a.currency_code || 'SAR',
+    }));
+}
+
+/** Super Admin: pick HQ cash/bank account for marketing wallet top-up or expense payment. */
+function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 'approve' }) {
+    const [remarks, setRemarks] = useState('');
+    const [accounts, setAccounts] = useState([]);
+    const [accountsLoading, setAccountsLoading] = useState(true);
+    const [accountsError, setAccountsError] = useState('');
+    const [selectedId, setSelectedId] = useState('');
+
+    const isBudget = item?.entityType === 'marketing_budget_request';
+    const isExpense = item?.entityType === 'marketing_expense';
+    const amount = Number(item?.meta?.amount ?? 0);
+    const currency = item?.meta?.currencyCode ?? 'SAR';
+    const amountLabel = `${currency} ${amount.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
+
+    useEffect(() => {
+        let cancelled = false;
+        setRemarks('');
+        setAccountsLoading(true);
+        setAccountsError('');
+        marketingListWalletCashAccounts()
+            .then((res) => {
+                if (cancelled) return;
+                const normalized = normalizeApprovalCashAccounts(res);
+                setAccounts(normalized);
+                const preset = isBudget ? item?.meta?.sourceAccountId : null;
+                if (preset && normalized.some((a) => a.id === String(preset))) {
+                    setSelectedId(String(preset));
+                } else if (normalized.length > 0) {
+                    setSelectedId(normalized[0].id);
+                } else {
+                    setSelectedId('');
+                }
+            })
+            .catch((e) => {
+                if (!cancelled) {
+                    setAccountsError(e?.message || 'Failed to load cash/bank accounts.');
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setAccountsLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [item, isBudget]);
+
+    const selected = accounts.find((a) => a.id === selectedId);
+
+    const title = mode === 'pay'
+        ? 'Pay & Post to Chart of Accounts'
+        : isBudget
+            ? 'Approve wallet top-up'
+            : 'Approve marketing expense';
+
+    const lead = mode === 'pay'
+        ? <>Post payment for <strong>{item.title}</strong> to HQ Chart of Accounts.</>
+        : isBudget
+            ? <>Fund the marketing wallet from an HQ cash/bank account. Amount: <strong>{amountLabel}</strong></>
+            : <>Approve and pay <strong>{item.title}</strong> ({amountLabel}) from an HQ cash/bank account.</>;
+
+    const accountingNote = isBudget
+        ? 'Double-entry: Debit Marketing Budget Wallet (1330) · Credit selected payment account'
+        : 'Double-entry: Debit Marketing Expense (6600) · Credit selected payment account';
+
+    return (
+        <Modal
+            title={title}
+            onClose={busy ? undefined : onCancel}
+            width={520}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-approve"
+                        disabled={busy || accountsLoading || !selectedId}
+                        onClick={() => {
+                            const payload = {
+                                notes: remarks.trim() || undefined,
+                                remarks: remarks.trim() || undefined,
+                            };
+                            if (isBudget) {
+                                payload.sourceAccountId = selectedId;
+                                payload.sourceAccountName = selected?.name || '';
+                            } else if (isExpense) {
+                                payload.paymentAccountId = selectedId;
+                                payload.paymentAccountName = selected?.name || '';
+                            }
+                            onConfirm(payload);
+                        }}
+                    >
+                        {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
+                        {mode === 'pay' ? 'Pay & Post' : 'Approve & Post'}
+                    </button>
+                </>
+            )}
+        >
+            <p className="approval-modal-lead">{lead}</p>
+            <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: '#475569' }}>{accountingNote}</p>
+
+            <label className="approval-modal-label" htmlFor="payment-account-select">
+                Payment account <span style={{ color: '#b91c1c' }}>*</span>
+            </label>
+            {accountsLoading ? (
+                <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                    <Loader size={14} className="spin" /> Loading accounts…
+                </p>
+            ) : accountsError ? (
+                <p style={{ color: '#b91c1c', fontSize: '0.875rem' }}>{accountsError}</p>
+            ) : accounts.length === 0 ? (
+                <p style={{ color: '#b91c1c', fontSize: '0.875rem' }}>
+                    No HQ cash/bank accounts found. Add accounts under Cash &amp; Bank first.
+                </p>
+            ) : (
+                <select
+                    id="payment-account-select"
+                    className="approval-modal-textarea"
+                    style={{ minHeight: 'unset', padding: '10px 12px' }}
+                    value={selectedId}
+                    onChange={(e) => setSelectedId(e.target.value)}
+                    disabled={busy}
+                >
+                    {accounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                            {account.name} — {account.currencyCode}{' '}
+                            {account.balance.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })}
+                        </option>
+                    ))}
+                </select>
+            )}
+
+            <label className="approval-modal-label" htmlFor="payment-approve-remarks" style={{ marginTop: 14 }}>
+                Remarks <span className="approval-modal-optional">(optional)</span>
+            </label>
+            <textarea
+                id="payment-approve-remarks"
+                className="approval-modal-textarea"
+                rows={3}
+                placeholder="e.g. Approved for Q2 campaigns."
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                disabled={busy}
+            />
+        </Modal>
+    );
+}
+
 /** Super-admin: approve corporate_registration with final branch/store list (any workshop). */
 function CorporateApproveModal({ item, busy, onCancel, onConfirm }) {
     const [remarks, setRemarks] = useState('');
@@ -1034,7 +1202,7 @@ function MarketingBudgetRequestDetailsModal({ id, item, onClose, onApprove, onRe
                             )}
                             {onApprove && (
                                 <button type="button" className="btn-approve" onClick={onApprove}>
-                                    <Check size={16} /> Approve
+                                    <Check size={16} /> Approve &amp; Post to CAO
                                 </button>
                             )}
                         </>
@@ -1313,7 +1481,7 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
                             )}
                             {onApprove && (
                                 <button type="button" className="btn-approve" onClick={onApprove}>
-                                    <Check size={16} /> Approve
+                                    <Check size={16} /> Approve &amp; Post to CAO
                                 </button>
                             )}
                         </>
@@ -2177,6 +2345,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     // dialogs
     const [detailsTarget, setDetailsTarget] = useState(null); // { entityType, id }
     const [approveTarget, setApproveTarget] = useState(null); // item
+    const [payTarget, setPayTarget] = useState(null); // marketing_expense awaiting pay
     const [rejectTarget, setRejectTarget] = useState(null);   // item
     const [approveModalError, setApproveModalError] = useState('');
 
@@ -2443,7 +2612,9 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 await approveSuperAdminSalesReturn(item.id);
             } else if (isMarketingBudgetRequest(item.entityType)) {
                 await marketingApproveBudgetRequest(item.id, {
-                    notes: payload.remarks ?? payload.notes,
+                    notes: payload.notes ?? payload.remarks,
+                    sourceAccountId: payload.sourceAccountId,
+                    sourceAccountName: payload.sourceAccountName,
                 });
             } else if (isMarketingPromotion(item.entityType)) {
                 await marketingApprovePromotion(item.id, {
@@ -2455,7 +2626,9 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 });
             } else if (isMarketingExpense(item.entityType)) {
                 await marketingApproveExpense(item.id, {
-                    notes: payload.remarks ?? payload.notes,
+                    notes: payload.notes ?? payload.remarks,
+                    paymentAccountId: payload.paymentAccountId,
+                    paymentAccountName: payload.paymentAccountName,
                 });
             } else if (isCorporatePriceQuotation(item.entityType)) {
                 await approveSuperAdminCorporatePriceQuotation(item.id);
@@ -2467,7 +2640,13 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             setApproveModalError('');
             setDetailsTarget(null);
             setReloadTick((t) => t + 1);
-            showToast('Request approved.');
+            const postedToCao =
+                isMarketingBudgetRequest(item.entityType) || isMarketingExpense(item.entityType);
+            showToast(
+                postedToCao
+                    ? 'Approved and posted to Chart of Accounts.'
+                    : 'Request approved.',
+            );
         } catch (err) {
             if (item.entityType === 'admin_wallet_fund_request') {
                 setApproveModalError(err?.message || 'Approve failed');
@@ -2511,12 +2690,17 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         }
     };
 
-    const handlePayExpense = async (item) => {
+    const handlePayConfirm = async (item, payload) => {
         if (!item || item.entityType !== 'marketing_expense') return;
         setActionLoading(approvalItemKey(item));
         try {
-            await marketingPayExpense(item.id, {});
+            await marketingPayExpense(item.id, {
+                notes: payload.notes ?? payload.remarks,
+                paymentAccountId: payload.paymentAccountId,
+                paymentAccountName: payload.paymentAccountName,
+            });
             removeFromList(item);
+            setPayTarget(null);
             setDetailsTarget(null);
             setReloadTick((t) => t + 1);
             showToast('Expense paid and posted to Chart of Accounts.');
@@ -2525,6 +2709,11 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         } finally {
             setActionLoading(null);
         }
+    };
+
+    const handlePayExpense = (item) => {
+        if (!item || item.entityType !== 'marketing_expense') return;
+        setPayTarget(item);
     };
 
     const toggleModule = (module) => {
@@ -2935,6 +3124,15 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     }}
                     onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
                 />
+            ) : approveTarget
+                && (isMarketingBudgetRequest(approveTarget.entityType)
+                    || isMarketingExpense(approveTarget.entityType)) ? (
+                <MarketingPaymentApproveModal
+                    item={approveTarget}
+                    busy={actionLoading === approvalItemKey(approveTarget)}
+                    onCancel={() => setApproveTarget(null)}
+                    onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
+                />
             ) : approveTarget ? (
                 <ApproveModal
                     item={approveTarget}
@@ -2943,6 +3141,16 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     onConfirm={(remarks) => handleApproveConfirm(approveTarget, remarks)}
                 />
             ) : null}
+
+            {payTarget && payTarget.entityType === 'marketing_expense' && (
+                <MarketingPaymentApproveModal
+                    item={payTarget}
+                    mode="pay"
+                    busy={actionLoading === approvalItemKey(payTarget)}
+                    onCancel={() => setPayTarget(null)}
+                    onConfirm={(payload) => handlePayConfirm(payTarget, payload)}
+                />
+            )}
 
             {rejectTarget && (
                 <RejectModal

@@ -72,6 +72,11 @@ const PortalLoginPage = () => {
             }
             return false;
         }
+        if (portal === 'marketing') {
+            if (normalizedType === 'marketing_user') return true;
+            if (normalizedType === 'platform_admin') return true;
+            return false;
+        }
         return normalizedType === normalizeUserType(PORTAL_USER_TYPES[portal]);
     };
 

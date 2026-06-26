@@ -287,6 +287,24 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice }) {
         </tbody>
       </table>
 
+      {Array.isArray(invoice.appliedPromotions) &&
+      invoice.appliedPromotions.length > 0 ? (
+        <div className="cti-promo-banner">
+          {invoice.appliedPromotions.map((promo, i) => (
+            <div className="cti-promo-row" key={promo.id || i}>
+              <span className="cti-promo-name">
+                {promo.bannerText || promo.name}
+              </span>
+              {Number(promo.discount) > 0 ? (
+                <span className="cti-promo-amount">
+                  − {sar(Number(promo.discount))}
+                </span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div className="cti-checklist-banner">
         <span>Check list</span>
         <span>قائمة الفحص</span>

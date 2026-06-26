@@ -42,7 +42,6 @@ import { MarketingDashboard } from './pages/marketing/MarketingDashboard';
 import CampaignRequests from './pages/marketing/CampaignRequests';
 import { PromoCodes } from './pages/marketing/PromoCodes';
 import { ReferralManagement } from './pages/marketing/ReferralManagement';
-import { LoyaltyPrograms } from './pages/marketing/LoyaltyPrograms';
 import AnalyticsROI from './pages/marketing/AnalyticsROI';
 import { CustomerInsights } from './pages/marketing/CustomerInsights';
 import ReferralRules from './pages/marketing/ReferralRules';
@@ -65,7 +64,6 @@ import MarketingPromoCodeReportPage from './pages/marketing/MarketingPromoCodeRe
 import MarketingPromoCodeAutoReportPage from './pages/marketing/MarketingPromoCodeAutoReportPage';
 import MarketingWalletBudgetRequestPage from './pages/marketing/MarketingWalletBudgetRequestPage';
 import ExpenseFormPage from './pages/marketing/ExpenseFormPage';
-import LoyaltyProgramFormPage from './pages/marketing/LoyaltyProgramFormPage';
 import InfluencerReferrerFormPage from './pages/marketing/InfluencerReferrerFormPage';
 import AdPlatformConfigurePage from './pages/marketing/AdPlatformConfigurePage';
 import ReferrerFormPage from './pages/marketing/ReferrerFormPage';
@@ -133,7 +131,10 @@ function App() {
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="approvals" element={<ApprovalsPage />} />
               <Route path="zone-management" element={<ZoneManagementPage />} />
-              <Route path="tier-management" element={<TierManagementPage />} />
+              <Route
+                path="tier-management"
+                element={<Navigate to="/admin/marketing/tier-management" replace />}
+              />
 
               <Route path="marketing" element={<MarketingPortalPage />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
@@ -169,9 +170,8 @@ function App() {
                 <Route path="referral-types-rules/:id/edit" element={<ExpenseFormPage />} />
                 <Route path="referral-types-rules" element={<ReferralRules />} />
                 <Route path="analytics-roi" element={<AnalyticsROI />} />
-                <Route path="loyalty-programs/new" element={<LoyaltyProgramFormPage />} />
-                <Route path="loyalty-programs/:id/edit" element={<LoyaltyProgramFormPage />} />
-                <Route path="loyalty-programs" element={<LoyaltyPrograms />} />
+                <Route path="loyalty-programs/*" element={<Navigate to="../tier-management" replace />} />
+                <Route path="tier-management" element={<TierManagementPage />} />
                 <Route path="customer-insights" element={<CustomerInsights />} />
                 <Route path="campaign-reports" element={<CampaignReports />} />
                 <Route path="ad-platforms/:platformKey/configure" element={<AdPlatformConfigurePage />} />
@@ -280,6 +280,9 @@ function App() {
               <Route path="promo-codes/:id/auto-report" element={<MarketingPromoCodeAutoReportPage />} />
               <Route path="promo-codes/:id/edit" element={<PromoCodeFormPage />} />
               <Route path="promo-codes" element={<PromoCodes />} />
+              <Route path="referral-management/budget-request" element={<MarketingWalletBudgetRequestPage />} />
+              <Route path="marketing-wallet/budget-request" element={<MarketingWalletBudgetRequestPage />} />
+              <Route path="marketing-wallet" element={<ReferralManagement />} />
               <Route path="referral-management" element={<ReferralManagement />} />
               <Route path="expenses/new" element={<ExpenseFormPage />} />
               <Route path="expenses/:id/edit" element={<ExpenseFormPage />} />
@@ -287,10 +290,12 @@ function App() {
               <Route path="referral-types-rules/new" element={<ExpenseFormPage />} />
               <Route path="referral-types-rules/:id/edit" element={<ExpenseFormPage />} />
               <Route path="referral-types-rules" element={<ReferralRules />} />
+              <Route path="budget-optimizer" element={<BudgetOptimizer />} />
               <Route path="analytics-roi" element={<AnalyticsROI />} />
-              <Route path="loyalty-programs/new" element={<LoyaltyProgramFormPage />} />
-              <Route path="loyalty-programs/:id/edit" element={<LoyaltyProgramFormPage />} />
-              <Route path="loyalty-programs" element={<LoyaltyPrograms />} />
+              <Route path="loyalty-programs/*" element={<Navigate to="../tier-management" replace />} />
+              <Route path="tier-management" element={<TierManagementPage />} />
+              <Route path="customer-insights" element={<CustomerInsights />} />
+              <Route path="campaign-reports" element={<CampaignReports />} />
               <Route path="influencer-referrers/new" element={<InfluencerReferrerFormPage />} />
               <Route path="influencer-referrers/:id/edit" element={<InfluencerReferrerFormPage />} />
               <Route path="influencer-referrers" element={<InfluencerReferrers />} />
@@ -302,6 +307,7 @@ function App() {
               <Route path="referrer-management/rules/new" element={<ReferrerCommissionRuleFormPage />} />
               <Route path="referrer-management/payouts/new" element={<ReferrerPayoutFormPage />} />
               <Route path="referrer-management" element={<ReferrerManagement />} />
+              <Route path="*" element={<Navigate to="dashboard" replace />} />
             </Route>
 
             <Route

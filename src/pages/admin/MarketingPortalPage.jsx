@@ -25,7 +25,7 @@ const SUB_TABS = [
     { id: 'marketing-wallet',     label: 'Marketing Wallet',     path: 'marketing-wallet',     permission: 'marketing.referral-management.view' },
     { id: 'budget-optimizer',     label: 'Budget Optimizer',     path: 'budget-optimizer',     permission: 'marketing.dashboard.view' },
     { id: 'expenses', label: 'Expenses', path: 'expenses', permission: 'marketing.expenses.view' },
-    { id: 'loyalty-programs',     label: 'Loyalty Programs',     path: 'loyalty-programs',     permission: 'marketing.loyalty-programs.view' },
+    { id: 'tier-management',      label: 'Tier Management',      path: 'tier-management',      permission: 'marketing.loyalty-programs.view' },
     { id: 'customer-insights',    label: 'Customer Insights',    path: 'customer-insights',    permission: 'marketing.customer-insights.view' },
 ];
 
