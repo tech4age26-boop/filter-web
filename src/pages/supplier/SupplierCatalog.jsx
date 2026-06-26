@@ -921,6 +921,40 @@ export default function SupplierCatalog() {
                         const sup = getBrandRow(item.supplier_id);
                         const inStock = (item.stock_qty || 0) > 0;
                         const isSelected = selectedProductIds.has(String(item.id));
+                        const masterProduct = masterProducts.find(
+                            (p) => String(p.id) === String(item.id),
+                        );
+                        const added = masterProduct ? isAlreadyAdded(masterProduct) : false;
+                        let supplierWhQty = 0;
+                        if (added && masterProduct) {
+                            const skuKey = String(masterProduct.sku || '')
+                                .trim()
+                                .toLowerCase();
+                            const nameKey = String(masterProduct.name || '')
+                                .trim()
+                                .toLowerCase();
+                            const sp =
+                                existingSupplierProducts.find(
+                                    (p) =>
+                                        String(p.masterProductId || '') ===
+                                        String(masterProduct.id),
+                                ) ||
+                                existingSupplierProducts.find(
+                                    (p) =>
+                                        skuKey &&
+                                        String(p.sku || '').trim().toLowerCase() === skuKey,
+                                ) ||
+                                existingSupplierProducts.find(
+                                    (p) =>
+                                        nameKey &&
+                                        String(p.name || p.productName || '')
+                                            .trim()
+                                            .toLowerCase() === nameKey,
+                                );
+                            supplierWhQty = Number(
+                                sp?.warehouseQty ?? sp?.qty ?? sp?.currentQuantity ?? 0,
+                            );
+                        }
                         return (
                             <div
                                 key={item.id}
