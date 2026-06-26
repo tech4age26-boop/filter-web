@@ -10,6 +10,7 @@ import {
     Printer,
 } from 'lucide-react';
 import SearchableEntityCombobox from '../SearchableEntityCombobox';
+import ExpenseProofThumbnail from './ExpenseProofThumbnail';
 import {
     LEDGER_ROWS_PER_PAGE,
     fmtBalanceSide,
@@ -87,7 +88,7 @@ export default function ProfessionalLedgerStatementDocument({
         }));
     }, [expenseCategoryComboboxOptions, expenseCategories]);
     const colSpan = showPettyCashExpenseColumns
-        ? 7
+        ? 8
         : showCashLedgerColumns
             ? 7
             : 5;
@@ -366,6 +367,7 @@ export default function ProfessionalLedgerStatementDocument({
                                     <>
                                         <th>{walletUserColumnLabel}</th>
                                         <th>{expenseCategoryColumnLabel}</th>
+                                        <th style={{ width: 72 }}>Proof</th>
                                     </>
                                 ) : null}
                                 {showCashLedgerColumns ? (
@@ -392,6 +394,7 @@ export default function ProfessionalLedgerStatementDocument({
                                     <td>—</td>
                                     {showPettyCashExpenseColumns ? (
                                         <>
+                                            <td>—</td>
                                             <td>—</td>
                                             <td>—</td>
                                         </>
@@ -433,6 +436,9 @@ export default function ProfessionalLedgerStatementDocument({
                                                 </td>
                                                 <td title={r.expenseCategoryLabel || ''}>
                                                     {r.expenseCategoryLabel || '—'}
+                                                </td>
+                                                <td>
+                                                    <ExpenseProofThumbnail proofUrl={r.expenseProofUrl} size={32} />
                                                 </td>
                                             </>
                                         ) : null}

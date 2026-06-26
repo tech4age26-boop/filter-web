@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Wallet, Plus, Receipt, Loader2, Send, MessageCircle } from 'lucide-react';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import ExpenseProofPicker from '../../components/accounting/ExpenseProofPicker';
+import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import { useAuth } from '../../context/AuthContext';
 import {
     createMyFundRequest,
@@ -58,6 +60,7 @@ export default function MyWalletPage() {
     const [expenseCategorySearch, setExpenseCategorySearch] = useState('');
     const [expenseDescription, setExpenseDescription] = useState('');
     const [expenseVendor, setExpenseVendor] = useState('');
+    const [expenseProofPreview, setExpenseProofPreview] = useState(null);
     const [expenseSaving, setExpenseSaving] = useState(false);
     const [walletChatNotice, setWalletChatNotice] = useState('');
     const [lastChatConversationId, setLastChatConversationId] = useState('');
@@ -179,6 +182,7 @@ export default function MyWalletPage() {
                 description: expenseDescription.trim(),
                 vendorName: expenseVendor.trim() || undefined,
                 expenseCategory,
+                ...(expenseProofPreview ? { proofUrl: expenseProofPreview } : {}),
             });
             setExpenseOpen(false);
             setExpenseAmount('');
@@ -186,6 +190,7 @@ export default function MyWalletPage() {
             setExpenseCategorySearch('');
             setExpenseDescription('');
             setExpenseVendor('');
+            setExpenseProofPreview(null);
             if (canPostToChat) {
                 applyChatResult(
                     res?.chat,
@@ -418,6 +423,12 @@ export default function MyWalletPage() {
                                     <label>Vendor (optional)</label>
                                     <input type="text" value={expenseVendor} onChange={(e) => setExpenseVendor(e.target.value)} placeholder="e.g. Careem, Jarir" />
                                 </div>
+                                <ExpenseProofPicker
+                                    id="admin-wallet-expense-proof"
+                                    preview={expenseProofPreview}
+                                    onChange={setExpenseProofPreview}
+                                    disabled={expenseSaving}
+                                />
                                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                                     <button type="button" className="ws-btn-secondary" onClick={() => setExpenseOpen(false)}>Cancel</button>
                                     <button type="submit" className="ws-btn-primary" disabled={expenseSaving}>
@@ -489,6 +500,7 @@ export default function MyWalletPage() {
                                         <th>Date</th>
                                         <th>Reference</th>
                                         <th>Description</th>
+                                        <th>Proof</th>
                                         <th>Type</th>
                                         <th>Amount</th>
                                     </tr>
@@ -505,6 +517,11 @@ export default function MyWalletPage() {
                                                 </td>
                                                 <td style={{ opacity: 0.7 }}>{t.referenceId || '—'}</td>
                                                 <td>{coerceWalletFieldText(t.description)}</td>
+                                                <td>
+                                                    {!isCredit ? (
+                                                        <ExpenseProofThumbnail proofUrl={t.proofUrl} size={36} />
+                                                    ) : '—'}
+                                                </td>
                                                 <td>
                                                     <span className={`ws-badge ${isCredit ? 'ws-badge--green' : 'ws-badge--red'}`}>
                                                         {t.type || (isCredit ? 'credit' : 'debit')}

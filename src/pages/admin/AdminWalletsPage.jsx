@@ -17,6 +17,7 @@ import {
     coerceWalletFieldText,
     formatWalletTxDate,
 } from '../../utils/walletHistory';
+import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import '../../styles/admin/AdminWalletsPage.css';
 
 function formatSar(value) {
@@ -114,6 +115,7 @@ function ExpensesTable({ rows, loading }) {
                         <th>Reference</th>
                         <th>Description</th>
                         <th>Vendor</th>
+                        <th>Proof</th>
                         <th>Amount</th>
                     </tr>
                 </thead>
@@ -129,6 +131,7 @@ function ExpensesTable({ rows, loading }) {
                                 <td className="admin-wallets-tx-ref">{t.referenceId || '—'}</td>
                                 <td>{parsed.description}</td>
                                 <td style={{ color: '#64748b' }}>{parsed.vendor || '—'}</td>
+                                <td><ExpenseProofThumbnail proofUrl={t.proofUrl} size={36} /></td>
                                 <td className="admin-wallets-tx-amount--debit">
                                     − SAR {formatSar(Math.abs(amount))}
                                 </td>

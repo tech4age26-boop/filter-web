@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Plus, Banknote, History, Receipt } from 'lucide-react';
 import Modal from '../Modal';
 import SearchableEntityCombobox from '../SearchableEntityCombobox';
+import ExpenseProofPicker from '../accounting/ExpenseProofPicker';
+import ExpenseProofThumbnail from '../accounting/ExpenseProofThumbnail';
 import { adminWalletExpenseComboboxOptions } from '../../constants/adminWalletExpenseCategories';
 import { formatSar } from './PlatformChatWalletMessage';
 import '../../styles/admin/PlatformChatWallet.css';
@@ -29,6 +31,7 @@ export default function PlatformChatWalletPlusMenu({
     const [expenseCategorySearch, setExpenseCategorySearch] = useState('');
     const [expenseDescription, setExpenseDescription] = useState('');
     const [expenseVendor, setExpenseVendor] = useState('');
+    const [expenseProofPreview, setExpenseProofPreview] = useState(null);
 
     const expenseCategoryOptions = useMemo(() => adminWalletExpenseComboboxOptions(), []);
 
@@ -107,6 +110,7 @@ export default function PlatformChatWalletPlusMenu({
                 description,
                 vendorName: expenseVendor.trim() || undefined,
                 expenseCategory,
+                ...(expenseProofPreview ? { proofUrl: expenseProofPreview } : {}),
             });
             const msg = res?.message ?? res?.data?.message;
             if (msg) onMessageSent?.(msg);
@@ -116,6 +120,7 @@ export default function PlatformChatWalletPlusMenu({
             setExpenseCategorySearch('');
             setExpenseDescription('');
             setExpenseVendor('');
+            setExpenseProofPreview(null);
             setMenuOpen(false);
         } catch (err) {
             onError?.(err?.message || 'Could not record expense');
@@ -300,6 +305,12 @@ export default function PlatformChatWalletPlusMenu({
                             value={expenseVendor}
                             onChange={(e) => setExpenseVendor(e.target.value)}
                             placeholder="e.g. Careem, Jarir"
+                        />
+                        <ExpenseProofPicker
+                            id="pc-wallet-expense-proof"
+                            preview={expenseProofPreview}
+                            onChange={setExpenseProofPreview}
+                            disabled={busy}
                         />
                     </form>
                 </Modal>

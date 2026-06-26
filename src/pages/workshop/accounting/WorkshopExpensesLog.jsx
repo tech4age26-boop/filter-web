@@ -5,6 +5,7 @@ import {
     listPettyCashExpensesLog,
 } from '../../../services/accountingLogsApi';
 import { useHqAdminBooksScope } from '../../../hooks/useHqAdminBooksScope';
+import ExpenseProofThumbnail from '../../../components/accounting/ExpenseProofThumbnail';
 import '../../../styles/admin/AccountingPage.css';
 
 const fmt = (n) => {
@@ -85,7 +86,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
         [rows],
     );
 
-    const colSpan = isAdminHqBooks ? 6 : 7;
+    const colSpan = isAdminHqBooks ? 7 : 8;
 
     return (
         <div className="accounting-page module-container">
@@ -176,6 +177,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                             <th className="table-th">User</th>
                             {!isAdminHqBooks ? <th className="table-th">Branch</th> : null}
                             <th className="table-th">Approved by</th>
+                            <th className="table-th">Proof</th>
                             <th className="table-th">Description</th>
                         </tr>
                     </thead>
@@ -190,6 +192,9 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                                 <td className="table-cell">{r.requestedBy?.name ?? r.requestedBy?.email ?? '—'}</td>
                                 {!isAdminHqBooks ? <td className="table-cell">{r.branch?.name ?? '—'}</td> : null}
                                 <td className="table-cell">{r.approvedBy?.name ?? '—'}</td>
+                                <td className="table-cell">
+                                    <ExpenseProofThumbnail proofUrl={r.proofUrl} size={36} />
+                                </td>
                                 <td className="table-cell" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {r.description ?? '—'}
                                 </td>
