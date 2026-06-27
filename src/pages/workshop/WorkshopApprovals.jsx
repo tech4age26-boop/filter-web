@@ -13,10 +13,19 @@ function isSalesReturnRow(row) {
     return row?._source === 'sales_return';
 }
 
-/** Map a row kind → permission-code suffix. */
+function isAdminWalletFundRow(row) {
+    return row?.kind === 'admin_wallet_fund';
+}
+
+function isAdminWalletExpenseRow(row) {
+    return row?.kind === 'admin_wallet_expense';
+}
+
 function approvalTypeKey(row) {
     if (isSupplierSalesInvoiceRow(row)) return 'supplier-invoice';
     if (isSalesReturnRow(row)) return 'sales-return';
+    if (isAdminWalletFundRow(row)) return 'top-up';
+    if (isAdminWalletExpenseRow(row)) return 'expense';
     if (isTopUpRequest(row)) return 'top-up';
     if (isExpenseRequest(row)) return 'expense';
     return null;
@@ -114,6 +123,8 @@ function isExpenseRequest(row) {
 function formatRequestKindLabel(row) {
     if (isSupplierSalesInvoiceRow(row)) return 'Supplier invoice';
     if (isSalesReturnRow(row)) return 'Sales return';
+    if (isAdminWalletFundRow(row)) return 'Platform admin fund';
+    if (isAdminWalletExpenseRow(row)) return 'Platform admin expense';
     const kind = row?.kind ?? row?.type;
     const k = String(kind || '')
         .trim()
@@ -219,7 +230,7 @@ export default function WorkshopApprovals({
             const supplierBranchScope = branchLockedId
                 ? branchScopeParams(branchLockedId)
                 : {};
-            const [response, siRes, srRes] = await Promise.all([
+            const [response, siRes, srRes, adminWalletRes] = await Promise.all([
                 apiFetch(`/workshop-staff/petty-cash/requests${qs(pettyQs)}`),
                 loadSupplierInvoices
                     ? apiFetch(
@@ -240,6 +251,11 @@ export default function WorkshopApprovals({
                           ...expenseScope,
                       }).catch(() => null)
                     : Promise.resolve(null),
+                apiFetch(`/workshop-staff/admin-wallet-approvals${qs({
+                    status: queueFilter === 'all' ? 'pending' : queueFilter,
+                    ...branchScopeParams(selectedBranchId),
+                    ...expenseScope,
+                })}`).catch(() => null),
             ]);
 
             if (!(response?.success && Array.isArray(response.requests))) {
@@ -305,7 +321,25 @@ export default function WorkshopApprovals({
                 items: sr.items,
             }));
 
-            const merged = [...supplierRows, ...salesReturnRows, ...list].sort((a, b) => {
+            const adminWalletRows = Array.isArray(adminWalletRes?.requests)
+                ? adminWalletRes.requests.map((r) => ({
+                    id: `admin-wallet-${r.kind}-${r.id}`,
+                    kind: r.kind,
+                    amount: Number(r.amount ?? 0),
+                    status: r.status,
+                    requestedAt: r.requestedAt,
+                    cashier: { name: r.requestedBy ?? r.adminUserName ?? 'Platform admin' },
+                    description: r.description,
+                    requestNumber: r.requestNumber,
+                    adminWalletRequestId: r.id,
+                    branchId: r.branchId,
+                    branchName: r.branchName,
+                    expenseCategory: r.expenseCategory,
+                    proofUrl: r.proofUrl,
+                }))
+                : [];
+
+            const merged = [...supplierRows, ...salesReturnRows, ...adminWalletRows, ...list].sort((a, b) => {
                 const ta = new Date(a.requestedAt || a.createdAt || 0).getTime();
                 const tb = new Date(b.requestedAt || b.createdAt || 0).getTime();
                 return tb - ta;
@@ -371,8 +405,8 @@ export default function WorkshopApprovals({
             // Per-type view permission — hide rows the user can't view at all.
             if (!canViewType(a)) return false;
             if (requestTypeFilter === 'all') return true;
-            if (requestTypeFilter === 'topup') return isTopUpRequest(a);
-            if (requestTypeFilter === 'expenses') return isExpenseRequest(a);
+            if (requestTypeFilter === 'topup') return isTopUpRequest(a) || isAdminWalletFundRow(a);
+            if (requestTypeFilter === 'expenses') return isExpenseRequest(a) || isAdminWalletExpenseRow(a);
             if (requestTypeFilter === 'supplier_invoices') return isSupplierSalesInvoiceRow(a);
             if (requestTypeFilter === 'sales_returns') return isSalesReturnRow(a);
             return true;
@@ -386,6 +420,8 @@ export default function WorkshopApprovals({
         purchase: 'ws-badge--purple',
         supplier_invoice: 'ws-badge--purple',
         sales_return: 'ws-badge--blue',
+        admin_wallet_fund: 'ws-badge--blue',
+        admin_wallet_expense: 'ws-badge--yellow',
     };
     const statusColors = { pending: 'ws-badge--yellow', approved: 'ws-badge--green', rejected: 'ws-badge--red' };
 
@@ -461,6 +497,25 @@ export default function WorkshopApprovals({
             }
             return;
         }
+        if (isAdminWalletFundRow(row) || isAdminWalletExpenseRow(row)) {
+            if (row.status !== 'pending') return;
+            const rid = row.adminWalletRequestId;
+            const kind = row.kind;
+            setActionLoadingId(`approve-aw-${rid}`);
+            try {
+                await apiFetch(
+                    `/workshop-staff/admin-wallet-approvals/${encodeURIComponent(kind)}/${encodeURIComponent(String(rid))}/approve`,
+                    { method: 'POST' },
+                );
+                await loadApprovals();
+                window.dispatchEvent(new Event('workshop-approvals-updated'));
+            } catch (error) {
+                setLoadError(error.message || 'Failed to approve platform admin wallet request.');
+            } finally {
+                setActionLoadingId(null);
+            }
+            return;
+        }
         const id = row.id;
         if (row.status !== 'pending') return;
         setActionLoadingId(`approve-${id}`);
@@ -514,6 +569,29 @@ export default function WorkshopApprovals({
                 window.dispatchEvent(new Event('workshop-approvals-updated'));
             } catch (error) {
                 setLoadError(error.message || 'Failed to reject supplier invoice.');
+            } finally {
+                setActionLoadingId(null);
+            }
+            return;
+        }
+        if (isAdminWalletFundRow(rejectDialog) || isAdminWalletExpenseRow(rejectDialog)) {
+            const rid = rejectDialog.adminWalletRequestId;
+            const kind = rejectDialog.kind;
+            setActionLoadingId(`reject-aw-${rid}`);
+            try {
+                await apiFetch(
+                    `/workshop-staff/admin-wallet-approvals/${encodeURIComponent(kind)}/${encodeURIComponent(String(rid))}/reject`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ rejectionReason: rejectReason.trim() }),
+                    },
+                );
+                setRejectDialog(null);
+                setRejectReason('');
+                await loadApprovals();
+                window.dispatchEvent(new Event('workshop-approvals-updated'));
+            } catch (error) {
+                setLoadError(error.message || 'Failed to reject platform admin wallet request.');
             } finally {
                 setActionLoadingId(null);
             }

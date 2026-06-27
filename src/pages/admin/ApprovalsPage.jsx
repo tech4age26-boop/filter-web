@@ -48,6 +48,7 @@ import Modal from '../../components/Modal';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import { useAuth } from '../../context/AuthContext';
+import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 
 /**
  * Map backend entity-type string (snake_case) → permission code suffix (kebab-case).
@@ -67,6 +68,7 @@ const APPROVAL_TYPE_TO_PERMISSION_SUFFIX = {
     sales_return: 'sales-return',
     marketing_budget_request: 'marketing-budget-request',
     admin_wallet_fund_request: 'admin-wallet-fund-request',
+    admin_wallet_expense_request: 'admin-wallet-expense-request',
     marketing_promotion: 'marketing-promotion',
     marketing_campaign: 'marketing-campaign',
     marketing_expense: 'marketing-expense',
@@ -310,6 +312,7 @@ const ENTITY_TYPES = [
     { value: 'sales_return', label: 'POS sales return' },
     { value: 'marketing_budget_request', label: 'Marketing wallet top-up' },
     { value: 'admin_wallet_fund_request', label: 'Admin wallet fund request' },
+    { value: 'admin_wallet_expense_request', label: 'Admin wallet expense request' },
     { value: 'marketing_promotion', label: 'Marketing promotion' },
     { value: 'marketing_campaign', label: 'Marketing campaign' },
     { value: 'marketing_expense', label: 'Marketing expense' },
@@ -520,9 +523,18 @@ function buildMetaChips(item) {
             break;
         case 'admin_wallet_fund_request':
             push('Admin', m.adminUserName ?? m.adminUserEmail);
+            push('Workshop', m.workshopName);
+            push('Branch', m.branchName);
             push('Amount', m.amountLabel ?? (m.amount != null ? `SAR ${m.amount}` : null));
             push('Purpose', m.purpose);
-            push('Source', m.sourceAccountName);
+            push('Request', m.requestNumber);
+            break;
+        case 'admin_wallet_expense_request':
+            push('Admin', m.adminUserName ?? m.adminUserEmail);
+            push('Workshop', m.workshopName);
+            push('Branch', m.branchName);
+            push('Category', m.expenseCategory);
+            push('Amount', m.amountLabel ?? (m.amount != null ? `SAR ${m.amount}` : null));
             push('Request', m.requestNumber);
             break;
         case 'marketing_promotion':
@@ -640,12 +652,14 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error })
     const [cashAccounts, setCashAccounts] = useState([]);
     const [accountsLoading, setAccountsLoading] = useState(true);
     const [accountsError, setAccountsError] = useState('');
+    const workshopId = item?.meta?.workshopId ?? '';
 
     useEffect(() => {
         let cancelled = false;
         setAccountsLoading(true);
         setAccountsError('');
-        listAdminWalletCashAccounts()
+        setSourceAccountId('');
+        listAdminWalletCashAccounts(workshopId ? { workshopId } : {})
             .then((res) => {
                 if (cancelled) return;
                 const normalized = normalizeAdminWalletCashAccounts(res);
@@ -663,7 +677,7 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error })
                 if (!cancelled) setAccountsLoading(false);
             });
         return () => { cancelled = true; };
-    }, []);
+    }, [workshopId]);
 
     const selectedAccount = cashAccounts.find((a) => a.id === sourceAccountId);
     const amountLabel = item?.meta?.amountLabel
@@ -724,7 +738,12 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error })
             ) : null}
             <p className="approval-modal-lead">
                 Approve <strong>{item.title}</strong> and credit the admin wallet.
-                Amount <strong>{amountLabel}</strong> will be deducted from the selected HQ account.
+                Amount <strong>{amountLabel}</strong> will be deducted from the selected workshop account.
+                {item?.meta?.workshopName ? (
+                    <> Workshop: <strong>{item.meta.workshopName}</strong>
+                    {item.meta.branchName ? <> · Branch: <strong>{item.meta.branchName}</strong></> : null}
+                    </>
+                ) : null}
             </p>
 
             <label className="approval-modal-label" htmlFor="admin-wallet-source-account">
@@ -738,7 +757,7 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error })
                 <p style={{ color: '#b91c1c', fontSize: '0.875rem' }}>{accountsError}</p>
             ) : cashAccounts.length === 0 ? (
                 <p style={{ color: '#b45309', fontSize: '0.875rem' }}>
-                    No HQ cash/bank accounts found. Add one under Accounting → Cash &amp; Bank first.
+                    No cash/bank accounts found for this workshop. Add one under Accounting → Cash &amp; Bank first.
                 </p>
             ) : (
                 <select
@@ -1411,6 +1430,162 @@ function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onRe
                         <div style={{ padding: 10, background: '#fef2f2', borderRadius: 10, fontSize: '0.875rem', color: '#991b1b' }}>
                             <strong>Rejection reason:</strong>{' '}
                             {row.rejectionReason ?? row.rejection_reason ?? item?.meta?.rejectionReason}
+                        </div>
+                    )}
+                </div>
+            )}
+        </Modal>
+    );
+}
+
+function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error }) {
+    const [remarks, setRemarks] = useState('');
+    const proofUrl = item?.meta?.proofUrl ?? '';
+    const category = item?.meta?.expenseCategory ?? '—';
+    const amountLabel = item?.meta?.amountLabel
+        ?? (item?.meta?.amount != null ? `SAR ${item.meta.amount}` : '—');
+
+    return (
+        <Modal
+            title="Approve Admin Wallet Expense"
+            onClose={busy ? undefined : onCancel}
+            width={520}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-approve"
+                        disabled={busy}
+                        onClick={() => onConfirm({ remarks: remarks.trim() || undefined })}
+                    >
+                        {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
+                        Approve Expense
+                    </button>
+                </>
+            )}
+        >
+            {error ? (
+                <div role="alert" style={{ margin: '0 0 14px', padding: '12px 14px', borderRadius: 12, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: '0.8125rem' }}>
+                    {error}
+                </div>
+            ) : null}
+            <p className="approval-modal-lead">
+                Verify proof and category, then approve <strong>{item.title}</strong> for{' '}
+                <strong>{amountLabel}</strong>.
+                {item?.meta?.workshopName ? (
+                    <> Posted to <strong>{item.meta.workshopName}</strong>
+                    {item.meta.branchName ? <> · <strong>{item.meta.branchName}</strong></> : null} petty cash expense.</>
+                ) : null}
+            </p>
+            <p style={{ margin: '0 0 8px', fontSize: '0.8125rem', color: '#64748b' }}>
+                Category: <strong>{category}</strong>
+            </p>
+            {proofUrl ? (
+                <div style={{ marginBottom: 14 }}>
+                    <p style={{ margin: '0 0 8px', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Proof</p>
+                    <ExpenseProofThumbnail proofUrl={proofUrl} alt="Expense proof" />
+                </div>
+            ) : (
+                <p style={{ color: '#b45309', fontSize: '0.875rem' }}>No proof attached.</p>
+            )}
+            <label className="approval-modal-label" htmlFor="admin-wallet-expense-approve-remarks" style={{ marginTop: 14 }}>
+                Remarks <span className="approval-modal-optional">(optional)</span>
+            </label>
+            <textarea
+                id="admin-wallet-expense-approve-remarks"
+                className="approval-modal-textarea"
+                rows={2}
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                disabled={busy}
+            />
+        </Modal>
+    );
+}
+
+function AdminWalletExpenseRequestDetailsModal({ id, item, onClose, onApprove, onReject }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr('');
+        fetchApprovalDetails('admin_wallet_expense_request', id)
+            .then((res) => { if (!cancelled) setData(res); })
+            .catch((e) => { if (!cancelled) setErr(e?.message || 'Could not load request details'); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [id]);
+
+    const row = data ?? item?.raw ?? item ?? {};
+    const currency = row.currencyCode ?? 'SAR';
+    const amount = Number(row.amount ?? item?.meta?.amount ?? 0);
+    const requestNumber = row.requestNumber ?? `#${id}`;
+    const status = String(row.status ?? 'pending').toLowerCase();
+    const money = (v) =>
+        `${currency} ${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    return (
+        <Modal
+            title={`Admin wallet expense · ${requestNumber}`}
+            onClose={onClose}
+            width={720}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
+                    {status === 'pending' && (
+                        <>
+                            {onReject && (
+                                <button type="button" className="btn-reject" onClick={onReject}>
+                                    <X size={16} /> Reject
+                                </button>
+                            )}
+                            {onApprove && (
+                                <button type="button" className="btn-approve" onClick={onApprove}>
+                                    <Check size={16} /> Approve
+                                </button>
+                            )}
+                        </>
+                    )}
+                </>
+            )}
+        >
+            {loading ? (
+                <div style={{ padding: 24, textAlign: 'center' }}><Loader size={20} className="spin" /> Loading…</div>
+            ) : err ? (
+                <p style={{ color: '#b91c1c' }}>{err}</p>
+            ) : (
+                <div>
+                    <div style={{ marginBottom: 14 }}><span className={`status-badge status-${status}`}>{status}</span></div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Amount</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700, fontSize: '1.125rem' }}>{money(amount)}</p>
+                        </div>
+                        <div style={{ padding: 12, background: '#f8fafc', borderRadius: 10 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Category</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>{row.expenseCategory ?? '—'}</p>
+                        </div>
+                    </div>
+                    {(row.workshopName || row.branchName) && (
+                        <p style={{ margin: '0 0 14px', fontSize: '0.875rem' }}>
+                            <strong>{row.workshopName ?? '—'}</strong>
+                            {row.branchName ? ` · ${row.branchName}` : ''}
+                        </p>
+                    )}
+                    <div style={{ marginBottom: 14 }}>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Description</p>
+                        <p style={{ margin: '6px 0 0' }}>{row.description ?? '—'}</p>
+                    </div>
+                    {row.proofUrl && (
+                        <div style={{ marginBottom: 14 }}>
+                            <p style={{ margin: '0 0 8px', fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Proof</p>
+                            <ExpenseProofThumbnail proofUrl={row.proofUrl} alt="Expense proof" />
                         </div>
                     )}
                 </div>
@@ -2593,7 +2768,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const isMarketingExpense = (et) => et === 'marketing_expense';
 
     useEffect(() => {
-        if (approveTarget?.entityType === 'admin_wallet_fund_request' && approveTarget?.id) {
+        if (approveTarget?.entityType === 'admin_wallet_fund_request' || approveTarget?.entityType === 'admin_wallet_expense_request') {
             setApproveModalError('');
         }
     }, [approveTarget?.entityType, approveTarget?.id]);
@@ -2633,7 +2808,10 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             } else if (isCorporatePriceQuotation(item.entityType)) {
                 await approveSuperAdminCorporatePriceQuotation(item.id);
             } else {
-                await approveApi(item.entityType, item.id, payload);
+                const res = await approveApi(item.entityType, item.id, payload);
+                if (res?.awaitingWorkshopAdmin || res?.awaitingSuperAdmin) {
+                    showToast(res.message || 'Approval recorded — awaiting the other approver.');
+                }
             }
             removeFromList(item);
             setApproveTarget(null);
@@ -2648,7 +2826,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     : 'Request approved.',
             );
         } catch (err) {
-            if (item.entityType === 'admin_wallet_fund_request') {
+            if (item.entityType === 'admin_wallet_fund_request' || item.entityType === 'admin_wallet_expense_request') {
                 setApproveModalError(err?.message || 'Approve failed');
             } else {
                 showToast(`Approve failed: ${err.message}`, 'error');
@@ -2761,6 +2939,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             case 'marketing_promo_code':
             case 'marketing_budget_request':
             case 'admin_wallet_fund_request':
+            case 'admin_wallet_expense_request':
                 return <Tag size={14} />;
             default:
                 return <FileText size={14} />;
@@ -3029,6 +3208,16 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 />
             )}
 
+            {detailsTarget && detailsTarget.entityType === 'admin_wallet_expense_request' && (
+                <AdminWalletExpenseRequestDetailsModal
+                    id={detailsTarget.id}
+                    item={detailsTarget.item}
+                    onClose={() => setDetailsTarget(null)}
+                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
+                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
+                />
+            )}
+
             {detailsTarget && detailsTarget.entityType === 'marketing_expense' && (
                 <MarketingExpenseDetailsModal
                     id={detailsTarget.id}
@@ -3056,6 +3245,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 && detailsTarget.entityType !== 'sales_return'
                 && detailsTarget.entityType !== 'marketing_budget_request'
                 && detailsTarget.entityType !== 'admin_wallet_fund_request'
+                && detailsTarget.entityType !== 'admin_wallet_expense_request'
                 && detailsTarget.entityType !== 'marketing_expense'
                 && detailsTarget.entityType !== 'marketing_promotion' && (
                 <ApprovalDetailsModal
@@ -3115,6 +3305,17 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 />
             ) : approveTarget && approveTarget.entityType === 'admin_wallet_fund_request' ? (
                 <AdminWalletFundApproveModal
+                    item={approveTarget}
+                    busy={actionLoading === approvalItemKey(approveTarget)}
+                    error={approveModalError}
+                    onCancel={() => {
+                        setApproveTarget(null);
+                        setApproveModalError('');
+                    }}
+                    onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
+                />
+            ) : approveTarget && approveTarget.entityType === 'admin_wallet_expense_request' ? (
+                <AdminWalletExpenseApproveModal
                     item={approveTarget}
                     busy={actionLoading === approvalItemKey(approveTarget)}
                     error={approveModalError}

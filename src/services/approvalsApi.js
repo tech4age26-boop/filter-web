@@ -47,5 +47,5 @@ export const updateWalkInSettings = ({ autoApproveCorporateWalkIns }) =>
     });
 
 /** HQ Cash & Bank registers for admin wallet fund approval. */
-export const listAdminWalletCashAccounts = () =>
-    apiFetch('/super-admin/approvals/admin-wallet-cash-accounts');
+export const listAdminWalletCashAccounts = ({ workshopId } = {}) =>
+    apiFetch(`/super-admin/approvals/admin-wallet-cash-accounts${workshopId ? `?workshopId=${encodeURIComponent(workshopId)}` : ''}`);

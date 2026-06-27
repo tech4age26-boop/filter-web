@@ -52,11 +52,12 @@ export default function PlatformChatWalletActionModals({
 
     useEffect(() => {
         if (!approveTarget) return undefined;
+        const workshopId = approveTarget?.payload?.workshopId ?? '';
         let cancelled = false;
         setAccountsLoading(true);
         setApproveRemarks('');
         setApproveError('');
-        listAdminWalletCashAccounts()
+        listAdminWalletCashAccounts(workshopId ? { workshopId } : {})
             .then((res) => {
                 if (cancelled) return;
                 const normalized = normalizeCashAccounts(res);
@@ -68,7 +69,7 @@ export default function PlatformChatWalletActionModals({
                 if (!cancelled) setAccountsLoading(false);
             });
         return () => { cancelled = true; };
-    }, [approveTarget, onError]);
+    }, [approveTarget, approveTarget?.payload?.workshopId, onError]);
 
     useEffect(() => {
         if (!rejectTarget) return;

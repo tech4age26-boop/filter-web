@@ -21,9 +21,10 @@ export function getAdminWallet(userId) {
     return apiFetch(`/super-admin/admin-wallets/${encodeURIComponent(userId)}`);
 }
 
-/** HQ cash/bank registers for admin wallet fund approval. */
-export function listAdminWalletCashAccounts() {
-    return apiFetch('/super-admin/admin-wallets/cash-accounts');
+/** Cash/bank registers for admin wallet fund approval (optional workshop scope). */
+export function listAdminWalletCashAccounts({ workshopId } = {}) {
+    const qs = workshopId ? `?workshopId=${encodeURIComponent(workshopId)}` : '';
+    return apiFetch(`/super-admin/admin-wallets/cash-accounts${qs}`);
 }
 
 /** Paginated transaction history for one platform admin wallet. */
@@ -51,7 +52,15 @@ export function listMyFundRequests() {
     return apiFetch('/super-admin/my-wallet/fund-requests');
 }
 
-/** payload = { amount, purpose } */
+export function listMyWalletWorkshops() {
+    return apiFetch('/super-admin/my-wallet/workshops');
+}
+
+export function listMyWalletBranches({ workshopId } = {}) {
+    return apiFetch(`/super-admin/my-wallet/branches${buildQs({ workshopId })}`);
+}
+
+/** payload = { amount, purpose, workshopId, branchId } */
 export function createMyFundRequest(payload) {
     return apiFetch('/super-admin/my-wallet/fund-requests', {
         method: 'POST',
@@ -66,10 +75,28 @@ export function shareFundRequestInChat(fundRequestId) {
     );
 }
 
-/** payload = { amount, description, vendorName?, expenseCategory, proofUrl } */
+export function cancelMyFundRequest(fundRequestId) {
+    return apiFetch(
+        `/super-admin/my-wallet/fund-requests/${encodeURIComponent(String(fundRequestId))}/cancel`,
+        { method: 'POST' },
+    );
+}
+
+/** payload = { amount, description, vendorName?, expenseCategory, proofUrl, workshopId, branchId } */
 export function recordMyWalletExpense(payload) {
     return apiFetch('/super-admin/my-wallet/expenses', {
         method: 'POST',
         body: JSON.stringify(payload),
     });
+}
+
+export function listMyExpenseRequests() {
+    return apiFetch('/super-admin/my-wallet/expense-requests');
+}
+
+export function cancelMyExpenseRequest(expenseRequestId) {
+    return apiFetch(
+        `/super-admin/my-wallet/expense-requests/${encodeURIComponent(String(expenseRequestId))}/cancel`,
+        { method: 'POST' },
+    );
 }

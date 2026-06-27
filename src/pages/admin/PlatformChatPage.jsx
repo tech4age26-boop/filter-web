@@ -22,7 +22,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { usePlatformChatUnread } from '../../context/PlatformChatUnreadContext';
 import { usePlatformChatSocket } from '../../hooks/usePlatformChatSocket';
-import { firstVisibleAdminPath } from '../../utils/permissions';
+import { adminHomePathAfterChat } from '../../utils/permissions';
 import PlatformChatGroupSettings from './PlatformChatGroupSettings';
 import PlatformChatContactProfile from './PlatformChatContactProfile';
 import { ADMIN_CHAT_CONFIG, NEW_CHAT_MODES } from './platformChatConfigs';
@@ -502,7 +502,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
 
     useEffect(() => {
         if (chatConfig.id === 'admin' && !canViewChat) {
-            navigate(firstVisibleAdminPath(user) || '/admin/my-wallet', { replace: true });
+            navigate(adminHomePathAfterChat(user) || '/admin/my-wallet', { replace: true });
         }
     }, [canViewChat, chatConfig.id, navigate, user]);
 
@@ -529,7 +529,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             onExit();
             return;
         }
-        navigate(firstVisibleAdminPath(user) || '/admin/my-wallet');
+        navigate(adminHomePathAfterChat(user) || '/admin/my-wallet');
     };
 
     const handleGroupSettingsUpdated = (conv) => {

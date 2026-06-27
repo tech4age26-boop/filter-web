@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Plus, Shield, X, Wallet, Landmark, Banknote, Settings, Trash2, Calendar, FileText, ArrowLeftRight, Search, Filter, CreditCard, DollarSign, Book, CheckCircle, Eye, Printer, AlertTriangle, ChevronDown, ShoppingCart, Zap, Users, UserPlus, Clock, Activity, Coins, BookOpen, Save, Percent, Calculator, RefreshCw } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import AccountDetailModal from '../../components/AccountDetailModal';
-import WorkshopCOAManager from '../../components/accounting/WorkshopCOAManager';
+import WorkshopCOAView from '../../components/accounting/WorkshopCOAView';
 import { apiFetch } from '../../services/api';
 import {
   listWorkshopCashBankAccounts,
@@ -41,9 +41,6 @@ import WorkshopExpensesLog from './accounting/WorkshopExpensesLog';
 import WorkshopPayroll from './accounting/WorkshopPayroll';
 import WorkshopAdvances from './accounting/WorkshopAdvances';
 import WorkshopLedgerView from './accounting/WorkshopLedgerView';
-import CashBankRegisterPanel from '../../components/accounting/CashBankRegisterPanel';
-import CoaAccountSearchCombobox, { CashBankAccountSearchCombobox } from '../../components/accounting/CoaAccountSearchCombobox';
-import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
 import { useHqAdminBooksScope } from '../../hooks/useHqAdminBooksScope';
 import '../../styles/admin/AccountingPage.css';
 
@@ -246,7 +243,7 @@ const COA_TRANSACTION_MAPPING_OPTIONS = [
 ];
 
 function ChartOfAccountsView() {
-    return <WorkshopCOAManager />;
+    return <WorkshopCOAView />;
 }
 
 const PAYEE_TYPES = ['Supplier', 'Employee', 'Customer', 'Other'];
@@ -258,7 +255,6 @@ const blankPaymentRow = (i, voucher) => ({
     type: 'Supplier',
     payeeId: '',
     payeeName: '',
-    payeeDisplay: '',
     accountId: '',
     amount: '',
     ref: '',
@@ -272,7 +268,6 @@ const blankReceiptRow = (i, voucher) => ({
     type: 'Customer',
     payeeId: '',
     payeeName: '',
-    payeeDisplay: '',
     accountId: '',
     amount: '',
     ref: '',
@@ -315,6 +310,8 @@ function TransactionEntryView({ branches = [] }) {
     const [paidFromAccountId, setPaidFromAccountId] = useState('');
 
     const [cashBankAccounts, setCashBankAccounts] = useState([]);
+    const [coaPayableExpense, setCoaPayableExpense] = useState([]);
+    const [coaReceivableRevenue, setCoaReceivableRevenue] = useState([]);
     const [coaAll, setCoaAll] = useState([]);
     const [payeesBySupplier, setPayeesBySupplier] = useState([]);
     const [payeesByEmployee, setPayeesByEmployee] = useState([]);
@@ -326,14 +323,18 @@ function TransactionEntryView({ branches = [] }) {
 
     const reloadLookups = useCallback(async () => {
         try {
-            const [cb, all, sup, emp, cust] = await Promise.all([
+            const [cb, payExp, recRev, all, sup, emp, cust] = await Promise.all([
                 listAcctCashBank(),
+                listAcctCoa('payable_expense'),
+                listAcctCoa('receivable_revenue'),
                 listAcctCoa('all'),
                 listAcctPayees('supplier'),
                 listAcctPayees('employee'),
                 listAcctPayees('customer'),
             ]);
             setCashBankAccounts(cb?.accounts ?? []);
+            setCoaPayableExpense(payExp?.accounts ?? []);
+            setCoaReceivableRevenue(recRev?.accounts ?? []);
             setCoaAll(all?.accounts ?? []);
             setPayeesBySupplier(sup?.payees ?? []);
             setPayeesByEmployee(emp?.payees ?? []);
@@ -380,11 +381,10 @@ function TransactionEntryView({ branches = [] }) {
     // Whenever Paid From Account changes, sync the branch field with the
     // register's branch so the user doesn't need to set it twice.
     useEffect(() => {
-        if (isAdminHqBooks) return;
         if (!paidFromAccountId) return;
         const acc = cashBankAccounts.find((a) => String(a.id) === String(paidFromAccountId));
         if (acc?.branchId) setHeaderBranchId(String(acc.branchId));
-    }, [paidFromAccountId, cashBankAccounts, isAdminHqBooks]);
+    }, [paidFromAccountId, cashBankAccounts]);
 
     const reloadRecent = useCallback(async (tab) => {
         try {
@@ -419,16 +419,6 @@ function TransactionEntryView({ branches = [] }) {
         if (t === 'Customer') return payeesByCustomer;
         return [];
     };
-
-    const payeeComboboxOptionsForType = useCallback((t) => {
-        return payeeOptionsForType(t).map((o) => ({
-            id: String(o.id),
-            label: o.name,
-            subtitle: o.sublabel || '',
-            searchText: [o.name, o.sublabel, o.defaultAccountLabel].filter(Boolean).join(' '),
-            payee: o,
-        }));
-    }, [payeesBySupplier, payeesByEmployee, payeesByCustomer]);
 
     const addRow = useCallback(() => {
         if (activeTab === 'Payments') {
@@ -607,6 +597,7 @@ function TransactionEntryView({ branches = [] }) {
         : 'Select Cash / Bank / Petty Cash';
 
     const renderPayeeSelect = (row, update) => {
+        const options = payeeOptionsForType(row.type);
         if (row.type === 'Other') {
             return (
                 <input
@@ -614,60 +605,39 @@ function TransactionEntryView({ branches = [] }) {
                     className="table-input-field"
                     placeholder="Payee name"
                     value={row.payeeName}
-                    onChange={(e) => update(row.id, { payeeName: e.target.value, payeeId: '', payeeDisplay: e.target.value })}
+                    onChange={(e) => update(row.id, { payeeName: e.target.value, payeeId: '' })}
                 />
             );
         }
-
-        const options = payeeComboboxOptionsForType(row.type);
-        const selectedPayee = payeeOptionsForType(row.type).find((o) => String(o.id) === String(row.payeeId));
-        const displayValue = row.payeeDisplay ?? selectedPayee?.name ?? '';
-
         return (
-            <SearchableEntityCombobox
-                className="trans-account-combobox"
-                options={options}
+            <select
+                className="table-input-field"
                 value={row.payeeId}
-                displayText={displayValue}
-                entityLabel={row.type.toLowerCase()}
-                placeholder={`Type ${row.type.toLowerCase()}… (↑↓ Enter)`}
-                emptyHint={
-                    isAdminHqBooks && row.type === 'Customer'
-                        ? 'No corporate customers — try company name or VAT'
-                        : `No ${row.type.toLowerCase()}s match — type to search`
-                }
-                onDisplayTextChange={(text) => {
-                    update(row.id, { payeeDisplay: text });
-                    if (!text.trim()) {
-                        update(row.id, { payeeId: '', payeeName: '', accountId: '' });
-                        return;
-                    }
-                    if (row.payeeId) {
-                        const name = (selectedPayee?.name || '').trim();
-                        if (name && text.trim() !== name) {
-                            update(row.id, { payeeId: '', payeeName: '', accountId: '' });
-                        }
-                    }
+                onChange={(e) => {
+                    const pid = e.target.value;
+                    const opt = options.find((o) => String(o.id) === String(pid));
+                    update(row.id, { payeeId: pid, payeeName: opt?.name ?? '' });
                 }}
-                onSelect={(opt) => {
-                    const p = opt.payee;
-                    update(row.id, {
-                        payeeId: opt.id,
-                        payeeName: p?.name || opt.label || '',
-                        payeeDisplay: p?.name || opt.label || '',
-                        accountId: p?.defaultAccountId || '',
-                    });
-                }}
-            />
+            >
+                <option value="">Select {row.type.toLowerCase()}</option>
+                {options.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}{o.sublabel ? ` — ${o.sublabel}` : ''}</option>
+                ))}
+            </select>
         );
     };
 
     const renderAccountSelect = (row, update, options) => (
-        <CoaAccountSearchCombobox
-            accounts={options}
+        <select
+            className="table-input-field"
             value={row.accountId}
-            onChange={(accountId) => update(row.id, { accountId })}
-        />
+            onChange={(e) => update(row.id, { accountId: e.target.value })}
+        >
+            <option value="">Select account…</option>
+            {options.map((o) => (
+                <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
+        </select>
     );
 
     const formatRecentDate = (d) => {
@@ -682,7 +652,7 @@ function TransactionEntryView({ branches = [] }) {
                     <h2 className="trans-entry-title">Transaction Entry</h2>
                     <p className="trans-entry-subtitle">
                         {isAdminHqBooks
-                            ? 'HQ Transaction Hub — select Customer, Employee, or Supplier; the control account auto-fills (AR 1110, Advances 1250, AP 2001/2010). Override the account column for expense or income postings.'
+                            ? 'HQ Transaction Hub — record payments, receipts, and journal entries for Platform HQ books.'
                             : 'Record payments, receipts, and journal entries'}
                     </p>
                 </div>
@@ -733,12 +703,18 @@ function TransactionEntryView({ branches = [] }) {
                                 <span>{paidFromLabel}</span>
                             </div>
                         </label>
-                        <CashBankAccountSearchCombobox
-                            accounts={cashBankAccounts}
+                        <select
+                            className="form-input-field"
                             value={paidFromAccountId}
-                            onChange={setPaidFromAccountId}
-                            placeholder={cashBankPlaceholder}
-                        />
+                            onChange={(e) => setPaidFromAccountId(e.target.value)}
+                        >
+                            <option value="">{cashBankPlaceholder}</option>
+                            {cashBankAccounts.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                    {a.name} ({a.type}) — SAR {Number(a.currentBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                 </div>
             </div>
@@ -782,7 +758,7 @@ function TransactionEntryView({ branches = [] }) {
                 )}
                 <div className="trans-table-header-info">
                     {activeTab === 'Payments' && <span>Payments — Dr: Payable/Expense | Cr: Cash/Bank - <small>Tab on last field adds new row automatically</small></span>}
-                    {activeTab === 'Receipts' && <span>Receipts — Dr: Cash/Bank | Cr: Receivable/Revenue/Equity <small>— Tab on last field adds new row automatically</small></span>}
+                    {activeTab === 'Receipts' && <span>Receipts — Dr: Cash/Bank | Cr: Receivable/Revenue <small>— Tab on last field adds new row automatically</small></span>}
                     {activeTab === 'Journal Entry' && null}
                 </div>
                 <div className="premium-table-container">
@@ -802,7 +778,7 @@ function TransactionEntryView({ branches = [] }) {
                                     <th style={{ width: '150px' }}>Date</th>
                                     <th style={{ width: '150px' }}>Type</th>
                                     <th>{activeTab === 'Payments' ? 'Payee (To)' : 'Received From'}</th>
-                                    <th>{activeTab === 'Payments' ? 'Account Dr — COA (all types)' : 'Account Cr — COA (all types)'}</th>
+                                    <th>{activeTab === 'Payments' ? 'Account Dr — Payable/Expense' : 'Account Cr — Receivable/Revenue'}</th>
                                     <th style={{ width: '120px' }}>Amount (SAR)</th>
                                     <th>Reference</th>
                                     <th>Notes</th>
@@ -816,12 +792,12 @@ function TransactionEntryView({ branches = [] }) {
                                     <td><input type="text" className="table-input-field voucher-input" value={row.voucher} readOnly /></td>
                                     <td><input type="date" className="table-input-field" value={row.date} onChange={(e) => updatePaymentRow(row.id, { date: e.target.value })} /></td>
                                     <td>
-                                        <select className="table-input-field" value={row.type} onChange={(e) => updatePaymentRow(row.id, { type: e.target.value, payeeId: '', payeeName: '', payeeDisplay: '', accountId: '' })}>
+                                        <select className="table-input-field" value={row.type} onChange={(e) => updatePaymentRow(row.id, { type: e.target.value, payeeId: '', payeeName: '' })}>
                                             {PAYEE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                                         </select>
                                     </td>
                                     <td>{renderPayeeSelect(row, updatePaymentRow)}</td>
-                                    <td>{renderAccountSelect(row, updatePaymentRow, coaAll)}</td>
+                                    <td>{renderAccountSelect(row, updatePaymentRow, coaPayableExpense)}</td>
                                     <td><input type="number" step="0.01" min="0" className="table-input-field" value={row.amount} onChange={(e) => updatePaymentRow(row.id, { amount: e.target.value })} placeholder="0.00" /></td>
                                     <td><input type="text" className="table-input-field" placeholder="Ref #" value={row.ref} onChange={(e) => updatePaymentRow(row.id, { ref: e.target.value })} /></td>
                                     <td>
@@ -850,12 +826,12 @@ function TransactionEntryView({ branches = [] }) {
                                         </div>
                                     </td>
                                     <td>
-                                        <select className="table-input-field" value={row.type} onChange={(e) => updateReceiptRow(row.id, { type: e.target.value, payeeId: '', payeeName: '', payeeDisplay: '', accountId: '' })}>
+                                        <select className="table-input-field" value={row.type} onChange={(e) => updateReceiptRow(row.id, { type: e.target.value, payeeId: '', payeeName: '' })}>
                                             {PAYEE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                                         </select>
                                     </td>
                                     <td>{renderPayeeSelect(row, updateReceiptRow)}</td>
-                                    <td>{renderAccountSelect(row, updateReceiptRow, coaAll)}</td>
+                                    <td>{renderAccountSelect(row, updateReceiptRow, coaReceivableRevenue)}</td>
                                     <td><input type="number" step="0.01" min="0" className="table-input-field" value={row.amount} onChange={(e) => updateReceiptRow(row.id, { amount: e.target.value })} placeholder="0.00" /></td>
                                     <td><input type="text" className="table-input-field" placeholder="Ref #" value={row.ref} onChange={(e) => updateReceiptRow(row.id, { ref: e.target.value })} /></td>
                                     <td>
@@ -1941,7 +1917,6 @@ function PurchasesView({ taxes }) {
 function CashBankView({ branches = [] }) {
     const { isAdminHqBooks } = useHqAdminBooksScope();
     const navigate = useNavigate();
-    const [searchParams, setSearchParams] = useSearchParams();
     const [accountTab, setAccountTab] = useState('All Accounts');
     const [accounts, setAccounts] = useState([]);
     const [accountsLoading, setAccountsLoading] = useState(false);
@@ -1971,7 +1946,6 @@ function CashBankView({ branches = [] }) {
     const [migrationMsg, setMigrationMsg] = useState('');
     const [branchDefaults, setBranchDefaults] = useState({});
     const [branchDefaultsMsg, setBranchDefaultsMsg] = useState('');
-    const [registerView, setRegisterView] = useState(null);
 
     const loadAccounts = useCallback(async () => {
         setAccountsLoading(true);
@@ -2013,27 +1987,6 @@ function CashBankView({ branches = [] }) {
     useEffect(() => {
         loadPosTerminals();
     }, [loadPosTerminals]);
-
-    const urlCoaAccountId = searchParams.get('coaAccountId') || '';
-
-    useEffect(() => {
-        if (!urlCoaAccountId || accountsLoading || accounts.length === 0) return;
-        const match = accounts.find(
-            (a) => String(a.coaAccountId) === String(urlCoaAccountId),
-        );
-        if (!match) return;
-        const type = uiCashBankTypeToApi(match.type);
-        setRegisterView({
-            registerType: type,
-            coaAccountId: match.coaAccountId || '',
-            accountName: match.name || '',
-        });
-        setSearchParams((prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete('coaAccountId');
-            return next;
-        }, { replace: true });
-    }, [urlCoaAccountId, accounts, accountsLoading, setSearchParams]);
 
     useEffect(() => {
         if (!newPosTerminalId) return;
@@ -2125,14 +2078,6 @@ function CashBankView({ branches = [] }) {
         } finally {
             setSaving(false);
         }
-    };
-
-    const openRegisterForAccount = (a) => {
-        const type = uiCashBankTypeToApi(a.type);
-        setRegisterView({
-            type,
-            coaAccountId: a.coaAccountId || '',
-        });
     };
 
     const openEdit = (a) => {
@@ -2239,16 +2184,6 @@ function CashBankView({ branches = [] }) {
         }
     };
 
-    if (registerView) {
-        return (
-            <CashBankRegisterPanel
-                registerType={registerView.type}
-                initialCoaAccountId={registerView.coaAccountId || ''}
-                onClose={() => setRegisterView(null)}
-            />
-        );
-    }
-
     return (
         <div className="cash-bank-view">
             <header className="cash-bank-header">
@@ -2265,45 +2200,30 @@ function CashBankView({ branches = [] }) {
                 </p>
             ) : null}
             <div className="cash-bank-stats">
-                <button
-                    type="button"
-                    className="cash-bank-stat-card cash-bank-stat-card--clickable"
-                    onClick={() => setRegisterView({ type: 'CASH' })}
-                    title="Open Cash register"
-                >
+                <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Banknote size={24} /></div>
                     <div>
                         <p className="cash-bank-stat-label">Cash on Hand</p>
                         <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.cash)}</p>
-                        <p className="cash-bank-stat-meta">{stats.nCash} accounts · Click to open register</p>
+                        <p className="cash-bank-stat-meta">{stats.nCash} accounts</p>
                     </div>
-                </button>
-                <button
-                    type="button"
-                    className="cash-bank-stat-card cash-bank-stat-card--clickable"
-                    onClick={() => setRegisterView({ type: 'BANK' })}
-                    title="Open Bank register"
-                >
+                </div>
+                <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Landmark size={24} /></div>
                     <div>
                         <p className="cash-bank-stat-label">Bank Balance</p>
                         <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.bank)}</p>
-                        <p className="cash-bank-stat-meta">{stats.nBank} accounts · Click to open register</p>
+                        <p className="cash-bank-stat-meta">{stats.nBank} accounts</p>
                     </div>
-                </button>
-                <button
-                    type="button"
-                    className="cash-bank-stat-card cash-bank-stat-card--clickable"
-                    onClick={() => setRegisterView({ type: 'PETTY_CASH' })}
-                    title="Open Petty Cash register"
-                >
+                </div>
+                <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Wallet size={24} /></div>
                     <div>
                         <p className="cash-bank-stat-label">Petty Cash</p>
                         <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.petty)}</p>
-                        <p className="cash-bank-stat-meta">{stats.nPetty} accounts · Click to open register</p>
+                        <p className="cash-bank-stat-meta">{stats.nPetty} accounts</p>
                     </div>
-                </button>
+                </div>
             </div>
             <div className="cash-bank-tabs">
                 {CASH_BANK_TABS.map((t) => (
@@ -2322,7 +2242,6 @@ function CashBankView({ branches = [] }) {
                     <RefreshCw size={16} style={{ marginRight: 6, opacity: accountsLoading ? 0.5 : 1 }} />
                     Refresh
                 </button>
-                {!isAdminHqBooks ? (
                 <button
                     type="button"
                     className="btn-portal-outline"
@@ -2345,9 +2264,8 @@ function CashBankView({ branches = [] }) {
                     <Zap size={16} style={{ marginRight: 6 }} />
                     {migratingV3 ? 'Migrating…' : 'Run cash-flow migration'}
                 </button>
-                ) : null}
             </div>
-            {!isAdminHqBooks && migrationMsg ? (
+            {migrationMsg && !isAdminHqBooks ? (
                 <p className="form-help-text" style={{ color: '#0E7C66', margin: '6px 0 0' }}>{migrationMsg}</p>
             ) : null}
 
@@ -2561,12 +2479,7 @@ function CashBankView({ branches = [] }) {
                             </tr>
                         ) : (
                             visibleAccounts.map((a) => (
-                                <tr
-                                    key={a.id}
-                                    className="cash-bank-account-row--clickable"
-                                    onClick={() => openRegisterForAccount(a)}
-                                    title="Open register for this account"
-                                >
+                                <tr key={a.id}>
                                     <td className="table-cell cell-main-text">{a.name}</td>
                                     <td className="table-cell">
                                         <span className={`status-badge ${a.isSystem ? 'status-pending' : 'status-completed'}`}>{a.kindLabel}</span>
@@ -2582,7 +2495,7 @@ function CashBankView({ branches = [] }) {
                                         {a.isSystem ? (
                                             <span className="form-help-text" title="System registers cannot be edited from this UI — their balance is driven by GL.">System</span>
                                         ) : (
-                                            <button type="button" className="btn-edit-zone" onClick={(e) => { e.stopPropagation(); openEdit(a); }}>Edit</button>
+                                            <button type="button" className="btn-edit-zone" onClick={() => openEdit(a)}>Edit</button>
                                         )}
                                     </td>
                                 </tr>
@@ -3216,7 +3129,7 @@ function GeneralJournalView() {
                 <h2 className="journal-title">General Journal</h2>
                 <p className="journal-subtitle">
                     {isAdminHqBooks
-                        ? 'Platform HQ general journal — entries posted in HQ books only.'
+                        ? 'Platform HQ general journal — entries recorded via Transaction Entry'
                         : 'General journal transaction log — entries recorded via Transaction Entry'}
                 </p>
             </header>
