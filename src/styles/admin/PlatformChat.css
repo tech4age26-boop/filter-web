@@ -1722,6 +1722,42 @@
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
+.platform-chat-fab-icon {
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .platform-chat-fab {
+        width: 44px;
+        height: 44px;
+        right: 14px;
+        bottom: 36px;
+        box-shadow: 0 3px 14px rgba(252, 194, 69, 0.32);
+    }
+
+    .platform-chat-fab-icon {
+        width: 20px;
+        height: 20px;
+    }
+
+    .platform-chat-fab-badge {
+        min-width: 16px;
+        height: 16px;
+        padding: 0 4px;
+        font-size: 0.5625rem;
+        line-height: 16px;
+        top: -1px;
+        right: -1px;
+        border-width: 1.5px;
+    }
+
+    .admin-layout--my-wallet .platform-chat-fab {
+        bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 900px) {

@@ -6,7 +6,6 @@ import {
     listApprovalLimits,
     listApprovalRoles,
 } from '../../../services/workshopApprovalLimitsApi';
-import { useStaffAppScope } from '../../../context/StaffAppScopeContext';
 import '../../../styles/admin/AccountingPage.css';
 
 const ROLE_LABELS = {
@@ -20,8 +19,6 @@ const ROLE_LABELS = {
 };
 
 export default function WorkshopApprovalLimits() {
-    const scope = useStaffAppScope();
-    const scopeParams = scope.scopeParams?.() ?? {};
     const [rows, setRows] = useState([]);
     const [approvers, setApprovers] = useState([]);
     const [approverRoles, setApproverRoles] = useState(['workshop_admin', 'accounting']);
@@ -36,9 +33,9 @@ export default function WorkshopApprovalLimits() {
         setError('');
         try {
             const [limitsRes, rolesRes, apprRes] = await Promise.all([
-                listApprovalLimits(scopeParams),
+                listApprovalLimits(),
                 listApprovalRoles(),
-                listApprovalApprovers(scopeParams),
+                listApprovalApprovers(),
             ]);
             const rks = rolesRes?.roles ?? [];
             const existingByRole = new Map((limitsRes?.items ?? []).map((r) => [r.roleKey, r]));
@@ -58,7 +55,7 @@ export default function WorkshopApprovalLimits() {
         } finally {
             setLoading(false);
         }
-    }, [scopeParams]);
+    }, []);
 
     useEffect(() => { loadAll(); }, [loadAll]);
 

@@ -103,6 +103,7 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/marketing',        permission: 'marketing.view' },
     { path: '/admin/permissions',      permission: 'permissions.view' },
     { path: '/admin/admin-wallets',    permission: 'admin-wallets.view' },
+    { path: '/admin/my-wallet', walletRequired: true },
     { path: '/admin/chat',             permission: 'chat.view' },
     { path: '/admin/demo-invoices',    permission: 'demo-invoices.view' },
     // OPERATIONS (sub-items: redirect to their parent route — InventoryPage handles default sub-tab)
@@ -138,7 +139,6 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/accounting/advances',              permission: 'accounting.advances.view' },
     { path: '/admin/accounting/ledger',                permission: 'accounting.ledger.view' },
     { path: '/admin/softpos-settlement',               permission: 'softpos-settlement.view' },
-    { path: '/admin/my-wallet', walletRequired: true },
 ];
 
 function adminSidebarEntryAllowed(user, codes, entry) {
@@ -157,7 +157,7 @@ function adminSidebarEntryAllowed(user, codes, entry) {
  *   - otherwise pick the first sidebar item their role permits (never dashboard
  *     unless they have dashboard.view)
  */
-export function firstVisibleAdminPath(user) {
+export function firstVisibleAdminPath(user, options = {}) {
     if (!user) return '/admin/dashboard';
 
     if (user.userType === 'platform_admin' && (!user.role || user.role?.isSystem)) {
@@ -169,14 +169,27 @@ export function firstVisibleAdminPath(user) {
 
     if (!user.role) return '/admin/dashboard';
 
-    const match = ADMIN_SIDEBAR_ORDER.find((entry) =>
-        adminSidebarEntryAllowed(user, codes, entry),
+    const excludePaths = new Set(
+        (options.excludePaths ?? []).map((p) => String(p).replace(/\/$/, '')),
+    );
+
+    const match = ADMIN_SIDEBAR_ORDER.find(
+        (entry) =>
+            !excludePaths.has(entry.path) &&
+            adminSidebarEntryAllowed(user, codes, entry),
     );
     if (match) return match.path;
 
-    if (user.walletEnabled) return '/admin/my-wallet';
+    if (user.walletEnabled && !excludePaths.has('/admin/my-wallet')) {
+        return '/admin/my-wallet';
+    }
 
     return '/admin/permissions';
+}
+
+/** First admin route the user can open after leaving fullscreen chat (never /admin/chat). */
+export function adminHomePathAfterChat(user) {
+    return firstVisibleAdminPath(user, { excludePaths: ['/admin/chat'] });
 }
 
 const WORKSHOP_ACC_TAB_SLUG = {

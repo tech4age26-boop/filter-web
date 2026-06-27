@@ -4,7 +4,6 @@ import {
     listCashBankTransactionsLog,
     listLogFilterUsers,
 } from '../../../services/accountingLogsApi';
-import { useHqAdminBooksScope } from '../../../hooks/useHqAdminBooksScope';
 import '../../../styles/admin/AccountingPage.css';
 
 const METHOD_OPTIONS = [
@@ -65,26 +64,18 @@ export default function WorkshopTransactionsLog({
     emptyHint = 'No transactions in this period.',
     branches = [],
     selectedBranchId = 'all',
-    initialDateFrom = '',
-    initialDateTo = '',
 }) {
-    const { isAdminHqBooks } = useHqAdminBooksScope();
     const [method, setMethod] = useState('all');
     const [branchId, setBranchId] = useState(() => sidebarBranchToFilter(selectedBranchId));
     const [userId, setUserId] = useState('');
-    const [dateFrom, setDateFrom] = useState(initialDateFrom);
-    const [dateTo, setDateTo] = useState(initialDateTo);
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
     const [search, setSearch] = useState('');
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-
-    useEffect(() => {
-        if (initialDateFrom) setDateFrom(initialDateFrom);
-        if (initialDateTo) setDateTo(initialDateTo);
-    }, [initialDateFrom, initialDateTo]);
 
     const reload = useCallback(async () => {
         setLoading(true);
@@ -93,7 +84,7 @@ export default function WorkshopTransactionsLog({
             const res = await listCashBankTransactionsLog({
                 direction,
                 method,
-                ...(isAdminHqBooks ? {} : { branchId: branchId || undefined }),
+                branchId: branchId || undefined,
                 userId: userId || undefined,
                 dateFrom: dateFrom || undefined,
                 dateTo: dateTo || undefined,
@@ -107,15 +98,13 @@ export default function WorkshopTransactionsLog({
         } finally {
             setLoading(false);
         }
-    }, [direction, method, branchId, userId, dateFrom, dateTo, search, isAdminHqBooks]);
+    }, [direction, method, branchId, userId, dateFrom, dateTo, search]);
 
     useEffect(() => {
-        if (!isAdminHqBooks) {
-            setBranchId(sidebarBranchToFilter(selectedBranchId));
-        }
-    }, [selectedBranchId, isAdminHqBooks]);
+        setBranchId(sidebarBranchToFilter(selectedBranchId));
+    }, [selectedBranchId]);
 
-    const branchScopeForUsers = isAdminHqBooks ? undefined : (branchId || undefined);
+    const branchScopeForUsers = branchId || undefined;
 
     useEffect(() => {
         listLogFilterUsers({ branchId: branchScopeForUsers })
@@ -147,11 +136,6 @@ export default function WorkshopTransactionsLog({
                     {title}
                 </h2>
                 {subtitle ? <p className="cash-bank-desc">{subtitle}</p> : null}
-                {isAdminHqBooks ? (
-                    <p className="cash-bank-desc" style={{ marginTop: subtitle ? 4 : 0 }}>
-                        Platform HQ registers only — not linked to workshop branches.
-                    </p>
-                ) : null}
             </header>
 
             {error ? <p className="form-help-text" style={{ color: '#B45309' }}>{error}</p> : null}
@@ -174,7 +158,6 @@ export default function WorkshopTransactionsLog({
                         ))}
                     </select>
                 </div>
-                {!isAdminHqBooks ? (
                 <div>
                     <label className="form-label">Branch</label>
                     <select className="form-input-field" value={branchId} onChange={(e) => {
@@ -187,7 +170,6 @@ export default function WorkshopTransactionsLog({
                         ))}
                     </select>
                 </div>
-                ) : null}
                 <div>
                     <label className="form-label">User (owner)</label>
                     <select className="form-input-field" value={userId} onChange={(e) => setUserId(e.target.value)}>
@@ -260,7 +242,7 @@ export default function WorkshopTransactionsLog({
                             <th className="table-th">Amount</th>
                             <th className="table-th">Method</th>
                             <th className="table-th">Account</th>
-                            {!isAdminHqBooks ? <th className="table-th">Branch</th> : null}
+                            <th className="table-th">Branch</th>
                             <th className="table-th">Owner</th>
                             <th className="table-th">Reference</th>
                             <th className="table-th">Description</th>
@@ -268,7 +250,7 @@ export default function WorkshopTransactionsLog({
                     </thead>
                     <tbody>
                         {rows.length === 0 ? (
-                            <tr><td colSpan={isAdminHqBooks ? 8 : 9} className="table-cell table-empty">{loading ? 'Loading…' : emptyHint}</td></tr>
+                            <tr><td colSpan={9} className="table-cell table-empty">{loading ? 'Loading…' : emptyHint}</td></tr>
                         ) : rows.map((r) => (
                             <tr key={r.id}>
                                 <td className="table-cell">{new Date(r.entryDate).toLocaleDateString()}</td>
@@ -278,7 +260,7 @@ export default function WorkshopTransactionsLog({
                                 <td className="table-cell">SAR {fmt(r.amount)}</td>
                                 <td className="table-cell">{methodChip(r.account?.kind, r.account?.type)}</td>
                                 <td className="table-cell">{r.account?.name}{r.account?.coaCode ? <span style={{ color: '#94A3B8' }}> · {r.account.coaCode}</span> : null}</td>
-                                {!isAdminHqBooks ? <td className="table-cell">{r.account?.branchName ?? '—'}</td> : null}
+                                <td className="table-cell">{r.account?.branchName ?? '—'}</td>
                                 <td className="table-cell">{r.account?.ownerUserName ?? '—'}</td>
                                 <td className="table-cell">{r.reference ?? r.sourceType ?? '—'}</td>
                                 <td className="table-cell" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

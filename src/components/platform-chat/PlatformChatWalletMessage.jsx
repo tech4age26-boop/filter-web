@@ -113,6 +113,14 @@ export function PlatformChatWalletMessage({
                             <p className="pc-wallet-card-detail-value">{p.purpose}</p>
                         </div>
                     )}
+                    {(p.workshopName || p.branchName) && (
+                        <div className="pc-wallet-card-detail">
+                            <span className="pc-wallet-card-detail-label">Workshop / Branch</span>
+                            <p className="pc-wallet-card-detail-value">
+                                {[p.workshopName, p.branchName].filter(Boolean).join(' · ')}
+                            </p>
+                        </div>
+                    )}
                 </div>
                 {isPending && !message.isSelf && (canApprove || canReject) && (
                     <div className="pc-wallet-card-actions-bar">
@@ -209,20 +217,25 @@ export function PlatformChatWalletMessage({
     }
 
     if (message.type === 'wallet_expense_event') {
+        const status = String(p.status || 'pending').toLowerCase();
+        const isPending = status === 'pending';
         return (
-            <div className="pc-wallet-card pc-wallet-card--expense">
+            <div className={`pc-wallet-card pc-wallet-card--expense pc-wallet-card--${status}`}>
                 <div className="pc-wallet-card-head pc-wallet-card-head--expense">
                     <div className="pc-wallet-card-head-icon pc-wallet-card-head-icon--expense" aria-hidden>
                         <Receipt size={18} strokeWidth={2.25} />
                     </div>
                     <div className="pc-wallet-card-head-text">
-                        <div className="pc-wallet-card-title">Expense recorded</div>
-                        {p.referenceId && <div className="pc-wallet-card-ref">{p.referenceId}</div>}
+                        <div className="pc-wallet-card-title">{isPending ? 'Expense Request' : 'Expense recorded'}</div>
+                        {(p.requestNumber || p.referenceId) && (
+                            <div className="pc-wallet-card-ref">{p.requestNumber || p.referenceId}</div>
+                        )}
                     </div>
+                    <StatusBadge status={status} />
                 </div>
                 <div className="pc-wallet-card-body">
                     <div className="pc-wallet-card-amount pc-wallet-card-amount--expense">
-                        <span className="pc-wallet-card-amount-label">Amount debited</span>
+                        <span className="pc-wallet-card-amount-label">{isPending ? 'Requested amount' : 'Amount debited'}</span>
                         <span className="pc-wallet-card-amount-value">
                             <span className="pc-wallet-card-currency">{p.currencyCode || 'SAR'}</span>
                             {formatSar(p.amount)}
@@ -234,7 +247,15 @@ export function PlatformChatWalletMessage({
                             <p className="pc-wallet-card-detail-value">{p.description}</p>
                         </div>
                     )}
-                    {p.balanceAfter != null && (
+                    {(p.workshopName || p.branchName) && (
+                        <div className="pc-wallet-card-detail">
+                            <span className="pc-wallet-card-detail-label">Workshop / Branch</span>
+                            <p className="pc-wallet-card-detail-value">
+                                {[p.workshopName, p.branchName].filter(Boolean).join(' · ')}
+                            </p>
+                        </div>
+                    )}
+                    {!isPending && p.balanceAfter != null && (
                         <div className="pc-wallet-card-meta">
                             Balance after: SAR {formatSar(p.balanceAfter)}
                         </div>

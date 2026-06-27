@@ -15,7 +15,7 @@ export default function PlatformChatFab({ onClick, hidden = false, title = 'Open
             title={title}
             aria-label={title}
         >
-            <MessageCircle size={26} />
+            <MessageCircle className="platform-chat-fab-icon" size={26} strokeWidth={2} />
             {totalUnread > 0 && (
                 <span className="platform-chat-fab-badge" aria-hidden>
                     {totalUnread > 9 ? '9+' : totalUnread}

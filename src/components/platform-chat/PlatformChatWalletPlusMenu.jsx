@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Plus, Banknote, History, Receipt } from 'lucide-react';
 import Modal from '../Modal';
 import SearchableEntityCombobox from '../SearchableEntityCombobox';
 import ExpenseProofPicker from '../accounting/ExpenseProofPicker';
-import ExpenseProofThumbnail from '../accounting/ExpenseProofThumbnail';
+import { listMyWalletBranches, listMyWalletWorkshops } from '../../services/adminWalletApi';
 import { adminWalletExpenseComboboxOptions } from '../../constants/adminWalletExpenseCategories';
 import { formatSar } from './PlatformChatWalletMessage';
 import '../../styles/admin/PlatformChatWallet.css';
@@ -26,22 +26,50 @@ export default function PlatformChatWalletPlusMenu({
 
     const [fundAmount, setFundAmount] = useState('');
     const [fundPurpose, setFundPurpose] = useState('');
+    const [fundWorkshopId, setFundWorkshopId] = useState('');
+    const [fundBranchId, setFundBranchId] = useState('');
+    const [fundBranches, setFundBranches] = useState([]);
+
     const [expenseAmount, setExpenseAmount] = useState('');
     const [expenseCategory, setExpenseCategory] = useState('');
     const [expenseCategorySearch, setExpenseCategorySearch] = useState('');
     const [expenseDescription, setExpenseDescription] = useState('');
     const [expenseVendor, setExpenseVendor] = useState('');
     const [expenseProofPreview, setExpenseProofPreview] = useState(null);
+    const [expenseWorkshopId, setExpenseWorkshopId] = useState('');
+    const [expenseBranchId, setExpenseBranchId] = useState('');
+    const [expenseBranches, setExpenseBranches] = useState([]);
+
+    const [workshopOptions, setWorkshopOptions] = useState([]);
+    const [workshopsLoading, setWorkshopsLoading] = useState(false);
+    const [fundBranchesLoading, setFundBranchesLoading] = useState(false);
+    const [expenseBranchesLoading, setExpenseBranchesLoading] = useState(false);
 
     const expenseCategoryOptions = useMemo(() => adminWalletExpenseComboboxOptions(), []);
 
     const [historyRows, setHistoryRows] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
 
+    const [fundModalError, setFundModalError] = useState('');
+    const [expenseModalError, setExpenseModalError] = useState('');
+
     const menuRef = useRef(null);
 
     const hasAnyOption = showRequestFunds || showRecordExpense || showTransactionHistory;
     if (!hasAnyOption || !conversationId) return null;
+
+    const loadWorkshops = useCallback(async () => {
+        setWorkshopsLoading(true);
+        try {
+            const res = await listMyWalletWorkshops();
+            const rows = res?.workshops ?? res?.data?.workshops ?? [];
+            setWorkshopOptions(Array.isArray(rows) ? rows : []);
+        } catch {
+            setWorkshopOptions([]);
+        } finally {
+            setWorkshopsLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
         if (!menuOpen) return undefined;
@@ -53,6 +81,59 @@ export default function PlatformChatWalletPlusMenu({
         document.addEventListener('mousedown', onDoc);
         return () => document.removeEventListener('mousedown', onDoc);
     }, [menuOpen]);
+
+    useEffect(() => {
+        if (!menuOpen && !fundOpen && !expenseOpen) return;
+        loadWorkshops();
+    }, [menuOpen, fundOpen, expenseOpen, loadWorkshops]);
+
+    useEffect(() => {
+        if (workshopOptions.length === 1) {
+            const onlyId = String(workshopOptions[0].id);
+            if (fundOpen && !fundWorkshopId) setFundWorkshopId(onlyId);
+            if (expenseOpen && !expenseWorkshopId) setExpenseWorkshopId(onlyId);
+        }
+    }, [workshopOptions, fundOpen, expenseOpen, fundWorkshopId, expenseWorkshopId]);
+
+    useEffect(() => {
+        if (!fundOpen) {
+            setFundModalError('');
+            return;
+        }
+        setFundModalError('');
+    }, [fundOpen]);
+
+    useEffect(() => {
+        if (!expenseOpen) {
+            setExpenseModalError('');
+        }
+    }, [expenseOpen]);
+
+    useEffect(() => {
+        if (!fundWorkshopId) {
+            setFundBranches([]);
+            setFundBranchId('');
+            return;
+        }
+        setFundBranchesLoading(true);
+        listMyWalletBranches({ workshopId: fundWorkshopId })
+            .then((res) => setFundBranches(res?.branches ?? []))
+            .catch(() => setFundBranches([]))
+            .finally(() => setFundBranchesLoading(false));
+    }, [fundWorkshopId]);
+
+    useEffect(() => {
+        if (!expenseWorkshopId) {
+            setExpenseBranches([]);
+            setExpenseBranchId('');
+            return;
+        }
+        setExpenseBranchesLoading(true);
+        listMyWalletBranches({ workshopId: expenseWorkshopId })
+            .then((res) => setExpenseBranches(res?.branches ?? []))
+            .catch(() => setExpenseBranches([]))
+            .finally(() => setExpenseBranchesLoading(false));
+    }, [expenseWorkshopId]);
 
     const loadHistory = async () => {
         setHistoryLoading(true);
@@ -78,17 +159,35 @@ export default function PlatformChatWalletPlusMenu({
         const amount = Number(fundAmount);
         const purpose = fundPurpose.trim();
         if (!Number.isFinite(amount) || amount <= 0 || !purpose) return;
+        if (!fundWorkshopId) {
+            setFundModalError('Select a workshop.');
+            return;
+        }
+        if (!fundBranchId) {
+            setFundModalError('Select a branch.');
+            return;
+        }
+        setFundModalError('');
         setBusy(true);
         try {
-            const res = await api.sendWalletFundRequest(conversationId, { amount, purpose });
+            const res = await api.sendWalletFundRequest(conversationId, {
+                amount,
+                purpose,
+                workshopId: fundWorkshopId,
+                branchId: fundBranchId,
+            });
             const msg = res?.message ?? res?.data?.message;
             if (msg) onMessageSent?.(msg);
             setFundOpen(false);
             setFundAmount('');
             setFundPurpose('');
+            setFundWorkshopId('');
+            setFundBranchId('');
             setMenuOpen(false);
         } catch (err) {
-            onError?.(err?.message || 'Could not send fund request');
+            const message = err?.message || 'Could not send fund request';
+            setFundModalError(message);
+            onError?.(message);
         } finally {
             setBusy(false);
         }
@@ -100,9 +199,22 @@ export default function PlatformChatWalletPlusMenu({
         const description = expenseDescription.trim();
         if (!Number.isFinite(amount) || amount <= 0 || !description) return;
         if (!expenseCategory) {
-            onError?.('Select an account category.');
+            setExpenseModalError('Select an account category.');
             return;
         }
+        if (!expenseProofPreview) {
+            setExpenseModalError('Expense proof image is required.');
+            return;
+        }
+        if (!expenseWorkshopId) {
+            setExpenseModalError('Select a workshop.');
+            return;
+        }
+        if (!expenseBranchId) {
+            setExpenseModalError('Select a branch.');
+            return;
+        }
+        setExpenseModalError('');
         setBusy(true);
         try {
             const res = await api.recordWalletExpense(conversationId, {
@@ -110,7 +222,9 @@ export default function PlatformChatWalletPlusMenu({
                 description,
                 vendorName: expenseVendor.trim() || undefined,
                 expenseCategory,
-                ...(expenseProofPreview ? { proofUrl: expenseProofPreview } : {}),
+                proofUrl: expenseProofPreview,
+                workshopId: expenseWorkshopId,
+                branchId: expenseBranchId,
             });
             const msg = res?.message ?? res?.data?.message;
             if (msg) onMessageSent?.(msg);
@@ -121,9 +235,13 @@ export default function PlatformChatWalletPlusMenu({
             setExpenseDescription('');
             setExpenseVendor('');
             setExpenseProofPreview(null);
+            setExpenseWorkshopId('');
+            setExpenseBranchId('');
             setMenuOpen(false);
         } catch (err) {
-            onError?.(err?.message || 'Could not record expense');
+            const message = err?.message || 'Could not record expense';
+            setExpenseModalError(message);
+            onError?.(message);
         } finally {
             setBusy(false);
         }
@@ -151,6 +269,55 @@ export default function PlatformChatWalletPlusMenu({
         }
     };
 
+    const workshopSelect = (id, value, onChange, onBranchReset) => (
+        <>
+            <label className="pc-wallet-field-label">Workshop *</label>
+            <select
+                className="pc-wallet-field"
+                value={value}
+                onChange={(e) => {
+                    onChange(e.target.value);
+                    onBranchReset('');
+                }}
+                disabled={busy || workshopsLoading}
+                required
+            >
+                <option value="">
+                    {workshopsLoading ? 'Loading workshops…' : 'Select workshop'}
+                </option>
+                {workshopOptions.map((w) => (
+                    <option key={w.id} value={w.id}>
+                        {w.name || w.label || `#${w.id}`}
+                    </option>
+                ))}
+            </select>
+        </>
+    );
+
+    const branchSelect = (workshopId, value, onChange, branches, loading) => (
+        <>
+            <label className="pc-wallet-field-label">Branch *</label>
+            <select
+                className="pc-wallet-field"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                disabled={busy || !workshopId || loading}
+                required
+            >
+                <option value="">
+                    {!workshopId
+                        ? 'Select workshop first'
+                        : loading
+                            ? 'Loading branches…'
+                            : 'Select branch'}
+                </option>
+                {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+            </select>
+        </>
+    );
+
     return (
         <>
             <div className="pc-wallet-plus-wrap" ref={menuRef}>
@@ -172,6 +339,8 @@ export default function PlatformChatWalletPlusMenu({
                                 role="menuitem"
                                 onClick={() => {
                                     setMenuOpen(false);
+                                    setFundModalError('');
+                                    onError?.('');
                                     setFundOpen(true);
                                 }}
                             >
@@ -203,7 +372,8 @@ export default function PlatformChatWalletPlusMenu({
                 <Modal
                     title="Request Funds"
                     onClose={busy ? undefined : () => setFundOpen(false)}
-                    width={440}
+                    width={480}
+                    className="pc-wallet-modal"
                     disableClose={busy}
                     footer={(
                         <>
@@ -216,8 +386,24 @@ export default function PlatformChatWalletPlusMenu({
                         </>
                     )}
                 >
-                    <form onSubmit={submitFundRequest}>
-                        <label className="pc-wallet-field-label">Amount (SAR)</label>
+                    <form className="pc-wallet-modal-form" onSubmit={submitFundRequest}>
+                        {fundModalError && (
+                            <p className="pc-wallet-modal-error" role="alert">{fundModalError}</p>
+                        )}
+                        {workshopSelect(
+                            'fund',
+                            fundWorkshopId,
+                            setFundWorkshopId,
+                            setFundBranchId,
+                        )}
+                        {branchSelect(
+                            fundWorkshopId,
+                            fundBranchId,
+                            setFundBranchId,
+                            fundBranches,
+                            fundBranchesLoading,
+                        )}
+                        <label className="pc-wallet-field-label">Amount (SAR) *</label>
                         <input
                             type="number"
                             min="0.01"
@@ -227,7 +413,7 @@ export default function PlatformChatWalletPlusMenu({
                             onChange={(e) => setFundAmount(e.target.value)}
                             required
                         />
-                        <label className="pc-wallet-field-label">Reason / Purpose</label>
+                        <label className="pc-wallet-field-label">Reason / Purpose *</label>
                         <textarea
                             className="pc-wallet-field"
                             rows={3}
@@ -244,7 +430,8 @@ export default function PlatformChatWalletPlusMenu({
                 <Modal
                     title="Record Expense"
                     onClose={busy ? undefined : () => setExpenseOpen(false)}
-                    width={440}
+                    width={480}
+                    className="pc-wallet-modal"
                     disableClose={busy}
                     footer={(
                         <>
@@ -257,8 +444,24 @@ export default function PlatformChatWalletPlusMenu({
                         </>
                     )}
                 >
-                    <form onSubmit={submitExpense}>
-                        <label className="pc-wallet-field-label">Amount (SAR)</label>
+                    <form className="pc-wallet-modal-form" onSubmit={submitExpense}>
+                        {expenseModalError && (
+                            <p className="pc-wallet-modal-error" role="alert">{expenseModalError}</p>
+                        )}
+                        {workshopSelect(
+                            'expense',
+                            expenseWorkshopId,
+                            setExpenseWorkshopId,
+                            setExpenseBranchId,
+                        )}
+                        {branchSelect(
+                            expenseWorkshopId,
+                            expenseBranchId,
+                            setExpenseBranchId,
+                            expenseBranches,
+                            expenseBranchesLoading,
+                        )}
+                        <label className="pc-wallet-field-label">Amount (SAR) *</label>
                         <input
                             type="number"
                             min="0.01"
@@ -268,7 +471,7 @@ export default function PlatformChatWalletPlusMenu({
                             onChange={(e) => setExpenseAmount(e.target.value)}
                             required
                         />
-                        <label className="pc-wallet-field-label">Account category</label>
+                        <label className="pc-wallet-field-label">Account category *</label>
                         <SearchableEntityCombobox
                             id="pc-wallet-expense-category"
                             required
@@ -289,7 +492,7 @@ export default function PlatformChatWalletPlusMenu({
                             maxFiltered={30}
                             disabled={busy}
                         />
-                        <label className="pc-wallet-field-label">Description</label>
+                        <label className="pc-wallet-field-label">Description *</label>
                         <input
                             type="text"
                             className="pc-wallet-field"

@@ -14,6 +14,7 @@ import { listCashBankAccounts } from '../../services/workshopAccountingApi';
 import { getWorkshopBranches, unwrapWorkshopBranchesResponse } from '../../services/workshopStaffApi';
 import { StatusBadge, MessageThread, formatSar, WalletTransactionsTable } from './WorkshopMyPettyCash.shared';
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
+import PettyCashRecordForms from './PettyCashRecordForms';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/AccountingPage.css';
 
@@ -244,6 +245,13 @@ export default function WorkshopPettyCashManagement({
             {error ? (
                 <p className="form-help-text" style={{ color: '#B45309', marginBottom: 12 }}>{error}</p>
             ) : null}
+
+            <PettyCashRecordForms
+                workshopId={workshopId}
+                defaultBranchId={selectedBranchId}
+                onSubmitted={loadAll}
+                compact
+            />
 
             <div className="cash-bank-stats">
                 <div className="cash-bank-stat-card">

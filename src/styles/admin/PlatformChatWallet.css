@@ -451,6 +451,17 @@
     border: 1px solid #e2e8f0;
     font-size: 0.875rem;
     margin-bottom: 12px;
+    background: #fff;
+    color: #0f172a;
+}
+
+.pc-wallet-modal .app-modal-body {
+    max-height: min(68vh, 520px);
+    overflow-y: auto;
+}
+
+.pc-wallet-modal-form {
+    padding-bottom: 4px;
 }
 
 .pc-wallet-modal-cancel,
@@ -561,6 +572,25 @@
     margin: 0 0 12px;
     font-size: 0.875rem;
     color: #475569;
+}
+
+.pc-wallet-modal-info {
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+}
+
+.pc-wallet-modal-info-text {
+    margin: 0 0 10px;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: #1e40af;
+}
+
+.pc-wallet-modal-info .pc-wallet-modal-danger {
+    width: 100%;
 }
 
 .platform-chat-bubble-inner--wallet {

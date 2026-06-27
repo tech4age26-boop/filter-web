@@ -10,6 +10,9 @@ const qs = (params = {}) => {
 export const listExpenseCategories = (params = {}) =>
     apiFetch(`/employee-expense/categories${qs(params)}`);
 
+export const listExpenseWorkshopBranches = (params = {}) =>
+    apiFetch(`/employee-expense/branches${qs(params)}`);
+
 export const getMyExpenseRequests = (params = {}) =>
     apiFetch(`/employee-expense/my${qs(params)}`);
 

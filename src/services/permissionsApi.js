@@ -94,6 +94,7 @@ export function createUser(payload) {
  *   roleId      — string id, or null to clear the assignment
  *   workshopId  — optional; omit to keep current, null to clear, string id to set
  *   branchId    — optional; omit to keep current, null to clear, string id to set
+ *   password    — optional; omit or empty to keep current login password
  */
 export function assignRoleToUser(userId, roleId, opts = {}) {
     const body = {
@@ -104,6 +105,10 @@ export function assignRoleToUser(userId, roleId, opts = {}) {
     }
     if (Object.prototype.hasOwnProperty.call(opts, 'branchId')) {
         body.branchId = opts.branchId == null ? null : String(opts.branchId);
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'password')) {
+        const pwd = opts.password == null ? '' : String(opts.password).trim();
+        if (pwd) body.password = pwd;
     }
     return apiFetch(
         `/super-admin/permissions/users/${encodeURIComponent(userId)}/role`,

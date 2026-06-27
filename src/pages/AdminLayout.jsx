@@ -397,7 +397,7 @@ function AdminLayoutShell() {
     }
 
     return (
-        <div className={`admin-layout ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+        <div className={`admin-layout ${isMobileMenuOpen ? 'mobile-menu-open' : ''}${location.pathname.startsWith('/admin/my-wallet') ? ' admin-layout--my-wallet' : ''}`} dir={locale === 'ar' ? 'rtl' : 'ltr'}>
             <AnimatePresence>
                 {isMobileMenuOpen && (
                     <motion.div
