@@ -1401,6 +1401,22 @@ function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onRe
                             </p>
                         </div>
                     )}
+                    {(row.superAdminApprovedByName ?? row.super_admin_approved_by_name ?? item?.meta?.superAdminApprovedByName) && (
+                        <div style={{ marginBottom: 8 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Super admin approval</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                {row.superAdminApprovedByName ?? row.super_admin_approved_by_name ?? item?.meta?.superAdminApprovedByName}
+                            </p>
+                        </div>
+                    )}
+                    {(row.workshopAdminApprovedByName ?? row.workshop_admin_approved_by_name ?? item?.meta?.workshopAdminApprovedByName) && (
+                        <div style={{ marginBottom: 14 }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Workshop admin approval</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 600 }}>
+                                {row.workshopAdminApprovedByName ?? row.workshop_admin_approved_by_name ?? item?.meta?.workshopAdminApprovedByName}
+                            </p>
+                        </div>
+                    )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                         <div>
                             <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Requested by</p>
@@ -2811,6 +2827,10 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 const res = await approveApi(item.entityType, item.id, payload);
                 if (res?.awaitingWorkshopAdmin || res?.awaitingSuperAdmin) {
                     showToast(res.message || 'Approval recorded — awaiting the other approver.');
+                    setApproveTarget(null);
+                    setApproveModalError('');
+                    setReloadTick((t) => t + 1);
+                    return;
                 }
             }
             removeFromList(item);
@@ -2823,7 +2843,9 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             showToast(
                 postedToCao
                     ? 'Approved and posted to Chart of Accounts.'
-                    : 'Request approved.',
+                    : (item.entityType === 'admin_wallet_fund_request' || item.entityType === 'admin_wallet_expense_request')
+                        ? 'Request approved and posted.'
+                        : 'Request approved.',
             );
         } catch (err) {
             if (item.entityType === 'admin_wallet_fund_request' || item.entityType === 'admin_wallet_expense_request') {

@@ -1,16 +1,215 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, CheckCircle, X, Eye, RefreshCw, FileText } from 'lucide-react';
+import { Clock, CheckCircle, X, Eye, RefreshCw, FileText, Check, Loader } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
+import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
-import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn } from '../../services/workshopStaffApi';
+import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn, listWorkshopCashBankAccounts } from '../../services/workshopStaffApi';
 import { approveExpenseRequest, rejectExpenseRequest } from '../../services/employeeExpenseApi';
 import { useAuth } from '../../context/AuthContext';
 
+function cashBankRegisterKindLabel(row) {
+    const kind = String(row?.kind || 'OPERATING');
+    if (kind === 'SYSTEM_LOCKER_VAULT') return 'Locker vault';
+    if (kind === 'SYSTEM_CASHIER_TILL') return 'Cashier till';
+    if (kind === 'SYSTEM_PETTY_CASH_WALLET') return 'Petty cash wallet';
+    const type = String(row?.type || row?.apiType || '').toUpperCase();
+    if (type === 'BANK') return 'Bank';
+    if (type === 'PETTY_CASH') return 'Petty cash';
+    return 'Cash';
+}
+
+function normalizeWorkshopPayFromAccounts(res) {
+    const list = Array.isArray(res?.accounts)
+        ? res.accounts
+        : Array.isArray(res?.data?.accounts)
+            ? res.data.accounts
+            : [];
+    return list.map((row) => {
+        const id = String(row.id);
+        const name = row.name || 'Account';
+        const kindLabel = cashBankRegisterKindLabel(row);
+        const balance = Number(row.currentBalance ?? row.balance ?? 0);
+        const formatted = balance.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+        return {
+            id,
+            name,
+            kindLabel,
+            branchId: row.branchId != null ? String(row.branchId) : '',
+            label: `${name} (${kindLabel}) — SAR ${formatted}`,
+            balance,
+        };
+    });
+}
+
+function AdminWalletFundWorkshopApproveModal({ row, busy, error, onCancel, onConfirm }) {
+    const [remarks, setRemarks] = useState('');
+    const [sourceAccountId, setSourceAccountId] = useState('');
+    const [cashAccounts, setCashAccounts] = useState([]);
+    const [accountsLoading, setAccountsLoading] = useState(true);
+    const [accountsError, setAccountsError] = useState('');
+    const branchId = row?.branchId != null ? String(row.branchId) : '';
+    const branchName = row?.branchName || 'this branch';
+    const requesterName = row?.cashier?.name || row?.requestedBy || 'Platform admin';
+    const amount = Number(row?.amount ?? 0);
+
+    useEffect(() => {
+        let cancelled = false;
+        setAccountsLoading(true);
+        setAccountsError('');
+        setSourceAccountId('');
+        const params = { status: 'active' };
+        if (branchId) params.branchId = branchId;
+        listWorkshopCashBankAccounts(params)
+            .then((res) => {
+                if (cancelled) return;
+                const normalized = normalizeWorkshopPayFromAccounts(res);
+                setCashAccounts(normalized);
+                if (normalized.length > 0) setSourceAccountId(normalized[0].id);
+            })
+            .catch((err) => {
+                if (!cancelled) {
+                    setAccountsError(err?.message || 'Failed to load cash/bank accounts');
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setAccountsLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [branchId]);
+
+    const selectedAccount = cashAccounts.find((a) => a.id === sourceAccountId);
+    const insufficientBalance = Boolean(
+        selectedAccount
+        && Number.isFinite(amount)
+        && amount > 0
+        && selectedAccount.balance < amount,
+    );
+    const balanceError = insufficientBalance
+        ? `Insufficient balance in ${selectedAccount.name}. Available SAR ${selectedAccount.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} but this request needs SAR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
+        : '';
+    const displayError = error || balanceError;
+
+    return (
+        <Modal
+            title="Approve Platform Admin Fund Request"
+            onClose={busy ? undefined : onCancel}
+            width={520}
+            footer={(
+                <>
+                    <button type="button" className="btn-secondary" disabled={busy} onClick={onCancel}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-submit btn-dark"
+                        disabled={busy || accountsLoading || !sourceAccountId || insufficientBalance}
+                        onClick={() => onConfirm({
+                            remarks: remarks.trim() || undefined,
+                            sourceAccountId,
+                            sourceAccountName: selectedAccount?.name || '',
+                        })}
+                    >
+                        {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
+                        {' '}
+                        Approve &amp; Post Journal
+                    </button>
+                </>
+            )}
+        >
+            {displayError ? (
+                <p className="form-help-text" style={{ color: '#B45309', marginBottom: 12 }} role="alert">
+                    {displayError}
+                </p>
+            ) : null}
+            <p style={{ margin: '0 0 14px', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                Approve fund request for <strong>{requesterName}</strong> at branch{' '}
+                <strong>{branchName}</strong>. Amount{' '}
+                <strong>SAR {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>{' '}
+                will be credited to their wallet. Workshop books will post{' '}
+                <strong>Dr Employee Petty Cash Fund (1280)</strong> /{' '}
+                <strong>Cr</strong> the account you select below.
+            </p>
+            {row?.description ? (
+                <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                    Purpose: <strong>{row.description}</strong>
+                </p>
+            ) : null}
+
+            <label className="form-label" htmlFor="ws-admin-wallet-source-account">
+                Pay from account (Cash / Bank / Locker) <span style={{ color: '#dc2626' }}>*</span>
+            </label>
+            {accountsLoading ? (
+                <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
+                    <Loader size={14} className="spin" /> Loading branch accounts…
+                </p>
+            ) : accountsError ? (
+                <p style={{ color: '#b91c1c', fontSize: '0.875rem' }}>{accountsError}</p>
+            ) : cashAccounts.length === 0 ? (
+                <p style={{ color: '#b45309', fontSize: '0.875rem' }}>
+                    No cash, bank, or locker accounts found for {branchName}. Add one under Accounting → Cash &amp; Bank first.
+                </p>
+            ) : (
+                <select
+                    id="ws-admin-wallet-source-account"
+                    className="form-input-field"
+                    value={sourceAccountId}
+                    onChange={(e) => setSourceAccountId(e.target.value)}
+                    disabled={busy}
+                >
+                    {cashAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>{account.label}</option>
+                    ))}
+                </select>
+            )}
+            {selectedAccount && !accountsLoading && !accountsError ? (
+                <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                    Available balance:{' '}
+                    <strong>
+                        SAR {selectedAccount.balance.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                        })}
+                    </strong>
+                </p>
+            ) : null}
+
+            <label className="form-label" htmlFor="ws-admin-wallet-approve-remarks" style={{ marginTop: 14 }}>
+                Remarks <span style={{ color: '#94a3b8', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <textarea
+                id="ws-admin-wallet-approve-remarks"
+                className="form-input-field"
+                rows={3}
+                placeholder="e.g. Approved for branch petty cash float."
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                disabled={busy}
+            />
+        </Modal>
+    );
+}
+
 function isSalesReturnRow(row) {
     return row?._source === 'sales_return';
+}
+
+function formatAdminWalletApproverSummary(row) {
+    if (String(row?.status || '').toLowerCase() !== 'approved') return null;
+    const parts = [];
+    if (row.superAdminApprovedByName?.trim()) {
+        parts.push(`Super Admin: ${row.superAdminApprovedByName.trim()}`);
+    }
+    if (row.workshopAdminApprovedByName?.trim()) {
+        parts.push(`Workshop Admin: ${row.workshopAdminApprovedByName.trim()}`);
+    }
+    if (parts.length > 0) return parts.join(' · ');
+    return row.approvedByName?.trim() || null;
 }
 
 function isAdminWalletFundRow(row) {
@@ -213,6 +412,8 @@ export default function WorkshopApprovals({
     /** Supplier invoice approve: preview showed new branch products — collect optional critical stock */
     const [siApproveModal, setSiApproveModal] = useState(null);
     const [siCriticalStock, setSiCriticalStock] = useState({});
+    const [fundApproveModal, setFundApproveModal] = useState(null);
+    const [fundApproveError, setFundApproveError] = useState('');
 
     const loadApprovals = useCallback(async () => {
         setIsLoading(true);
@@ -336,6 +537,10 @@ export default function WorkshopApprovals({
                     branchName: r.branchName,
                     expenseCategory: r.expenseCategory,
                     proofUrl: r.proofUrl,
+                    superAdminApprovedByName: r.superAdminApprovedByName ?? null,
+                    workshopAdminApprovedByName: r.workshopAdminApprovedByName ?? null,
+                    approvedByName: r.approvedByName ?? null,
+                    approvedAt: r.approvedAt ?? null,
                 }))
                 : [];
 
@@ -497,7 +702,13 @@ export default function WorkshopApprovals({
             }
             return;
         }
-        if (isAdminWalletFundRow(row) || isAdminWalletExpenseRow(row)) {
+        if (isAdminWalletFundRow(row)) {
+            if (row.status !== 'pending') return;
+            setFundApproveError('');
+            setFundApproveModal(row);
+            return;
+        }
+        if (isAdminWalletExpenseRow(row)) {
             if (row.status !== 'pending') return;
             const rid = row.adminWalletRequestId;
             const kind = row.kind;
@@ -505,7 +716,7 @@ export default function WorkshopApprovals({
             try {
                 await apiFetch(
                     `/workshop-staff/admin-wallet-approvals/${encodeURIComponent(kind)}/${encodeURIComponent(String(rid))}/approve`,
-                    { method: 'POST' },
+                    { method: 'POST', body: JSON.stringify({}) },
                 );
                 await loadApprovals();
                 window.dispatchEvent(new Event('workshop-approvals-updated'));
@@ -614,6 +825,30 @@ export default function WorkshopApprovals({
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (error) {
             setLoadError(error.message || 'Failed to reject request.');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const submitAdminWalletFundApprove = async (payload) => {
+        if (!fundApproveModal) return;
+        const rid = fundApproveModal.adminWalletRequestId;
+        setActionLoadingId(`approve-aw-${rid}`);
+        setFundApproveError('');
+        try {
+            await apiFetch(
+                `/workshop-staff/admin-wallet-approvals/admin_wallet_fund/${encodeURIComponent(String(rid))}/approve${qs(expenseScope)}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                },
+            );
+            setFundApproveModal(null);
+            await loadApprovals();
+            window.dispatchEvent(new Event('workshop-approvals-updated'));
+        } catch (error) {
+            setFundApproveError(error.message || 'Failed to approve fund request.');
         } finally {
             setActionLoadingId(null);
         }
@@ -958,12 +1193,26 @@ export default function WorkshopApprovals({
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                     <span style={{ color: 'var(--color-text-muted)' }}>Branch</span>
-                                    <span>{viewDialog.branch?.name || '—'}</span>
+                                    <span>{viewDialog.branch?.name || viewDialog.branchName || '—'}</span>
                                 </div>
+                                {(isAdminWalletFundRow(viewDialog) || isAdminWalletExpenseRow(viewDialog)) && viewDialog.description ? (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                                        <span style={{ color: 'var(--color-text-muted)' }}>Details</span>
+                                        <span style={{ textAlign: 'right', maxWidth: 260 }}>{viewDialog.description}</span>
+                                    </div>
+                                ) : null}
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                     <span style={{ color: 'var(--color-text-muted)' }}>Reason</span>
                                     <span style={{ textAlign: 'right', maxWidth: 220 }}>{viewDialog.reason || '—'}</span>
                                 </div>
+                                {formatAdminWalletApproverSummary(viewDialog) ? (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                                        <span style={{ color: 'var(--color-text-muted)' }}>Approved by</span>
+                                        <span style={{ textAlign: 'right', maxWidth: 260, fontWeight: 600 }}>
+                                            {formatAdminWalletApproverSummary(viewDialog)}
+                                        </span>
+                                    </div>
+                                ) : null}
                                 {viewDialog.requestedAt && (
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <span style={{ color: 'var(--color-text-muted)' }}>Requested at</span>
@@ -1178,6 +1427,11 @@ export default function WorkshopApprovals({
                                             <span className={`ws-badge ${statusColors[a.status] || 'ws-badge--gray'}`}>
                                                 {a.status || 'unknown'}
                                             </span>
+                                            {formatAdminWalletApproverSummary(a) ? (
+                                                <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 4, maxWidth: 180 }}>
+                                                    {formatAdminWalletApproverSummary(a)}
+                                                </div>
+                                            ) : null}
                                         </td>
                                         <td>
                                             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1263,6 +1517,20 @@ export default function WorkshopApprovals({
                 </table>
                 </WsTableScroll>
             </div>
+
+            {fundApproveModal ? (
+                <AdminWalletFundWorkshopApproveModal
+                    row={fundApproveModal}
+                    busy={actionLoadingId != null && String(actionLoadingId).startsWith('approve-aw-')}
+                    error={fundApproveError}
+                    onCancel={() => {
+                        if (actionLoadingId !== null) return;
+                        setFundApproveModal(null);
+                        setFundApproveError('');
+                    }}
+                    onConfirm={submitAdminWalletFundApprove}
+                />
+            ) : null}
 
         </div>
     );
