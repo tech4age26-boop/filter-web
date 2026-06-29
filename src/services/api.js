@@ -1,13 +1,19 @@
-// staging url
-//export const BASE_URL = 'https://filterbackend-production.up.railway.app';
-// staging url (production default when VITE_API_BASE_URL is unset)
-export const BASE_URL  = 'https://filterbackend-production.up.railway.app';
+// Production default when VITE_API_BASE_URL is unset (see .env.development for local).
+const PRODUCTION_DEFAULT = 'https://filterbackend-production.up.railway.app';
 
-// production url
-// export const BASE_URL  = 'https://api.filtercarservices.com';
+function resolveApiBaseUrl() {
+  const fromEnv =
+    typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL;
+  if (fromEnv && String(fromEnv).trim()) {
+    return String(fromEnv).trim().replace(/\/$/, '');
+  }
+  if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+    return 'http://localhost:3000';
+  }
+  return PRODUCTION_DEFAULT;
+}
 
-// development url
-//export const BASE_URL = 'http://localhost:3000';
+export const BASE_URL = resolveApiBaseUrl();
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
@@ -163,9 +169,17 @@ export async function apiFetch(path, options = {}) {
 
     const contentType = response.headers.get("content-type") || "";
 
-    const responseBody = contentType.includes("application/json")
-      ? await response.json().catch(() => null)
-      : await response.text().catch(() => "");
+    let responseBody;
+    if (contentType.includes("application/json")) {
+      responseBody = await response.json().catch(() => null);
+      if (response.ok && responseBody == null) {
+        throw new Error(
+          `Server returned invalid JSON for ${method} ${path}`,
+        );
+      }
+    } else {
+      responseBody = await response.text().catch(() => "");
+    }
 
     if (!response.ok) {
       if (response.status === 401 && isInvalidSession401(responseBody)) {

@@ -240,7 +240,17 @@ function workshopUserCanAccessCode(user, codes, permission) {
     }
     if (!codes) return true;
     if (!user.role) return true;
-    return codes.has(permission);
+    if (codes.has(permission)) return true;
+    if (permission === 'workshop.platform-chat.view' && codes.has('chat.view')) return true;
+    if (permission === 'workshop.platform-chat.create' && codes.has('chat.create')) return true;
+    return false;
+}
+
+function workshopNavItemAllowed(user, codes, item) {
+    if (item.walletRequired) return Boolean(user?.walletEnabled);
+    if (item.subItems?.length) return false;
+    if (!item.permission) return true;
+    return workshopUserCanAccessCode(user, codes, item.permission);
 }
 
 /**
@@ -265,9 +275,13 @@ export function firstVisibleWorkshopPath(user) {
             if (visibleSubs.length > 0) {
                 return workshopTabToPath(visibleSubs[0].id);
             }
-        } else if (workshopUserCanAccessCode(user, codes, item.permission)) {
+        } else if (workshopNavItemAllowed(user, codes, item)) {
             return workshopTabToPath(item.id);
         }
+    }
+
+    if (user.walletEnabled) {
+        return '/workshop/my-wallet';
     }
 
     return null;

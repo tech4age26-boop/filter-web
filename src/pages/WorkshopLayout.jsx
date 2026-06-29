@@ -26,10 +26,12 @@ import WorkshopBranches from './workshop/WorkshopBranches';
 import WorkshopCommissions from './workshop/WorkshopCommissions';
 import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
+import WorkshopAccountLedgerPage from './workshop/accounting/WorkshopAccountLedgerPage';
 import WorkshopAffiliatedSuppliers from './workshop/WorkshopAffiliatedSuppliers';
 import WorkshopNonAffiliatedSuppliers from './workshop/WorkshopNonAffiliatedSuppliers';
 import WorkshopSupplierLedger from './workshop/WorkshopSupplierLedger';
 import WorkshopPlatformChatPage from './workshop/WorkshopPlatformChatPage';
+import MyWalletPage from './admin/MyWalletPage';
 import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
 import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
 import { isPlatformChatNavId } from '../utils/platformChatForUser';
@@ -50,7 +52,7 @@ import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
 
 /** Tabs reachable by in-app navigation but not listed in the sidebar. */
-const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger']);
+const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger', 'acc-ledger-statement']);
 
 function parseLedgerTabStateFromSearch(search) {
     const params = new URLSearchParams(search || '');
@@ -121,11 +123,14 @@ export default function WorkshopLayout() {
                     });
                     return visibleSubs.length > 0 ? { ...item, subItems: visibleSubs } : null;
                 }
+                if (item.walletRequired) {
+                    return user?.walletEnabled ? item : null;
+                }
                 if (item.permission && !hasPermission(item.permission)) return null;
                 return item;
             })
             .filter(Boolean),
-        [hasPermission],
+        [hasPermission, user?.walletEnabled],
     );
 
     const handleLogout = async () => {
@@ -149,6 +154,9 @@ export default function WorkshopLayout() {
             return tab || 'sap-overview';
         }
         if (main === 'accounting' && sub) {
+            if (sub === 'ledger' && parts[3]) {
+                return 'acc-ledger-statement';
+            }
             const mapping = {
                 'chart-of-accounts': 'acc-chart',
                 'cash-bank': 'acc-cash',
@@ -478,6 +486,7 @@ export default function WorkshopLayout() {
             case 'acc-payroll':
             case 'acc-approvals':
             case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'acc-ledger-statement': return <WorkshopAccountLedgerPage />;
             case 'sap-overview':
             case 'sap-expenses':
             case 'sap-requests':
@@ -499,6 +508,8 @@ export default function WorkshopLayout() {
                 );
             case 'platform-chat':
                 return null;
+            case 'my-wallet':
+                return <MyWalletPage />;
             case 'employees':
                 return (
                     <WorkshopEmployees
@@ -615,7 +626,13 @@ export default function WorkshopLayout() {
             : activeTab.startsWith('sap-')
                 ? 'Staff App Management'
                 : NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
-    const topbarSubtitle = activeTab === 'catalog-new' ? 'Corporate master catalog' : selectedBranchName;
+    const topbarSubtitle = activeTab === 'my-wallet'
+        ? ''
+        : activeTab === 'catalog-new'
+            ? 'Corporate master catalog'
+            : selectedBranchName;
+
+    const isWalletTab = activeTab === 'my-wallet';
 
     if (activeTab === 'platform-chat') {
         return (
@@ -626,7 +643,7 @@ export default function WorkshopLayout() {
     }
 
     return (
-        <div className={`workshop-layout${isMobileMenuOpen ? ' mobile-menu-open' : ''}`}>
+        <div className={`workshop-layout${isMobileMenuOpen ? ' mobile-menu-open' : ''}${isWalletTab ? ' workshop-layout--my-wallet' : ''}`}>
             {isMobileMenuOpen && (
                 <button
                     type="button"
@@ -640,7 +657,7 @@ export default function WorkshopLayout() {
                     <div className="ws-logo-icon"><Building2 size={20}/></div>
                     <div><p className="ws-logo-title">Filter Admin Workshop</p><p className="ws-logo-sub">Portal</p></div>
                 </div>
-                {activeTab !== 'catalog-new' && activeBranches.length > 0 && (
+                {activeTab !== 'catalog-new' && !isWalletTab && activeBranches.length > 0 && (
                 <div className="ws-branch-selector">
                     <select
                         className="ws-branch-select"
@@ -773,7 +790,7 @@ export default function WorkshopLayout() {
                         </div>
                     </div>
                 )}
-                <main className="ws-content">
+                <main className={`ws-content${isWalletTab ? ' ws-content--my-wallet' : ''}`}>
                     {renderContent()}
                 </main>
             </div>

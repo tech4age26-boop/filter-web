@@ -5,19 +5,8 @@ import SearchableEntityCombobox from '../../components/SearchableEntityCombobox'
 import ExpenseProofPicker from '../../components/accounting/ExpenseProofPicker';
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import { useAuth } from '../../context/AuthContext';
-import {
-    createMyFundRequest,
-    getMyWallet,
-    getMyWalletChatContact,
-    listMyFundRequests,
-    listMyExpenseRequests,
-    listMyWalletBranches,
-    listMyWalletTransactions,
-    listMyWalletWorkshops,
-    recordMyWalletExpense,
-    shareFundRequestInChat,
-} from '../../services/adminWalletApi';
-import { firstVisibleAdminPath } from '../../utils/permissions';
+import { myWalletApiForUser } from '../../services/adminWalletApi';
+import { firstVisibleAdminPath, firstVisibleWorkshopPath } from '../../utils/permissions';
 import {
     coerceWalletFieldText,
     formatWalletTxDate,
@@ -32,6 +21,12 @@ function formatSar(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return '0.00';
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function workshopIsPlatformHq(workshops, workshopId) {
+    if (!workshopId) return false;
+    const w = workshops.find((x) => String(x.id) === String(workshopId));
+    return Boolean(w?.isPlatformHq ?? w?.is_platform_hq);
 }
 
 function renderStatusPill(status) {
@@ -83,10 +78,20 @@ function useMobileWalletLayout() {
 export default function MyWalletPage() {
     const navigate = useNavigate();
     const { user, hasPermission } = useAuth();
+    const isWorkshopPortal = user?.userType !== 'platform_admin';
+    const walletApi = useMemo(() => myWalletApiForUser(user), [user?.id, user?.userType]);
     const isMobile = useMobileWalletLayout();
     const walletEnabled = Boolean(user?.walletEnabled);
-    const canViewChat = hasPermission('chat.view');
-    const canPostToChat = hasPermission('chat.create');
+    const canViewChat = hasPermission(
+        isWorkshopPortal ? 'workshop.platform-chat.view' : 'chat.view',
+    );
+    const canPostToChat = hasPermission(
+        isWorkshopPortal ? 'workshop.platform-chat.create' : 'chat.create',
+    );
+    const chatPath = isWorkshopPortal ? '/workshop/platform-chat' : '/admin/chat';
+    const fallbackPath = isWorkshopPortal
+        ? (firstVisibleWorkshopPath(user) ?? '/workshop')
+        : firstVisibleAdminPath(user);
 
     const [activeTab, setActiveTab] = useState('wallet');
     const [wallet, setWallet] = useState(null);
@@ -170,10 +175,10 @@ export default function MyWalletPage() {
         setError('');
         try {
             const [walletRes, txRes, fundRes, expenseRes] = await Promise.all([
-                getMyWallet(),
-                listMyWalletTransactions({ limit: 100 }),
-                listMyFundRequests(),
-                listMyExpenseRequests(),
+                walletApi.getMyWallet(),
+                walletApi.listMyWalletTransactions({ limit: 100 }),
+                walletApi.listMyFundRequests(),
+                walletApi.listMyExpenseRequests(),
             ]);
             setWallet(walletRes);
             const allFundRequests = Array.isArray(fundRes?.fundRequests)
@@ -195,42 +200,41 @@ export default function MyWalletPage() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [walletApi]);
 
     useEffect(() => {
         if (walletEnabled) loadData();
     }, [walletEnabled, loadData]);
 
     useEffect(() => {
-        listMyWalletWorkshops()
+        walletApi.listMyWalletWorkshops()
             .then((res) => {
                 const rows = res?.workshops ?? res?.data?.workshops ?? [];
                 setWalletWorkshops(Array.isArray(rows) ? rows : []);
             })
-            .catch(() => setWalletWorkshops([]));
-    }, []);
+    }, [walletApi]);
 
     useEffect(() => {
-        if (!expenseWorkshopId) {
+        if (!expenseWorkshopId || workshopIsPlatformHq(walletWorkshops, expenseWorkshopId)) {
             setExpenseBranches([]);
             setExpenseBranchId('');
             return;
         }
-        listMyWalletBranches({ workshopId: expenseWorkshopId })
+        walletApi.listMyWalletBranches({ workshopId: expenseWorkshopId })
             .then((res) => setExpenseBranches(res?.branches ?? []))
             .catch(() => setExpenseBranches([]));
-    }, [expenseWorkshopId]);
+    }, [expenseWorkshopId, walletApi, walletWorkshops]);
 
     useEffect(() => {
-        if (!fundWorkshopId) {
+        if (!fundWorkshopId || workshopIsPlatformHq(walletWorkshops, fundWorkshopId)) {
             setFundBranches([]);
             setFundBranchId('');
             return;
         }
-        listMyWalletBranches({ workshopId: fundWorkshopId })
+        walletApi.listMyWalletBranches({ workshopId: fundWorkshopId })
             .then((res) => setFundBranches(res?.branches ?? []))
             .catch(() => setFundBranches([]));
-    }, [fundWorkshopId]);
+    }, [fundWorkshopId, walletApi, walletWorkshops]);
 
     useEffect(() => {
         if (walletWorkshops.length === 1 && !expenseWorkshopId) {
@@ -284,19 +288,21 @@ export default function MyWalletPage() {
             alert('Select a workshop.');
             return;
         }
-        if (!fundBranchId) {
+        const fundIsHq = workshopIsPlatformHq(walletWorkshops, fundWorkshopId);
+        if (!fundIsHq && !fundBranchId) {
             alert('Select a branch.');
             return;
         }
         setFundSaving(true);
         setWalletChatNotice('');
         try {
-            const res = await createMyFundRequest({
+            const payload = {
                 amount,
                 purpose: fundPurpose.trim(),
                 workshopId: fundWorkshopId,
-                branchId: fundBranchId,
-            });
+            };
+            if (!fundIsHq) payload.branchId = fundBranchId;
+            const res = await walletApi.createMyFundRequest(payload);
             setFundOpen(false);
             setFundAmount('');
             setFundPurpose('');
@@ -341,22 +347,24 @@ export default function MyWalletPage() {
             alert('Select a workshop.');
             return;
         }
-        if (!expenseBranchId) {
+        const expenseIsHq = workshopIsPlatformHq(walletWorkshops, expenseWorkshopId);
+        if (!expenseIsHq && !expenseBranchId) {
             alert('Select a branch.');
             return;
         }
         setExpenseSaving(true);
         setWalletChatNotice('');
         try {
-            const res = await recordMyWalletExpense({
+            const payload = {
                 amount,
                 description: expenseDescription.trim(),
                 vendorName: expenseVendor.trim() || undefined,
                 expenseCategory,
                 proofUrl: expenseProofPreview,
                 workshopId: expenseWorkshopId,
-                branchId: expenseBranchId,
-            });
+            };
+            if (!expenseIsHq) payload.branchId = expenseBranchId;
+            const res = await walletApi.recordMyWalletExpense(payload);
             setExpenseAmount('');
             setExpenseCategory('');
             setExpenseCategorySearch('');
@@ -386,25 +394,25 @@ export default function MyWalletPage() {
         if (!canViewChat) return;
         try {
             if (conversationId) {
-                navigate('/admin/chat', { state: { openConversationId: String(conversationId) } });
+                navigate(chatPath, { state: { openConversationId: String(conversationId) } });
                 return;
             }
-            const res = await getMyWalletChatContact();
+            const res = await walletApi.getMyWalletChatContact();
             const contactId = res?.userId ?? res?.data?.userId;
             if (contactId) {
-                navigate('/admin/chat', { state: { openUserId: String(contactId) } });
+                navigate(chatPath, { state: { openUserId: String(contactId) } });
                 return;
             }
         } catch {
             /* fall through */
         }
-        navigate('/admin/chat');
+        navigate(chatPath);
     };
 
     const handleShareInChat = async (requestId) => {
         if (!canPostToChat) return;
         try {
-            const res = await shareFundRequestInChat(requestId);
+            const res = await walletApi.shareFundRequestInChat(requestId);
             const chat = res?.chat;
             if (chat?.conversationId) {
                 setWalletChatNotice('Fund request shared in chat.');
@@ -417,10 +425,12 @@ export default function MyWalletPage() {
     };
 
     if (!walletEnabled) {
-        return <Navigate to={firstVisibleAdminPath(user)} replace />;
+        return <Navigate to={fallbackPath} replace />;
     }
 
     const balance = wallet?.balance ?? wallet?.wallet?.balance ?? 0;
+    const fundIsHq = workshopIsPlatformHq(walletWorkshops, fundWorkshopId);
+    const expenseIsHq = workshopIsPlatformHq(walletWorkshops, expenseWorkshopId);
 
     const renderBalanceCard = () => (
         <div className="my-wallet-balance">
@@ -502,20 +512,26 @@ export default function MyWalletPage() {
                         ))}
                     </select>
                 </div>
-                <div className="ws-field">
-                    <label>Branch *</label>
-                    <select
-                        className="form-input-field"
-                        value={fundBranchId}
-                        onChange={(e) => setFundBranchId(e.target.value)}
-                        disabled={fundSaving || !fundWorkshopId}
-                    >
-                        <option value="">Select branch</option>
-                        {fundBranches.map((b) => (
-                            <option key={b.id} value={b.id}>{b.name}</option>
-                        ))}
-                    </select>
-                </div>
+                {!fundIsHq ? (
+                    <div className="ws-field">
+                        <label>Branch *</label>
+                        <select
+                            className="form-input-field"
+                            value={fundBranchId}
+                            onChange={(e) => setFundBranchId(e.target.value)}
+                            disabled={fundSaving || !fundWorkshopId}
+                        >
+                            <option value="">Select branch</option>
+                            {fundBranches.map((b) => (
+                                <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                ) : (
+                    <p className="my-wallet-form-hint" style={{ marginBottom: 12 }}>
+                        Platform HQ — posts to HQ My Books. Super Admin approval only (no workshop admin).
+                    </p>
+                )}
                 <div className="ws-field">
                     <label>Amount (SAR) *</label>
                     <input type="number" min="0.01" step="0.01" value={fundAmount} onChange={(e) => setFundAmount(e.target.value)} placeholder="e.g. 5000" />
@@ -577,20 +593,26 @@ export default function MyWalletPage() {
                         ))}
                     </select>
                 </div>
-                <div className="ws-field">
-                    <label>Branch *</label>
-                    <select
-                        className="form-input-field"
-                        value={expenseBranchId}
-                        onChange={(e) => setExpenseBranchId(e.target.value)}
-                        disabled={expenseSaving || !expenseWorkshopId}
-                    >
-                        <option value="">Select branch</option>
-                        {expenseBranches.map((b) => (
-                            <option key={b.id} value={b.id}>{b.name}</option>
-                        ))}
-                    </select>
-                </div>
+                {!expenseIsHq ? (
+                    <div className="ws-field">
+                        <label>Branch *</label>
+                        <select
+                            className="form-input-field"
+                            value={expenseBranchId}
+                            onChange={(e) => setExpenseBranchId(e.target.value)}
+                            disabled={expenseSaving || !expenseWorkshopId}
+                        >
+                            <option value="">Select branch</option>
+                            {expenseBranches.map((b) => (
+                                <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                ) : (
+                    <p className="my-wallet-form-hint" style={{ marginBottom: 12 }}>
+                        Platform HQ — posts to HQ My Books. Super Admin approval only (no workshop admin).
+                    </p>
+                )}
                 <div className="ws-field">
                     <label>Amount (SAR) *</label>
                     <input type="number" min="0.01" step="0.01" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} />

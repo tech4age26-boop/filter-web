@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     BookOpen,
     ChevronDown,
@@ -25,6 +26,15 @@ import {
     updateAccount,
 } from '../../services/accountsApi';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
+import {
+    buildWorkshopPettyCashLedgerUrl,
+    filterWorkshopPettyCashCoaList,
+    isWorkshopPettyCashCoaControlAccount,
+    isWorkshopPettyCashLedgerAccount,
+    pruneWorkshopPettyCashCoaTree,
+    WORKSHOP_COA_CONTROL_BADGES,
+} from '../../pages/workshop/workshopCoaAccountRouting';
+import { startOfMonthISO, todayISO } from '../../pages/admin/saAccountingDateRange';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -179,6 +189,7 @@ const fmtDateLabel = (d) => {
  * ones (cash registers, branch bank accounts, etc.).
  */
 export default function WorkshopCOAView({ readOnly = false }) {
+    const navigate = useNavigate();
     const [accounts, setAccounts] = useState([]);
     const [treeAccounts, setTreeAccounts] = useState([]);
     const [branches, setBranches] = useState([]);
@@ -231,6 +242,16 @@ export default function WorkshopCOAView({ readOnly = false }) {
     const openAccountLedger = useCallback(
         async (acc) => {
             if (!acc?.id) return;
+            if (isWorkshopPettyCashLedgerAccount(acc)) {
+                navigate(
+                    buildWorkshopPettyCashLedgerUrl(acc, {
+                        dateFrom: startOfMonthISO(),
+                        dateTo: todayISO(),
+                        branchId: selectedBranch || acc.branchId || '',
+                    }),
+                );
+                return;
+            }
             setLedgerAccount(acc);
             setLedgerOpen(true);
             setLedgerLoading(true);
@@ -247,7 +268,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                 setLedgerLoading(false);
             }
         },
-        [selectedBranch],
+        [navigate, selectedBranch],
     );
 
     const closeLedgerModal = useCallback(() => {
@@ -291,10 +312,10 @@ export default function WorkshopCOAView({ readOnly = false }) {
                 if (cancelled) return;
                 const flat = parseArr(flatRaw);
                 const tree = parseArr(treeRaw);
-                const normalizedFlat = flat
-                    .map(normalizeAccount)
-                    .sort((a, b) => a.code.localeCompare(b.code));
-                const normalizedTree = tree.map(normalizeAccount);
+                const normalizedFlat = filterWorkshopPettyCashCoaList(
+                    flat.map(normalizeAccount),
+                ).sort((a, b) => a.code.localeCompare(b.code));
+                const normalizedTree = pruneWorkshopPettyCashCoaTree(tree.map(normalizeAccount));
                 setAccounts(normalizedFlat);
                 setTreeAccounts(normalizedTree);
             } catch (err) {
@@ -1211,6 +1232,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                             ? branchById.get(String(acc.branchId)) || '—'
                                                             : 'Shared';
                                                         const autoLinked = acc.isAutoSeed;
+                                                        const controlBadge = WORKSHOP_COA_CONTROL_BADGES[String(acc.code)];
                                                         const marker =
                                                             (treeFlat.find((x) => String(x.id) === String(acc.id)) || {})._marker || '';
                                                         const bal = formatFinalBalance(acc);
@@ -1268,6 +1290,21 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                 Auto-linked
                                                                             </span>
                                                                         )}
+                                                                        {controlBadge ? (
+                                                                            <span
+                                                                                style={{
+                                                                                    background: controlBadge.background,
+                                                                                    color: controlBadge.color,
+                                                                                    padding: '2px 8px',
+                                                                                    borderRadius: 4,
+                                                                                    fontSize: '0.7rem',
+                                                                                    fontWeight: 600,
+                                                                                    marginLeft: 8,
+                                                                                }}
+                                                                            >
+                                                                                {controlBadge.label}
+                                                                            </span>
+                                                                        ) : null}
                                                                     </div>
                                                                     <div
                                                                         style={{
@@ -1279,6 +1316,17 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                     >
                                                                         {acc.description || parentName}
                                                                     </div>
+                                                                    {isWorkshopPettyCashCoaControlAccount(acc) ? (
+                                                                        <div
+                                                                            style={{
+                                                                                color: palette.textSecondary,
+                                                                                fontSize: 11,
+                                                                                marginTop: 4,
+                                                                            }}
+                                                                        >
+                                                                            Branch & employee detail — open ledger and use filters.
+                                                                        </div>
+                                                                    ) : null}
                                                                 </td>
                                                                 <td style={{ padding: '12px', color: palette.textSecondary }}>
                                                                     {toLabel(acc.subType)}
@@ -1746,7 +1794,9 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                         Closing:{' '}
                                         {formatRunningCell(
                                             ledgerPayload.account?.normalBalance === 'debit',
-                                            ledgerPayload.closingRunningBalance,
+                                            ledgerPayload.totals?.closingBalance ??
+                                                ledgerPayload.currentBalance ??
+                                                ledgerPayload.closingRunningBalance,
                                         )}
                                     </span>
                                 </div>

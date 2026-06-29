@@ -5,6 +5,7 @@ import {
     Loader, AlertCircle, Building2,
 } from 'lucide-react';
 import '../../styles/admin/ApprovalsPage.css';
+import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
 import {
     list as listApprovals,
     approve as approveApi,
@@ -12,7 +13,6 @@ import {
     details as fetchApprovalDetails,
     getWalkInSettings,
     updateWalkInSettings,
-    listAdminWalletCashAccounts,
 } from '../../services/approvalsApi';
 import {
     approveSuperAdminCorporatePriceQuotation,
@@ -617,82 +617,15 @@ function ApproveModal({ item, busy, onCancel, onConfirm }) {
     );
 }
 
-function normalizeAdminWalletCashAccounts(payload) {
-    const rows = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.accounts)
-            ? payload.accounts
-            : Array.isArray(payload?.cashAccounts)
-                ? payload.cashAccounts
-                : [];
-    return rows.map((row) => {
-        const id = String(row.id || '');
-        const name = row.name || 'Account';
-        const balance = Number(
-            row.closingBalance ?? row.balance ?? row.currentBalance ?? 0,
-        );
-        const formatted = balance.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        });
-        return {
-            id,
-            name,
-            label: `${name} — Closing SAR ${formatted}`,
-            balance,
-            closingBalance: balance,
-        };
-    });
-}
-
 /** Approve admin wallet fund request — super admin picks source cash/bank account. */
 function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error }) {
     const [remarks, setRemarks] = useState('');
-    const [sourceAccountId, setSourceAccountId] = useState('');
-    const [cashAccounts, setCashAccounts] = useState([]);
-    const [accountsLoading, setAccountsLoading] = useState(true);
-    const [accountsError, setAccountsError] = useState('');
+    const [acct, setAcct] = useState({ blocked: true, loading: true });
     const workshopId = item?.meta?.workshopId ?? '';
-
-    useEffect(() => {
-        let cancelled = false;
-        setAccountsLoading(true);
-        setAccountsError('');
-        setSourceAccountId('');
-        listAdminWalletCashAccounts(workshopId ? { workshopId } : {})
-            .then((res) => {
-                if (cancelled) return;
-                const normalized = normalizeAdminWalletCashAccounts(res);
-                setCashAccounts(normalized);
-                if (normalized.length > 0) {
-                    setSourceAccountId(normalized[0].id);
-                }
-            })
-            .catch((err) => {
-                if (!cancelled) {
-                    setAccountsError(err?.message || 'Failed to load cash accounts');
-                }
-            })
-            .finally(() => {
-                if (!cancelled) setAccountsLoading(false);
-            });
-        return () => { cancelled = true; };
-    }, [workshopId]);
-
-    const selectedAccount = cashAccounts.find((a) => a.id === sourceAccountId);
+    const branchId = item?.meta?.branchId ?? '';
     const amountLabel = item?.meta?.amountLabel
         ?? (item?.meta?.amount != null ? `SAR ${item.meta.amount}` : '—');
-    const requestAmount = Number(item?.meta?.amount ?? 0);
-    const insufficientBalance = Boolean(
-        selectedAccount
-        && Number.isFinite(requestAmount)
-        && requestAmount > 0
-        && selectedAccount.balance < requestAmount,
-    );
-    const balanceError = insufficientBalance
-        ? `Insufficient balance in ${selectedAccount.name}. Closing balance is SAR ${selectedAccount.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} but this request needs SAR ${requestAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
-        : '';
-    const displayError = error || balanceError;
+    const displayError = error || acct.blockReason;
 
     return (
         <Modal
@@ -707,11 +640,13 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error })
                     <button
                         type="button"
                         className="btn-approve"
-                        disabled={busy || accountsLoading || !sourceAccountId || insufficientBalance}
+                        disabled={busy || acct.blocked}
                         onClick={() => onConfirm({
                             remarks: remarks.trim() || undefined,
-                            sourceAccountId,
-                            sourceAccountName: selectedAccount?.name || '',
+                            sourceAccountId: acct.sourceAccountId,
+                            sourceAccountName: acct.sourceAccountName,
+                            budgetAccountId: acct.budgetAccountId,
+                            budgetAccountName: acct.budgetAccountName,
                         })}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
@@ -738,7 +673,7 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error })
             ) : null}
             <p className="approval-modal-lead">
                 Approve <strong>{item.title}</strong> and credit the admin wallet.
-                Amount <strong>{amountLabel}</strong> will be deducted from the selected workshop account.
+                Amount <strong>{amountLabel}</strong> will be deducted from the selected payment account.
                 {item?.meta?.workshopName ? (
                     <> Workshop: <strong>{item.meta.workshopName}</strong>
                     {item.meta.branchName ? <> · Branch: <strong>{item.meta.branchName}</strong></> : null}
@@ -746,44 +681,14 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error })
                 ) : null}
             </p>
 
-            <label className="approval-modal-label" htmlFor="admin-wallet-source-account">
-                Fund from account <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            {accountsLoading ? (
-                <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
-                    <Loader size={14} className="spin" /> Loading cash accounts…
-                </p>
-            ) : accountsError ? (
-                <p style={{ color: '#b91c1c', fontSize: '0.875rem' }}>{accountsError}</p>
-            ) : cashAccounts.length === 0 ? (
-                <p style={{ color: '#b45309', fontSize: '0.875rem' }}>
-                    No cash/bank accounts found for this workshop. Add one under Accounting → Cash &amp; Bank first.
-                </p>
-            ) : (
-                <select
-                    id="admin-wallet-source-account"
-                    className="approval-modal-textarea"
-                    style={{ minHeight: 'unset', padding: '10px 12px' }}
-                    value={sourceAccountId}
-                    onChange={(e) => setSourceAccountId(e.target.value)}
-                    disabled={busy}
-                >
-                    {cashAccounts.map((account) => (
-                        <option key={account.id} value={account.id}>{account.label}</option>
-                    ))}
-                </select>
-            )}
-            {selectedAccount && !accountsLoading && !accountsError && (
-                <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                    Closing balance:{' '}
-                    <strong>
-                        SAR {selectedAccount.balance.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                        })}
-                    </strong>
-                </p>
-            )}
+            <WalletApprovalAccountFields
+                workshopId={workshopId}
+                branchId={branchId}
+                amount={item?.meta?.amount}
+                mode="fund"
+                busy={busy}
+                onChange={setAcct}
+            />
 
             <label className="approval-modal-label" htmlFor="admin-wallet-approve-remarks" style={{ marginTop: 14 }}>
                 Remarks <span className="approval-modal-optional">(optional)</span>
@@ -1456,10 +1361,14 @@ function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onRe
 
 function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error }) {
     const [remarks, setRemarks] = useState('');
+    const [acct, setAcct] = useState({ blocked: true, loading: true });
     const proofUrl = item?.meta?.proofUrl ?? '';
     const category = item?.meta?.expenseCategory ?? '—';
+    const workshopId = item?.meta?.workshopId ?? '';
+    const branchId = item?.meta?.branchId ?? '';
     const amountLabel = item?.meta?.amountLabel
         ?? (item?.meta?.amount != null ? `SAR ${item.meta.amount}` : '—');
+    const displayError = error || acct.blockReason;
 
     return (
         <Modal
@@ -1474,8 +1383,18 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
                     <button
                         type="button"
                         className="btn-approve"
-                        disabled={busy}
-                        onClick={() => onConfirm({ remarks: remarks.trim() || undefined })}
+                        disabled={busy || acct.blocked}
+                        onClick={() => onConfirm({
+                            remarks: remarks.trim() || undefined,
+                            ...(acct.paymentSource !== 'wallet' && acct.sourceAccountId
+                                ? {
+                                    sourceAccountId: acct.sourceAccountId,
+                                    sourceAccountName: acct.sourceAccountName,
+                                }
+                                : {}),
+                            budgetAccountId: acct.budgetAccountId,
+                            budgetAccountName: acct.budgetAccountName,
+                        })}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
                         Approve Expense
@@ -1483,9 +1402,9 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
                 </>
             )}
         >
-            {error ? (
+            {displayError ? (
                 <div role="alert" style={{ margin: '0 0 14px', padding: '12px 14px', borderRadius: 12, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: '0.8125rem' }}>
-                    {error}
+                    {displayError}
                 </div>
             ) : null}
             <p className="approval-modal-lead">
@@ -1507,6 +1426,19 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
             ) : (
                 <p style={{ color: '#b45309', fontSize: '0.875rem' }}>No proof attached.</p>
             )}
+
+            <WalletApprovalAccountFields
+                workshopId={workshopId}
+                branchId={branchId}
+                amount={item?.meta?.amount}
+                mode="expense"
+                busy={busy}
+                requesterUserId={item?.meta?.adminUserId ?? ''}
+                requesterName={item?.meta?.adminUserName ?? item?.submittedBy ?? ''}
+                currencyCode={item?.meta?.currencyCode ?? 'SAR'}
+                onChange={setAcct}
+            />
+
             <label className="approval-modal-label" htmlFor="admin-wallet-expense-approve-remarks" style={{ marginTop: 14 }}>
                 Remarks <span className="approval-modal-optional">(optional)</span>
             </label>

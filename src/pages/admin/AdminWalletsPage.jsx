@@ -8,7 +8,6 @@ import Modal from '../../components/Modal';
 import { useAuth } from '../../context/AuthContext';
 import {
     getAdminWallet,
-    listAdminWalletCashAccounts,
     listAdminWalletTransactions,
     listAdminWallets,
 } from '../../services/adminWalletApi';
@@ -18,6 +17,8 @@ import {
     formatWalletTxDate,
 } from '../../utils/walletHistory';
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
+import BudgetWalletSection from '../../components/admin/BudgetWalletSection';
+import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
 import '../../styles/admin/AdminWalletsPage.css';
 
 function formatSar(value) {
@@ -39,33 +40,6 @@ function fundStatusClass(status) {
     return 'admin-wallets-status--pending';
 }
 
-function formatAccountOptionLabel(name, balance) {
-    return `${name} — Closing SAR ${formatSar(balance)}`;
-}
-
-function normalizeCashAccounts(payload) {
-    const rows = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.accounts)
-            ? payload.accounts
-            : Array.isArray(payload?.cashAccounts)
-                ? payload.cashAccounts
-                : [];
-    return rows.map((row) => {
-        const balance = Number(
-            row.closingBalance ?? row.balance ?? row.currentBalance ?? 0,
-        );
-        const name = row.name || 'Account';
-        return {
-            id: String(row.id || ''),
-            name,
-            balance,
-            closingBalance: balance,
-            optionLabel: formatAccountOptionLabel(name, balance),
-        };
-    });
-}
-
 const FILTER_ALL = 'all';
 const FILTER_WITH = 'with';
 const FILTER_WITHOUT = 'without';
@@ -75,7 +49,9 @@ const TAB_EXPENSES = 'expenses';
 const TAB_TRANSACTIONS = 'transactions';
 
 function isExpenseTransaction(row) {
-    return String(row?.referenceId || '').startsWith('AEXP-');
+    const ref = String(row?.referenceId || '');
+    if (ref.startsWith('AEXP-') || ref.startsWith('AWE-')) return true;
+    return String(row?.type || '').toLowerCase() === 'debit' && Boolean(row?.expenseCategory);
 }
 
 function parseExpenseDescription(description) {
@@ -308,43 +284,9 @@ function FundRequestsTable({
 
 function ApproveFundModal({ request, busy, onCancel, onConfirm, error }) {
     const [remarks, setRemarks] = useState('');
-    const [sourceAccountId, setSourceAccountId] = useState('');
-    const [cashAccounts, setCashAccounts] = useState([]);
-    const [accountsLoading, setAccountsLoading] = useState(true);
-    const [accountsError, setAccountsError] = useState('');
+    const [acct, setAcct] = useState({ blocked: true, loading: true });
 
-    useEffect(() => {
-        let cancelled = false;
-        setAccountsLoading(true);
-        setAccountsError('');
-        listAdminWalletCashAccounts()
-            .then((res) => {
-                if (cancelled) return;
-                const normalized = normalizeCashAccounts(res);
-                setCashAccounts(normalized);
-                if (normalized.length > 0) setSourceAccountId(normalized[0].id);
-            })
-            .catch((err) => {
-                if (!cancelled) setAccountsError(err?.message || 'Failed to load cash accounts');
-            })
-            .finally(() => {
-                if (!cancelled) setAccountsLoading(false);
-            });
-        return () => { cancelled = true; };
-    }, []);
-
-    const selected = cashAccounts.find((a) => a.id === sourceAccountId);
-    const requestAmount = Number(request?.amount ?? 0);
-    const insufficientBalance = Boolean(
-        selected
-        && Number.isFinite(requestAmount)
-        && requestAmount > 0
-        && selected.balance < requestAmount,
-    );
-    const balanceError = insufficientBalance
-        ? `Insufficient balance in ${selected.name}. Closing balance is SAR ${formatSar(selected.balance)} but this request needs SAR ${formatSar(requestAmount)}.`
-        : '';
-    const displayError = error || balanceError;
+    const displayError = error || acct.blockReason || '';
 
     return (
         <Modal
@@ -360,11 +302,13 @@ function ApproveFundModal({ request, busy, onCancel, onConfirm, error }) {
                     <button
                         type="button"
                         className="admin-wallets-modal-btn-primary"
-                        disabled={busy || accountsLoading || !sourceAccountId || insufficientBalance}
+                        disabled={busy || acct.blocked}
                         onClick={() => onConfirm({
                             remarks: remarks.trim() || undefined,
-                            sourceAccountId,
-                            sourceAccountName: selected?.name || '',
+                            sourceAccountId: acct.sourceAccountId,
+                            sourceAccountName: acct.sourceAccountName,
+                            budgetAccountId: acct.budgetAccountId,
+                            budgetAccountName: acct.budgetAccountName,
                         })}
                     >
                         {busy ? <Loader2 size={14} className="spin" /> : <Check size={16} />}
@@ -380,37 +324,19 @@ function ApproveFundModal({ request, busy, onCancel, onConfirm, error }) {
             ) : null}
             <p className="admin-wallets-modal-lead">
                 Approve <strong>{request.requestNumber}</strong> for{' '}
-                <strong>SAR {formatSar(request.amount)}</strong>. Amount will be deducted from the selected HQ account.
+                <strong>SAR {formatSar(request.amount)}</strong>. Amount will be deducted from the selected payment account
+                and credited to the admin wallet.
             </p>
-            <label className="admin-wallets-modal-label" htmlFor="aw-source-account">
-                Fund from account *
-            </label>
-            {accountsLoading ? (
-                <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
-                    <Loader2 size={14} className="spin" /> Loading accounts…
-                </p>
-            ) : accountsError ? (
-                <p style={{ color: '#b91c1c', fontSize: '0.875rem' }}>{accountsError}</p>
-            ) : (
-                <select
-                    id="aw-source-account"
-                    className="admin-wallets-modal-select"
-                    value={sourceAccountId}
-                    onChange={(e) => setSourceAccountId(e.target.value)}
-                    disabled={busy}
-                >
-                    {cashAccounts.map((a) => (
-                        <option key={a.id} value={a.id}>
-                            {a.optionLabel}
-                        </option>
-                    ))}
-                </select>
-            )}
-            {selected && !accountsLoading && !accountsError && (
-                <p className="admin-wallets-modal-hint" style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                    Closing balance: <strong>SAR {formatSar(selected.balance)}</strong>
-                </p>
-            )}
+
+            <WalletApprovalAccountFields
+                workshopId={request?.workshopId != null ? String(request.workshopId) : ''}
+                branchId={request?.branchId != null ? String(request.branchId) : ''}
+                amount={request?.amount}
+                mode="fund"
+                busy={busy}
+                onChange={setAcct}
+            />
+
             <label className="admin-wallets-modal-label" htmlFor="aw-remarks">
                 Remarks (optional)
             </label>
@@ -485,6 +411,11 @@ export default function AdminWalletsPage() {
     const canApproveFund = hasPermission('approvals.admin-wallet-fund-request.approve');
     const canRejectFund = hasPermission('approvals.admin-wallet-fund-request.reject');
     const canOpenChat = hasPermission('chat.view');
+    const canViewBudget = hasPermission('budget-wallets.view');
+    const canCreateBudget = hasPermission('budget-wallets.create');
+    const canEditBudget = hasPermission('budget-wallets.edit');
+
+    const [view, setView] = useState('wallets');
 
     const [items, setItems] = useState([]);
     const [listLoading, setListLoading] = useState(true);
@@ -686,7 +617,31 @@ export default function AdminWalletsPage() {
                         Monitor platform admin petty-cash wallets. Select a user to review fund requests, balance, and transaction history.
                     </p>
                 </div>
+                {canViewBudget ? (
+                    <div className="admin-wallets-filters" role="tablist" aria-label="Admin wallets view">
+                        <button
+                            type="button"
+                            className={`admin-wallets-filter-btn${view === 'wallets' ? ' active' : ''}`}
+                            onClick={() => setView('wallets')}
+                        >
+                            Admin Wallets
+                        </button>
+                        <button
+                            type="button"
+                            className={`admin-wallets-filter-btn${view === 'budget' ? ' active' : ''}`}
+                            onClick={() => setView('budget')}
+                        >
+                            Budget Wallet
+                        </button>
+                    </div>
+                ) : null}
             </header>
+
+            {view === 'budget' && canViewBudget ? (
+                <BudgetWalletSection canCreate={canCreateBudget} canEdit={canEditBudget} />
+            ) : (
+            <>
+            
 
             {listError && (
                 <div className="admin-wallets-alert" role="alert">{listError}</div>
@@ -963,6 +918,8 @@ export default function AdminWalletsPage() {
                     }}
                     onConfirm={handleRejectConfirm}
                 />
+            )}
+            </>
             )}
         </div>
     );

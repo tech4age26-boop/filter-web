@@ -1,11 +1,23 @@
 import React, { useState } from 'react';
 import { ImageIcon } from 'lucide-react';
 
-export default function ExpenseProofThumbnail({ proofUrl, size = 40, emptyLabel = '—' }) {
+export default function ExpenseProofThumbnail({
+    proofUrl,
+    hasExpenseProof = false,
+    size = 40,
+    emptyLabel = '—',
+}) {
     const [open, setOpen] = useState(false);
     const url = proofUrl?.trim?.() ? proofUrl.trim() : proofUrl;
 
     if (!url) {
+        if (hasExpenseProof) {
+            return (
+                <span title="Expense proof on file" style={{ color: '#64748b', fontSize: 12 }}>
+                    Proof
+                </span>
+            );
+        }
         return <span style={{ color: '#94a3b8' }}>{emptyLabel}</span>;
     }
 

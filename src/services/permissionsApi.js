@@ -75,7 +75,7 @@ export function listUsers({ search, portal } = {}) {
  * payload = {
  *   name, email, password, mobile?,
  *   isSuperAdmin: bool,
- *   assignWallet?: bool,                       // only when isSuperAdmin = true
+ *   assignWallet?: bool,
  *   workshopId?, branchId?, workshopRole?,   // required when isSuperAdmin = false
  *   roleId
  * }
@@ -95,6 +95,9 @@ export function createUser(payload) {
  *   workshopId  — optional; omit to keep current, null to clear, string id to set
  *   branchId    — optional; omit to keep current, null to clear, string id to set
  *   password    — optional; omit or empty to keep current login password
+ *   assignWallet — optional; enable/disable SAR wallet for any portal user
+ *   portal       — optional; change login portal (super_admin, workshop, etc.)
+ *   workshopRole — optional; workshop staff designation when portal is workshop
  */
 export function assignRoleToUser(userId, roleId, opts = {}) {
     const body = {
@@ -109,6 +112,15 @@ export function assignRoleToUser(userId, roleId, opts = {}) {
     if (Object.prototype.hasOwnProperty.call(opts, 'password')) {
         const pwd = opts.password == null ? '' : String(opts.password).trim();
         if (pwd) body.password = pwd;
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'assignWallet')) {
+        body.assignWallet = Boolean(opts.assignWallet);
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'portal')) {
+        body.portal = String(opts.portal).trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'workshopRole')) {
+        body.workshopRole = opts.workshopRole == null ? null : String(opts.workshopRole).trim() || null;
     }
     return apiFetch(
         `/super-admin/permissions/users/${encodeURIComponent(userId)}/role`,

@@ -1,57 +1,56 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import ProfessionalLedgerStatementDocument from '../../components/accounting/ProfessionalLedgerStatementDocument';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../../../context/AuthContext';
+import ProfessionalLedgerStatementDocument from '../../../components/accounting/ProfessionalLedgerStatementDocument';
 import {
     accountNormalDebit,
     unwrapLedgerPayload,
-} from '../../utils/accountLedgerStatementUtils';
+} from '../../../utils/accountLedgerStatementUtils';
 import {
     exportAccountLedgerExcel,
     exportAccountLedgerPdf,
-} from '../../utils/supplierLedgerExport';
-import * as accountsApi from '../../services/accountsApi';
-import * as supMon from '../../services/supplierAccountingMonitorApi';
-import { getPlatformHqInfo, getWorkshops, getSuppliers } from '../../services/superAdminApi';
+} from '../../../utils/supplierLedgerExport';
+import * as accountsApi from '../../../services/accountsApi';
+import { adminWalletExpenseLedgerFilterOptions } from '../../../constants/adminWalletExpenseCategories';
 import {
-    loadSaAccountingDateRange,
     startOfMonthISO,
     todayISO,
-} from './saAccountingDateRange';
-import { loadSaAccountingScope } from './saAccountingScope';
-import { adminWalletExpenseLedgerFilterOptions } from '../../constants/adminWalletExpenseCategories';
-import '../../styles/admin/AccountingPage.css';
-
-const HQ_ADMIN_WALLET_LEDGER_CODES = new Set(['6100', '1335']);
+} from '../../admin/saAccountingDateRange';
+import {
+    isWorkshopPettyCashExpenseLedgerAccount,
+    isWorkshopPettyCashFundLedgerAccount,
+    parseWorkshopLedgerAccountIdFromPath,
+} from '../workshopCoaAccountRouting';
+import '../../../styles/admin/AccountingPage.css';
 
 /**
- * Super Admin monitor — full-page account ledger statement (workshop, HQ, or supplier scope).
+ * Workshop admin — full-page petty cash fund [1280] or expense [6100] ledger
+ * (mirrors Platform HQ [1335] / [6100] statement UI).
  */
-export default function MonitorAccountLedgerPage() {
-    const { accountId } = useParams();
+export default function WorkshopAccountLedgerPage() {
+    const routeParams = useParams();
+    const location = useLocation();
+    const accountId =
+        routeParams.accountId ||
+        parseWorkshopLedgerAccountIdFromPath(location.pathname);
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-
-    const scope = useMemo(() => loadSaAccountingScope(), []);
-    const isSupplier = scope.type === 'supplier';
-    const isHq = scope.type === 'hq';
-    const [resolvedHqWorkshopId, setResolvedHqWorkshopId] = useState(scope.hqWorkshopId || '');
-
-    const workshopId = isHq ? resolvedHqWorkshopId : scope.workshopId;
+    const { workshop, user } = useAuth();
 
     const fallbackCode = searchParams.get('code') || '';
     const fallbackName = searchParams.get('name') || '';
     const fallbackType = searchParams.get('type') || '';
     const urlDateFrom = searchParams.get('dateFrom') || '';
     const urlDateTo = searchParams.get('dateTo') || '';
+    const urlBranchId = searchParams.get('branchId') || '';
 
-    const [entityLabel, setEntityLabel] = useState('');
-    const storedRange = useMemo(() => loadSaAccountingDateRange(), []);
     const [dateFrom, setDateFrom] = useState(
-        () => urlDateFrom || storedRange.dateFrom || startOfMonthISO(),
+        () => urlDateFrom || startOfMonthISO(),
     );
     const [dateTo, setDateTo] = useState(
-        () => urlDateTo || storedRange.dateTo || todayISO(),
+        () => urlDateTo || todayISO(),
     );
+    const [branchFilter, setBranchFilter] = useState(urlBranchId);
     const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('');
     const [expenseCategoryInput, setExpenseCategoryInput] = useState('');
     const [walletUserFilter, setWalletUserFilter] = useState('');
@@ -62,99 +61,17 @@ export default function MonitorAccountLedgerPage() {
     const [data, setData] = useState(null);
     const loadSeqRef = useRef(0);
 
-    useEffect(() => {
-        if (!isHq) return;
-        if (scope.hqWorkshopId) {
-            setResolvedHqWorkshopId(scope.hqWorkshopId);
-            return;
-        }
-        let cancelled = false;
-        getPlatformHqInfo()
-            .then((res) => {
-                if (!cancelled && res?.workshopId) {
-                    setResolvedHqWorkshopId(String(res.workshopId));
-                }
-            })
-            .catch(() => {});
-        return () => {
-            cancelled = true;
-        };
-    }, [isHq, scope.hqWorkshopId]);
-
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                if (isSupplier && scope.supplierId) {
-                    const res = await getSuppliers().catch(() => ({ suppliers: [] }));
-                    const s = (res?.suppliers || res || []).find(
-                        (x) => String(x.id) === String(scope.supplierId),
-                    );
-                    if (!cancelled) setEntityLabel(s?.name || '');
-                } else if (workshopId) {
-                    const res = await getWorkshops({ limit: 100 }).catch(() => ({ workshops: [] }));
-                    const w = (res?.workshops || res || []).find(
-                        (x) => String(x.id) === String(workshopId),
-                    );
-                    if (!cancelled) {
-                        setEntityLabel(
-                            isHq ? w?.name || 'Platform HQ' : w?.name || '',
-                        );
-                    }
-                }
-            } catch {
-                /* optional */
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [isSupplier, isHq, scope.supplierId, workshopId]);
+    const entityLabel = workshop?.name || user?.workshopName || 'Workshop';
 
     useEffect(() => {
         if (urlDateFrom) setDateFrom(urlDateFrom);
         if (urlDateTo) setDateTo(urlDateTo);
-    }, [accountId, urlDateFrom, urlDateTo]);
-
-    const ledgerParams = useMemo(() => {
-        const p = {
-            dateFrom: dateFrom || undefined,
-            dateTo: dateTo || undefined,
-            limit: 10000,
-        };
-        if (expenseCategoryFilter) {
-            p.expenseCategory = expenseCategoryFilter;
-        }
-        if (walletUserFilter) {
-            p.walletUserId = walletUserFilter;
-        }
-        if (topupsOnly) {
-            p.topupsOnly = 'true';
-        }
-        if (!isSupplier && scope.branchId) {
-            p.branchId = scope.branchId;
-        }
-        if (!isSupplier && workshopId) {
-            p.workshopId = workshopId;
-        }
-        return p;
-    }, [dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly, isSupplier, scope.branchId, workshopId]);
+        if (urlBranchId) setBranchFilter(urlBranchId);
+    }, [accountId, urlDateFrom, urlDateTo, urlBranchId]);
 
     const load = useCallback(async (opts = {}) => {
-        if (!accountId) return;
-        if (isSupplier && !scope.supplierId) {
-            setErr('Select a supplier on Chart of Accounts first.');
-            setData(null);
-            setLoading(false);
-            return;
-        }
-        if (!isSupplier && !workshopId) {
-            setErr(
-                isHq
-                    ? 'Set up Platform HQ books on Chart of Accounts first.'
-                    : 'Select a workshop on Chart of Accounts first.',
-            );
-            setData(null);
+        if (!accountId) {
+            setErr('Could not determine which account to load. Open the ledger from Chart of Accounts.');
             setLoading(false);
             return;
         }
@@ -171,29 +88,32 @@ export default function MonitorAccountLedgerPage() {
                 : walletUserFilter;
         const topupsOnlyParam =
             opts.topupsOnly !== undefined ? opts.topupsOnly : topupsOnly;
+        const branchParam =
+            opts.branchId !== undefined ? opts.branchId : branchFilter;
+        const dateFromParam =
+            opts.dateFrom !== undefined ? opts.dateFrom : dateFrom;
+        const dateToParam =
+            opts.dateTo !== undefined ? opts.dateTo : dateTo;
         const params = {
-            dateFrom: dateFrom || undefined,
-            dateTo: dateTo || undefined,
+            dateFrom: dateFromParam || undefined,
+            dateTo: dateToParam || undefined,
             limit: 10000,
             ...(!topupsOnlyParam && categoryParam ? { expenseCategory: categoryParam } : {}),
             ...(walletUserParam ? { walletUserId: walletUserParam } : {}),
             ...(topupsOnlyParam ? { topupsOnly: 'true' } : {}),
-            ...(!isSupplier && scope.branchId ? { branchId: scope.branchId } : {}),
-            ...(!isSupplier && workshopId ? { workshopId } : {}),
+            ...(branchParam ? { branchId: branchParam } : {}),
         };
         try {
-            let res;
-            if (isSupplier) {
-                res = await supMon.monitorSupplierAccountLedger(
-                    scope.supplierId,
-                    accountId,
-                    params,
-                );
-            } else {
-                res = await accountsApi.getAccountLedger(accountId, params);
-            }
+            const res = await accountsApi.getAccountLedger(accountId, params);
             if (seq !== loadSeqRef.current) return;
-            setData(unwrapLedgerPayload(res));
+            const payload = unwrapLedgerPayload(res);
+            if (!payload || typeof payload !== 'object') {
+                throw new Error('Empty ledger response from server');
+            }
+            if (!Array.isArray(payload.rows)) {
+                throw new Error('Ledger response is missing transaction rows');
+            }
+            setData(payload);
         } catch (e) {
             if (seq !== loadSeqRef.current) return;
             setErr(e?.message || 'Failed to load ledger');
@@ -201,24 +121,26 @@ export default function MonitorAccountLedgerPage() {
         } finally {
             if (seq === loadSeqRef.current) setLoading(false);
         }
-    }, [accountId, isHq, isSupplier, scope.supplierId, scope.branchId, workshopId, dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly]);
+    }, [accountId, dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly, branchFilter]);
 
     useEffect(() => {
         void load();
-    }, [load]);
+        // Reload when navigating to a different COA account only.
+        // Filter/date changes apply via the Apply filters button.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [accountId]);
 
     async function fetchForExport() {
-        if (isSupplier) {
-            const res = await supMon.monitorSupplierAccountLedger(
-                scope.supplierId,
-                accountId,
-                { ...ledgerParams, limit: 10000 },
-            );
-            return unwrapLedgerPayload(res);
-        }
         const res = await accountsApi.getAccountLedger(accountId, {
-            ...ledgerParams,
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
             limit: 10000,
+            ...(expenseCategoryFilter && !topupsOnly
+                ? { expenseCategory: expenseCategoryFilter }
+                : {}),
+            ...(walletUserFilter ? { walletUserId: walletUserFilter } : {}),
+            ...(topupsOnly ? { topupsOnly: 'true' } : {}),
+            ...(branchFilter ? { branchId: branchFilter } : {}),
         });
         return unwrapLedgerPayload(res);
     }
@@ -268,34 +190,6 @@ export default function MonitorAccountLedgerPage() {
         }
     }
 
-    function clearRange() {
-        const next = loadSaAccountingDateRange();
-        setDateFrom(next.dateFrom);
-        setDateTo(next.dateTo);
-        setExpenseCategoryFilter('');
-        setExpenseCategoryInput('');
-        setWalletUserFilter('');
-        setWalletUserInput('');
-        setTopupsOnly(false);
-    }
-
-    function syncWalletUserFromInput() {
-        if (walletUserFilter) return walletUserFilter;
-        const raw = String(walletUserInput || '').trim();
-        if (!raw || raw.toLowerCase() === 'all users / employees' || raw.toLowerCase() === 'all employees') {
-            setWalletUserFilter('');
-            return '';
-        }
-        const options = walletUserComboboxOptions;
-        const match = options.find(
-            (u) => u.label.toLowerCase() === raw.toLowerCase()
-                || String(u.id).toLowerCase() === raw.toLowerCase(),
-        );
-        const next = match?.id ?? '';
-        setWalletUserFilter(next);
-        return next;
-    }
-
     function syncExpenseCategoryFromInput() {
         if (expenseCategoryFilter) return expenseCategoryFilter;
         const raw = String(expenseCategoryInput || '').trim();
@@ -313,6 +207,23 @@ export default function MonitorAccountLedgerPage() {
         return next;
     }
 
+    function syncWalletUserFromInput() {
+        if (walletUserFilter) return walletUserFilter;
+        const raw = String(walletUserInput || '').trim();
+        if (!raw || raw.toLowerCase() === 'all employees') {
+            setWalletUserFilter('');
+            return '';
+        }
+        const options = walletUserComboboxOptions;
+        const match = options.find(
+            (u) => u.label.toLowerCase() === raw.toLowerCase()
+                || String(u.id).toLowerCase() === raw.toLowerCase(),
+        );
+        const next = match?.id ?? '';
+        setWalletUserFilter(next);
+        return next;
+    }
+
     function applyFilters() {
         const nextCategory = topupsOnly ? '' : syncExpenseCategoryFromInput();
         const nextWalletUser = syncWalletUserFromInput();
@@ -320,6 +231,7 @@ export default function MonitorAccountLedgerPage() {
             expenseCategory: nextCategory,
             walletUserId: nextWalletUser,
             topupsOnly,
+            branchId: branchFilter,
         });
     }
 
@@ -331,30 +243,24 @@ export default function MonitorAccountLedgerPage() {
         }
     }
 
-    const isAdminWalletTopupLedger = Boolean(
-        isHq && (fallbackCode === '1335' || data?.header?.accountCode === '1335'),
+    const accountCode = data?.header?.accountCode || fallbackCode;
+    const isFundFromCode = isWorkshopPettyCashFundLedgerAccount({ code: accountCode });
+    const isExpenseFromCode = isWorkshopPettyCashExpenseLedgerAccount({ code: accountCode });
+    const isWorkshopPettyCashFundLedger = Boolean(
+        data?.workshopPettyCashFundLedger || isFundFromCode,
+    );
+    const isWorkshopPettyCashExpenseLedger = Boolean(
+        data?.workshopPettyCashExpenseLedger || isExpenseFromCode,
     );
     const isPettyCashExpenseLedger = Boolean(
-        data?.pettyCashExpenseLedger
-        || (isHq && (
-            HQ_ADMIN_WALLET_LEDGER_CODES.has(fallbackCode)
-            || HQ_ADMIN_WALLET_LEDGER_CODES.has(data?.header?.accountCode)
-        )),
+        data?.pettyCashExpenseLedger || isFundFromCode || isExpenseFromCode,
     );
-
+    const showTopupsOnlyFilter = isWorkshopPettyCashFundLedger;
     const showExpenseCategoryFilter = isPettyCashExpenseLedger && !topupsOnly;
-
-    const expenseCategoryComboboxOptions = useMemo(() => {
-        if (data?.filterOptions?.expenseCategories?.length) {
-            return data.filterOptions.expenseCategories.map((c) => ({
-                id: c.key,
-                label: c.label,
-                searchText: c.label,
-            }));
-        }
-        if (!isPettyCashExpenseLedger) return [];
-        return adminWalletExpenseLedgerFilterOptions();
-    }, [data?.filterOptions?.expenseCategories, isPettyCashExpenseLedger]);
+    const showBranchFilter = isWorkshopPettyCashFundLedger || isWorkshopPettyCashExpenseLedger;
+    const scopeNote = isWorkshopPettyCashExpenseLedger
+        ? `${entityLabel} · Employee petty cash expense ledger`
+        : `${entityLabel} · Employee petty cash fund ledger`;
 
     const ledgerFilterOptions = useMemo(() => {
         if (data?.filterOptions) {
@@ -366,7 +272,8 @@ export default function MonitorAccountLedgerPage() {
                 key: o.id,
                 label: o.label,
             })),
-            walletUsers: [{ key: '', label: 'All users / employees' }],
+            walletUsers: [{ key: '', label: 'All employees' }],
+            branches: [{ key: '', label: 'All branches' }],
         };
     }, [data?.filterOptions, isPettyCashExpenseLedger]);
 
@@ -382,26 +289,55 @@ export default function MonitorAccountLedgerPage() {
         [ledgerFilterOptions?.walletUsers],
     );
 
+    const expenseCategoryComboboxOptions = useMemo(() => {
+        if (data?.filterOptions?.expenseCategories?.length) {
+            return data.filterOptions.expenseCategories.map((c) => ({
+                id: c.key,
+                label: c.label,
+                searchText: c.label,
+            }));
+        }
+        if (!isPettyCashExpenseLedger) return [];
+        return adminWalletExpenseLedgerFilterOptions();
+    }, [data?.filterOptions?.expenseCategories, isPettyCashExpenseLedger]);
+
+    function clearRangeAndReload() {
+        const from = startOfMonthISO();
+        const to = todayISO();
+        setDateFrom(from);
+        setDateTo(to);
+        setExpenseCategoryFilter('');
+        setExpenseCategoryInput('');
+        setWalletUserFilter('');
+        setWalletUserInput('');
+        setBranchFilter('');
+        setTopupsOnly(false);
+        void load({
+            expenseCategory: '',
+            walletUserId: '',
+            topupsOnly: false,
+            branchId: '',
+            dateFrom: from,
+            dateTo: to,
+        });
+    }
+
     const accountType =
         data?.header?.accountType ||
         data?.account?.type ||
         fallbackType ||
         '';
     const normalDebit = accountNormalDebit(accountType);
-    const scopeLabel = isSupplier ? 'Supplier' : isHq ? 'Platform HQ' : 'Workshop';
-    const scopeNote = isHq
-        ? `${scopeLabel}: ${entityLabel || '—'} · Full editing enabled`
-        : `${scopeLabel}: ${entityLabel || '—'} · Read-only monitoring`;
 
     return (
         <div className="accounting-page module-container">
             <ProfessionalLedgerStatementDocument
-                onBack={() => navigate('/admin/accounting/chart-of-accounts')}
+                onBack={() => navigate('/workshop/accounting/chart-of-accounts')}
                 backLabel="Back to Chart of Accounts"
                 scopeNote={scopeNote}
                 loading={loading}
                 error={err}
-                accountCode={data?.header?.accountCode || fallbackCode}
+                accountCode={accountCode}
                 accountName={data?.header?.accountName || fallbackName}
                 accountType={accountType}
                 companyName={data?.header?.companyName || entityLabel || undefined}
@@ -416,16 +352,18 @@ export default function MonitorAccountLedgerPage() {
                 onDateFromChange={setDateFrom}
                 onDateToChange={setDateTo}
                 onApply={applyFilters}
-                onClear={clearRange}
+                onClear={clearRangeAndReload}
                 onExportPdf={() => void onExportPdf()}
                 onExportExcel={() => void onExportExcel()}
                 exportDisabled={!data || loading}
                 showPettyCashExpenseColumns={isPettyCashExpenseLedger}
-                closingBalanceKpiLabel={
-                    isPettyCashExpenseLedger
-                        ? 'Closing Balance (selected period)'
-                        : 'Closing Balance'
+                walletUserColumnLabel={
+                    isWorkshopPettyCashExpenseLedger
+                        ? 'Wallet user / employee'
+                        : 'Employee'
                 }
+                expenseCategoryColumnLabel="Account category"
+                closingBalanceKpiLabel="Closing Balance (selected period)"
                 filterOptions={ledgerFilterOptions}
                 expenseCategoryFilter={expenseCategoryFilter}
                 onExpenseCategoryFilterChange={setExpenseCategoryFilter}
@@ -437,7 +375,11 @@ export default function MonitorAccountLedgerPage() {
                 walletUserFilterInput={walletUserInput}
                 onWalletUserFilterInputChange={setWalletUserInput}
                 walletUsers={ledgerFilterOptions?.walletUsers ?? []}
-                showTopupsOnlyFilter={isAdminWalletTopupLedger}
+                branchFilter={branchFilter}
+                onBranchFilterChange={setBranchFilter}
+                branches={ledgerFilterOptions?.branches ?? []}
+                showBranchFilter={showBranchFilter}
+                showTopupsOnlyFilter={showTopupsOnlyFilter}
                 topupsOnly={topupsOnly}
                 onTopupsOnlyChange={handleTopupsOnlyChange}
                 showExpenseCategoryFilter={showExpenseCategoryFilter}

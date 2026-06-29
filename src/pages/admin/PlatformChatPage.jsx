@@ -42,6 +42,11 @@ import {
     buildReplyTarget,
 } from '../../components/platform-chat/PlatformChatReply';
 import chatBackgroundUrl from '../../assets/backgroundchat.svg';
+import {
+    formatDateSeparator,
+    formatListDateTime,
+    formatMessageDateTime,
+} from '../../utils/platformChatDateTime';
 import '../../styles/admin/PlatformChat.css';
 import '../../styles/admin/PlatformChatWallet.css';
 
@@ -51,29 +56,6 @@ const WORKSHOP_ROLE_TABS = [
     { id: 'cashier', label: 'Cashiers' },
     { id: 'technician', label: 'Technicians' },
 ];
-
-function formatTime(iso) {
-    if (!iso) return '';
-    try {
-        return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } catch {
-        return '';
-    }
-}
-
-function formatListTime(iso) {
-    if (!iso) return '';
-    try {
-        const d = new Date(iso);
-        const now = new Date();
-        if (d.toDateString() === now.toDateString()) {
-            return formatTime(iso);
-        }
-        return d.toLocaleDateString();
-    } catch {
-        return '';
-    }
-}
 
 function getInitials(name) {
     const trimmed = String(name || '').trim();
@@ -99,25 +81,6 @@ function avatarPaletteFor(name) {
     let h = 0;
     for (let i = 0; i < str.length; i += 1) h = (h * 31 + str.charCodeAt(i)) % AVATAR_PALETTE.length;
     return AVATAR_PALETTE[h];
-}
-
-function formatDateSeparator(iso) {
-    if (!iso) return '';
-    try {
-        const d = new Date(iso);
-        const now = new Date();
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        if (d.toDateString() === now.toDateString()) return 'Today';
-        if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-        return d.toLocaleDateString(undefined, {
-            day: 'numeric',
-            month: 'long',
-            year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
-        });
-    } catch {
-        return '';
-    }
 }
 
 function ChatAvatar({ title, type = 'direct', size = 'md' }) {
@@ -146,8 +109,10 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
     const navigate = useNavigate();
     const location = useLocation();
     const { user, token, hasPermission } = useAuth();
-    const canViewChat = hasPermission('chat.view');
-    const canCreateChat = hasPermission('chat.create');
+    const viewPermission = chatConfig.viewPermission ?? 'chat.view';
+    const createPermission = chatConfig.createPermission ?? 'chat.create';
+    const canViewChat = hasPermission(viewPermission);
+    const canCreateChat = hasPermission(createPermission);
     const api = chatConfig.api;
     const currentUserId = user?.id ? String(user.id) : null;
     const workshopRoleTabs = chatConfig.workshopRoleTabs ?? WORKSHOP_ROLE_TABS;
@@ -190,6 +155,10 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
     } = usePlatformChatUnread();
 
     const messagesEndRef = useRef(null);
+    const messagesScrollRef = useRef(null);
+    const scrollDateHideTimerRef = useRef(null);
+    const [scrollDateLabel, setScrollDateLabel] = useState('');
+    const [scrollDateVisible, setScrollDateVisible] = useState(false);
     const composerInputRef = useRef(null);
     const activeConversationRef = useRef(null);
     const openChatHandledRef = useRef(false);
@@ -220,6 +189,53 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
+
+    const updateScrollDateFromContainer = useCallback(() => {
+        const container = messagesScrollRef.current;
+        if (!container) return;
+        const seps = container.querySelectorAll('[data-date-sep]');
+        if (!seps.length) return;
+        const anchorY = container.getBoundingClientRect().top + 56;
+        let label = seps[0].getAttribute('data-date-label') || '';
+        for (const sep of seps) {
+            const rect = sep.getBoundingClientRect();
+            if (rect.top <= anchorY) {
+                label = sep.getAttribute('data-date-label') || label;
+            }
+        }
+        if (label) setScrollDateLabel(label);
+    }, []);
+
+    const handleMessagesScroll = useCallback(() => {
+        updateScrollDateFromContainer();
+        setScrollDateVisible(true);
+        if (scrollDateHideTimerRef.current) {
+            clearTimeout(scrollDateHideTimerRef.current);
+        }
+        scrollDateHideTimerRef.current = window.setTimeout(() => {
+            setScrollDateVisible(false);
+        }, 1400);
+    }, [updateScrollDateFromContainer]);
+
+    useEffect(() => {
+        return () => {
+            if (scrollDateHideTimerRef.current) {
+                clearTimeout(scrollDateHideTimerRef.current);
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!messages.length) {
+            setScrollDateLabel('');
+            setScrollDateVisible(false);
+            return;
+        }
+        const last = messages[messages.length - 1];
+        if (last?.createdAt) {
+            setScrollDateLabel(formatDateSeparator(last.createdAt));
+        }
+    }, [messages, activeConversation?.id]);
 
     const scrollToMessage = useCallback((messageId) => {
         if (!messageId) return;
@@ -501,10 +517,15 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
     }, [ackConversationReceipts]);
 
     useEffect(() => {
-        if (chatConfig.id === 'admin' && !canViewChat) {
+        if (canViewChat) return;
+        if (chatConfig.id === 'admin') {
             navigate(adminHomePathAfterChat(user) || '/admin/my-wallet', { replace: true });
+            return;
         }
-    }, [canViewChat, chatConfig.id, navigate, user]);
+        if (chatConfig.id === 'workshop' && onExit) {
+            onExit();
+        }
+    }, [canViewChat, chatConfig.id, navigate, onExit, user]);
 
     useEffect(() => {
         loadConversations();
@@ -576,7 +597,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
     };
 
     useEffect(() => {
-        if (loading || openChatHandledRef.current || chatConfig.id !== 'admin') return;
+        if (loading || openChatHandledRef.current) return;
+        if (chatConfig.id !== 'admin' && chatConfig.id !== 'workshop') return;
         const state = location.state;
         if (!state?.openConversationId && !state?.openUserId) return;
 
@@ -983,8 +1005,10 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             return (
                 <PlatformChatWalletMessage
                     message={m}
-                    canApprove={walletChatContext?.canApprove}
-                    canReject={walletChatContext?.canReject}
+                    canApproveFund={walletChatContext?.canApproveFund}
+                    canRejectFund={walletChatContext?.canRejectFund}
+                    canApproveExpense={walletChatContext?.canApproveExpense}
+                    canRejectExpense={walletChatContext?.canRejectExpense}
                     actionBusy={Boolean(walletApproveTarget || walletRejectTarget)}
                     onApprove={(message, payload) => setWalletApproveTarget({ message, payload })}
                     onReject={(message, payload) => setWalletRejectTarget({ message, payload })}
@@ -1019,19 +1043,45 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
     const isVoiceMessage = (m) => m.type === 'voice' && m.fileUrl;
 
     const walletChatContext = useMemo(() => {
-        if (chatConfig.id !== 'admin' || !activeConversation || activeConversation.type !== 'direct') {
+        if (!activeConversation || activeConversation.type !== 'direct') {
             return null;
         }
         const other = activeConversation.otherParticipants?.[0];
-        if (!other || other.userType !== 'platform_admin') return null;
+        if (!other) return null;
+
+        const createPerm = chatConfig.createPermission ?? 'chat.create';
+        const canWalletCreate = hasPermission(createPerm);
+
+        // Wallet-enabled user ↔ Super Admin support chat (admin or workshop portal)
+        const isWalletUserSupportChat =
+            Boolean(user?.walletEnabled)
+            && other.userType === 'platform_admin'
+            && (chatConfig.id === 'admin' || chatConfig.id === 'workshop');
+
+        if (isWalletUserSupportChat) {
+            return {
+                showRequestFunds: canWalletCreate,
+                showRecordExpense: canWalletCreate,
+                showTransactionHistory: false,
+                canApproveFund: false,
+                canRejectFund: false,
+                canApproveExpense: false,
+                canRejectExpense: false,
+            };
+        }
+
+        if (chatConfig.id !== 'admin') return null;
+
         return {
-            showRequestFunds: Boolean(user?.walletEnabled) && hasPermission('chat.create'),
-            showRecordExpense: Boolean(user?.walletEnabled) && hasPermission('chat.create'),
+            showRequestFunds: Boolean(user?.walletEnabled) && canWalletCreate,
+            showRecordExpense: Boolean(user?.walletEnabled) && canWalletCreate,
             showTransactionHistory: Boolean(other.walletEnabled) && hasPermission('admin-wallets.view'),
-            canApprove: hasPermission('approvals.admin-wallet-fund-request.approve'),
-            canReject: hasPermission('approvals.admin-wallet-fund-request.reject'),
+            canApproveFund: hasPermission('approvals.admin-wallet-fund-request.approve'),
+            canRejectFund: hasPermission('approvals.admin-wallet-fund-request.reject'),
+            canApproveExpense: hasPermission('approvals.admin-wallet-expense-request.approve'),
+            canRejectExpense: hasPermission('approvals.admin-wallet-expense-request.reject'),
         };
-    }, [chatConfig.id, activeConversation, user?.walletEnabled, hasPermission]);
+    }, [chatConfig.id, chatConfig.createPermission, activeConversation, user?.walletEnabled, hasPermission]);
 
     const renderNewChatModal = () => {
         if (!newChatOpen) return null;
@@ -1530,7 +1580,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
 
     let lastMessageDate = '';
 
-    if (chatConfig.id === 'admin' && !canViewChat) {
+    if (!canViewChat) {
         return null;
     }
 
@@ -1630,7 +1680,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                             <div className="platform-chat-list-meta-col">
                                                 {c.lastMessageAt && (
                                                     <div className="platform-chat-list-time">
-                                                        {formatListTime(c.lastMessageAt)}
+                                                        {formatListDateTime(c.lastMessageAt)}
                                                     </div>
                                                 )}
                                                 {unread > 0 && !isActiveConv && (
@@ -1761,7 +1811,20 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 <p className="platform-chat-error platform-chat-error--inline">{error}</p>
                             )}
 
-                            <div className="platform-chat-messages">
+                            <div className="platform-chat-messages-panel">
+                                <div
+                                    className={`platform-chat-scroll-date${
+                                        scrollDateVisible && scrollDateLabel ? ' is-visible' : ''
+                                    }`}
+                                    aria-live="polite"
+                                >
+                                    <span>{scrollDateLabel}</span>
+                                </div>
+                                <div
+                                    className="platform-chat-messages"
+                                    ref={messagesScrollRef}
+                                    onScroll={handleMessagesScroll}
+                                >
                                 {messages.length === 0 ? (
                                     <p className="platform-chat-messages-empty">
                                         No messages yet. Say hello!
@@ -1807,7 +1870,11 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                         return (
                                             <React.Fragment key={m.id}>
                                                 {showDateSep && (
-                                                    <div className="platform-chat-date-sep">
+                                                    <div
+                                                        className="platform-chat-date-sep"
+                                                        data-date-sep
+                                                        data-date-label={formatDateSeparator(m.createdAt)}
+                                                    >
                                                         <span>{formatDateSeparator(m.createdAt)}</span>
                                                     </div>
                                                 )}
@@ -1844,7 +1911,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                                     <>
                                                                         {renderMessageContent(m)}
                                                                         <span className="platform-chat-bubble-time platform-chat-bubble-time--voice">
-                                                                            {formatTime(m.createdAt)}
+                                                                            {formatMessageDateTime(m.createdAt)}
                                                                             {m.isSelf && (
                                                                                 <PlatformChatMessageStatus
                                                                                     status={m.receiptStatus || 'sent'}
@@ -1853,25 +1920,15 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                                             )}
                                                                         </span>
                                                                     </>
-                                                                ) : isWalletChatMessage(m) ? (
-                                                                    <>
-                                                                        {renderMessageContent(m)}
-                                                                        <span className="platform-chat-bubble-time">
-                                                                            {formatTime(m.createdAt)}
-                                                                            {m.isSelf && (
-                                                                                <PlatformChatMessageStatus
-                                                                                    status={m.receiptStatus || 'sent'}
-                                                                                />
-                                                                            )}
-                                                                        </span>
-                                                                    </>
-                                                                ) : (
+) : isWalletChatMessage(m) ? (
+                                                                    renderMessageContent(m)
+) : (
                                                                     <div className="platform-chat-bubble-row">
                                                                         <span className="platform-chat-bubble-text">
                                                                             {renderMessageContent(m)}
                                                                         </span>
                                                                         <span className="platform-chat-bubble-time">
-                                                                            {formatTime(m.createdAt)}
+                                                                            {formatMessageDateTime(m.createdAt)}
                                                                             {m.isSelf && (
                                                                                 <PlatformChatMessageStatus
                                                                                     status={m.receiptStatus || 'sent'}
@@ -1900,6 +1957,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                     })
                                 )}
                                 <div ref={messagesEndRef} />
+                                </div>
                             </div>
 
                             <div className={`platform-chat-composer${voiceRecording ? ' is-recording' : ''}`}>
@@ -1907,72 +1965,72 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                     replyTarget={replyTarget}
                                     onClear={clearReply}
                                 />
-                                {voiceRecording ? (
-                                    <PlatformChatVoiceRecorder
-                                        isActive={voiceRecording}
-                                        onActiveChange={setVoiceRecording}
-                                        onRecordedBlob={handleVoiceBlob}
-                                        disabled={sending}
-                                    />
-                                ) : (
-                                    <div className="platform-chat-composer-row">
-                                        {walletChatContext && typeof api.sendWalletFundRequest === 'function' && (
-                                            <PlatformChatWalletPlusMenu
-                                                api={api}
-                                                conversationId={activeConversation?.id}
-                                                showRequestFunds={walletChatContext.showRequestFunds}
-                                                showRecordExpense={walletChatContext.showRecordExpense}
-                                                showTransactionHistory={walletChatContext.showTransactionHistory}
-                                                disabled={sending}
-                                                onMessageSent={appendWalletChatMessage}
-                                                onError={(msg) => setError(msg)}
-                                            />
-                                        )}
-                                        <div className="pc-composer-pill">
-                                            <textarea
-                                                ref={composerInputRef}
-                                                className="platform-chat-input"
-                                                rows={1}
-                                                placeholder={replyTarget ? 'Type your reply…' : (canCreateChat ? 'Type a message' : 'You cannot send messages')}
-                                                value={text}
-                                                onChange={handleTextChange}
-                                                disabled={!canCreateChat}
-                                                readOnly={!canCreateChat}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Escape') {
-                                                        clearReply();
-                                                        return;
-                                                    }
-                                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                                        e.preventDefault();
-                                                        handleSend();
-                                                    }
-                                                }}
-                                            />
-                                            {text.trim() ? (
-                                                <button
-                                                    type="button"
-                                                    className="pc-composer-action pc-composer-action--send"
-                                                    onClick={handleSend}
-                                                    disabled={sending || !canCreateChat}
-                                                    title="Send"
-                                                >
-                                                    <Send size={20} />
-                                                </button>
-                                            ) : (
-                                                <PlatformChatVoiceRecorder
-                                                    isActive={false}
-                                                    onActiveChange={setVoiceRecording}
-                                                    onRecordedBlob={handleVoiceBlob}
-                                                    disabled={sending}
+                                <div className="platform-chat-composer-row">
+                                    {!voiceRecording && walletChatContext && typeof api.sendWalletFundRequest === 'function' && (
+                                        <PlatformChatWalletPlusMenu
+                                            api={api}
+                                            conversationId={activeConversation?.id}
+                                            showRequestFunds={walletChatContext.showRequestFunds}
+                                            showRecordExpense={walletChatContext.showRecordExpense}
+                                            showTransactionHistory={walletChatContext.showTransactionHistory}
+                                            disabled={sending}
+                                            onMessageSent={appendWalletChatMessage}
+                                            onError={(msg) => setError(msg)}
+                                        />
+                                    )}
+                                    <div
+                                        className={`pc-composer-pill-group${voiceRecording ? ' is-recording' : ''}`}
+                                    >
+                                        {!voiceRecording && (
+                                            <>
+                                                <textarea
+                                                    ref={composerInputRef}
+                                                    className="platform-chat-input"
+                                                    rows={1}
+                                                    placeholder={replyTarget ? 'Type your reply…' : (canCreateChat ? 'Type a message' : 'You cannot send messages')}
+                                                    value={text}
+                                                    onChange={handleTextChange}
+                                                    disabled={!canCreateChat}
+                                                    readOnly={!canCreateChat}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Escape') {
+                                                            clearReply();
+                                                            return;
+                                                        }
+                                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                                            e.preventDefault();
+                                                            handleSend();
+                                                        }
+                                                    }}
                                                 />
-                                            )}
-                                        </div>
+                                                {text.trim() ? (
+                                                    <button
+                                                        type="button"
+                                                        className="pc-composer-action pc-composer-action--send"
+                                                        onClick={handleSend}
+                                                        disabled={sending || !canCreateChat}
+                                                        title="Send"
+                                                    >
+                                                        <Send size={20} />
+                                                    </button>
+                                                ) : null}
+                                            </>
+                                        )}
+                                        {!text.trim() ? (
+                                            <PlatformChatVoiceRecorder
+                                                variant={voiceRecording ? 'bar' : 'mic'}
+                                                isActive={voiceRecording}
+                                                onActiveChange={setVoiceRecording}
+                                                onRecordedBlob={handleVoiceBlob}
+                                                disabled={sending || !canCreateChat}
+                                            />
+                                        ) : null}
                                     </div>
-                                )}
+                                </div>
                             </div>
 
-                            {walletChatContext && typeof api.approveWalletFundRequestMessage === 'function' && (
+                            {(typeof api.approveWalletFundRequestMessage === 'function'
+                                || typeof api.approveWalletExpenseRequestMessage === 'function') && (
                                 <PlatformChatWalletActionModals
                                     api={api}
                                     approveTarget={walletApproveTarget}

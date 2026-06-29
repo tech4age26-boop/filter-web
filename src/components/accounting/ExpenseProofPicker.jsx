@@ -1,18 +1,16 @@
-import React, { useRef } from 'react';
-import { ImagePlus, X } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { ImagePlus, Loader2, X } from 'lucide-react';
+import { compressExpenseProofFile } from '../../utils/expenseProofImage';
 
-export const EXPENSE_PROOF_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
+export const EXPENSE_PROOF_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif';
 
-export function readExpenseProofFile(file, { onReady, onError } = {}) {
+export function readExpenseProofFile(file, { onReady, onError, onBusyChange } = {}) {
     if (!file) return;
-    if (!String(file.type || '').startsWith('image/')) {
-        onError?.('Please choose an image file (JPEG, PNG, or WebP).');
-        return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => onReady?.(reader.result);
-    reader.onerror = () => onError?.('Could not read image.');
-    reader.readAsDataURL(file);
+    onBusyChange?.(true);
+    compressExpenseProofFile(file)
+        .then((dataUrl) => onReady?.(dataUrl))
+        .catch((err) => onError?.(err?.message || 'Could not process image.'))
+        .finally(() => onBusyChange?.(false));
 }
 
 export default function ExpenseProofPicker({
@@ -23,6 +21,7 @@ export default function ExpenseProofPicker({
     disabled = false,
 }) {
     const inputRef = useRef(null);
+    const [processing, setProcessing] = useState(false);
 
     const handlePick = (e) => {
         const file = e.target.files?.[0];
@@ -31,8 +30,11 @@ export default function ExpenseProofPicker({
         readExpenseProofFile(file, {
             onReady: (dataUrl) => onChange?.(dataUrl),
             onError: (msg) => window.alert(msg),
+            onBusyChange: setProcessing,
         });
     };
+
+    const isDisabled = disabled || processing;
 
     return (
         <div className="form-group form-group-full">
@@ -42,16 +44,17 @@ export default function ExpenseProofPicker({
                 ref={inputRef}
                 type="file"
                 accept={EXPENSE_PROOF_ACCEPT}
+                capture="environment"
                 style={{ display: 'none' }}
-                disabled={disabled}
+                disabled={isDisabled}
                 onChange={handlePick}
             />
             <div
                 role="button"
-                tabIndex={disabled ? -1 : 0}
-                onClick={() => !disabled && !preview && inputRef.current?.click()}
+                tabIndex={isDisabled ? -1 : 0}
+                onClick={() => !isDisabled && !preview && inputRef.current?.click()}
                 onKeyDown={(e) => {
-                    if (!disabled && !preview && (e.key === 'Enter' || e.key === ' ')) {
+                    if (!isDisabled && !preview && (e.key === 'Enter' || e.key === ' ')) {
                         e.preventDefault();
                         inputRef.current?.click();
                     }
@@ -61,7 +64,7 @@ export default function ExpenseProofPicker({
                     borderRadius: 10,
                     padding: preview ? 8 : 16,
                     background: preview ? '#fff' : '#FAFBFC',
-                    cursor: disabled ? 'not-allowed' : preview ? 'default' : 'pointer',
+                    cursor: isDisabled ? 'wait' : preview ? 'default' : 'pointer',
                     minHeight: preview ? 120 : 88,
                     display: 'flex',
                     alignItems: 'center',
@@ -69,7 +72,12 @@ export default function ExpenseProofPicker({
                     position: 'relative',
                 }}
             >
-                {preview ? (
+                {processing ? (
+                    <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.875rem' }}>
+                        <Loader2 size={22} className="spin" style={{ marginBottom: 6 }} />
+                        <div>Optimizing photo…</div>
+                    </div>
+                ) : preview ? (
                     <>
                         <img
                             src={preview}
@@ -113,7 +121,9 @@ export default function ExpenseProofPicker({
                     <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.875rem' }}>
                         <ImagePlus size={22} style={{ marginBottom: 6, opacity: 0.7 }} />
                         <div>Tap to upload receipt or proof photo</div>
-                        <div style={{ fontSize: '0.75rem', marginTop: 4 }}>JPEG, PNG, or WebP</div>
+                        <div style={{ fontSize: '0.75rem', marginTop: 4 }}>
+                            Any phone photo — auto-optimized up to 5 MB
+                        </div>
                     </div>
                 )}
             </div>

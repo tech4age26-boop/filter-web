@@ -1,11 +1,44 @@
 /** Shared helpers for COA ledger statement pages (monitor + supplier). */
 
+function mapLegacyLedgerLines(lines) {
+    return lines.map((line) => {
+        const dateRaw = line.date;
+        const dateStr =
+            dateRaw instanceof Date
+                ? dateRaw.toISOString().slice(0, 10)
+                : String(dateRaw ?? '').slice(0, 10);
+        return {
+            id: line.id,
+            date: dateStr,
+            description:
+                line.description ||
+                line.lineDescription ||
+                line.journalDescription ||
+                '—',
+            debit: Number(line.debit ?? 0),
+            credit: Number(line.credit ?? 0),
+            runningBalance: Number(line.runningBalance ?? 0),
+            walletUserLabel: line.walletUserLabel,
+            expenseCategoryLabel: line.expenseCategoryLabel,
+            expenseProofUrl: line.expenseProofUrl,
+            hasExpenseProof: line.hasExpenseProof,
+        };
+    });
+}
+
 export function unwrapLedgerPayload(res) {
     if (!res || typeof res !== 'object') return {};
-    if (res.data && typeof res.data === 'object' && (res.data.rows || res.data.lines)) {
-        return res.data;
+    const nested =
+        res.data && typeof res.data === 'object' && !Array.isArray(res.data)
+            ? res.data
+            : null;
+    const payload =
+        nested && (nested.rows || nested.lines) ? nested : res;
+    if (Array.isArray(payload.rows)) return payload;
+    if (Array.isArray(payload.lines) && payload.lines.length) {
+        return { ...payload, rows: mapLegacyLedgerLines(payload.lines) };
     }
-    return res;
+    return payload;
 }
 
 export function derivePartyFilterKey(party) {

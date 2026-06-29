@@ -3,10 +3,17 @@ import { Loader2, Plus, Banknote, History, Receipt } from 'lucide-react';
 import Modal from '../Modal';
 import SearchableEntityCombobox from '../SearchableEntityCombobox';
 import ExpenseProofPicker from '../accounting/ExpenseProofPicker';
-import { listMyWalletBranches, listMyWalletWorkshops } from '../../services/adminWalletApi';
+import { listMyWalletBranches, listMyWalletWorkshops, myWalletApiForUser } from '../../services/adminWalletApi';
+import { useAuth } from '../../context/AuthContext';
 import { adminWalletExpenseComboboxOptions } from '../../constants/adminWalletExpenseCategories';
 import { formatSar } from './PlatformChatWalletMessage';
 import '../../styles/admin/PlatformChatWallet.css';
+
+function workshopIsPlatformHq(workshops, workshopId) {
+    if (!workshopId) return false;
+    const w = workshops.find((x) => String(x.id) === String(workshopId));
+    return Boolean(w?.isPlatformHq ?? w?.is_platform_hq);
+}
 
 export default function PlatformChatWalletPlusMenu({
     api,
@@ -17,7 +24,10 @@ export default function PlatformChatWalletPlusMenu({
     disabled,
     onMessageSent,
     onError,
+    walletApi: walletApiProp,
 }) {
+    const { user } = useAuth();
+    const walletApi = walletApiProp ?? myWalletApiForUser(user);
     const [menuOpen, setMenuOpen] = useState(false);
     const [fundOpen, setFundOpen] = useState(false);
     const [expenseOpen, setExpenseOpen] = useState(false);
@@ -61,7 +71,7 @@ export default function PlatformChatWalletPlusMenu({
     const loadWorkshops = useCallback(async () => {
         setWorkshopsLoading(true);
         try {
-            const res = await listMyWalletWorkshops();
+            const res = await walletApi.listMyWalletWorkshops();
             const rows = res?.workshops ?? res?.data?.workshops ?? [];
             setWorkshopOptions(Array.isArray(rows) ? rows : []);
         } catch {
@@ -69,7 +79,7 @@ export default function PlatformChatWalletPlusMenu({
         } finally {
             setWorkshopsLoading(false);
         }
-    }, []);
+    }, [walletApi]);
 
     useEffect(() => {
         if (!menuOpen) return undefined;
@@ -110,30 +120,30 @@ export default function PlatformChatWalletPlusMenu({
     }, [expenseOpen]);
 
     useEffect(() => {
-        if (!fundWorkshopId) {
+        if (!fundWorkshopId || workshopIsPlatformHq(workshopOptions, fundWorkshopId)) {
             setFundBranches([]);
             setFundBranchId('');
             return;
         }
         setFundBranchesLoading(true);
-        listMyWalletBranches({ workshopId: fundWorkshopId })
+        walletApi.listMyWalletBranches({ workshopId: fundWorkshopId })
             .then((res) => setFundBranches(res?.branches ?? []))
             .catch(() => setFundBranches([]))
             .finally(() => setFundBranchesLoading(false));
-    }, [fundWorkshopId]);
+    }, [fundWorkshopId, walletApi, workshopOptions]);
 
     useEffect(() => {
-        if (!expenseWorkshopId) {
+        if (!expenseWorkshopId || workshopIsPlatformHq(workshopOptions, expenseWorkshopId)) {
             setExpenseBranches([]);
             setExpenseBranchId('');
             return;
         }
         setExpenseBranchesLoading(true);
-        listMyWalletBranches({ workshopId: expenseWorkshopId })
+        walletApi.listMyWalletBranches({ workshopId: expenseWorkshopId })
             .then((res) => setExpenseBranches(res?.branches ?? []))
             .catch(() => setExpenseBranches([]))
             .finally(() => setExpenseBranchesLoading(false));
-    }, [expenseWorkshopId]);
+    }, [expenseWorkshopId, walletApi, workshopOptions]);
 
     const loadHistory = async () => {
         setHistoryLoading(true);
@@ -154,6 +164,9 @@ export default function PlatformChatWalletPlusMenu({
         loadHistory();
     };
 
+    const fundIsHq = workshopIsPlatformHq(workshopOptions, fundWorkshopId);
+    const expenseIsHq = workshopIsPlatformHq(workshopOptions, expenseWorkshopId);
+
     const submitFundRequest = async (e) => {
         e.preventDefault();
         const amount = Number(fundAmount);
@@ -163,19 +176,20 @@ export default function PlatformChatWalletPlusMenu({
             setFundModalError('Select a workshop.');
             return;
         }
-        if (!fundBranchId) {
+        if (!fundIsHq && !fundBranchId) {
             setFundModalError('Select a branch.');
             return;
         }
         setFundModalError('');
         setBusy(true);
         try {
-            const res = await api.sendWalletFundRequest(conversationId, {
+            const payload = {
                 amount,
                 purpose,
                 workshopId: fundWorkshopId,
-                branchId: fundBranchId,
-            });
+            };
+            if (!fundIsHq) payload.branchId = fundBranchId;
+            const res = await api.sendWalletFundRequest(conversationId, payload);
             const msg = res?.message ?? res?.data?.message;
             if (msg) onMessageSent?.(msg);
             setFundOpen(false);
@@ -210,22 +224,23 @@ export default function PlatformChatWalletPlusMenu({
             setExpenseModalError('Select a workshop.');
             return;
         }
-        if (!expenseBranchId) {
+        if (!expenseIsHq && !expenseBranchId) {
             setExpenseModalError('Select a branch.');
             return;
         }
         setExpenseModalError('');
         setBusy(true);
         try {
-            const res = await api.recordWalletExpense(conversationId, {
+            const payload = {
                 amount,
                 description,
                 vendorName: expenseVendor.trim() || undefined,
                 expenseCategory,
                 proofUrl: expenseProofPreview,
                 workshopId: expenseWorkshopId,
-                branchId: expenseBranchId,
-            });
+            };
+            if (!expenseIsHq) payload.branchId = expenseBranchId;
+            const res = await api.recordWalletExpense(conversationId, payload);
             const msg = res?.message ?? res?.data?.message;
             if (msg) onMessageSent?.(msg);
             setExpenseOpen(false);
@@ -396,12 +411,16 @@ export default function PlatformChatWalletPlusMenu({
                             setFundWorkshopId,
                             setFundBranchId,
                         )}
-                        {branchSelect(
+                        {!fundIsHq ? branchSelect(
                             fundWorkshopId,
                             fundBranchId,
                             setFundBranchId,
                             fundBranches,
                             fundBranchesLoading,
+                        ) : (
+                            <p className="pc-wallet-modal-hint" style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: '#64748b' }}>
+                                Platform HQ — posts to HQ My Books. Super Admin approval only.
+                            </p>
                         )}
                         <label className="pc-wallet-field-label">Amount (SAR) *</label>
                         <input
@@ -454,12 +473,16 @@ export default function PlatformChatWalletPlusMenu({
                             setExpenseWorkshopId,
                             setExpenseBranchId,
                         )}
-                        {branchSelect(
+                        {!expenseIsHq ? branchSelect(
                             expenseWorkshopId,
                             expenseBranchId,
                             setExpenseBranchId,
                             expenseBranches,
                             expenseBranchesLoading,
+                        ) : (
+                            <p className="pc-wallet-modal-hint" style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: '#64748b' }}>
+                                Platform HQ — posts to HQ My Books. Super Admin approval only.
+                            </p>
                         )}
                         <label className="pc-wallet-field-label">Amount (SAR) *</label>
                         <input

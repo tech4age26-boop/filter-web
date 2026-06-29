@@ -24,6 +24,8 @@ export const NEW_CHAT_MODES = {
 export const ADMIN_CHAT_CONFIG = {
     id: 'admin',
     api: createPlatformChatApi('/super-admin/platform-chat'),
+    viewPermission: 'chat.view',
+    createPermission: 'chat.create',
     useLegacyContacts: true,
     menuItems: ['admin', 'supplier', 'workshop', 'corporate', 'group'],
     adminContactLabel: 'Super Admin',
@@ -40,6 +42,8 @@ export const ADMIN_CHAT_CONFIG = {
 export const WORKSHOP_CHAT_CONFIG = {
     id: 'workshop',
     api: workshopPlatformChatApi,
+    viewPermission: 'workshop.platform-chat.view',
+    createPermission: 'workshop.platform-chat.create',
     useLegacyContacts: false,
     menuItems: ['admin', 'supplier', 'workshop_team', 'group'],
     groupCategories: [

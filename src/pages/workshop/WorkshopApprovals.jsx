@@ -5,10 +5,20 @@ import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import Modal from '../../components/Modal';
+import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
 import { apiFetch } from '../../services/api';
 import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn, listWorkshopCashBankAccounts } from '../../services/workshopStaffApi';
 import { approveExpenseRequest, rejectExpenseRequest } from '../../services/employeeExpenseApi';
 import { useAuth } from '../../context/AuthContext';
+
+function loadWorkshopRequesterWallet({ userId, currencyCode }) {
+    return apiFetch(
+        `/workshop-staff/admin-wallet-approvals/requester-wallet-balance${qs({
+            userId,
+            currencyCode: currencyCode || 'SAR',
+        })}`,
+    ).then((res) => ({ balance: Number(res?.balance ?? 0) }));
+}
 
 function cashBankRegisterKindLabel(row) {
     const kind = String(row?.kind || 'OPERATING');
@@ -40,64 +50,39 @@ function normalizeWorkshopPayFromAccounts(res) {
             id,
             name,
             kindLabel,
+            kind: row.kind || '',
+            type: row.type || '',
             branchId: row.branchId != null ? String(row.branchId) : '',
+            branchName: row.branchName || row.branch?.name || '',
             label: `${name} (${kindLabel}) — SAR ${formatted}`,
             balance,
         };
     });
 }
 
-function AdminWalletFundWorkshopApproveModal({ row, busy, error, onCancel, onConfirm }) {
+function loadWorkshopCashAccounts() {
+    return listWorkshopCashBankAccounts({ status: 'active' }).then(normalizeWorkshopPayFromAccounts);
+}
+
+function loadWorkshopBudgetAccounts({ branchId }) {
+    return apiFetch(
+        `/workshop-staff/admin-wallet-approvals/budget-accounts${qs({ branchId })}`,
+    ).then((res) => (Array.isArray(res?.accounts) ? res.accounts : []));
+}
+
+function AdminWalletWorkshopApproveModal({ row, mode, busy, error, onCancel, onConfirm }) {
     const [remarks, setRemarks] = useState('');
-    const [sourceAccountId, setSourceAccountId] = useState('');
-    const [cashAccounts, setCashAccounts] = useState([]);
-    const [accountsLoading, setAccountsLoading] = useState(true);
-    const [accountsError, setAccountsError] = useState('');
+    const [acct, setAcct] = useState({ blocked: true, loading: true });
     const branchId = row?.branchId != null ? String(row.branchId) : '';
     const branchName = row?.branchName || 'this branch';
     const requesterName = row?.cashier?.name || row?.requestedBy || 'Platform admin';
     const amount = Number(row?.amount ?? 0);
-
-    useEffect(() => {
-        let cancelled = false;
-        setAccountsLoading(true);
-        setAccountsError('');
-        setSourceAccountId('');
-        const params = { status: 'active' };
-        if (branchId) params.branchId = branchId;
-        listWorkshopCashBankAccounts(params)
-            .then((res) => {
-                if (cancelled) return;
-                const normalized = normalizeWorkshopPayFromAccounts(res);
-                setCashAccounts(normalized);
-                if (normalized.length > 0) setSourceAccountId(normalized[0].id);
-            })
-            .catch((err) => {
-                if (!cancelled) {
-                    setAccountsError(err?.message || 'Failed to load cash/bank accounts');
-                }
-            })
-            .finally(() => {
-                if (!cancelled) setAccountsLoading(false);
-            });
-        return () => { cancelled = true; };
-    }, [branchId]);
-
-    const selectedAccount = cashAccounts.find((a) => a.id === sourceAccountId);
-    const insufficientBalance = Boolean(
-        selectedAccount
-        && Number.isFinite(amount)
-        && amount > 0
-        && selectedAccount.balance < amount,
-    );
-    const balanceError = insufficientBalance
-        ? `Insufficient balance in ${selectedAccount.name}. Available SAR ${selectedAccount.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} but this request needs SAR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`
-        : '';
-    const displayError = error || balanceError;
+    const isExpense = mode === 'expense';
+    const displayError = error || acct.blockReason;
 
     return (
         <Modal
-            title="Approve Platform Admin Fund Request"
+            title={isExpense ? 'Approve Platform Admin Expense' : 'Approve Platform Admin Fund Request'}
             onClose={busy ? undefined : onCancel}
             width={520}
             footer={(
@@ -108,16 +93,26 @@ function AdminWalletFundWorkshopApproveModal({ row, busy, error, onCancel, onCon
                     <button
                         type="button"
                         className="btn-submit btn-dark"
-                        disabled={busy || accountsLoading || !sourceAccountId || insufficientBalance}
+                        disabled={busy || acct.blocked}
                         onClick={() => onConfirm({
                             remarks: remarks.trim() || undefined,
-                            sourceAccountId,
-                            sourceAccountName: selectedAccount?.name || '',
+                            ...(isExpense && acct.paymentSource === 'wallet'
+                                ? {}
+                                : {
+                                    sourceAccountId: acct.sourceAccountId,
+                                    sourceAccountName: acct.sourceAccountName,
+                                }),
+                            ...(isExpense
+                                ? {
+                                    budgetAccountId: acct.budgetAccountId,
+                                    budgetAccountName: acct.budgetAccountName,
+                                }
+                                : {}),
                         })}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
                         {' '}
-                        Approve &amp; Post Journal
+                        {isExpense ? 'Approve Expense' : 'Approve & Post Journal'}
                     </button>
                 </>
             )}
@@ -128,56 +123,33 @@ function AdminWalletFundWorkshopApproveModal({ row, busy, error, onCancel, onCon
                 </p>
             ) : null}
             <p style={{ margin: '0 0 14px', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                Approve fund request for <strong>{requesterName}</strong> at branch{' '}
+                Approve {isExpense ? 'expense' : 'fund request'} for <strong>{requesterName}</strong> at branch{' '}
                 <strong>{branchName}</strong>. Amount{' '}
                 <strong>SAR {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>{' '}
-                will be credited to their wallet. Workshop books will post{' '}
-                <strong>Dr Employee Petty Cash Fund (1280)</strong> /{' '}
-                <strong>Cr</strong> the account you select below.
+                {isExpense
+                    ? 'will be drawn from the selected budget account.'
+                    : 'will be credited to their wallet from the selected payment account.'}
             </p>
             {row?.description ? (
                 <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                    Purpose: <strong>{row.description}</strong>
+                    {isExpense ? 'Details' : 'Purpose'}: <strong>{row.description}</strong>
                 </p>
             ) : null}
 
-            <label className="form-label" htmlFor="ws-admin-wallet-source-account">
-                Pay from account (Cash / Bank / Locker) <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            {accountsLoading ? (
-                <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
-                    <Loader size={14} className="spin" /> Loading branch accounts…
-                </p>
-            ) : accountsError ? (
-                <p style={{ color: '#b91c1c', fontSize: '0.875rem' }}>{accountsError}</p>
-            ) : cashAccounts.length === 0 ? (
-                <p style={{ color: '#b45309', fontSize: '0.875rem' }}>
-                    No cash, bank, or locker accounts found for {branchName}. Add one under Accounting → Cash &amp; Bank first.
-                </p>
-            ) : (
-                <select
-                    id="ws-admin-wallet-source-account"
-                    className="form-input-field"
-                    value={sourceAccountId}
-                    onChange={(e) => setSourceAccountId(e.target.value)}
-                    disabled={busy}
-                >
-                    {cashAccounts.map((account) => (
-                        <option key={account.id} value={account.id}>{account.label}</option>
-                    ))}
-                </select>
-            )}
-            {selectedAccount && !accountsLoading && !accountsError ? (
-                <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                    Available balance:{' '}
-                    <strong>
-                        SAR {selectedAccount.balance.toLocaleString(undefined, {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                        })}
-                    </strong>
-                </p>
-            ) : null}
+            <WalletApprovalAccountFields
+                workshopId={row?.workshopId != null ? String(row.workshopId) : ''}
+                branchId={branchId}
+                amount={amount}
+                mode={mode}
+                busy={busy}
+                requesterUserId={isExpense ? String(row?.adminUserId ?? '') : ''}
+                requesterName={isExpense ? (row?.adminUserName || requesterName) : ''}
+                currencyCode={row?.currencyCode ?? 'SAR'}
+                loadCashAccounts={loadWorkshopCashAccounts}
+                loadBudgetAccounts={loadWorkshopBudgetAccounts}
+                loadRequesterWalletBalance={isExpense ? loadWorkshopRequesterWallet : undefined}
+                onChange={setAcct}
+            />
 
             <label className="form-label" htmlFor="ws-admin-wallet-approve-remarks" style={{ marginTop: 14 }}>
                 Remarks <span style={{ color: '#94a3b8', fontWeight: 400 }}>(optional)</span>
@@ -413,6 +385,7 @@ export default function WorkshopApprovals({
     const [siApproveModal, setSiApproveModal] = useState(null);
     const [siCriticalStock, setSiCriticalStock] = useState({});
     const [fundApproveModal, setFundApproveModal] = useState(null);
+    const [expenseApproveModal, setExpenseApproveModal] = useState(null);
     const [fundApproveError, setFundApproveError] = useState('');
 
     const loadApprovals = useCallback(async () => {
@@ -710,21 +683,8 @@ export default function WorkshopApprovals({
         }
         if (isAdminWalletExpenseRow(row)) {
             if (row.status !== 'pending') return;
-            const rid = row.adminWalletRequestId;
-            const kind = row.kind;
-            setActionLoadingId(`approve-aw-${rid}`);
-            try {
-                await apiFetch(
-                    `/workshop-staff/admin-wallet-approvals/${encodeURIComponent(kind)}/${encodeURIComponent(String(rid))}/approve`,
-                    { method: 'POST', body: JSON.stringify({}) },
-                );
-                await loadApprovals();
-                window.dispatchEvent(new Event('workshop-approvals-updated'));
-            } catch (error) {
-                setLoadError(error.message || 'Failed to approve platform admin wallet request.');
-            } finally {
-                setActionLoadingId(null);
-            }
+            setFundApproveError('');
+            setExpenseApproveModal(row);
             return;
         }
         const id = row.id;
@@ -849,6 +809,30 @@ export default function WorkshopApprovals({
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (error) {
             setFundApproveError(error.message || 'Failed to approve fund request.');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const submitAdminWalletExpenseApprove = async (payload) => {
+        if (!expenseApproveModal) return;
+        const rid = expenseApproveModal.adminWalletRequestId;
+        setActionLoadingId(`approve-aw-${rid}`);
+        setFundApproveError('');
+        try {
+            await apiFetch(
+                `/workshop-staff/admin-wallet-approvals/admin_wallet_expense/${encodeURIComponent(String(rid))}/approve${qs(expenseScope)}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                },
+            );
+            setExpenseApproveModal(null);
+            await loadApprovals();
+            window.dispatchEvent(new Event('workshop-approvals-updated'));
+        } catch (error) {
+            setFundApproveError(error.message || 'Failed to approve expense request.');
         } finally {
             setActionLoadingId(null);
         }
@@ -1519,8 +1503,9 @@ export default function WorkshopApprovals({
             </div>
 
             {fundApproveModal ? (
-                <AdminWalletFundWorkshopApproveModal
+                <AdminWalletWorkshopApproveModal
                     row={fundApproveModal}
+                    mode="fund"
                     busy={actionLoadingId != null && String(actionLoadingId).startsWith('approve-aw-')}
                     error={fundApproveError}
                     onCancel={() => {
@@ -1529,6 +1514,21 @@ export default function WorkshopApprovals({
                         setFundApproveError('');
                     }}
                     onConfirm={submitAdminWalletFundApprove}
+                />
+            ) : null}
+
+            {expenseApproveModal ? (
+                <AdminWalletWorkshopApproveModal
+                    row={expenseApproveModal}
+                    mode="expense"
+                    busy={actionLoadingId != null && String(actionLoadingId).startsWith('approve-aw-')}
+                    error={fundApproveError}
+                    onCancel={() => {
+                        if (actionLoadingId !== null) return;
+                        setExpenseApproveModal(null);
+                        setFundApproveError('');
+                    }}
+                    onConfirm={submitAdminWalletExpenseApprove}
                 />
             ) : null}
 
