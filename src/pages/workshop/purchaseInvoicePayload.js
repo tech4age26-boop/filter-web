@@ -10,7 +10,7 @@ import {
     roundMoney2 as money2,
     DEFAULT_INVOICE_TAXES,
 } from '../../utils/invoiceLineFinancials';
-import { isInvoiceLineSubmitReady } from '../../utils/invoiceLineLabel';
+import { isInvoiceLineSubmitReady, resolveManualInvoiceLineLabel } from '../../utils/invoiceLineLabel';
 
 export { reconstructInvoiceUnitPriceInput };
 
