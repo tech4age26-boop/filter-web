@@ -66,7 +66,8 @@
     background: #f8fafc;
 }
 
-.platform-chat-composer .pc-composer-pill {
+.platform-chat-composer .pc-composer-pill,
+.platform-chat-composer .pc-composer-pill-group {
     flex: 1;
 }
 
@@ -591,6 +592,29 @@
 
 .pc-wallet-modal-info .pc-wallet-modal-danger {
     width: 100%;
+}
+
+.pc-wallet-card-datetime {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(15, 23, 42, 0.08);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #64748b;
+    text-align: right;
+    letter-spacing: 0.01em;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+.pc-wallet-card--status .pc-wallet-card-datetime {
+    margin-top: 12px;
+    padding-top: 0;
+    border-top: none;
+    text-align: left;
+    justify-content: flex-start;
 }
 
 .platform-chat-bubble-inner--wallet {

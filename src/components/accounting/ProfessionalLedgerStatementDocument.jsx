@@ -65,7 +65,13 @@ export default function ProfessionalLedgerStatementDocument({
     expenseCategoryComboboxOptions = [],
     walletUserFilter = '',
     onWalletUserFilterChange,
+    walletUserFilterInput = '',
+    onWalletUserFilterInputChange,
     walletUsers = [],
+    branchFilter = '',
+    onBranchFilterChange,
+    branches = [],
+    showBranchFilter = false,
     showTopupsOnlyFilter = false,
     topupsOnly = false,
     onTopupsOnlyChange,
@@ -87,6 +93,17 @@ export default function ProfessionalLedgerStatementDocument({
             searchText: c.label,
         }));
     }, [expenseCategoryComboboxOptions, expenseCategories]);
+    const walletUserComboboxOptions = useMemo(
+        () =>
+            (walletUsers || [])
+                .filter((u) => u.key)
+                .map((u) => ({
+                    id: u.key,
+                    label: u.label,
+                    searchText: u.label,
+                })),
+        [walletUsers],
+    );
     const colSpan = showPettyCashExpenseColumns
         ? 8
         : showCashLedgerColumns
@@ -102,7 +119,7 @@ export default function ProfessionalLedgerStatementDocument({
 
     React.useEffect(() => {
         setPage(1);
-    }, [rows, dateFrom, dateTo, partyFilterKey, offsetAccountFilterId, expenseCategoryFilter, walletUserFilter, topupsOnly]);
+    }, [rows, dateFrom, dateTo, partyFilterKey, offsetAccountFilterId, expenseCategoryFilter, walletUserFilter, branchFilter, topupsOnly]);
 
     function handlePrint() {
         window.print();
@@ -174,6 +191,23 @@ export default function ProfessionalLedgerStatementDocument({
                         </select>
                     </div>
                 ) : null}
+                {showBranchFilter && branches.length > 0 ? (
+                    <div className="pls-filter-field">
+                        <label htmlFor="pls-branch">Branch</label>
+                        <select
+                            id="pls-branch"
+                            value={branchFilter}
+                            onChange={(e) => onBranchFilterChange?.(e.target.value)}
+                            disabled={loading}
+                        >
+                            {branches.map((b) => (
+                                <option key={b.key || 'all'} value={b.key}>
+                                    {b.label}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                ) : null}
                 {showTopupsOnlyFilter ? (
                     <div className="pls-filter-field pls-filter-field--check">
                         <label htmlFor="pls-topups-only" className="pls-filter-check-label">
@@ -188,21 +222,28 @@ export default function ProfessionalLedgerStatementDocument({
                         </label>
                     </div>
                 ) : null}
-                {walletUsers.length > 0 ? (
-                    <div className="pls-filter-field">
+                {walletUserComboboxOptions.length > 0 ? (
+                    <div className="pls-filter-field pls-filter-field--combo">
                         <label htmlFor="pls-wallet-user">User / employee</label>
-                        <select
+                        <SearchableEntityCombobox
                             id="pls-wallet-user"
+                            options={walletUserComboboxOptions}
                             value={walletUserFilter}
-                            onChange={(e) => onWalletUserFilterChange?.(e.target.value)}
+                            displayText={walletUserFilterInput}
+                            onDisplayTextChange={(text) => {
+                                onWalletUserFilterInputChange?.(text);
+                                if (!text.trim()) onWalletUserFilterChange?.('');
+                            }}
+                            onSelect={(opt) => {
+                                onWalletUserFilterChange?.(opt?.id || '');
+                                onWalletUserFilterInputChange?.(opt?.label || '');
+                            }}
+                            placeholder="All employees — type to search"
+                            entityLabel="employee"
+                            maxInitial={50}
+                            maxFiltered={50}
                             disabled={loading}
-                        >
-                            {walletUsers.map((u) => (
-                                <option key={u.key || 'all'} value={u.key}>
-                                    {u.label}
-                                </option>
-                            ))}
-                        </select>
+                        />
                     </div>
                 ) : null}
                 {showExpenseCategoryFilter && expenseCategoryComboOptions.length > 0 ? (
@@ -438,7 +479,11 @@ export default function ProfessionalLedgerStatementDocument({
                                                     {r.expenseCategoryLabel || '—'}
                                                 </td>
                                                 <td>
-                                                    <ExpenseProofThumbnail proofUrl={r.expenseProofUrl} size={32} />
+                                                    <ExpenseProofThumbnail
+                                                        proofUrl={r.expenseProofUrl}
+                                                        hasExpenseProof={r.hasExpenseProof}
+                                                        size={32}
+                                                    />
                                                 </td>
                                             </>
                                         ) : null}

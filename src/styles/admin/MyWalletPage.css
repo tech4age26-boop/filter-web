@@ -1,4 +1,11 @@
-/* ── My Wallet — professional admin wallet UI ── */
+.workshop-layout--my-wallet .ws-content--my-wallet {
+    background: #f8fafc;
+    padding: 24px 28px 32px;
+}
+
+.workshop-layout--my-wallet .ws-topbar {
+    background: #fff;
+}
 
 .my-wallet-page {
     --mw-bg: #f8fafc;

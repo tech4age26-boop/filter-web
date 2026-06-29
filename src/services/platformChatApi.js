@@ -163,6 +163,18 @@ export function createPlatformChatApi(basePath) {
                 `${base}/messages/${encodeURIComponent(String(messageId))}/wallet/fund-request/reject`,
                 { method: 'PATCH', body: JSON.stringify(body) },
             ),
+
+        approveWalletExpenseRequestMessage: (messageId, body) =>
+            apiFetch(
+                `${base}/messages/${encodeURIComponent(String(messageId))}/wallet/expense-request/approve`,
+                { method: 'PATCH', body: JSON.stringify(body) },
+            ),
+
+        rejectWalletExpenseRequestMessage: (messageId, body) =>
+            apiFetch(
+                `${base}/messages/${encodeURIComponent(String(messageId))}/wallet/expense-request/reject`,
+                { method: 'PATCH', body: JSON.stringify(body) },
+            ),
     };
 }
 

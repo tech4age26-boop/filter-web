@@ -1,35 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, Check, X } from 'lucide-react';
 import Modal from '../Modal';
-import { listAdminWalletCashAccounts } from '../../services/adminWalletApi';
+import WalletApprovalAccountFields from '../admin/WalletApprovalAccountFields';
 import { formatSar } from './PlatformChatWalletMessage';
 import '../../styles/admin/PlatformChatWallet.css';
 
-function formatAccountOptionLabel(name, balance) {
-    return `${name} — Closing SAR ${formatSar(balance)}`;
-}
-
-function normalizeCashAccounts(payload) {
-    const rows = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.accounts)
-            ? payload.accounts
-            : Array.isArray(payload?.cashAccounts)
-                ? payload.cashAccounts
-                : [];
-    return rows.map((row) => {
-        const balance = Number(
-            row.closingBalance ?? row.balance ?? row.currentBalance ?? 0,
-        );
-        const name = row.name || 'Account';
-        return {
-            id: String(row.id || ''),
-            name,
-            balance,
-            closingBalance: balance,
-            optionLabel: formatAccountOptionLabel(name, balance),
-        };
-    });
+function isExpenseTarget(target) {
+    return target?.message?.type === 'wallet_expense_event';
 }
 
 export default function PlatformChatWalletActionModals({
@@ -43,33 +20,19 @@ export default function PlatformChatWalletActionModals({
     onError,
 }) {
     const [busy, setBusy] = useState(false);
-    const [cashAccounts, setCashAccounts] = useState([]);
-    const [accountsLoading, setAccountsLoading] = useState(false);
-    const [sourceAccountId, setSourceAccountId] = useState('');
+    const [acct, setAcct] = useState({ blocked: true, loading: true });
     const [approveRemarks, setApproveRemarks] = useState('');
     const [rejectReason, setRejectReason] = useState('');
     const [approveError, setApproveError] = useState('');
 
+    const approveIsExpense = isExpenseTarget(approveTarget);
+    const rejectIsExpense = isExpenseTarget(rejectTarget);
+
     useEffect(() => {
-        if (!approveTarget) return undefined;
-        const workshopId = approveTarget?.payload?.workshopId ?? '';
-        let cancelled = false;
-        setAccountsLoading(true);
+        if (!approveTarget) return;
         setApproveRemarks('');
         setApproveError('');
-        listAdminWalletCashAccounts(workshopId ? { workshopId } : {})
-            .then((res) => {
-                if (cancelled) return;
-                const normalized = normalizeCashAccounts(res);
-                setCashAccounts(normalized);
-                if (normalized.length > 0) setSourceAccountId(normalized[0].id);
-            })
-            .catch((err) => onError?.(err?.message || 'Failed to load accounts'))
-            .finally(() => {
-                if (!cancelled) setAccountsLoading(false);
-            });
-        return () => { cancelled = true; };
-    }, [approveTarget, approveTarget?.payload?.workshopId, onError]);
+    }, [approveTarget]);
 
     useEffect(() => {
         if (!rejectTarget) return;
@@ -77,16 +40,27 @@ export default function PlatformChatWalletActionModals({
     }, [rejectTarget]);
 
     const confirmApprove = async () => {
-        if (!approveTarget?.message?.id || !sourceAccountId) return;
-        const selected = cashAccounts.find((a) => a.id === sourceAccountId);
+        if (!approveTarget?.message?.id || acct.blocked) return;
         setApproveError('');
         setBusy(true);
         try {
-            const res = await api.approveWalletFundRequestMessage(approveTarget.message.id, {
-                sourceAccountId,
-                sourceAccountName: selected?.name || '',
+            const body = {
                 remarks: approveRemarks.trim() || undefined,
-            });
+            };
+            if (approveIsExpense) {
+                body.budgetAccountId = acct.budgetAccountId;
+                body.budgetAccountName = acct.budgetAccountName;
+                if (acct.paymentSource !== 'wallet' && acct.sourceAccountId) {
+                    body.sourceAccountId = acct.sourceAccountId;
+                    body.sourceAccountName = acct.sourceAccountName;
+                }
+            } else {
+                body.sourceAccountId = acct.sourceAccountId;
+                body.sourceAccountName = acct.sourceAccountName;
+            }
+            const res = approveIsExpense
+                ? await api.approveWalletExpenseRequestMessage(approveTarget.message.id, body)
+                : await api.approveWalletFundRequestMessage(approveTarget.message.id, body);
             onApproveDone?.(res);
             onCloseApprove();
         } catch (err) {
@@ -102,9 +76,10 @@ export default function PlatformChatWalletActionModals({
         if (!rejectTarget?.message?.id || !rejectReason.trim()) return;
         setBusy(true);
         try {
-            const res = await api.rejectWalletFundRequestMessage(rejectTarget.message.id, {
-                reason: rejectReason.trim(),
-            });
+            const body = { reason: rejectReason.trim() };
+            const res = rejectIsExpense
+                ? await api.rejectWalletExpenseRequestMessage(rejectTarget.message.id, body)
+                : await api.rejectWalletFundRequestMessage(rejectTarget.message.id, body);
             onRejectDone?.(res);
             onCloseReject();
         } catch (err) {
@@ -114,25 +89,14 @@ export default function PlatformChatWalletActionModals({
         }
     };
 
-    const selectedApproveAccount = cashAccounts.find((a) => a.id === sourceAccountId);
-    const approveAmount = Number(approveTarget?.payload?.amount ?? 0);
-    const insufficientApproveBalance = Boolean(
-        approveTarget
-        && selectedApproveAccount
-        && Number.isFinite(approveAmount)
-        && approveAmount > 0
-        && selectedApproveAccount.balance < approveAmount,
-    );
-    const approveBalanceError = insufficientApproveBalance
-        ? `Insufficient balance in ${selectedApproveAccount.name}. Closing balance is SAR ${formatSar(selectedApproveAccount.balance)} but this request needs SAR ${formatSar(approveAmount)}.`
-        : '';
-    const approveDisplayError = approveError || approveBalanceError;
+    const approveDisplayError = approveError || acct.blockReason || '';
+    const proofUrl = approveTarget?.payload?.proofUrl ?? '';
 
     return (
         <>
             {approveTarget && (
                 <Modal
-                    title="Approve fund request"
+                    title={approveIsExpense ? 'Approve expense request' : 'Approve fund request'}
                     onClose={busy ? undefined : onCloseApprove}
                     width={500}
                     disableClose={busy}
@@ -144,7 +108,7 @@ export default function PlatformChatWalletActionModals({
                             <button
                                 type="button"
                                 className="pc-wallet-modal-primary"
-                                disabled={busy || accountsLoading || !sourceAccountId || insufficientApproveBalance}
+                                disabled={busy || acct.blocked}
                                 onClick={confirmApprove}
                             >
                                 {busy ? <Loader2 size={14} className="spin" /> : <Check size={16} />}
@@ -162,30 +126,42 @@ export default function PlatformChatWalletActionModals({
                         Approve <strong>{approveTarget.payload?.requestNumber}</strong> for{' '}
                         <strong>SAR {formatSar(approveTarget.payload?.amount)}</strong>
                     </p>
-                    <label className="pc-wallet-field-label">Fund from account *</label>
-                    {accountsLoading ? (
-                        <p className="pc-wallet-empty"><Loader2 size={14} className="spin" /> Loading…</p>
-                    ) : (
-                        <select
-                            className="pc-wallet-field"
-                            value={sourceAccountId}
-                            onChange={(e) => setSourceAccountId(e.target.value)}
-                        >
-                            {cashAccounts.map((a) => (
-                                <option key={a.id} value={a.id}>
-                                    {a.optionLabel}
-                                </option>
-                            ))}
-                        </select>
-                    )}
-                    {sourceAccountId && !accountsLoading && cashAccounts.length > 0 && (
-                        <p className="pc-wallet-modal-hint" style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                            Closing balance:{' '}
-                            <strong>
-                                SAR {formatSar(cashAccounts.find((a) => a.id === sourceAccountId)?.balance ?? 0)}
-                            </strong>
-                        </p>
-                    )}
+
+                    {approveIsExpense && proofUrl ? (
+                        <div style={{ marginBottom: 12 }}>
+                            <span className="pc-wallet-field-label">Expense proof</span>
+                            <a href={proofUrl} target="_blank" rel="noopener noreferrer">
+                                <img
+                                    src={proofUrl}
+                                    alt="Expense proof"
+                                    style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 8, marginTop: 6 }}
+                                />
+                            </a>
+                        </div>
+                    ) : null}
+
+                    <WalletApprovalAccountFields
+                        workshopId={approveTarget?.payload?.workshopId != null ? String(approveTarget.payload.workshopId) : ''}
+                        branchId={approveTarget?.payload?.branchId != null ? String(approveTarget.payload.branchId) : ''}
+                        amount={approveTarget?.payload?.amount}
+                        mode={approveIsExpense ? 'expense' : 'fund'}
+                        showBudget={approveIsExpense}
+                        busy={busy}
+                        requesterUserId={
+                            approveIsExpense
+                                ? String(approveTarget?.payload?.userId ?? '')
+                                : ''
+                        }
+                        requesterName={approveTarget?.payload?.requesterName ?? ''}
+                        expenseRequestId={
+                            approveIsExpense
+                                ? String(approveTarget?.payload?.expenseRequestId ?? '')
+                                : ''
+                        }
+                        currencyCode={approveTarget?.payload?.currencyCode ?? 'SAR'}
+                        onChange={setAcct}
+                    />
+
                     <label className="pc-wallet-field-label">Remarks (optional)</label>
                     <textarea
                         className="pc-wallet-field"
@@ -198,7 +174,7 @@ export default function PlatformChatWalletActionModals({
 
             {rejectTarget && (
                 <Modal
-                    title="Reject fund request"
+                    title={rejectIsExpense ? 'Reject expense request' : 'Reject fund request'}
                     onClose={busy ? undefined : onCloseReject}
                     width={440}
                     disableClose={busy}

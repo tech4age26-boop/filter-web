@@ -47,5 +47,10 @@ export const updateWalkInSettings = ({ autoApproveCorporateWalkIns }) =>
     });
 
 /** HQ Cash & Bank registers for admin wallet fund approval. */
-export const listAdminWalletCashAccounts = ({ workshopId } = {}) =>
-    apiFetch(`/super-admin/approvals/admin-wallet-cash-accounts${workshopId ? `?workshopId=${encodeURIComponent(workshopId)}` : ''}`);
+export const listAdminWalletCashAccounts = ({ workshopId, branchId } = {}) => {
+    const params = new URLSearchParams();
+    if (workshopId) params.set('workshopId', String(workshopId));
+    if (branchId) params.set('branchId', String(branchId));
+    const qs = params.toString();
+    return apiFetch(`/super-admin/approvals/admin-wallet-cash-accounts${qs ? `?${qs}` : ''}`);
+};

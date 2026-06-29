@@ -25,6 +25,11 @@ import {
 } from '../../pages/supplier/accounting/SupplierAccountingShared';
 import { useAccountingWorkshopScope } from '../../context/AccountingWorkshopScopeContext';
 import { HQ_COA_CONTROL_BADGES } from '../../pages/admin/hqCoaAccountRouting';
+import {
+    filterWorkshopPettyCashCoaList,
+    isWorkshopPettyCashCoaControlAccount,
+    pruneWorkshopPettyCashCoaTree,
+} from '../../pages/workshop/workshopCoaAccountRouting';
 
 const HQ_CASHIER_CODE_RE = /^10(01|03|11)-(C|U)\d+/i;
 const HQ_STAFF_PETTY_RE = /^1003-E\d+/i;
@@ -557,7 +562,10 @@ export default function WorkshopCOAManager({
                 getAccountsTree(scopeParams),
             ]);
             const flatList = filterHqBooksAccounts(parseArr(flat), hqBooks);
-            const byId = new Map(flatList.map((a) => [String(a.id), a]));
+            const visibleFlat = hqBooks
+                ? flatList
+                : filterWorkshopPettyCashCoaList(flatList);
+            const byId = new Map(visibleFlat.map((a) => [String(a.id), a]));
             const enrichTree = (nodes) =>
                 (nodes || []).map((n) => ({
                     ...n,
@@ -568,8 +576,11 @@ export default function WorkshopCOAManager({
                     isHeading: byId.get(String(n.id))?.isHeading ?? n.isHeading,
                     children: enrichTree(n.children),
                 }));
-            setAccounts(flatList);
-            setTree(enrichTree(filterHqBooksTree(parseArr(t), hqBooks)));
+            setAccounts(visibleFlat);
+            const rawTree = hqBooks
+                ? filterHqBooksTree(parseArr(t), hqBooks)
+                : pruneWorkshopPettyCashCoaTree(parseArr(t));
+            setTree(enrichTree(rawTree));
         } catch (e) {
             setErr(e?.message || 'Failed to load chart of accounts');
         } finally {
@@ -646,7 +657,11 @@ export default function WorkshopCOAManager({
         const pad = depth * 18;
 
         const ledgerUrl =
-            enableLedgerLinks && buildLedgerUrl && !hasChildren ? buildLedgerUrl(a) : null;
+            enableLedgerLinks &&
+            buildLedgerUrl &&
+            (!hasChildren || isWorkshopPettyCashCoaControlAccount(a))
+                ? buildLedgerUrl(a)
+                : null;
         const accountLabel = `[${a.code}] ${a.name}`;
         const controlBadge = HQ_COA_CONTROL_BADGES[String(a.code)];
 

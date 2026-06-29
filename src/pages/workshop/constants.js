@@ -8,7 +8,8 @@ import { STAFF_APP_NAV_ITEMS } from './staff-app/constants';
 
 export const NAV_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'workshop.dashboard.view' },
-    { id: 'platform-chat', label: 'Chat', icon: MessageCircle },
+    { id: 'my-wallet', label: 'My Wallet', icon: Wallet, walletRequired: true },
+    { id: 'platform-chat', label: 'Chat', icon: MessageCircle, permission: 'workshop.platform-chat.view' },
     { id: 'departments', label: 'View Inventory and Departments', icon: Layers, permission: 'workshop.departments.view' },
     { id: 'catalog-new', label: 'Master Catalog', icon: Package, permission: 'workshop.catalog.view' },
     { id: 'inventory', label: 'Manage Inventory', icon: Archive, permission: 'workshop.inventory.view' },

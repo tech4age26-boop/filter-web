@@ -802,6 +802,44 @@
 
 /* ── Messages ── */
 
+.platform-chat-messages-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    position: relative;
+}
+
+.platform-chat-scroll-date {
+    position: absolute;
+    top: 10px;
+    left: 0;
+    right: 0;
+    z-index: 6;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.platform-chat-scroll-date.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.platform-chat-scroll-date span {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--pc-muted);
+    background: rgba(255, 255, 255, 0.96);
+    padding: 6px 14px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    letter-spacing: 0.02em;
+}
+
 .platform-chat-messages {
     flex: 1;
     overflow-y: auto;
@@ -1194,6 +1232,42 @@
     transform: scale(1.04);
 }
 
+.pc-voice-rec__send:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.pc-voice-rec__pause {
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--pc-text, #111);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: color 0.15s, background 0.15s;
+}
+
+.pc-voice-rec__pause:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.pc-voice-rec--paused .pc-voice-rec__dot {
+    animation: none;
+    background: var(--pc-muted, #667781);
+}
+
+.pc-voice-rec__wave--paused .pc-voice-rec__bar {
+    animation: none;
+    height: 28%;
+    opacity: 0.45;
+}
+
 /* ── Composer (WhatsApp pill) ── */
 
 .platform-chat-composer {
@@ -1208,6 +1282,34 @@
 
 .platform-chat-composer.is-recording {
     padding: 10px 12px 14px;
+}
+
+.platform-chat-composer-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    width: 100%;
+}
+
+.pc-composer-pill-group {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    flex: 1;
+    min-height: 48px;
+    padding: 4px 6px 4px 16px;
+    background: #fff;
+    border-radius: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.pc-composer-pill-group.is-recording {
+    padding: 4px 6px;
+}
+
+.pc-composer-pill-group.is-recording .pc-voice-rec--active {
+    box-shadow: none;
+    padding: 0;
 }
 
 .pc-composer-pill {
