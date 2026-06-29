@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { RefreshCw, MoreVertical } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Modal from '../../components/Modal';
@@ -422,6 +423,8 @@ function KpiProofTable({ headers, rows, emptyMessage }) {
 
 export default function WorkshopReports({ selectedBranchId = 'all', branches = [] }) {
     const { hasPermission } = useAuth();
+    const location = useLocation();
+    const orderDeepLinkHandledRef = useRef('');
     /** Which Reports inner tabs is the user allowed to view? */
     const visibleReportTabIds = useMemo(
         () => Object.entries(REPORTS_TAB_PERMISSION)
@@ -735,6 +738,20 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             setRecentOrderDetailsLoading(false);
         }
     }, [fetchRecentOrderDetails]);
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const orderTarget = String(params.get('orderTarget') ?? params.get('order') ?? '').trim();
+        if (!orderTarget) return;
+        const linkKey = `${location.pathname}?${orderTarget}`;
+        if (orderDeepLinkHandledRef.current === linkKey) return;
+        orderDeepLinkHandledRef.current = linkKey;
+        if (visibleReportTabIds.includes('recent_orders')) {
+            setActiveTab('recent_orders');
+        }
+        recentOrderDetailsTargetRef.current = orderTarget;
+        void openRecentOrderDetails(orderTarget);
+    }, [location.pathname, location.search, openRecentOrderDetails, visibleReportTabIds]);
 
     useEffect(() => {
         const id = recentOrderDetailsTargetRef.current;

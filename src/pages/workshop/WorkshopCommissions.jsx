@@ -232,6 +232,7 @@ export default function WorkshopCommissions({
     const [payoutError, setPayoutError] = useState('');
     const [payoutSubmitting, setPayoutSubmitting] = useState(false);
     const [employeePayoutLoadingId, setEmployeePayoutLoadingId] = useState('');
+    const [selectedEmployeePayoutIds, setSelectedEmployeePayoutIds] = useState(() => new Set());
 
     const filterScopeKeyRef = useRef('');
 
@@ -301,6 +302,7 @@ export default function WorkshopCommissions({
         if (scopeChanged) {
             filterScopeKeyRef.current = filterScopeKey;
             setSelectedLines(new Map());
+            setSelectedEmployeePayoutIds(new Set());
             if (page !== 1) {
                 setPage(1);
                 return () => ac.abort();
@@ -470,6 +472,7 @@ export default function WorkshopCommissions({
                 ...(workshopId ? { workshopId } : {}),
             });
             setSelectedLines(new Map());
+            setSelectedEmployeePayoutIds(new Set());
             setPayoutModalOpen(false);
             setSelectedAccountId('');
             setPayoutNotes('');
@@ -525,7 +528,7 @@ export default function WorkshopCommissions({
             );
         }
         return (
-            <Link to={url} className="ws-link">
+            <Link to={url} className="ws-link" title="View order in Reports">
                 {label}
             </Link>
         );
@@ -560,6 +563,79 @@ export default function WorkshopCommissions({
             setEmployeePayoutLoadingId('');
         }
     };
+
+    const toggleEmployeePayoutSelect = (empId) => {
+        const key = String(empId ?? '').trim();
+        if (!key) return;
+        setSelectedEmployeePayoutIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    const allDisplayedEmployeesSelected =
+        displayedPendingEmployees.length > 0 &&
+        displayedPendingEmployees.every((emp) =>
+            selectedEmployeePayoutIds.has(
+                String(emp.employee_id ?? emp.employeeId ?? ''),
+            ),
+        );
+
+    const toggleSelectAllDisplayedEmployees = () => {
+        if (allDisplayedEmployeesSelected) {
+            setSelectedEmployeePayoutIds(new Set());
+            return;
+        }
+        setSelectedEmployeePayoutIds(
+            new Set(
+                displayedPendingEmployees.map((emp) =>
+                    String(emp.employee_id ?? emp.employeeId ?? ''),
+                ),
+            ),
+        );
+    };
+
+    const openBulkEmployeePayout = async () => {
+        if (selectedEmployeePayoutIds.size === 0) return;
+        setEmployeePayoutLoadingId('bulk');
+        setLoadError('');
+        try {
+            const merged = new Map();
+            for (const empId of selectedEmployeePayoutIds) {
+                const lines = await fetchAllAccruedInScope(
+                    selectedBranchId,
+                    scopeExtra,
+                    empId,
+                    workshopId,
+                );
+                for (const [id, amt] of lines.entries()) {
+                    merged.set(id, amt);
+                }
+            }
+            if (merged.size === 0) {
+                setLoadError('No accrued commissions to pay for the selected employees.');
+                return;
+            }
+            setSelectedLines(merged);
+            setPayoutModalOpen(true);
+        } catch (e) {
+            setLoadError(e?.message || 'Could not load commissions for bulk payout');
+        } finally {
+            setEmployeePayoutLoadingId('');
+        }
+    };
+
+    const selectedEmployeePayoutTotal = useMemo(() => {
+        let sum = 0;
+        for (const emp of displayedPendingEmployees) {
+            const key = String(emp.employee_id ?? emp.employeeId ?? '');
+            if (!selectedEmployeePayoutIds.has(key)) continue;
+            sum += Number(emp.pending_amount ?? emp.pendingAmount ?? 0) || 0;
+        }
+        return sum;
+    }, [displayedPendingEmployees, selectedEmployeePayoutIds]);
 
     const filterByEmployee = (emp) => {
         const key = String(emp.employee_id ?? emp.employeeId ?? '');
@@ -743,15 +819,54 @@ export default function WorkshopCommissions({
             </div>
 
             <div className="ws-commissions-section">
-                <header className="ws-section-header">
-                    <Users size={18} className="text-blue" />
-                    <h4>Pending Payout by Employee</h4>
+                <header
+                    className="ws-section-header"
+                    style={{
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 10,
+                    }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Users size={18} className="text-blue" />
+                        <h4>Pending Payout by Employee</h4>
+                    </div>
+                    {selectedEmployeePayoutIds.size > 0 ? (
+                        <button
+                            type="button"
+                            className="ws-btn-payout active"
+                            disabled={employeePayoutLoadingId === 'bulk'}
+                            onClick={openBulkEmployeePayout}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                        >
+                            <Wallet size={16} />
+                            {employeePayoutLoadingId === 'bulk'
+                                ? 'Loading…'
+                                : `Payout selected (${selectedEmployeePayoutIds.size}) · SAR ${selectedEmployeePayoutTotal.toLocaleString()}`}
+                        </button>
+                    ) : null}
                 </header>
                 <div className="ws-commissions-table-wrapper ws-employee-summary-table">
                     <WsTableScroll>
                         <table className="ws-table">
                             <thead>
                                 <tr>
+                                    <th style={{ width: 40 }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={allDisplayedEmployeesSelected}
+                                            ref={(el) => {
+                                                if (el) {
+                                                    el.indeterminate =
+                                                        selectedEmployeePayoutIds.size > 0 &&
+                                                        !allDisplayedEmployeesSelected;
+                                                }
+                                            }}
+                                            onChange={toggleSelectAllDisplayedEmployees}
+                                            disabled={displayedPendingEmployees.length === 0}
+                                            aria-label="Select all employees for bulk payout"
+                                        />
+                                    </th>
                                     <th>EMPLOYEE</th>
                                     <th style={{ textAlign: 'right' }}>ENTRIES</th>
                                     <th style={{ textAlign: 'right' }}>TOTAL AMOUNT</th>
@@ -760,10 +875,10 @@ export default function WorkshopCommissions({
                             </thead>
                             <tbody>
                                 {isLoading && displayedPendingEmployees.length === 0 ? (
-                                    <ShimmerTableBodyRows rows={4} columns={4} />
+                                    <ShimmerTableBodyRows rows={4} columns={5} />
                                 ) : displayedPendingEmployees.length === 0 ? (
                                     <tr>
-                                        <td colSpan={4} className="ws-text-dim" style={{ padding: 20, textAlign: 'center' }}>
+                                        <td colSpan={5} className="ws-text-dim" style={{ padding: 20, textAlign: 'center' }}>
                                             {filterEmployeeId
                                                 ? 'No pending accrued commissions for this employee in this scope.'
                                                 : 'No pending accrued commissions in this scope.'}
@@ -781,11 +896,21 @@ export default function WorkshopCommissions({
                                         const { color, textColor } = chipColorsForKey(key);
                                         const isActive = String(filterEmployeeId) === key;
                                         const payoutLoading = employeePayoutLoadingId === key;
+                                        const bulkSelected = selectedEmployeePayoutIds.has(key);
                                         return (
                                             <tr
                                                 key={key}
-                                                className={isActive ? 'selected' : ''}
+                                                className={isActive || bulkSelected ? 'selected' : ''}
                                             >
+                                                <td>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={bulkSelected}
+                                                        onChange={() => toggleEmployeePayoutSelect(key)}
+                                                        disabled={amount <= 0}
+                                                        aria-label={`Select ${name} for bulk payout`}
+                                                    />
+                                                </td>
                                                 <td>
                                                     <button
                                                         type="button"
@@ -828,7 +953,11 @@ export default function WorkshopCommissions({
                                                     <button
                                                         type="button"
                                                         onClick={() => openEmployeePayout(emp)}
-                                                        disabled={payoutLoading || amount <= 0}
+                                                        disabled={
+                                                            payoutLoading ||
+                                                            employeePayoutLoadingId === 'bulk' ||
+                                                            amount <= 0
+                                                        }
                                                         style={{
                                                             border: '1px solid #16a34a',
                                                             background: '#fff',
