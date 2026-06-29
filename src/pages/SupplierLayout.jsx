@@ -17,6 +17,7 @@ import SupplierWorkshopAlerts from './supplier/SupplierWorkshopAlerts';
 import SupplierCatalog from './supplier/SupplierCatalog';
 import SupplierEmployeesPage from './supplier/supplier_employees';
 import SupplierSalesInvoices from './supplier/SupplierSalesInvoices';
+import SupplierAffiliatedSalesReturns from './supplier/SupplierAffiliatedSalesReturns';
 import SupplierPurchaseInvoices from './supplier/SupplierPurchaseInvoices';
 import SupplierWorkshopPurchaseInvoices from './supplier/SupplierWorkshopPurchaseInvoices';
 import SupplierAffiliatedWorkshops from './supplier/SupplierAffiliatedWorkshops';
@@ -193,6 +194,7 @@ export default function SupplierLayout() {
             case 'employees': return <SupplierEmployeesPage/>;
             case 'staff_app': return <SupplierStaffAppPage/>;
             case 'sales_invoices': return <SupplierSalesInvoices/>;
+            case 'sales_returns': return <SupplierAffiliatedSalesReturns/>;
             case 'affiliated_workshops': return <SupplierAffiliatedWorkshops/>;
             case 'nonaffiliated_customers': return <SupplierNonAffiliatedCustomers/>;
             case 'workshop_purchase_invoices': return <SupplierWorkshopPurchaseInvoices/>;

@@ -258,6 +258,15 @@ export const createSupplierInvoiceReturn = (invoiceId, body) =>
         method: 'POST',
         body: JSON.stringify(body),
     });
+export const listSupplierAffiliatedSalesReturns = () =>
+    apiFetch('/supplier/affiliated-sales-returns');
+export const getSupplierAffiliatedSalesReturn = (returnId) =>
+    apiFetch(`/supplier/affiliated-sales-returns/${encodeURIComponent(String(returnId))}`);
+export const createSupplierAffiliatedSalesReturn = (body) =>
+    apiFetch('/supplier/affiliated-sales-returns', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
 export const remindSupplierInvoice = (id) =>
     apiFetch(`/supplier/invoices/${id}/remind`, { method: 'POST' });
 export const recordSupplierPayment = (body) =>

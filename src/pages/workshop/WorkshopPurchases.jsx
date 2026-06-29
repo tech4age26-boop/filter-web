@@ -3205,6 +3205,18 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             <button
                                 type="button"
                                 className="btn-pi-cancel"
+                                onClick={() =>
+                                    navigate('/workshop/purchase-returns', {
+                                        state: { prefillInvoiceId: viewInvoiceRow.id },
+                                    })
+                                }
+                                disabled={viewInvoiceLoading}
+                            >
+                                Purchase Return
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-pi-cancel"
                                 onClick={() => printableRef.current?.downloadPdf?.()}
                                 disabled={viewInvoiceLoading}
                             >

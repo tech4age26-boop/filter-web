@@ -90,6 +90,34 @@
     font-size: 0.75rem;
     color: #64748b;
     margin-top: 2px;
+    white-space: pre-line;
+    line-height: 1.45;
+    word-break: break-word;
+}
+
+.sf-entity-dropdown-portal .pi-result-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.sf-entity-dropdown-portal .pi-result-trailing {
+    flex-shrink: 0;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #0f172a;
+    white-space: nowrap;
+    padding-left: 8px;
+    align-self: center;
+}
+
+.supplier-invoice-combobox-menu .pi-result-item.selected {
+    background: #fff7ed;
+    box-shadow: inset 3px 0 0 #f97316;
+}
+
+.supplier-invoice-combobox-menu .pi-item-name {
+    font-size: 0.9375rem;
+    letter-spacing: 0.01em;
 }
 
 .sf-combobox-empty {

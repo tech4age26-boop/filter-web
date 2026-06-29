@@ -6999,3 +6999,30 @@
     box-shadow: 0 -2px 8px rgba(15, 23, 42, 0.05);
 }
 
+.mgr-si-page > .inline-form-screen {
+    margin-top: 0;
+}
+
+.supplier-affiliated-return-form-body {
+    padding-bottom: 28px;
+}
+
+.supplier-affiliated-return-form-body .pi-form-container {
+    padding: 0;
+}
+
+.supplier-affiliated-return-form-body .supplier-sales-invoice-return-combobox {
+    width: 100%;
+}
+
+.supplier-affiliated-return-form-body .supplier-sales-invoice-return-combobox .pi-search-box {
+    width: 100%;
+}
+
+@media (max-width: 900px) {
+    .supplier-affiliated-return-form-body .pi-footer-grid {
+        grid-template-columns: 1fr;
+        gap: 24px;
+    }
+}
+
