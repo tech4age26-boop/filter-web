@@ -91,14 +91,46 @@ const kpiNum = (v) => {
     return Number.isFinite(n) ? n : 0;
 };
 
-/** Build the 4 summary cards from the combined KPIs payload. */
-function buildKpiCards(kpis) {
+function buildLocalCatalogKpis({ products = [], services = [], departments = [], categories = [] } = {}) {
+    const countActive = (rows) => rows.filter((row) => toBoolActive(row)).length;
+    const countInactive = (rows) => rows.length - countActive(rows);
+    const byType = { product: 0, service: 0, expense: 0 };
+    categories.forEach((category) => {
+        const key = String(category?.type || '').toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(byType, key)) byType[key] += 1;
+    });
+    return {
+        products: {
+            total: products.length,
+            active: countActive(products),
+            inactive: countInactive(products),
+        },
+        services: {
+            total: services.length,
+            active: countActive(services),
+            inactive: countInactive(services),
+        },
+        departments: {
+            total: departments.length,
+            active: countActive(departments),
+            inactive: countInactive(departments),
+        },
+        categories: {
+            total: categories.length,
+            byType,
+        },
+    };
+}
+
+/** Build the 4 summary cards from API KPIs with local-list fallback. */
+function buildKpiCards(kpis, fallbackKpis) {
     const k = kpis || {};
-    const products = k.products || {};
-    const services = k.services || {};
-    const departments = k.departments || {};
-    const categories = k.categories || {};
-    const byType = categories.byType || {};
+    const fallback = fallbackKpis || {};
+    const products = { ...(fallback.products || {}), ...(k.products || {}) };
+    const services = { ...(fallback.services || {}), ...(k.services || {}) };
+    const departments = { ...(fallback.departments || {}), ...(k.departments || {}) };
+    const categories = { ...(fallback.categories || {}), ...(k.categories || {}) };
+    const byType = { ...((fallback.categories || {}).byType || {}), ...(categories.byType || {}) };
 
     return [
         {
@@ -334,7 +366,7 @@ export default function MasterCatalog() {
         }
     }, [visibleMasterTabs, activeTab]);
 
-    const [statusFilter, setStatusFilter] = useState('Approved');
+    const [statusFilter, setStatusFilter] = useState('All');
     const [searchQuery, setSearchQuery] = useState('');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isAddServiceModalOpen, setIsAddServiceModalOpen] = useState(false);
@@ -404,7 +436,7 @@ export default function MasterCatalog() {
     const [prRejectReason, setPrRejectReason] = useState('');
     const [prActionBusy, setPrActionBusy] = useState(false);
     /** Services tab status chips (separate from master product `statusFilter`). */
-    const [serviceStatusFilter, setServiceStatusFilter] = useState('Approved');
+    const [serviceStatusFilter, setServiceStatusFilter] = useState('All');
     const [selectedProductDepartment, setSelectedProductDepartment] = useState('');
     const [selectedServiceDepartment, setSelectedServiceDepartment] = useState('');
 
@@ -474,7 +506,7 @@ export default function MasterCatalog() {
             [p.name, p.arabicName, p.sku, p.brandName, kmStr].some((v) =>
                 (v || '').toLowerCase().includes(searchQuery.toLowerCase()),
             );
-        const status = p.isActive === false ? 'Rejected' : 'Approved';
+        const status = toBoolActive(p) ? 'Approved' : 'Rejected';
         const matchesStatus = statusFilter === 'All' || statusFilter === status;
         return matchesSearch && matchesStatus;
     };
@@ -568,6 +600,12 @@ export default function MasterCatalog() {
                   (v || '').toLowerCase().includes(_q),
               );
           });
+    const fallbackKpis = buildLocalCatalogKpis({
+        products,
+        services,
+        departments,
+        categories,
+    });
     const isDepartmentFormValid = !!newDept.name.trim();
     const isCategoryFormValid = !!newCat.name.trim() && !!newCat.departmentId;
     const isProductFormValid = !!newProduct.name.trim() && !!newProduct.departmentId && !!newProduct.categoryId;
@@ -845,6 +883,7 @@ export default function MasterCatalog() {
                     ? String(product.kmTypeValue)
                     : '',
             isPriceEditable: toBoolPriceEditable(product),
+            isActive: toBoolActive(product),
             minPriceEditable:
                 product.minPriceEditable == null && product.min_price_editable == null
                     ? ''
@@ -970,7 +1009,7 @@ export default function MasterCatalog() {
                     editingProduct.maxCorpPrice === '' || editingProduct.maxCorpPrice == null
                         ? undefined
                         : parseNumberOr(editingProduct.maxCorpPrice, 0),
-                isActive: editingProduct.isActive ?? true,
+                isActive: toBoolActive(editingProduct),
                 allowDecimalQty: !!editingProduct.allowDecimalQty,
                 isPriceEditable: !!editingProduct.isPriceEditable,
                 minPriceEditable:
@@ -1128,6 +1167,13 @@ export default function MasterCatalog() {
             setEditingProduct((prev) =>
                 prev && catalogIdsMatch(prev, product) ? { ...prev, ...merged } : prev,
             );
+            if (field === 'isActive') {
+                if (nextValue === false && statusFilter === 'Approved') {
+                    setStatusFilter('All');
+                } else if (nextValue === true && statusFilter === 'Rejected') {
+                    setStatusFilter('All');
+                }
+            }
             await refreshCatalog();
             await loadKpis({ silent: true });
         } catch (e) {
@@ -1485,7 +1531,9 @@ export default function MasterCatalog() {
                     {displayedProducts.map((p) => {
                         const createdRaw = p.createdAt ?? p.created_at;
                         const createdLabel = formatCatalogCreatedAt(createdRaw);
+                        const isActive = toBoolActive(p);
                         const priceEditable = toBoolPriceEditable(p);
+                        const activeBusy = productToggleBusyKey === `${catalogItemId(p)}:isActive`;
                         const priceBusy = productToggleBusyKey === `${catalogItemId(p)}:isPriceEditable`;
                         return (
                             <div
@@ -1496,8 +1544,8 @@ export default function MasterCatalog() {
                             >
                                 <div className="mc-pc-header">
                                     <div className="mc-pc-icon"><Edit3 size={18} /></div>
-                                    <span className={`mc-pc-status ${p.isActive === false ? 'rejected' : 'approved'}`}>
-                                        {p.isActive === false ? 'Rejected' : 'Approved'}
+                                    <span className={`mc-pc-status ${isActive ? 'approved' : 'rejected'}`}>
+                                        {isActive ? 'Active' : 'Inactive'}
                                     </span>
                                 </div>
                                 <div className="mc-pc-body">
@@ -1528,32 +1576,66 @@ export default function MasterCatalog() {
                                     </div>
                                     {hasPermission('inventory.master-catalog.products.edit') && (
                                         <div
-                                            className="mc-sc-toggle-group"
-                                            style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0, marginTop: 10 }}
+                                            style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'max-content max-content',
+                                                columnGap: 8,
+                                                width: '100%',
+                                                justifyContent: 'start',
+                                                marginTop: 10,
+                                            }}
                                             onClick={(e) => e.stopPropagation()}
                                         >
-                                            <div className="mc-toggle-label">
-                                                <strong>Price Editable</strong>
-                                                <span className={priceEditable ? 'mc-toggle-state--on' : ''}>
-                                                    {priceBusy
-                                                        ? 'Updating...'
-                                                        : priceEditable
-                                                          ? `Editable · min SAR ${Number(p.minPriceEditable ?? p.min_price_editable ?? 0).toFixed(2)}`
-                                                          : 'Fixed price'}
-                                                </span>
+                                            <div
+                                                className="mc-sc-toggle-group"
+                                                style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0 }}
+                                            >
+                                                <div className="mc-toggle-label">
+                                                    <strong>Status</strong>
+                                                    <span className={isActive ? 'mc-toggle-state--on' : ''}>
+                                                        {activeBusy ? 'Updating...' : isActive ? 'Active' : 'Inactive'}
+                                                    </span>
+                                                </div>
+                                                <div
+                                                    className={`mc-toggle-switch${isActive ? ' active' : ''}`}
+                                                    role="button"
+                                                    aria-label={`Toggle ${p.name} active status`}
+                                                    aria-pressed={isActive}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (activeBusy) return;
+                                                        handleToggleProductField(p, 'isActive', !isActive);
+                                                    }}
+                                                    style={{ opacity: activeBusy ? 0.65 : 1, pointerEvents: activeBusy ? 'none' : 'auto' }}
+                                                />
                                             </div>
                                             <div
-                                                className={`mc-toggle-switch${priceEditable ? ' active' : ''}`}
-                                                role="button"
-                                                aria-label={`Toggle ${p.name} price editable`}
-                                                aria-pressed={priceEditable}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (priceBusy) return;
-                                                    handleToggleProductPriceEditable(p, priceEditable);
-                                                }}
-                                                style={{ opacity: priceBusy ? 0.65 : 1, pointerEvents: priceBusy ? 'none' : 'auto' }}
-                                            />
+                                                className="mc-sc-toggle-group"
+                                                style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0 }}
+                                            >
+                                                <div className="mc-toggle-label">
+                                                    <strong>Price Editable</strong>
+                                                    <span className={priceEditable ? 'mc-toggle-state--on' : ''}>
+                                                        {priceBusy
+                                                            ? 'Updating...'
+                                                            : priceEditable
+                                                              ? `Editable · min SAR ${Number(p.minPriceEditable ?? p.min_price_editable ?? 0).toFixed(2)}`
+                                                              : 'Fixed price'}
+                                                    </span>
+                                                </div>
+                                                <div
+                                                    className={`mc-toggle-switch${priceEditable ? ' active' : ''}`}
+                                                    role="button"
+                                                    aria-label={`Toggle ${p.name} price editable`}
+                                                    aria-pressed={priceEditable}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        if (priceBusy) return;
+                                                        handleToggleProductPriceEditable(p, priceEditable);
+                                                    }}
+                                                    style={{ opacity: priceBusy ? 0.65 : 1, pointerEvents: priceBusy ? 'none' : 'auto' }}
+                                                />
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -2308,7 +2390,7 @@ export default function MasterCatalog() {
                         </button>
                     </div>
                 )}
-                {buildKpiCards(kpis).map((card) => (
+                {buildKpiCards(kpis, fallbackKpis).map((card) => (
                     <div
                         key={card.key}
                         className="mc-summary-card"
@@ -3129,6 +3211,27 @@ export default function MasterCatalog() {
                                     value={editingProduct.description || ''} 
                                     onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})}
                                 />
+                            </div>
+
+                            <div className="mc-form-row">
+                                <div className="mc-toggle-box yellow">
+                                    <div className="mc-toggle-info">
+                                        <strong>Product Status</strong>
+                                        <span>{editingProduct.isActive !== false ? 'Active' : 'Inactive'}</span>
+                                    </div>
+                                    <div
+                                        className={`mc-toggle-switch small${editingProduct.isActive !== false ? ' active' : ''}`}
+                                        role="button"
+                                        aria-label="Toggle product active status"
+                                        aria-pressed={editingProduct.isActive !== false}
+                                        onClick={() =>
+                                            setEditingProduct((prev) => ({
+                                                ...prev,
+                                                isActive: !toBoolActive(prev),
+                                            }))
+                                        }
+                                    />
+                                </div>
                             </div>
 
                             <div

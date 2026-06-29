@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ShoppingCart, Plus, RefreshCw, Loader, AlertCircle, Eye } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
-import Modal from '../../components/Modal';
+import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WorkshopAddSupplierScreen from './WorkshopAddSupplierScreen';
 import { PI_INVENTORY_ITEMS } from './constants';
 import { useAuth } from '../../context/AuthContext';
 
@@ -12,8 +12,6 @@ const SUPPLIER_TABS = [
 import {
     getWorkshopSuppliers,
     getRegisteredWorkshopSuppliers,
-    linkSuppliersToWorkshop,
-    createWorkshopSupplier,
     listWorkshopSupplierPurchaseInvoices,
     getWorkshopSupplierPurchaseInvoice,
     branchScopeParams,
@@ -96,14 +94,13 @@ function purchasePaymentBadgeClass(paymentStatus) {
     return 'ws-badge--red';
 }
 
-/** Paginated purchase history + view modal — remounted when branch changes (key on parent) so page resets. */
+/** Paginated purchase history + full-page invoice view — remounted when branch changes (key on parent) so page resets. */
 function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
     const [page, setPage] = useState(1);
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [viewOpen, setViewOpen] = useState(false);
     const [viewRow, setViewRow] = useState(null);
     const [viewDetail, setViewDetail] = useState(null);
     const [viewLoading, setViewLoading] = useState(false);
@@ -142,7 +139,6 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
     const totalPages = Math.max(1, Math.ceil(((total ?? 0) || 0) / PURCHASES_PAGE_SIZE));
 
     const closeView = () => {
-        setViewOpen(false);
         setViewRow(null);
         setViewDetail(null);
         setViewError('');
@@ -151,7 +147,6 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
 
     const openView = async (row) => {
         if (!row?.id) return;
-        setViewOpen(true);
         setViewRow(row);
         setViewDetail(null);
         setViewLoading(true);
@@ -174,6 +169,45 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
             : rows.length > 0
               ? `${offset + 1}–${offset + rows.length}`
               : '0';
+
+    if (viewRow) {
+        return (
+            <WorkshopSubScreen
+                title={`Purchase invoice ${viewRow.invoice_number || viewRow.id}`}
+                subtitle={viewRow.vendor_name || undefined}
+                backLabel="Back to Purchase History"
+                onBack={closeView}
+                size="xl"
+            >
+                {viewError ? (
+                    <div
+                        style={{
+                            marginBottom: 12,
+                            padding: '10px 14px',
+                            borderRadius: 8,
+                            background: '#FEF2F2',
+                            border: '1px solid #FECACA',
+                            color: '#B91C1C',
+                            fontSize: '0.875rem',
+                        }}
+                    >
+                        {viewError}
+                    </div>
+                ) : null}
+                {viewLoading ? (
+                    <p style={{ marginBottom: 12, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                        Loading full invoice…
+                    </p>
+                ) : null}
+                {!viewLoading && viewDetail ? (
+                    <WorkshopPurchaseInvoiceView detail={viewDetail} listRow={viewRow} />
+                ) : null}
+                {!viewLoading && !viewDetail && viewError ? (
+                    <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Unable to display this invoice.</p>
+                ) : null}
+            </WorkshopSubScreen>
+        );
+    }
 
     return (
         <>
@@ -345,58 +379,6 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                     </div>
                 ) : null}
             </div>
-
-            <AnimatePresence>
-                {viewOpen && (
-                    <Modal
-                        title={
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <Eye size={20} />
-                                Purchase invoice
-                            </span>
-                        }
-                        onClose={closeView}
-                        width="min(1240px, 98vw)"
-                        disableClose={false}
-                        footer={
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                <button type="button" className="btn-secondary" onClick={closeView}>
-                                    Close
-                                </button>
-                            </div>
-                        }
-                    >
-                        {viewError && (
-                            <div
-                                style={{
-                                    marginBottom: 12,
-                                    padding: '10px 14px',
-                                    borderRadius: 8,
-                                    background: '#FEF2F2',
-                                    border: '1px solid #FECACA',
-                                    color: '#B91C1C',
-                                    fontSize: '0.875rem',
-                                }}
-                            >
-                                {viewError}
-                            </div>
-                        )}
-                        {viewLoading && (
-                            <p style={{ marginBottom: 12, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                                Loading full invoice…
-                            </p>
-                        )}
-                        {!viewLoading && viewDetail ? (
-                            <div style={{ maxHeight: 'min(75vh, 900px)', overflow: 'auto' }}>
-                                <WorkshopPurchaseInvoiceView detail={viewDetail} listRow={viewRow} />
-                            </div>
-                        ) : null}
-                        {!viewLoading && !viewDetail && viewError ? (
-                            <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Unable to display this invoice.</p>
-                        ) : null}
-                    </Modal>
-                )}
-            </AnimatePresence>
         </>
     );
 }
@@ -425,22 +407,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
     const [loading, setLoading] = useState(true);
     const [listError, setListError] = useState('');
     const [usingRegisteredFallback, setUsingRegisteredFallback] = useState(false);
-    const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
-    const [registeredSearchInput, setRegisteredSearchInput] = useState('');
-    const [registeredSuppliers, setRegisteredSuppliers] = useState([]);
-    const [registeredLoading, setRegisteredLoading] = useState(false);
-    const [registeredError, setRegisteredError] = useState('');
-    const [linkingSuppliers, setLinkingSuppliers] = useState(false);
-    const [selectedRegisteredIds, setSelectedRegisteredIds] = useState([]);
-    const [addSupplierModalView, setAddSupplierModalView] = useState('browse');
-    const [registeringSupplier, setRegisteringSupplier] = useState(false);
-    const [registerSupplierError, setRegisterSupplierError] = useState('');
-    const [newSupplierName, setNewSupplierName] = useState('');
-    const [newSupplierVat, setNewSupplierVat] = useState('');
-    const [newSupplierMobile, setNewSupplierMobile] = useState('');
-    const [newSupplierEmail, setNewSupplierEmail] = useState('');
-    const [newSupplierAddress, setNewSupplierAddress] = useState('');
-    const [newSupplierNotes, setNewSupplierNotes] = useState('');
+    const [showAddSupplierScreen, setShowAddSupplierScreen] = useState(false);
 
     const [showPurchaseForm, setShowPurchaseForm] = useState(false);
     const [selectedSupplier, setSelectedSupplier] = useState(null);
@@ -585,123 +552,187 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
         setNotes('');
     };
 
-    const loadRegisteredSuppliers = useCallback(async (queryForApi) => {
-        setRegisteredLoading(true);
-        setRegisteredError('');
-        const q = String(queryForApi ?? '').trim();
-        try {
-            const res = await getRegisteredWorkshopSuppliers({
-                ...(q ? { q } : {}),
-                limit: SUPPLIERS_PAGE_LIMIT,
-                offset: 0,
-            });
-            const rows = unwrapSuppliersResponse(res).map(normalizeSupplierRow).filter((r) => r.id);
-            setRegisteredSuppliers(rows);
-        } catch (e) {
-            setRegisteredSuppliers([]);
-            setRegisteredError(e.message || 'Could not load registered suppliers.');
-        } finally {
-            setRegisteredLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        if (!showAddSupplierModal) return undefined;
-        const t = setTimeout(() => {
-            loadRegisteredSuppliers(registeredSearchInput);
-        }, 280);
-        return () => clearTimeout(t);
-    }, [showAddSupplierModal, registeredSearchInput, loadRegisteredSuppliers]);
-
-    const toggleRegisteredSupplier = (supplierId) => {
-        const sid = String(supplierId);
-        setSelectedRegisteredIds((prev) =>
-            prev.includes(sid) ? prev.filter((id) => id !== sid) : [...prev, sid],
+    if (showAddSupplierScreen) {
+        return (
+            <WorkshopAddSupplierScreen
+                onBack={() => setShowAddSupplierScreen(false)}
+                onSuccess={() => loadSuppliers(searchInput)}
+            />
         );
-    };
+    }
 
-    const handleLinkSelectedSuppliers = async () => {
-        if (selectedRegisteredIds.length === 0) return;
-        setLinkingSuppliers(true);
-        setRegisteredError('');
-        try {
-            await linkSuppliersToWorkshop(selectedRegisteredIds);
-            setShowAddSupplierModal(false);
-            setSelectedRegisteredIds([]);
-            setRegisteredSearchInput('');
-            setAddSupplierModalView('browse');
-            setNewSupplierName('');
-            setNewSupplierVat('');
-            setNewSupplierMobile('');
-            setNewSupplierEmail('');
-            setNewSupplierAddress('');
-            setNewSupplierNotes('');
-            setRegisterSupplierError('');
-            await loadSuppliers(searchInput);
-        } catch (e) {
-            setRegisteredError(e.message || 'Failed to add selected suppliers to workshop.');
-        } finally {
-            setLinkingSuppliers(false);
-        }
-    };
-
-    const resetRegisterSupplierForm = () => {
-        setRegisterSupplierError('');
-        setNewSupplierName('');
-        setNewSupplierVat('');
-        setNewSupplierMobile('');
-        setNewSupplierEmail('');
-        setNewSupplierAddress('');
-        setNewSupplierNotes('');
-    };
-
-    const handleRegisterNewSupplier = async () => {
-        const name = newSupplierName.trim();
-        if (!name) {
-            setRegisterSupplierError('Company name is required.');
-            return;
-        }
-        setRegisteringSupplier(true);
-        setRegisterSupplierError('');
-        try {
-            const email = newSupplierEmail.trim();
-            await createWorkshopSupplier({
-                name,
-                workshopLocalOnly: true,
-                ...(email ? { email } : {}),
-                mobile: newSupplierMobile.trim() || undefined,
-                address: newSupplierAddress.trim() || undefined,
-                vatId: newSupplierVat.trim() || undefined,
-                notes: newSupplierNotes.trim() || undefined,
-            });
-            setShowAddSupplierModal(false);
-            setAddSupplierModalView('browse');
-            resetRegisterSupplierForm();
-            await loadSuppliers(searchInput);
-        } catch (e) {
-            setRegisterSupplierError(e.message || 'Could not register supplier.');
-        } finally {
-            setRegisteringSupplier(false);
-        }
-    };
-
-    const inputShell = {
-        width: '100%',
-        padding: '10px 12px',
-        borderRadius: 10,
-        border: '1px solid var(--color-border)',
-        background: '#F8FAFC',
-        fontSize: '0.875rem',
-        boxSizing: 'border-box',
-    };
-
-    const labelStyle = {
-        display: 'block',
-        fontSize: '0.8125rem',
-        fontWeight: 600,
-        color: 'var(--color-text-dark, #0f172a)',
-        marginBottom: 6,
-    };
+    if (showPurchaseForm && selectedSupplier) {
+        return (
+            <WorkshopSubScreen
+                title={`Add Purchase Invoice — ${selectedSupplier.name}`}
+                backLabel="Back to Suppliers"
+                onBack={() => {
+                    setShowPurchaseForm(false);
+                    setSelectedSupplier(null);
+                }}
+                size="wide"
+                footer={
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                        <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => {
+                                setShowPurchaseForm(false);
+                                setSelectedSupplier(null);
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button type="button" className="btn-submit" onClick={submitPurchase}>
+                            Submit Purchase Invoice
+                        </button>
+                    </div>
+                }
+            >
+                <div className="ws-section" style={{ padding: 20 }}>
+                    <div style={{ marginBottom: 16 }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+                            Items
+                        </label>
+                        {items.map((item, idx) => (
+                            <div
+                                key={idx}
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '2fr 80px 100px 80px 40px',
+                                    gap: 8,
+                                    alignItems: 'center',
+                                    marginBottom: 8,
+                                }}
+                            >
+                                <select
+                                    value={item.product_id}
+                                    onChange={(e) => updateItem(idx, 'product_id', e.target.value)}
+                                    style={{
+                                        padding: '8px 12px',
+                                        borderRadius: 8,
+                                        border: '1px solid var(--color-border)',
+                                        fontSize: '0.8125rem',
+                                    }}
+                                >
+                                    <option value="">Product</option>
+                                    {products.map((p) => (
+                                        <option key={p.id} value={p.id}>
+                                            {p.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <input
+                                    type="number"
+                                    placeholder="Qty"
+                                    value={item.quantity}
+                                    onChange={(e) => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                                    style={{
+                                        padding: '8px 12px',
+                                        borderRadius: 8,
+                                        border: '1px solid var(--color-border)',
+                                    }}
+                                />
+                                <input
+                                    type="number"
+                                    placeholder="Unit Price"
+                                    value={item.unit_price}
+                                    onChange={(e) => updateItem(idx, 'unit_price', parseFloat(e.target.value) || 0)}
+                                    style={{
+                                        padding: '8px 12px',
+                                        borderRadius: 8,
+                                        border: '1px solid var(--color-border)',
+                                    }}
+                                />
+                                <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>
+                                    SAR {(item.total || 0).toFixed(0)}
+                                </span>
+                                {items.length > 1 ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setItems((i) => i.filter((_, ii) => ii !== idx))}
+                                        style={{
+                                            color: '#DC2626',
+                                            background: 'none',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        ×
+                                    </button>
+                                ) : null}
+                            </div>
+                        ))}
+                        <button
+                            type="button"
+                            className="btn-secondary"
+                            style={{ padding: '6px 12px' }}
+                            onClick={() =>
+                                setItems((i) => [
+                                    ...i,
+                                    {
+                                        product_id: '',
+                                        product_name: '',
+                                        quantity: 1,
+                                        unit: 'piece',
+                                        unit_price: 0,
+                                        total: 0,
+                                    },
+                                ])
+                            }
+                        >
+                            <Plus size={14} /> Add Item
+                        </button>
+                    </div>
+                    <div
+                        style={{
+                            background: 'var(--color-bg-muted)',
+                            borderRadius: 10,
+                            padding: 12,
+                            marginBottom: 12,
+                        }}
+                    >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ color: 'var(--color-text-muted)' }}>Subtotal</span>
+                            <span>SAR {subtotal.toFixed(2)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ color: 'var(--color-text-muted)' }}>VAT 15%</span>
+                            <span>SAR {vat.toFixed(2)}</span>
+                        </div>
+                        <div
+                            style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                fontWeight: 800,
+                                paddingTop: 8,
+                                borderTop: '1px solid var(--color-border)',
+                            }}
+                        >
+                            <span>Grand Total</span>
+                            <span>SAR {grandTotal.toFixed(2)}</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+                            Notes
+                        </label>
+                        <input
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            placeholder="Optional notes…"
+                            style={{
+                                width: '100%',
+                                padding: '8px 12px',
+                                borderRadius: 8,
+                                border: '1px solid var(--color-border)',
+                            }}
+                        />
+                    </div>
+                </div>
+            </WorkshopSubScreen>
+        );
+    }
 
     return (
         <div>
@@ -766,20 +797,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                             <button
                                 type="button"
                                 className="btn-portal"
-                                onClick={() => {
-                                    setShowAddSupplierModal(true);
-                                    setAddSupplierModalView('browse');
-                                    setSelectedRegisteredIds([]);
-                                    setRegisteredSearchInput('');
-                                    setRegisteredError('');
-                                    setRegisterSupplierError('');
-                                    setNewSupplierName('');
-                                    setNewSupplierVat('');
-                                    setNewSupplierMobile('');
-                                    setNewSupplierEmail('');
-                                    setNewSupplierAddress('');
-                                    setNewSupplierNotes('');
-                                }}
+                                onClick={() => setShowAddSupplierScreen(true)}
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                             >
                                 <Plus size={14} /> Add Supplier
@@ -924,501 +942,6 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
             {activeTab === 'purchases' && (
                 <SuppliersPurchaseHistoryPanel key={String(selectedBranchId)} selectedBranchId={selectedBranchId} />
             )}
-
-            <AnimatePresence>
-                {showAddSupplierModal && (
-                    <Modal
-                        title={
-                            addSupplierModalView === 'register'
-                                ? 'Add workshop-only supplier'
-                                : 'Add Supplier to Workshop'
-                        }
-                        width={addSupplierModalView === 'register' ? 'min(480px, 100%)' : undefined}
-                        disableClose={linkingSuppliers || registeringSupplier}
-                        onClose={() => {
-                            if (linkingSuppliers || registeringSupplier) return;
-                            setShowAddSupplierModal(false);
-                            setAddSupplierModalView('browse');
-                            resetRegisterSupplierForm();
-                        }}
-                        footer={
-                            addSupplierModalView === 'register' ? (
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        gap: 10,
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        flexWrap: 'wrap',
-                                        width: '100%',
-                                    }}
-                                >
-                                    <button
-                                        type="button"
-                                        className="btn-secondary"
-                                        disabled={registeringSupplier}
-                                        onClick={() => {
-                                            setAddSupplierModalView('browse');
-                                            resetRegisterSupplierForm();
-                                        }}
-                                    >
-                                        Back to list
-                                    </button>
-                                    <div style={{ display: 'flex', gap: 10, marginLeft: 'auto' }}>
-                                        <button
-                                            type="button"
-                                            className="btn-secondary"
-                                            disabled={registeringSupplier}
-                                            onClick={() => {
-                                                setShowAddSupplierModal(false);
-                                                setAddSupplierModalView('browse');
-                                                resetRegisterSupplierForm();
-                                            }}
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="btn-submit"
-                                            disabled={registeringSupplier}
-                                            onClick={handleRegisterNewSupplier}
-                                        >
-                                            {registeringSupplier ? 'Saving…' : 'Add to my workshop'}
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                                    <button
-                                        type="button"
-                                        className="btn-secondary"
-                                        disabled={linkingSuppliers}
-                                        onClick={() => {
-                                            setShowAddSupplierModal(false);
-                                            setAddSupplierModalView('browse');
-                                            resetRegisterSupplierForm();
-                                        }}
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn-submit"
-                                        disabled={linkingSuppliers || selectedRegisteredIds.length === 0}
-                                        onClick={handleLinkSelectedSuppliers}
-                                    >
-                                        {linkingSuppliers ? 'Adding...' : `Add Selected (${selectedRegisteredIds.length})`}
-                                    </button>
-                                </div>
-                            )
-                        }
-                    >
-                        {addSupplierModalView === 'register' ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                                {registerSupplierError && (
-                                    <div
-                                        style={{
-                                            padding: 10,
-                                            borderRadius: 8,
-                                            border: '1px solid #FECACA',
-                                            background: '#FEF2F2',
-                                            color: '#991B1B',
-                                            fontSize: '0.8125rem',
-                                        }}
-                                    >
-                                        {registerSupplierError}
-                                    </div>
-                                )}
-                                <div>
-                                    <label style={labelStyle}>
-                                        Name <span style={{ color: '#DC2626' }}>*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="Company name"
-                                        value={newSupplierName}
-                                        onChange={(e) => setNewSupplierName(e.target.value)}
-                                        style={inputShell}
-                                        autoComplete="organization"
-                                    />
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>VAT number</label>
-                                    <input
-                                        type="text"
-                                        value={newSupplierVat}
-                                        onChange={(e) => setNewSupplierVat(e.target.value)}
-                                        style={inputShell}
-                                    />
-                                </div>
-                                <div
-                                    style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                                        gap: 12,
-                                    }}
-                                >
-                                    <div>
-                                        <label style={labelStyle}>Mobile</label>
-                                        <input
-                                            type="text"
-                                            value={newSupplierMobile}
-                                            onChange={(e) => setNewSupplierMobile(e.target.value)}
-                                            style={inputShell}
-                                            autoComplete="tel"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label style={labelStyle}>Email (optional)</label>
-                                        <input
-                                            type="email"
-                                            placeholder="Contact email — no portal login"
-                                            value={newSupplierEmail}
-                                            onChange={(e) => setNewSupplierEmail(e.target.value)}
-                                            style={inputShell}
-                                            autoComplete="email"
-                                        />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Address</label>
-                                    <input
-                                        type="text"
-                                        value={newSupplierAddress}
-                                        onChange={(e) => setNewSupplierAddress(e.target.value)}
-                                        style={inputShell}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Notes</label>
-                                    <textarea
-                                        value={newSupplierNotes}
-                                        onChange={(e) => setNewSupplierNotes(e.target.value)}
-                                        rows={3}
-                                        style={{
-                                            ...inputShell,
-                                            resize: 'vertical',
-                                            minHeight: 72,
-                                            fontFamily: 'inherit',
-                                        }}
-                                    />
-                                </div>
-                                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-                                    This vendor is stored for your workshop only. They are not given a supplier portal
-                                    account. To link an on-platform supplier that can log in, use the list above and
-                                    Add Selected.
-                                </p>
-                            </div>
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        gap: 10,
-                                        alignItems: 'stretch',
-                                        flexWrap: 'wrap',
-                                    }}
-                                >
-                                    <input
-                                        placeholder="Search all registered suppliers..."
-                                        value={registeredSearchInput}
-                                        onChange={(e) => setRegisteredSearchInput(e.target.value)}
-                                        style={{
-                                            flex: '1 1 200px',
-                                            minWidth: 0,
-                                            padding: '9px 12px',
-                                            borderRadius: 8,
-                                            border: '1px solid var(--color-border)',
-                                            fontSize: '0.875rem',
-                                        }}
-                                    />
-                                    <button
-                                        type="button"
-                                        className="btn-portal"
-                                        onClick={() => {
-                                            setAddSupplierModalView('register');
-                                            setRegisterSupplierError('');
-                                        }}
-                                        style={{
-                                            flex: '0 0 auto',
-                                            whiteSpace: 'nowrap',
-                                            padding: '9px 14px',
-                                            fontSize: '0.8125rem',
-                                        }}
-                                    >
-                                        Workshop-only supplier
-                                    </button>
-                                </div>
-                                {registeredError && (
-                                    <div
-                                        style={{
-                                            padding: 10,
-                                            borderRadius: 8,
-                                            border: '1px solid #FECACA',
-                                            background: '#FEF2F2',
-                                            color: '#991B1B',
-                                            fontSize: '0.8125rem',
-                                        }}
-                                    >
-                                        {registeredError}
-                                    </div>
-                                )}
-                                {registeredLoading ? (
-                                    <div
-                                        style={{
-                                            padding: 16,
-                                            color: 'var(--color-text-muted)',
-                                            fontSize: '0.875rem',
-                                            border: '1px solid var(--color-border)',
-                                            borderRadius: 10,
-                                        }}
-                                    >
-                                        Loading registered suppliers...
-                                    </div>
-                                ) : registeredSuppliers.length === 0 ? (
-                                    <div
-                                        style={{
-                                            padding: 16,
-                                            color: 'var(--color-text-muted)',
-                                            fontSize: '0.875rem',
-                                            border: '1px solid var(--color-border)',
-                                            borderRadius: 10,
-                                        }}
-                                    >
-                                        No registered suppliers found. Use “Workshop-only supplier” to add a vendor for
-                                        this workshop without a platform login.
-                                    </div>
-                                ) : (
-                                    <div
-                                        style={{
-                                            border: '1px solid var(--color-border)',
-                                            borderRadius: 10,
-                                            overflow: 'hidden',
-                                        }}
-                                    >
-                                        <table className="ws-table" style={{ margin: 0 }}>
-                                            <thead>
-                                                <tr>
-                                                    <th>Supplier</th>
-                                                    <th>Contact</th>
-                                                    <th>CR</th>
-                                                    <th>VAT</th>
-                                                    <th style={{ textAlign: 'right' }}>Action</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {registeredSuppliers.map((s) => {
-                                                    const selected = selectedRegisteredIds.includes(String(s.id));
-                                                    return (
-                                                        <tr
-                                                            key={s.id}
-                                                            onClick={() => toggleRegisteredSupplier(s.id)}
-                                                            style={{
-                                                                cursor: 'pointer',
-                                                                background: selected ? '#EFF6FF' : 'transparent',
-                                                            }}
-                                                        >
-                                                            <td>
-                                                                <strong>{s.name}</strong>
-                                                            </td>
-                                                            <td>{s.phone || s.email || '—'}</td>
-                                                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                                                                {s.crNumber || '—'}
-                                                            </td>
-                                                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                                                                {s.vatId || '—'}
-                                                            </td>
-                                                            <td style={{ textAlign: 'right' }}>
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn-portal"
-                                                                    style={{
-                                                                        padding: '5px 10px',
-                                                                        fontSize: '0.75rem',
-                                                                        background: selected ? '#0F172A' : undefined,
-                                                                        color: selected ? '#fff' : undefined,
-                                                                    }}
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        toggleRegisteredSupplier(s.id);
-                                                                    }}
-                                                                >
-                                                                    {selected ? 'Selected' : 'Select'}
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
-                                <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-                                    Pick on-platform suppliers below (they can use the supplier portal), or add a
-                                    workshop-only vendor who has no login.
-                                </p>
-                            </div>
-                        )}
-                    </Modal>
-                )}
-                {showPurchaseForm && selectedSupplier && (
-                    <Modal
-                        title={`Add Purchase Invoice — ${selectedSupplier.name}`}
-                        onClose={() => {
-                            setShowPurchaseForm(false);
-                            setSelectedSupplier(null);
-                        }}
-                        footer={
-                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                                <button className="btn-secondary" onClick={() => setShowPurchaseForm(false)}>
-                                    Cancel
-                                </button>
-                                <button className="btn-submit" onClick={submitPurchase}>
-                                    Submit Purchase Invoice
-                                </button>
-                            </div>
-                        }
-                    >
-                        <div style={{ padding: '8px 0' }}>
-                            <div style={{ marginBottom: 16 }}>
-                                <label
-                                    style={{ fontSize: '0.75rem', fontWeight: 700, display: 'block', marginBottom: 6 }}
-                                >
-                                    Items
-                                </label>
-                                {items.map((item, idx) => (
-                                    <div
-                                        key={idx}
-                                        style={{
-                                            display: 'grid',
-                                            gridTemplateColumns: '2fr 80px 100px 80px 40px',
-                                            gap: 8,
-                                            alignItems: 'center',
-                                            marginBottom: 8,
-                                        }}
-                                    >
-                                        <select
-                                            value={item.product_id}
-                                            onChange={(e) => updateItem(idx, 'product_id', e.target.value)}
-                                            style={{
-                                                padding: '8px 12px',
-                                                borderRadius: 8,
-                                                border: '1px solid var(--color-border)',
-                                                fontSize: '0.8125rem',
-                                            }}
-                                        >
-                                            <option value="">Product</option>
-                                            {products.map((p) => (
-                                                <option key={p.id} value={p.id}>
-                                                    {p.name}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <input
-                                            type="number"
-                                            placeholder="Qty"
-                                            value={item.quantity}
-                                            onChange={(e) =>
-                                                updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)
-                                            }
-                                            style={{
-                                                padding: '8px 12px',
-                                                borderRadius: 8,
-                                                border: '1px solid var(--color-border)',
-                                            }}
-                                        />
-                                        <input
-                                            type="number"
-                                            placeholder="Unit Price"
-                                            value={item.unit_price}
-                                            onChange={(e) =>
-                                                updateItem(idx, 'unit_price', parseFloat(e.target.value) || 0)
-                                            }
-                                            style={{
-                                                padding: '8px 12px',
-                                                borderRadius: 8,
-                                                border: '1px solid var(--color-border)',
-                                            }}
-                                        />
-                                        <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>
-                                            SAR {(item.total || 0).toFixed(0)}
-                                        </span>
-                                        {items.length > 1 && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setItems((i) => i.filter((_, ii) => ii !== idx))}
-                                                style={{ color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer' }}
-                                            >
-                                                ×
-                                            </button>
-                                        )}
-                                    </div>
-                                ))}
-                                <button
-                                    type="button"
-                                    className="btn-secondary"
-                                    style={{ padding: '6px 12px' }}
-                                    onClick={() =>
-                                        setItems((i) => [
-                                            ...i,
-                                            { product_id: '', product_name: '', quantity: 1, unit: 'piece', unit_price: 0, total: 0 },
-                                        ])
-                                    }
-                                >
-                                    <Plus size={14} /> Add Item
-                                </button>
-                            </div>
-                            <div
-                                style={{
-                                    background: 'var(--color-bg-muted)',
-                                    borderRadius: 10,
-                                    padding: 12,
-                                    marginBottom: 12,
-                                }}
-                            >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Subtotal</span>
-                                    <span>SAR {subtotal.toFixed(2)}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>VAT 15%</span>
-                                    <span>SAR {vat.toFixed(2)}</span>
-                                </div>
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        fontWeight: 800,
-                                        paddingTop: 8,
-                                        borderTop: '1px solid var(--color-border)',
-                                    }}
-                                >
-                                    <span>Grand Total</span>
-                                    <span>SAR {grandTotal.toFixed(2)}</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label
-                                    style={{ fontSize: '0.75rem', fontWeight: 700, display: 'block', marginBottom: 6 }}
-                                >
-                                    Notes
-                                </label>
-                                <input
-                                    value={notes}
-                                    onChange={(e) => setNotes(e.target.value)}
-                                    placeholder="Optional notes…"
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px 12px',
-                                        borderRadius: 8,
-                                        border: '1px solid var(--color-border)',
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    </Modal>
-                )}
-            </AnimatePresence>
         </div>
     );
 }
