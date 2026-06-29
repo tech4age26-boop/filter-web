@@ -20,8 +20,20 @@ export function entitySearchHaystack(option) {
     return normalizeEntitySearchText(parts.filter(Boolean).join(' '));
 }
 
+function wordsFromNormalizedText(text) {
+    return String(text || '')
+        .split(' ')
+        .filter(Boolean);
+}
+
+/** True when token matches a whole word exactly or as a word prefix (not embedded substring). */
+function wordMatchesToken(word, token) {
+    return word === token || word.startsWith(token);
+}
+
 /**
  * Score how well an option matches query (higher = better). Returns -1 if no match.
+ * Uses word-boundary matching so "Aalim" does not match "Saalim".
  */
 export function scoreEntitySearchMatch(option, rawQuery) {
     const query = normalizeEntitySearchText(rawQuery);
@@ -30,27 +42,27 @@ export function scoreEntitySearchMatch(option, rawQuery) {
     const haystack = entitySearchHaystack(option);
     if (!haystack) return -1;
 
-    if (haystack === query) return 1000;
-    if (haystack.startsWith(query)) return 900;
-
     const label = normalizeEntitySearchText(option?.label);
-    if (label.startsWith(query)) return 850;
-    if (label.includes(query)) return 800;
+    const labelWords = wordsFromNormalizedText(label);
+    const hayWords = wordsFromNormalizedText(haystack);
+    const queryTokens = query.split(' ').filter(Boolean);
 
-    if (haystack.includes(query)) return 700;
+    if (haystack === query) return 1000;
+    if (label === query) return 980;
+    if (label.startsWith(query)) return 900;
+    if (haystack.startsWith(query)) return 880;
 
-    const tokens = query.split(' ').filter(Boolean);
-    if (tokens.length > 1 && tokens.every((t) => haystack.includes(t))) return 600;
-
-    const words = haystack.split(' ').filter(Boolean);
-    if (tokens.every((t) => words.some((w) => w.startsWith(t)))) return 500;
-
-    // Subsequence match e.g. "alim" → "aalim"
-    let qi = 0;
-    for (let i = 0; i < haystack.length && qi < query.length; i += 1) {
-        if (haystack[i] === query[qi]) qi += 1;
+    if (queryTokens.length === 1) {
+        const token = queryTokens[0];
+        if (labelWords.some((w) => w === token)) return 850;
+        if (labelWords.some((w) => wordMatchesToken(w, token))) return 820;
+        if (hayWords.some((w) => w === token)) return 780;
+        if (hayWords.some((w) => wordMatchesToken(w, token))) return 750;
+        return -1;
     }
-    if (qi === query.length) return 300;
+
+    if (queryTokens.every((t) => labelWords.some((w) => wordMatchesToken(w, t)))) return 700;
+    if (queryTokens.every((t) => hayWords.some((w) => wordMatchesToken(w, t)))) return 650;
 
     return -1;
 }

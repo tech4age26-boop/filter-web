@@ -4,10 +4,11 @@ import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
+import WorkshopPurchaseReturnDetailView from '../../components/workshop/WorkshopPurchaseReturnDetailView';
 import Modal from '../../components/Modal';
 import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
 import { apiFetch } from '../../services/api';
-import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn, listWorkshopCashBankAccounts, listAffiliatedPurchaseReturns, approveAffiliatedPurchaseReturn } from '../../services/workshopStaffApi';
+import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn, listWorkshopCashBankAccounts, listAffiliatedPurchaseReturns, getAffiliatedPurchaseReturn, approveAffiliatedPurchaseReturn } from '../../services/workshopStaffApi';
 import { approveExpenseRequest, rejectExpenseRequest } from '../../services/employeeExpenseApi';
 import { useAuth } from '../../context/AuthContext';
 
@@ -381,6 +382,8 @@ export default function WorkshopApprovals({
     const [viewDialog, setViewDialog] = useState(null);
     const [viewInvoiceDetail, setViewInvoiceDetail] = useState(null);
     const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
+    const [viewPurchaseReturnDetail, setViewPurchaseReturnDetail] = useState(null);
+    const [viewPurchaseReturnLoading, setViewPurchaseReturnLoading] = useState(false);
     /** Imperative handle for the printable invoice template (Download PDF). */
     const printableInvoiceRef = useRef(null);
     const [currency, setCurrency] = useState('SAR');
@@ -597,6 +600,34 @@ export default function WorkshopApprovals({
         };
     }, [viewDialog]);
 
+    useEffect(() => {
+        if (!viewDialog || !isAffiliatedPurchaseReturnRow(viewDialog)) {
+            setViewPurchaseReturnDetail(null);
+            setViewPurchaseReturnLoading(false);
+            return;
+        }
+        const id = viewDialog.purchaseReturnId;
+        if (!id) return;
+        let cancelled = false;
+        setViewPurchaseReturnLoading(true);
+        setViewPurchaseReturnDetail(null);
+        (async () => {
+            try {
+                const res = await getAffiliatedPurchaseReturn(id);
+                if (!cancelled && res?.purchaseReturn) {
+                    setViewPurchaseReturnDetail(res.purchaseReturn);
+                }
+            } catch {
+                if (!cancelled) setViewPurchaseReturnDetail(null);
+            } finally {
+                if (!cancelled) setViewPurchaseReturnLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [viewDialog]);
+
     const closeRejectDialog = useCallback(() => {
         setRejectDialog(null);
         setRejectReason('');
@@ -610,6 +641,8 @@ export default function WorkshopApprovals({
 
     const closeViewDialog = useCallback(() => {
         setViewDialog(null);
+        setViewPurchaseReturnDetail(null);
+        setViewPurchaseReturnLoading(false);
     }, []);
 
     const filtered = useMemo(() => {
@@ -1161,21 +1194,30 @@ export default function WorkshopApprovals({
 
     if (viewDialog) {
         const isSupplierView = isSupplierSalesInvoiceRow(viewDialog);
+        const isPurchaseReturnView = isAffiliatedPurchaseReturnRow(viewDialog);
         return (
             <WorkshopSubScreen
-                title={isSupplierView ? `Supplier Invoice ${viewDialog.invoiceNo || ''}`.trim() : 'Approval Details'}
+                title={
+                    isSupplierView
+                        ? `Supplier Invoice ${viewDialog.invoiceNo || ''}`.trim()
+                        : isPurchaseReturnView
+                          ? `Purchase Return ${viewDialog.returnNumber || viewPurchaseReturnDetail?.returnNumber || ''}`.trim()
+                          : 'Approval Details'
+                }
                 subtitle={
                     isSupplierView
                         ? (viewDialog.supplier?.name || 'Supplier invoice')
-                        : formatRequestKindLabel(viewDialog)
+                        : isPurchaseReturnView
+                          ? (viewPurchaseReturnDetail?.supplier?.name || viewDialog.supplierName || 'Affiliated supplier return')
+                          : formatRequestKindLabel(viewDialog)
                 }
                 backLabel="Back to Approvals"
                 onBack={closeViewDialog}
-                size={isSupplierView ? 'xl' : 'form'}
-                maxWidth={isSupplierView ? '1100px' : undefined}
-                className={isSupplierView ? 'ws-pi-sub-screen' : ''}
+                size={isSupplierView || isPurchaseReturnView ? 'xl' : 'form'}
+                maxWidth={isSupplierView || isPurchaseReturnView ? '1100px' : undefined}
+                className={isSupplierView ? 'ws-pi-sub-screen' : isPurchaseReturnView ? 'ws-pi-sub-screen' : ''}
             >
-                <div className={isSupplierView ? 'modal-content-purchase' : 'ws-section'} style={isSupplierView ? undefined : { padding: 20 }}>
+                <div className={isSupplierView || isPurchaseReturnView ? 'modal-content-purchase' : 'ws-section'} style={isSupplierView || isPurchaseReturnView ? undefined : { padding: 20 }}>
                         {isSupplierSalesInvoiceRow(viewDialog) ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '4px 0' }}>
                                 <div
@@ -1215,6 +1257,19 @@ export default function WorkshopApprovals({
                                     />
                                 ) : (
                                     <p style={{ color: 'var(--color-text-muted)' }}>Could not load invoice details.</p>
+                                )}
+                            </div>
+                        ) : isAffiliatedPurchaseReturnRow(viewDialog) ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '4px 0' }}>
+                                {viewPurchaseReturnLoading ? (
+                                    <ShimmerTextBlock lines={12} />
+                                ) : viewPurchaseReturnDetail ? (
+                                    <WorkshopPurchaseReturnDetailView
+                                        detail={viewPurchaseReturnDetail}
+                                        currency={currency}
+                                    />
+                                ) : (
+                                    <p style={{ color: 'var(--color-text-muted)' }}>Could not load purchase return details.</p>
                                 )}
                             </div>
                         ) : (

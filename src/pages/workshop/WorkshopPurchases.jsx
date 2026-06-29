@@ -58,6 +58,10 @@ import {
     buildPurchaseInvoiceLinesForSave,
 } from './purchaseInvoicePayload';
 import {
+    isInvoiceLineSubmitReady,
+    resolveManualInvoiceLineLabel,
+} from '../../utils/invoiceLineLabel';
+import {
     applyLineTotals,
     computeLineFinancials,
 } from '../../utils/invoiceLineFinancials';
@@ -1705,9 +1709,12 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         amountsTaxInclusive,
     ]);
 
-    const hasProductLine = useMemo(
-        () => lineItems.some((l) => l.productId != null && String(l.productId).trim() !== ''),
-        [lineItems],
+    const hasValidSubmitLine = useMemo(
+        () =>
+            lineItems.some((l) =>
+                isInvoiceLineSubmitReady(l, productSearchByLineId[l.id]),
+            ),
+        [lineItems, productSearchByLineId],
     );
 
     useEffect(() => {
@@ -1758,7 +1765,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         invoiceSupplierOptions.includes(selectedVendor) &&
         Boolean(selectedSupplierRow?.id) &&
         lineItems.length > 0 &&
-        hasProductLine;
+        hasValidSubmitLine;
 
     /** Draft save: branch + supplier only; partial lines and empty product rows are OK. */
     const canSavePurchaseInvoiceDraft =
@@ -2030,9 +2037,15 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             selectedSupplierRow?.raw?.__supplierType === 'local';
         const selectedLineItems = isDraftSave
             ? lineItems
-            : lineItems.filter(
-                  (line) => line.productId != null && String(line.productId).trim() !== '',
+            : lineItems.filter((line) =>
+                  isInvoiceLineSubmitReady(line, productSearchByLineId[line.id]),
               );
+        if (!isDraftSave && selectedLineItems.length === 0) {
+            setSubmitInvoiceError(
+                'Add at least one line with an account (or product), quantity, and unit price.',
+            );
+            return;
+        }
         if (!isDraftSave) {
             const invalidQtyIndex = selectedLineItems.findIndex((line) => {
                 const qty = parseFloat(String(line.qty ?? '').replace(',', '.'));
@@ -2047,6 +2060,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         if (normalizedSubmitStatus !== 'draft') {
             for (const line of selectedLineItems) {
                 const pid = String(line.productId ?? '').trim();
+                if (!pid) continue;
                 const opt = branchProductOptions.find((o) => String(o.id) === pid);
                 if (!opt) {
                     const originalIndex = lineItems.findIndex((l) => l.id === line.id);
@@ -2184,10 +2198,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 const localLines = enrichedLines
                     .map((ln) => {
                         const productId = masterProductIdForLocalPi(ln);
-                        if (!productId) return null;
+                        const itemName = String(ln.item_name ?? '').trim();
+                        if (!productId && !itemName) return null;
                         return {
-                            productId,
-                            itemName: ln.item_name,
+                            ...(productId ? { productId } : {}),
+                            itemName: itemName || 'Off-catalog line',
                             description: ln.description ?? null,
                             uom: ln.uom ?? null,
                             qty: Number(ln.quantity ?? ln.qty ?? 0),
@@ -2235,7 +2250,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 };
                 if (!isDraftSave && localLines.length === 0) {
                     throw new Error(
-                        'Local supplier PI requires every line to be picked from the branch catalog.',
+                        'Add at least one line with an account (or product), quantity, and unit price.',
                     );
                 }
                 if (editingLocalPiId) {
@@ -2679,7 +2694,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                             branchProductsLoading
                                                                                 ? 'Loading products...'
                                                                                 : invoiceBranchId
-                                                                                  ? 'Search product...'
+                                                                                  ? 'Product (optional) — or pick account'
                                                                                   : 'Choose branch first'
                                                                         }
                                                                         onFocus={() => {
@@ -2728,14 +2743,30 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                                 return;
                                                                             }
                                                                             if (e.key !== 'Enter') return;
-                                                                            if (productResults.length === 0) return;
                                                                             e.preventDefault();
-                                                                            const h = highlightedProductIndexRef.current;
-                                                                            const pick =
-                                                                                h >= 0 && h < productResults.length
-                                                                                    ? h
-                                                                                    : 0;
-                                                                            handleLineProductChange(line.id, productResults[pick].id);
+                                                                            if (productResults.length > 0) {
+                                                                                const h = highlightedProductIndexRef.current;
+                                                                                const pick =
+                                                                                    h >= 0 && h < productResults.length
+                                                                                        ? h
+                                                                                        : 0;
+                                                                                handleLineProductChange(line.id, productResults[pick].id);
+                                                                                return;
+                                                                            }
+                                                                            const manual = String(searchText || '').trim();
+                                                                            setProductSearchByLineId((prev) => ({
+                                                                                ...prev,
+                                                                                [line.id]: manual,
+                                                                            }));
+                                                                            setLineItems((prev) =>
+                                                                                prev.map((l) =>
+                                                                                    l.id === line.id
+                                                                                        ? { ...l, item: manual, productId: '' }
+                                                                                        : l,
+                                                                                ),
+                                                                            );
+                                                                            setActiveProductSearchLineId(null);
+                                                                            setProductDropdownPosition(null);
                                                                         }}
                                                                     />
                                                                     {showProductResults &&
@@ -2866,13 +2897,16 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                     >
                                                         <input
                                                             type="text"
-                                                            value={line.productId ? line.price : ''}
+                                                            value={
+                                                                line.price === '' || line.price === undefined
+                                                                    ? ''
+                                                                    : String(line.price)
+                                                            }
                                                             className="pi-row-input-num pi-math-input"
-                                                            placeholder={line.productId ? '' : '—'}
+                                                            placeholder="0.00"
                                                             onChange={(e) => updateLineItem(line.id, 'price', e.target.value)}
                                                             onKeyDown={(e) => handleMathKeyDown(e, line.id, 'price')}
                                                             onBlur={(e) => handleMathBlur(e, line.id, 'price')}
-                                                            disabled={!line.productId}
                                                         />
                                                     </td>
                                                     {showDiscount ? (
