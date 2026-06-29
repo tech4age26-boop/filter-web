@@ -10,6 +10,7 @@ import {
     roundMoney2 as money2,
     DEFAULT_INVOICE_TAXES,
 } from '../../utils/invoiceLineFinancials';
+import { isInvoiceLineSubmitReady } from '../../utils/invoiceLineLabel';
 
 export { reconstructInvoiceUnitPriceInput };
 
@@ -326,7 +327,13 @@ export function buildPurchaseInvoiceLinesForSave(
     },
 ) {
     const mapped = (lineItems ?? []).map((line) => {
-        const itemLabel = String(productSearchByLineId[line.id] ?? line.item ?? '').trim();
+        const searchText = String(productSearchByLineId[line.id] ?? line.item ?? '').trim();
+        const accountLabel =
+            resolveManualInvoiceLineLabel(line, searchText) ||
+            parseAccountDisplay(line.account).name ||
+            parseAccountDisplay(line.account).code ||
+            '';
+        const itemLabel = searchText || String(line.item ?? '').trim() || accountLabel;
         const qtyRaw = parseFloat(String(line.qty ?? '').replace(',', '.'));
         const qty =
             forDraft && (!Number.isFinite(qtyRaw) || qtyRaw <= 0)
@@ -339,9 +346,13 @@ export function buildPurchaseInvoiceLinesForSave(
         };
     });
 
-    let rows = forDraft
-        ? mapped
-        : mapped.filter((l) => l.productId != null && String(l.productId).trim() !== '');
+    let rows = mapped;
+
+    if (!forDraft) {
+        rows = mapped.filter((l) =>
+            isInvoiceLineSubmitReady(l, productSearchByLineId[l.id]),
+        );
+    }
 
     if (forDraft && rows.length === 0) {
         rows = [

@@ -231,6 +231,7 @@ export default function WorkshopCommissions({
     const [payoutNotes, setPayoutNotes] = useState('');
     const [payoutError, setPayoutError] = useState('');
     const [payoutSubmitting, setPayoutSubmitting] = useState(false);
+    const [employeePayoutLoadingId, setEmployeePayoutLoadingId] = useState('');
 
     const filterScopeKeyRef = useRef('');
 
@@ -262,6 +263,15 @@ export default function WorkshopCommissions({
             }),
         [filterEmployees],
     );
+
+    const displayedPendingEmployees = useMemo(() => {
+        if (!filterEmployeeId) return pendingByEmployee;
+        return pendingByEmployee.filter(
+            (emp) =>
+                String(emp.employee_id ?? emp.employeeId ?? '') ===
+                String(filterEmployeeId),
+        );
+    }, [pendingByEmployee, filterEmployeeId]);
 
     const filterScopeKey = useMemo(
         () =>
@@ -526,6 +536,45 @@ export default function WorkshopCommissions({
         setPayoutModalOpen(true);
     };
 
+    const openEmployeePayout = async (emp) => {
+        const empId = String(emp.employee_id ?? emp.employeeId ?? '');
+        if (!empId) return;
+        setEmployeePayoutLoadingId(empId);
+        setLoadError('');
+        try {
+            const lines = await fetchAllAccruedInScope(
+                selectedBranchId,
+                scopeExtra,
+                empId,
+                workshopId,
+            );
+            if (lines.size === 0) {
+                setLoadError('No accrued commissions to pay for this employee.');
+                return;
+            }
+            setSelectedLines(lines);
+            setPayoutModalOpen(true);
+        } catch (e) {
+            setLoadError(e?.message || 'Could not load commissions for payout');
+        } finally {
+            setEmployeePayoutLoadingId('');
+        }
+    };
+
+    const filterByEmployee = (emp) => {
+        const key = String(emp.employee_id ?? emp.employeeId ?? '');
+        const name = emp.name ?? emp.employee_name ?? '';
+        setFilterEmployeeId((prev) => {
+            if (String(prev) === key) {
+                setEmployeeFilterText('');
+                return '';
+            }
+            setEmployeeFilterText(name);
+            return key;
+        });
+        setFilterStatus('accrued');
+    };
+
     const closePayoutScreen = () => {
         if (payoutSubmitting) return;
         setPayoutModalOpen(false);
@@ -698,72 +747,118 @@ export default function WorkshopCommissions({
                     <Users size={18} className="text-blue" />
                     <h4>Pending Payout by Employee</h4>
                 </header>
-                <div className="ws-employee-chips">
-                    {pendingByEmployee.length === 0 && !isLoading && (
-                        <p className="ws-text-dim" style={{ margin: '8px 0', fontSize: '0.875rem' }}>
-                            No pending accrued commissions in this scope.
-                        </p>
-                    )}
-                    {pendingByEmployee.map((emp) => {
-                        const name = emp.name ?? emp.employee_name ?? '';
-                        const key = emp.employee_id ?? emp.employeeId ?? name;
-                        const initials = emp.initials || initialsFromName(name);
-                        const entryCount = emp.entry_count ?? emp.entryCount ?? 0;
-                        const amount = Number(emp.pending_amount ?? emp.pendingAmount ?? 0) || 0;
-                        const avatarUrl = emp.avatar_url ?? emp.avatarUrl;
-                        const { color, textColor } = chipColorsForKey(String(key));
-                        const isActive = String(filterEmployeeId) === String(key);
-                        return (
-                            <div
-                                key={String(key)}
-                                className="ws-emp-chip"
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => {
-                                    setFilterEmployeeId((prev) =>
-                                        String(prev) === String(key) ? '' : String(key),
-                                    );
-                                    setFilterStatus('accrued');
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
-                                        setFilterEmployeeId((prev) =>
-                                            String(prev) === String(key) ? '' : String(key),
+                <div className="ws-commissions-table-wrapper ws-employee-summary-table">
+                    <WsTableScroll>
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>EMPLOYEE</th>
+                                    <th style={{ textAlign: 'right' }}>ENTRIES</th>
+                                    <th style={{ textAlign: 'right' }}>TOTAL AMOUNT</th>
+                                    <th style={{ width: 120, textAlign: 'right' }}>ACTION</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {isLoading && displayedPendingEmployees.length === 0 ? (
+                                    <ShimmerTableBodyRows rows={4} columns={4} />
+                                ) : displayedPendingEmployees.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} className="ws-text-dim" style={{ padding: 20, textAlign: 'center' }}>
+                                            {filterEmployeeId
+                                                ? 'No pending accrued commissions for this employee in this scope.'
+                                                : 'No pending accrued commissions in this scope.'}
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    displayedPendingEmployees.map((emp) => {
+                                        const name = emp.name ?? emp.employee_name ?? '';
+                                        const key = String(emp.employee_id ?? emp.employeeId ?? name);
+                                        const initials = emp.initials || initialsFromName(name);
+                                        const entryCount = emp.entry_count ?? emp.entryCount ?? 0;
+                                        const amount =
+                                            Number(emp.pending_amount ?? emp.pendingAmount ?? 0) || 0;
+                                        const avatarUrl = emp.avatar_url ?? emp.avatarUrl;
+                                        const { color, textColor } = chipColorsForKey(key);
+                                        const isActive = String(filterEmployeeId) === key;
+                                        const payoutLoading = employeePayoutLoadingId === key;
+                                        return (
+                                            <tr
+                                                key={key}
+                                                className={isActive ? 'selected' : ''}
+                                            >
+                                                <td>
+                                                    <button
+                                                        type="button"
+                                                        className="ws-employee-summary-name"
+                                                        onClick={() => filterByEmployee(emp)}
+                                                        title="Filter commission lines to this employee"
+                                                    >
+                                                        <div
+                                                            className="ws-table-avatar"
+                                                            style={{
+                                                                backgroundColor: color,
+                                                                color: textColor,
+                                                                overflow: 'hidden',
+                                                            }}
+                                                        >
+                                                            {avatarUrl ? (
+                                                                <img
+                                                                    src={avatarUrl}
+                                                                    alt=""
+                                                                    style={{
+                                                                        width: '100%',
+                                                                        height: '100%',
+                                                                        objectFit: 'cover',
+                                                                    }}
+                                                                />
+                                                            ) : (
+                                                                initials
+                                                            )}
+                                                        </div>
+                                                        <span>{name}</span>
+                                                    </button>
+                                                </td>
+                                                <td style={{ textAlign: 'right' }}>
+                                                    <span className="ws-text-dim">{entryCount}</span>
+                                                </td>
+                                                <td style={{ textAlign: 'right' }} className="ws-font-bold">
+                                                    SAR {amount.toLocaleString()}
+                                                </td>
+                                                <td style={{ textAlign: 'right' }}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openEmployeePayout(emp)}
+                                                        disabled={payoutLoading || amount <= 0}
+                                                        style={{
+                                                            border: '1px solid #16a34a',
+                                                            background: '#fff',
+                                                            color: '#16a34a',
+                                                            borderRadius: 6,
+                                                            padding: '6px 12px',
+                                                            fontSize: 12,
+                                                            fontWeight: 600,
+                                                            cursor:
+                                                                payoutLoading || amount <= 0
+                                                                    ? 'not-allowed'
+                                                                    : 'pointer',
+                                                            opacity:
+                                                                payoutLoading || amount <= 0 ? 0.55 : 1,
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: 4,
+                                                        }}
+                                                    >
+                                                        <Wallet size={12} />
+                                                        {payoutLoading ? 'Loading…' : 'Payout'}
+                                                    </button>
+                                                </td>
+                                            </tr>
                                         );
-                                        setFilterStatus('accrued');
-                                    }
-                                }}
-                                style={{
-                                    cursor: 'pointer',
-                                    outline: isActive ? '2px solid #D4A017' : 'none',
-                                    outlineOffset: 2,
-                                }}
-                            >
-                                <div
-                                    className="ws-emp-avatar"
-                                    style={{
-                                        backgroundColor: color,
-                                        color: textColor,
-                                        overflow: 'hidden',
-                                        padding: 0,
-                                    }}
-                                >
-                                    {avatarUrl ? (
-                                        <img src={avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                    ) : (
-                                        initials
-                                    )}
-                                </div>
-                                <div className="ws-emp-details">
-                                    <p className="ws-emp-name">{name}</p>
-                                    <p className="ws-emp-summary">
-                                        {entryCount} entries · SAR {amount.toLocaleString()}
-                                    </p>
-                                </div>
-                            </div>
-                        );
-                    })}
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    </WsTableScroll>
                 </div>
             </div>
 

@@ -39,6 +39,7 @@ import {
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { formatAffiliatedBranchCustomerLabel } from '../../utils/affiliatedCustomerLabels';
+import { resolveManualInvoiceLineLabel } from '../../utils/invoiceLineLabel';
 
 /** Session key: JSON line preset (legacy / fallback). Primary path is router state `salesInvoiceFromAlert`. */
 const SI_PRESET_LINE_KEY = 'supplier_sales_invoice_preset_line';
@@ -617,7 +618,7 @@ function normalizeStockCatalogRow(item) {
     const costHint =
         qtyWh > 0
             ? `Warehouse stock: ${qtyWh} ${warehouseUnit} • Unit cost SAR ${unitCostWh.toLocaleString(undefined, { maximumFractionDigits: 4 })} / ${warehouseUnit}`
-            : 'No warehouse stock — you can still enter qty/price; save may be blocked if over stock.';
+            : 'No warehouse stock — you can still sell; you will be asked to confirm before issuing.';
     const listHint =
         catalogSalePrice > 0
             ? `Stock sales price SAR ${roundMoney2(catalogSalePrice * conversionFactor).toFixed(2)} / ${warehouseUnit} incl. VAT`
@@ -792,6 +793,33 @@ function maxSellableQtyForLine(line, lines, inventoryItems) {
     return isWarehouseUomLine(line, inv)
         ? maxSellableQtyWarehouseForLine(line, lines, inventoryItems)
         : maxSellableQtyWorkshopForLine(line, lines, inventoryItems);
+}
+
+/** Lines where invoice qty exceeds on-hand supplier stock (incl. zero stock). */
+function collectInsufficientStockLines(lineItems, normalizedLines, inventoryItems) {
+    const out = [];
+    for (let i = 0; i < lineItems.length; i++) {
+        const row = lineItems[i];
+        const maxCap = maxSellableQtyForLine(row, lineItems, inventoryItems);
+        if (maxCap == null || !Number.isFinite(maxCap)) continue;
+        const qNum = normalizedLines[i]?.qty ?? 0;
+        if (qNum <= maxCap + 1e-6) continue;
+        const productId = String(
+            row.supplierProductId ?? row.supplierStockProductId ?? '',
+        ).trim();
+        if (!productId) continue;
+        out.push({
+            productId,
+            name:
+                normalizedLines[i]?.productName ||
+                row.item ||
+                'Product',
+            requestedQty: qNum,
+            availableQty: maxCap,
+            unit: normalizedLines[i]?.unit || row.uom || 'pcs',
+        });
+    }
+    return out;
 }
 
 function lineUomOptions(line, inv) {
@@ -1038,19 +1066,6 @@ export default function SupplierSalesInvoices() {
                 prev.map((line) => {
                     if (line.id !== id) return line;
                     let nextVal = value;
-                    if (field === 'qty') {
-                        const maxW = maxSellableQtyForLine(line, prev, inventoryItems);
-                        if (
-                            maxW != null &&
-                            Number.isFinite(maxW) &&
-                            maxW > 0
-                        ) {
-                            const q = parseFloat(String(value).replace(',', '.'));
-                            if (!Number.isNaN(q) && q > maxW + 1e-9) {
-                                nextVal = Number.isInteger(maxW) ? String(maxW) : String(roundMoney2(maxW));
-                            }
-                        }
-                    }
                     let updated = { ...line, [field]: nextVal };
                     if (field === 'uom') {
                         const inv = findInventoryCapsRow(line, inventoryItems);
@@ -1081,21 +1096,6 @@ export default function SupplierSalesInvoices() {
                 : prev,
         );
     }, [amountsTaxInclusive]);
-
-    /** When balances refresh while the modal is open, clamp catalog lines down to availability. */
-    useEffect(() => {
-        if (!modalOpen || !inventoryInitialLoadDone) return;
-        setLineItems((prev) =>
-            prev.map((line) => {
-                const maxW = maxSellableQtyForLine(line, prev, inventoryItems);
-                if (maxW == null || !Number.isFinite(maxW) || maxW <= 0) return line;
-                const q = parseFloat(String(line.qty).replace(',', '.')) || 0;
-                if (q <= maxW + 1e-9) return line;
-                const capped = Number.isInteger(maxW) ? String(maxW) : String(roundMoney2(maxW));
-                return applyLineTotals({ ...line, qty: capped }, amountsTaxInclusive);
-            }),
-        );
-    }, [modalOpen, inventoryInitialLoadDone, inventoryItems, amountsTaxInclusive]);
 
     const getSummary = () => {
         let subtotalEx = 0;
@@ -1199,7 +1199,7 @@ export default function SupplierSalesInvoices() {
         setLineItems((prev) => [...prev, newLine]);
         setSearchQuery('');
         setShowDropdown(false);
-        pendingFocusLineFieldRef.current = { lineId, fieldName: 'item' };
+        pendingFocusLineFieldRef.current = { lineId, fieldName: 'account' };
         return lineId;
     }, [amountsTaxInclusive]);
 
@@ -1230,7 +1230,7 @@ export default function SupplierSalesInvoices() {
         };
         const newLine = applyLineTotals(rawLine, amountsTaxInclusive);
         setLineItems((prev) => [...prev, newLine]);
-        pendingFocusLineFieldRef.current = { lineId, fieldName: 'item' };
+        pendingFocusLineFieldRef.current = { lineId, fieldName: 'account' };
         return lineId;
     };
 
@@ -1492,7 +1492,7 @@ export default function SupplierSalesInvoices() {
                 qtyNum > 0 ? roundMoney2(f.lineEx / qtyNum) : 0;
             return {
                 index: idx,
-                productName: String(line.item || '').trim(),
+                productName: resolveManualInvoiceLineLabel(line),
                 qty: qtyNum,
                 unitPrice: unitPriceExForApi,
                 vatRate: Number(TAXES.find((t) => t.code === line.taxCode)?.percent || 0),
@@ -1503,7 +1503,7 @@ export default function SupplierSalesInvoices() {
         if (isDraftSave) {
             const namedLine = normalizedLines.find((line) => line.productName);
             if (!namedLine) {
-                setSaveError('Add at least one product name to save a draft.');
+                setSaveError('Add at least one line with an account or item name to save a draft.');
                 return;
             }
         } else {
@@ -1512,23 +1512,39 @@ export default function SupplierSalesInvoices() {
             );
             if (invalidLine) {
                 setSaveError(
-                    `Line ${invalidLine.index + 1}: item name required, qty must be > 0, and price cannot be negative.`,
+                    `Line ${invalidLine.index + 1}: select an account (or enter item name), qty must be > 0, and price cannot be negative.`,
                 );
                 return;
             }
-            for (let i = 0; i < lineItems.length; i++) {
-                const row = lineItems[i];
-                const maxCap = maxSellableQtyForLine(row, lineItems, inventoryItems);
-                if (maxCap == null || !Number.isFinite(maxCap)) continue;
-                const qNum = normalizedLines[i].qty;
-                if (qNum > maxCap + 1e-6) {
-                    setSaveError(
-                        `Line ${i + 1}: quantity ${qNum} exceeds available supplier stock (${maxCap} ${normalizedLines[i].unit} max across this invoice).`,
-                    );
-                    return;
-                }
+            const insufficientStock = collectInsufficientStockLines(
+                lineItems,
+                normalizedLines,
+                inventoryItems,
+            );
+            if (insufficientStock.length > 0) {
+                const detail = insufficientStock
+                    .map(
+                        (row) =>
+                            `• ${row.name}: ${row.requestedQty} ${row.unit} (available: ${row.availableQty} ${row.unit})`,
+                    )
+                    .join('\n');
+                const proceed = window.confirm(
+                    `The following product(s) exceed available supplier stock:\n\n${detail}\n\nContinue anyway? Your stock inventory timeline will show a negative balance for these items.`,
+                );
+                if (!proceed) return;
             }
         }
+        const allowInsufficientStockProductIds = !isDraftSave
+            ? [
+                  ...new Set(
+                      collectInsufficientStockLines(
+                          lineItems,
+                          normalizedLines,
+                          inventoryItems,
+                      ).map((row) => row.productId),
+                  ),
+              ]
+            : [];
         setSaving(true);
         const due =
             calculatedDueDate === '—' ? issueDate : calculatedDueDate;
@@ -1588,7 +1604,14 @@ export default function SupplierSalesInvoices() {
                       invoiceCategory: 'sales_invoice',
                   }
                 : {}),
+            ...(allowInsufficientStockProductIds.length
+                ? { allowInsufficientStockProductIds }
+                : {}),
         };
+        const stockOverridePayload =
+            allowInsufficientStockProductIds.length > 0
+                ? { allowInsufficientStockProductIds }
+                : {};
         try {
             if (invoiceModalMode === 'edit' && editingInvoiceId) {
                 await updateSupplierInvoice(editingInvoiceId, {
@@ -1604,6 +1627,7 @@ export default function SupplierSalesInvoices() {
                     salesInvoiceMeta,
                     ...(isFinalizingDraft ? { status: 'pending_payment' } : {}),
                     items: itemsPayload,
+                    ...stockOverridePayload,
                 });
                 if (isDraftSave) {
                     await loadInvoiceList({ silent: true });
@@ -1634,6 +1658,7 @@ export default function SupplierSalesInvoices() {
                     salesInvoiceMeta,
                     status: isDraftSave ? 'draft' : 'pending_payment',
                     items: itemsPayload,
+                    ...stockOverridePayload,
                 });
                 if (isDraftSave) {
                     setInvoiceModalMode('edit');
@@ -2325,7 +2350,7 @@ export default function SupplierSalesInvoices() {
             setItemPickerLineId(null);
             setItemPickerInput('');
             setItemPickerFilter('');
-            focusLineField(line.id, 'item');
+            focusLineField(line.id, text ? 'item' : 'account');
             return;
         }
         if (e.key === 'Escape') {
@@ -3410,6 +3435,12 @@ export default function SupplierSalesInvoices() {
                                         line,
                                         capsRow,
                                     );
+                                    const lineQtyNum =
+                                        parseFloat(String(line.qty).replace(',', '.')) || 0;
+                                    const exceedsStock =
+                                        maxQtyCap != null &&
+                                        Number.isFinite(maxQtyCap) &&
+                                        lineQtyNum > maxQtyCap + 1e-6;
                                     return (
                                     <div
                                         key={line.id}
@@ -3466,7 +3497,7 @@ export default function SupplierSalesInvoices() {
                                                                 : (line.item ??
                                                                   '')
                                                         }
-                                                        placeholder="Select item…"
+                                                        placeholder="Item (optional)…"
                                                         onFocus={() => {
                                                             setItemPickerLineId(
                                                                 line.id,
@@ -3860,17 +3891,27 @@ export default function SupplierSalesInvoices() {
                                                 aria-label={
                                                     maxQtyCap != null &&
                                                     Number.isFinite(maxQtyCap)
-                                                        ? `Quantity. Maximum ${maxQtyCap} ${line.uom || 'pcs'} (supplier stock balance).`
+                                                        ? `Quantity. Available ${maxQtyCap} ${line.uom || 'pcs'} (supplier stock balance).`
                                                         : 'Quantity'
                                                 }
                                                 value={line.qty}
                                                 title={
                                                     maxQtyCap != null &&
                                                     Number.isFinite(maxQtyCap)
-                                                        ? `Max ${maxQtyCap} ${line.uom || 'pcs'} — supplier stock`
+                                                        ? exceedsStock
+                                                            ? `Exceeds stock (${maxQtyCap} ${line.uom || 'pcs'} available) — confirm on save`
+                                                            : `${maxQtyCap} ${line.uom || 'pcs'} available — supplier stock`
                                                         : undefined
                                                 }
                                                 className="pi-row-input-num pi-math-input"
+                                                style={
+                                                    exceedsStock
+                                                        ? {
+                                                              borderColor: '#DC2626',
+                                                              background: '#FEF2F2',
+                                                          }
+                                                        : undefined
+                                                }
                                                 ref={(el) => {
                                                     lineFieldRefs.current[`${line.id}:qty`] = el;
                                                 }}

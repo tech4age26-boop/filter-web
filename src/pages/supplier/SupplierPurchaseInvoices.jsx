@@ -57,6 +57,11 @@ const TAXES = [
     { id: 4, name: 'Exempt', percent: 0, code: 'Exempt', rate: 0 },
 ];
 
+import {
+    resolveManualInvoiceLineLabel,
+    isManualInvoiceLineComplete,
+} from '../../utils/invoiceLineLabel';
+
 function roundMoney2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -1187,7 +1192,7 @@ export default function SupplierPurchaseInvoices() {
         };
         const newLine = applyLineTotals(raw, amountsTaxInclusive);
         setLineItems((prev) => [...prev, newLine]);
-        pendingFocusLineFieldRef.current = { lineId, fieldName: 'item' };
+        pendingFocusLineFieldRef.current = { lineId, fieldName: 'account' };
         return lineId;
     };
 
@@ -1575,7 +1580,7 @@ export default function SupplierPurchaseInvoices() {
             const resolvedUnit = resolvePiLineUnitForApi(line, inv);
             return {
                 idx,
-                productName: String(line.item || '').trim(),
+                productName: resolveManualInvoiceLineLabel(line),
                 sku: String(line.sku || '').trim() || undefined,
                 supplierProductId:
                     line.supplierProductId != null &&
@@ -1593,7 +1598,7 @@ export default function SupplierPurchaseInvoices() {
             // Drafts only need at least one named line; finalize enforces the rest.
             const namedLine = normalizedLines.find((l) => l.productName);
             if (!namedLine) {
-                setCreateError('Add at least one product name to save a draft.');
+                setCreateError('Add at least one line with an account or item name to save a draft.');
                 return;
             }
         } else {
@@ -1601,7 +1606,9 @@ export default function SupplierPurchaseInvoices() {
                 (l) => !l.productName || !(l.qty > 0) || l.unitPrice < 0,
             );
             if (bad) {
-                setCreateError(`Line ${bad.idx + 1}: product name required, qty > 0, and unit price cannot be negative.`);
+                setCreateError(
+                    `Line ${bad.idx + 1}: select an account (or enter item name), qty > 0, and unit price cannot be negative.`,
+                );
                 return;
             }
         }
@@ -3016,7 +3023,7 @@ export default function SupplierPurchaseInvoices() {
                                                                 ? itemPickerInput
                                                                 : (line.item ?? '')
                                                         }
-                                                        placeholder="Select from stock…"
+                                                        placeholder="Item (optional) — or use account"
                                                         onFocus={() => {
                                                             setItemPickerLineId(line.id);
                                                             setItemPickerInput(String(line.item ?? ''));
