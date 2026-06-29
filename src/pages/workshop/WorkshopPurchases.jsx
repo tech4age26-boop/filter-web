@@ -42,6 +42,8 @@ import {
 } from '../../services/workshopSuppliersApi';
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
+import InvoiceRefField from '../../components/invoices/InvoiceRefField';
+import { getNextWorkshopPurchaseInvoiceReference } from '../../services/invoiceReferenceApi';
 import { PI_ACCOUNT_OPTIONS } from './constants';
 import {
     PURCHASE_INVOICE_VAT_RATE as VAT_RATE,
@@ -695,6 +697,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [customDueDate, setCustomDueDate] = useState(todayIso);
     const [selectedVendor, setSelectedVendor] = useState('');
     const [vendorInvoiceRef, setVendorInvoiceRef] = useState('');
+    const [refAutoGenerate, setRefAutoGenerate] = useState(false);
     const [invoiceDescription, setInvoiceDescription] = useState('');
     const [invoiceNotes, setInvoiceNotes] = useState('');
     const [invoiceDiscountValue, setInvoiceDiscountValue] = useState('0');
@@ -2280,6 +2283,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setDueDateType('Net');
             setNetDays(30);
             setVendorInvoiceRef('');
+            setRefAutoGenerate(false);
             setInvoiceDescription('');
             setInvoiceNotes('');
             setInvoiceDiscountValue('0');
@@ -2477,15 +2481,18 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 </div>
                                 <span className="pi-sub-label">Due: {calculateDueDate()}</span>
                             </div>
-                            <div className="pi-field">
-                                <label>Ref # (Optional)</label>
-                                <input
-                                    type="text"
-                                    placeholder="Vendor inv #"
-                                    value={vendorInvoiceRef}
-                                    onChange={(e) => setVendorInvoiceRef(e.target.value)}
-                                />
-                            </div>
+                            <InvoiceRefField
+                                placeholder="Vendor inv #"
+                                value={vendorInvoiceRef}
+                                onChange={setVendorInvoiceRef}
+                                autoGenerate={refAutoGenerate}
+                                onAutoGenerateChange={setRefAutoGenerate}
+                                fetchNextReference={() =>
+                                    getNextWorkshopPurchaseInvoiceReference({
+                                        branchId: invoiceBranchId || selectedBranchId,
+                                    })
+                                }
+                            />
                         </div>
                         <div className="pi-field pi-full-width">
                             <label>Supplier / Vendor *</label>

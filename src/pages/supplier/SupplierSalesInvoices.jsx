@@ -20,6 +20,8 @@ import Modal from '../../components/Modal';
 import RowActionsMenu from '../../components/RowActionsMenu';
 import InlineFormScreen from '../../components/InlineFormScreen';
 import AutoGrowTextarea from '../../components/AutoGrowTextarea';
+import InvoiceRefField from '../../components/invoices/InvoiceRefField';
+import { getNextSupplierSalesInvoiceReference } from '../../services/invoiceReferenceApi';
 import '../../styles/admin/AccountingPage.css';
 import {
     createSupplierInvoice,
@@ -873,6 +875,7 @@ export default function SupplierSalesInvoices() {
     const [netDays, setNetDays] = useState(30);
     const [customDueDate, setCustomDueDate] = useState('');
     const [refNo, setRefNo] = useState('');
+    const [refAutoGenerate, setRefAutoGenerate] = useState(false);
     const [selectedCustomerKey, setSelectedCustomerKey] = useState('');
     const [customerSearchQuery, setCustomerSearchQuery] = useState('');
     const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
@@ -1335,6 +1338,7 @@ export default function SupplierSalesInvoices() {
         setNetDays(30);
         setCustomDueDate('');
         setRefNo('');
+        setRefAutoGenerate(false);
         setSelectedCustomerKey('');
         setCustomerSearchQuery('');
         setCustomerPickerOpen(false);
@@ -3175,18 +3179,18 @@ export default function SupplierSalesInvoices() {
                                     </div>
                                     <span className="pi-sub-label">Due: {calculatedDueDate}</span>
                                 </div>
-                                <div className="pi-field">
-                                    <label>
-                                        {invoiceModalMode === 'edit' ? 'Invoice #' : 'Ref # (Optional)'}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="Ref #"
-                                        value={refNo}
-                                        readOnly={invoiceModalMode === 'edit'}
-                                        onChange={(e) => setRefNo(e.target.value)}
-                                    />
-                                </div>
+                                <InvoiceRefField
+                                    label={
+                                        invoiceModalMode === 'edit' ? 'Invoice #' : 'Ref # (Optional)'
+                                    }
+                                    placeholder="Ref #"
+                                    value={refNo}
+                                    onChange={setRefNo}
+                                    readOnly={invoiceModalMode === 'edit'}
+                                    autoGenerate={refAutoGenerate}
+                                    onAutoGenerateChange={setRefAutoGenerate}
+                                    fetchNextReference={getNextSupplierSalesInvoiceReference}
+                                />
                             </div>
 
                             <div className="pi-header-grid">

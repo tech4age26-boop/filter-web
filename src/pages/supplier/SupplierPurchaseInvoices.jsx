@@ -18,6 +18,8 @@ import Modal from '../../components/Modal';
 import RowActionsMenu from '../../components/RowActionsMenu';
 import InlineFormScreen from '../../components/InlineFormScreen';
 import AutoGrowTextarea from '../../components/AutoGrowTextarea';
+import InvoiceRefField from '../../components/invoices/InvoiceRefField';
+import { getNextSupplierPurchaseInvoiceReference } from '../../services/invoiceReferenceApi';
 import SupplierSuperSupplierPurchasesPanel from './SupplierSuperSupplierPurchasesPanel';
 import '../../styles/admin/AccountingPage.css';
 import {
@@ -388,6 +390,7 @@ export default function SupplierPurchaseInvoices() {
     const [netDays, setNetDays] = useState(30);
     const [customDueDate, setCustomDueDate] = useState('');
     const [refNo, setRefNo] = useState('');
+    const [refAutoGenerate, setRefAutoGenerate] = useState(false);
     /** Selected super-supplier ID (upstream vendor); required for purchase invoice. */
     const [superSupplierId, setSuperSupplierId] = useState('');
     const [description, setDescription] = useState('');
@@ -1359,6 +1362,7 @@ export default function SupplierPurchaseInvoices() {
     const resetCreateForm = () => {
         setLineItems([]);
         setRefNo('');
+        setRefAutoGenerate(false);
         setSuperSupplierId('');
         setDescription('');
         setInternalNotes('');
@@ -2866,10 +2870,15 @@ export default function SupplierPurchaseInvoices() {
                                     </div>
                                     <span className="pi-sub-label">Due: {calculatedDueDate}</span>
                                 </div>
-                                <div className="pi-field">
-                                    <label>Ref # (Optional)</label>
-                                    <input type="text" placeholder="Vendor inv #" value={refNo} onChange={(e) => setRefNo(e.target.value)} />
-                                </div>
+                                <InvoiceRefField
+                                    placeholder="Vendor inv #"
+                                    value={refNo}
+                                    onChange={setRefNo}
+                                    readOnly={sspPurchaseModalMode === 'edit'}
+                                    autoGenerate={refAutoGenerate}
+                                    onAutoGenerateChange={setRefAutoGenerate}
+                                    fetchNextReference={getNextSupplierPurchaseInvoiceReference}
+                                />
                             </div>
 
                             <div className="pi-field pi-full-width">

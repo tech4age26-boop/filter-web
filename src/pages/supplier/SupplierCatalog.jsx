@@ -54,6 +54,7 @@ function mapMasterCatalogRow(p) {
         min_order_qty: 1,
         stock_qty: Number(p.currentStock ?? p.stockQty ?? p.quantityOnHand ?? p.stock ?? 0),
         description: descParts.join(' · '),
+        isActive: p.isActive !== false,
         _approval: p.isActive === false ? 'Rejected' : 'Approved',
     };
 }
@@ -130,11 +131,10 @@ export default function SupplierCatalog() {
         listSupplierMasterCatalogProducts({ signal })
             .then((productsRes) => {
                 const raw = unwrapProducts(productsRes);
-                const approved = raw.filter((p) => p.isActive !== false);
-                setMasterProducts(approved);
+                setMasterProducts(raw);
 
                 const catMap = new Map();
-                approved.forEach((p) => {
+                raw.forEach((p) => {
                     if (!p?.categoryId || !p?.categoryName) return;
                     catMap.set(String(p.categoryId), p.categoryName);
                 });
@@ -372,6 +372,8 @@ export default function SupplierCatalog() {
 
     const toggleSelectProduct = (productId) => {
         const id = String(productId);
+        const master = masterProducts.find((p) => String(p.id) === id);
+        if (master?.isActive === false) return;
         setSelectedProductIds((prev) => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
@@ -383,7 +385,12 @@ export default function SupplierCatalog() {
     /** All products matching current filters (all pages — same set as shown in “N products”). */
     const selectAllFiltered = () => {
         setSelectedProductIds(
-            new Set(filteredRaw.map((p) => String(p?.id ?? '')).filter(Boolean)),
+            new Set(
+                filteredRaw
+                    .filter((p) => p.isActive !== false)
+                    .map((p) => String(p?.id ?? ''))
+                    .filter(Boolean),
+            ),
         );
     };
 
@@ -925,7 +932,9 @@ export default function SupplierCatalog() {
                             (p) => String(p.id) === String(item.id),
                         );
                         const added = masterProduct ? isAlreadyAdded(masterProduct) : false;
+                        const masterInactive = masterProduct?.isActive === false || item.isActive === false;
                         let supplierWhQty = 0;
+                        let supplierProductInactive = false;
                         if (added && masterProduct) {
                             const skuKey = String(masterProduct.sku || '')
                                 .trim()
@@ -951,10 +960,12 @@ export default function SupplierCatalog() {
                                             .trim()
                                             .toLowerCase() === nameKey,
                                 );
+                            supplierProductInactive = sp?.isActive === false;
                             supplierWhQty = Number(
                                 sp?.warehouseQty ?? sp?.qty ?? sp?.currentQuantity ?? 0,
                             );
                         }
+                        const showInactive = masterInactive || supplierProductInactive;
                         return (
                             <div
                                 key={item.id}
@@ -973,10 +984,11 @@ export default function SupplierCatalog() {
                                     boxShadow: isSelected
                                         ? '0 6px 16px rgba(245, 158, 11, 0.14)'
                                         : '0 2px 6px rgba(15, 23, 42, 0.04)',
-                                    cursor: 'pointer',
+                                    cursor: showInactive ? 'default' : 'pointer',
+                                    opacity: showInactive ? 0.72 : 1,
                                 }}
                                 className="ws-section"
-                                onClick={() => toggleSelectProduct(item.id)}
+                                onClick={() => !showInactive && toggleSelectProduct(item.id)}
                             >
                                 <div
                                     style={{
@@ -1037,6 +1049,20 @@ export default function SupplierCatalog() {
                                                     {item.category}
                                                 </span>
                                             ) : null}
+                                            {showInactive ? (
+                                                <span
+                                                    className="ws-badge ws-badge--gray"
+                                                    style={{
+                                                        marginTop: 4,
+                                                        marginLeft: item.category ? 4 : 0,
+                                                        display: 'inline-block',
+                                                        fontSize: '0.625rem',
+                                                        padding: '2px 6px',
+                                                    }}
+                                                >
+                                                    Inactive
+                                                </span>
+                                            ) : null}
                                             <p
                                                 style={{
                                                     fontSize: '0.6875rem',
@@ -1066,7 +1092,7 @@ export default function SupplierCatalog() {
                                         </div>
                                         <label
                                             style={{
-                                                display: 'inline-flex',
+                                                display: showInactive ? 'none' : 'inline-flex',
                                                 alignItems: 'center',
                                                 gap: 4,
                                                 fontSize: '0.625rem',
