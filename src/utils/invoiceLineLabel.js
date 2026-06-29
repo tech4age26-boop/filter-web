@@ -1,3 +1,21 @@
+const GL_ACCOUNT_LABELS = new Set([
+    'sales revenue',
+    'cost of goods sold',
+    'rent expense',
+    'utilities expense',
+    'salaries & wages',
+    'inventory asset',
+]);
+
+/** True when a stored line label is a GL account name/code rather than a product. */
+export function isLikelyGlAccountLabel(name) {
+    const n = String(name ?? '').trim();
+    if (!n) return true;
+    if (/^\d{4}$/.test(n)) return true;
+    if (/^\d{4}\s*-\s*.+$/i.test(n)) return true;
+    return GL_ACCOUNT_LABELS.has(n.toLowerCase());
+}
+
 /** Split "1410 - Inventory Asset" → { code, name } */
 export function parseAccountDisplay(accountDisplay) {
     const s = String(accountDisplay || '').trim();
@@ -18,6 +36,35 @@ export function resolveManualInvoiceLineLabel(line, searchText = '') {
     if (name) return name;
     if (code) return code;
     return '';
+}
+
+/**
+ * Invoice line display/save name: typed item → linked catalog product → GL account label.
+ */
+export function resolveInvoiceLineProductName(line, options = {}) {
+    const searchText = options.searchText ?? line?.item ?? '';
+    const item = String(searchText).trim();
+    if (item) return item;
+
+    const productId = String(
+        options.productId ??
+            line?.supplierStockProductId ??
+            line?.supplierProductId ??
+            line?.productId ??
+            '',
+    ).trim();
+    const inventoryItems = options.inventoryItems;
+    if (productId && Array.isArray(inventoryItems)) {
+        const match = inventoryItems.find((p) => {
+            const id = String(p?.id ?? '').trim();
+            const sid = String(p?.supplierStockProductId ?? '').trim();
+            return id === productId || sid === productId;
+        });
+        const catalogName = String(match?.name ?? '').trim();
+        if (catalogName) return catalogName;
+    }
+
+    return resolveManualInvoiceLineLabel(line, searchText);
 }
 
 /** Line is ready to submit without a catalog product (account + qty + price). */
