@@ -100,6 +100,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import PublicWpiVerifyPage from './pages/PublicWpiVerifyPage';
 import PublicSinvVerifyPage from './pages/PublicSinvVerifyPage';
 import PublicSspVerifyPage from './pages/PublicSspVerifyPage';
+import PublicAprVerifyPage from './pages/PublicAprVerifyPage';
 
 function App() {
   return (
@@ -114,6 +115,7 @@ function App() {
             <Route path="/verify/wpi/:id" element={<PublicWpiVerifyPage />} />
             <Route path="/verify/sinv/:id" element={<PublicSinvVerifyPage />} />
             <Route path="/verify/ssp/:id" element={<PublicSspVerifyPage />} />
+            <Route path="/verify/apr/:qrToken" element={<PublicAprVerifyPage />} />
 
             <Route path="/admin/login" element={<SignInPage />} />
             <Route path="/:portalId/login" element={<PortalLoginPage />} />

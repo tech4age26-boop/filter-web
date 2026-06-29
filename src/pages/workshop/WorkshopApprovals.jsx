@@ -6,7 +6,7 @@ import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplie
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
-import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn, listWorkshopCashBankAccounts } from '../../services/workshopStaffApi';
+import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn, listWorkshopCashBankAccounts, listAffiliatedPurchaseReturns, approveAffiliatedPurchaseReturn } from '../../services/workshopStaffApi';
 import { approveExpenseRequest, rejectExpenseRequest } from '../../services/employeeExpenseApi';
 import { useAuth } from '../../context/AuthContext';
 
@@ -199,6 +199,10 @@ function isSalesReturnRow(row) {
     return row?._source === 'sales_return';
 }
 
+function isAffiliatedPurchaseReturnRow(row) {
+    return row?._source === 'affiliated_purchase_return';
+}
+
 function formatAdminWalletApproverSummary(row) {
     if (String(row?.status || '').toLowerCase() !== 'approved') return null;
     const parts = [];
@@ -222,6 +226,7 @@ function isAdminWalletExpenseRow(row) {
 
 function approvalTypeKey(row) {
     if (isSupplierSalesInvoiceRow(row)) return 'supplier-invoice';
+    if (isAffiliatedPurchaseReturnRow(row)) return 'supplier-invoice';
     if (isSalesReturnRow(row)) return 'sales-return';
     if (isAdminWalletFundRow(row)) return 'top-up';
     if (isAdminWalletExpenseRow(row)) return 'expense';
@@ -321,6 +326,7 @@ function isExpenseRequest(row) {
 
 function formatRequestKindLabel(row) {
     if (isSupplierSalesInvoiceRow(row)) return 'Supplier invoice';
+    if (isAffiliatedPurchaseReturnRow(row)) return 'Purchase return';
     if (isSalesReturnRow(row)) return 'Sales return';
     if (isAdminWalletFundRow(row)) return 'Platform admin fund';
     if (isAdminWalletExpenseRow(row)) return 'Platform admin expense';
@@ -431,7 +437,7 @@ export default function WorkshopApprovals({
             const supplierBranchScope = branchLockedId
                 ? branchScopeParams(branchLockedId)
                 : {};
-            const [response, siRes, srRes, adminWalletRes] = await Promise.all([
+            const [response, siRes, srRes, aprRes, adminWalletRes] = await Promise.all([
                 apiFetch(`/workshop-staff/petty-cash/requests${qs(pettyQs)}`),
                 loadSupplierInvoices
                     ? apiFetch(
@@ -448,6 +454,13 @@ export default function WorkshopApprovals({
                           status: 'pending',
                           limit: 100,
                           offset: 0,
+                          ...branchScopeParams(selectedBranchId),
+                          ...expenseScope,
+                      }).catch(() => null)
+                    : Promise.resolve(null),
+                queueFilter === 'all' || queueFilter === 'pending'
+                    ? listAffiliatedPurchaseReturns({
+                          status: 'pending',
                           ...branchScopeParams(selectedBranchId),
                           ...expenseScope,
                       }).catch(() => null)
@@ -522,6 +535,27 @@ export default function WorkshopApprovals({
                 items: sr.items,
             }));
 
+            const aprList = Array.isArray(aprRes?.items) ? aprRes.items : [];
+            const purchaseReturnRows = aprList.map((pr) => ({
+                id: `purchase-return-${pr.id}`,
+                _source: 'affiliated_purchase_return',
+                purchaseReturnId: pr.id,
+                kind: 'purchase_return',
+                status: pr.status || 'pending',
+                amount: Number(pr.grandTotal ?? 0),
+                returnNumber: pr.returnNumber,
+                invoiceNo: pr.sourcePurchaseInvoiceNumber,
+                supplierName: pr.supplierName,
+                supplierId: pr.supplierId,
+                branchId: pr.branchId,
+                branchName: pr.branchName,
+                supplierSalesReturnNo: pr.supplierSalesReturnNo,
+                requestedAt: pr.issueDate,
+                reason: pr.supplierSalesReturnNo
+                    ? `Linked supplier return ${pr.supplierSalesReturnNo}`
+                    : null,
+            }));
+
             const adminWalletRows = Array.isArray(adminWalletRes?.requests)
                 ? adminWalletRes.requests.map((r) => ({
                     id: `admin-wallet-${r.kind}-${r.id}`,
@@ -544,7 +578,7 @@ export default function WorkshopApprovals({
                 }))
                 : [];
 
-            const merged = [...supplierRows, ...salesReturnRows, ...adminWalletRows, ...list].sort((a, b) => {
+            const merged = [...supplierRows, ...purchaseReturnRows, ...salesReturnRows, ...adminWalletRows, ...list].sort((a, b) => {
                 const ta = new Date(a.requestedAt || a.createdAt || 0).getTime();
                 const tb = new Date(b.requestedAt || b.createdAt || 0).getTime();
                 return tb - ta;
@@ -613,6 +647,7 @@ export default function WorkshopApprovals({
             if (requestTypeFilter === 'topup') return isTopUpRequest(a) || isAdminWalletFundRow(a);
             if (requestTypeFilter === 'expenses') return isExpenseRequest(a) || isAdminWalletExpenseRow(a);
             if (requestTypeFilter === 'supplier_invoices') return isSupplierSalesInvoiceRow(a);
+            if (requestTypeFilter === 'purchase_returns') return isAffiliatedPurchaseReturnRow(a);
             if (requestTypeFilter === 'sales_returns') return isSalesReturnRow(a);
             return true;
         });
@@ -623,6 +658,7 @@ export default function WorkshopApprovals({
         payment: 'ws-badge--green',
         advance: 'ws-badge--purple',
         purchase: 'ws-badge--purple',
+        purchase_return: 'ws-badge--purple',
         supplier_invoice: 'ws-badge--purple',
         sales_return: 'ws-badge--blue',
         admin_wallet_fund: 'ws-badge--blue',
@@ -647,6 +683,32 @@ export default function WorkshopApprovals({
                 window.dispatchEvent(new CustomEvent('workshop-inventory-updated', { detail: { branchId: row.branchId, source: 'approve_sales_return' } }));
             } catch (error) {
                 setLoadError(error.message || 'Failed to approve sales return.');
+            } finally {
+                setActionLoadingId(null);
+            }
+            return;
+        }
+        if (isAffiliatedPurchaseReturnRow(row)) {
+            if (row.status !== 'pending') return;
+            const rid = row.purchaseReturnId;
+            const ok = window.confirm(
+                `Approve purchase return ${row.returnNumber || ''}?\n\n` +
+                    `Branch stock will decrease and the linked supplier return will be finalized.\n\n` +
+                    `This action cannot be undone.`,
+            );
+            if (!ok) return;
+            setActionLoadingId(`approve-apr-${rid}`);
+            try {
+                await approveAffiliatedPurchaseReturn(rid);
+                await loadApprovals();
+                window.dispatchEvent(new Event('workshop-approvals-updated'));
+                window.dispatchEvent(
+                    new CustomEvent('workshop-inventory-updated', {
+                        detail: { branchId: row.branchId, source: 'approve_purchase_return' },
+                    }),
+                );
+            } catch (error) {
+                setLoadError(error.message || 'Failed to approve purchase return.');
             } finally {
                 setActionLoadingId(null);
             }
@@ -1315,6 +1377,9 @@ export default function WorkshopApprovals({
                         hasPermission('workshop.approvals.view') ? (
                             <option value="supplier_invoices">Supplier invoices</option>
                         ) : null}
+                        {(hasPermission('workshop.approvals.supplier-invoice.view') || hasPermission('workshop.approvals.view')) && (
+                            <option value="purchase_returns">Purchase returns</option>
+                        )}
                         {(hasPermission('workshop.approvals.sales-return.view') || hasPermission('workshop.approvals.view')) && (
                             <option value="sales_returns">Sales returns</option>
                         )}
@@ -1362,11 +1427,19 @@ export default function WorkshopApprovals({
                         ) : (
                             filtered.map((a) => {
                                 const isSupplier = isSupplierSalesInvoiceRow(a);
+                                const isPurchaseReturn = isAffiliatedPurchaseReturnRow(a);
                                 const isSalesReturn = isSalesReturnRow(a);
-                                const kindKey = isSupplier ? 'supplier_invoice' : isSalesReturn ? 'sales_return' : requestKindKey(a);
-                                const pettyPending = !isSupplier && !isSalesReturn && a.status === 'pending';
+                                const kindKey = isSupplier
+                                    ? 'supplier_invoice'
+                                    : isPurchaseReturn
+                                      ? 'purchase_return'
+                                      : isSalesReturn
+                                        ? 'sales_return'
+                                        : requestKindKey(a);
+                                const pettyPending = !isSupplier && !isPurchaseReturn && !isSalesReturn && a.status === 'pending';
                                 const rowActionable =
                                     (isSupplier && supplierRowCanAct(a)) ||
+                                    (isPurchaseReturn && a.status === 'pending') ||
                                     (isSalesReturn && a.status === 'pending') ||
                                     pettyPending;
                                 const allowApprove = rowActionable && canApproveType(a);
@@ -1388,6 +1461,12 @@ export default function WorkshopApprovals({
                                                     }}
                                                 >
                                                     {a.invoiceNo}
+                                                </div>
+                                            ) : null}
+                                            {isPurchaseReturn && a.returnNumber ? (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
+                                                    {a.returnNumber}
+                                                    {a.invoiceNo ? ` · PI ${a.invoiceNo}` : ''}
                                                 </div>
                                             ) : null}
                                             {isSalesReturn && a.invoiceNo ? (
@@ -1416,9 +1495,11 @@ export default function WorkshopApprovals({
                                         <td>
                                             {isSupplier
                                                 ? a.supplier?.name || 'Supplier'
-                                                : isSalesReturn
-                                                  ? a.cashierName || 'Cashier'
-                                                  : a.cashier?.name || a.employee?.name || '—'}
+                                                : isPurchaseReturn
+                                                  ? a.supplierName || 'Supplier'
+                                                  : isSalesReturn
+                                                    ? a.cashierName || 'Cashier'
+                                                    : a.cashier?.name || a.employee?.name || '—'}
                                         </td>
                                         <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                                             {formatDate(a.requestedAt)}

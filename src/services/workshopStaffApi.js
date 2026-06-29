@@ -822,6 +822,23 @@ export const listWorkshopSupplierPurchaseInvoices = (params = {}) =>
 /** Workshop — single invoice */
 export const getWorkshopSupplierPurchaseInvoice = (invoiceId) =>
     apiFetch(`/workshop-staff/supplier-purchase-invoices/${encodeURIComponent(String(invoiceId))}`);
+export const listAffiliatedPurchaseReturns = (params = {}) =>
+    apiFetch(`/workshop-staff/affiliated-purchase-returns${qs(params)}`);
+export const getAffiliatedPurchaseReturn = (returnId) =>
+    apiFetch(`/workshop-staff/affiliated-purchase-returns/${encodeURIComponent(String(returnId))}`);
+export const createAffiliatedPurchaseReturn = (body) =>
+    apiFetch('/workshop-staff/affiliated-purchase-returns', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+export const approveAffiliatedPurchaseReturn = (returnId) =>
+    apiFetch(`/workshop-staff/affiliated-purchase-returns/${encodeURIComponent(String(returnId))}/approve`, {
+        method: 'POST',
+    });
+export const confirmAffiliatedPurchaseReturnQr = (returnId) =>
+    apiFetch(`/workshop-staff/affiliated-purchase-returns/${encodeURIComponent(String(returnId))}/confirm-qr`, {
+        method: 'POST',
+    });
 
 /**
  * Workshop — supplier-scoped last purchase prices for the PI form.

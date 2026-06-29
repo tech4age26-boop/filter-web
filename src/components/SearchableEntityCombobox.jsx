@@ -26,6 +26,8 @@ export default function SearchableEntityCombobox({
     entityLabel = 'item',
     className = '',
     loading = false,
+    menuMinWidth = 280,
+    portalClassName = '',
 }) {
     const [open, setOpen] = useState(false);
     const [highlightIdx, setHighlightIdx] = useState(0);
@@ -61,14 +63,14 @@ export default function SearchableEntityCombobox({
         setMenuStyle({
             position: 'fixed',
             left: rect.left,
-            width: Math.max(rect.width, 280),
-            maxWidth: Math.min(480, window.innerWidth - rect.left - 16),
+            width: Math.max(rect.width, menuMinWidth),
+            maxWidth: Math.min(Math.max(menuMinWidth, 480), window.innerWidth - rect.left - 16),
             zIndex: 10050,
             ...(openUp
                 ? { bottom: window.innerHeight - rect.top + gap, maxHeight: height }
                 : { top: rect.bottom + gap, maxHeight: height }),
         });
-    }, []);
+    }, [menuMinWidth]);
 
     const clearBlurTimer = useCallback(() => {
         if (blurTimerRef.current) {
@@ -185,7 +187,7 @@ export default function SearchableEntityCombobox({
                           listRef.current = node;
                           portalRef.current = node;
                       }}
-                      className="sf-entity-dropdown-portal"
+                      className={`sf-entity-dropdown-portal ${portalClassName}`.trim()}
                       style={menuStyle}
                       role="listbox"
                       onMouseDown={(e) => {
@@ -213,6 +215,9 @@ export default function SearchableEntityCombobox({
                                           <div className="pi-item-meta">{opt.subtitle}</div>
                                       ) : null}
                                   </div>
+                                  {opt.trailing ? (
+                                      <div className="pi-result-trailing">{opt.trailing}</div>
+                                  ) : null}
                               </div>
                           ))
                       )}

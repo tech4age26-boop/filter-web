@@ -90,6 +90,31 @@ export function publicReceiveSupplierSalesInvoiceWithPassword(id, password, opts
     );
 }
 
+export function getPublicAffiliatedPurchaseReturnVerify(qrToken) {
+    if (!qrToken || String(qrToken).trim() === '') {
+        return Promise.reject(new Error('Missing QR token'));
+    }
+    return apiFetch(
+        `/public/affiliated-purchase-returns/${encodeURIComponent(String(qrToken))}`,
+    );
+}
+
+export function publicConfirmAffiliatedPurchaseReturnWithPassword(qrToken, password) {
+    if (!qrToken || String(qrToken).trim() === '') {
+        return Promise.reject(new Error('Missing QR token'));
+    }
+    if (!password || String(password).trim() === '') {
+        return Promise.reject(new Error('Password is required'));
+    }
+    return apiFetch(
+        `/public/affiliated-purchase-returns/${encodeURIComponent(String(qrToken))}/confirm`,
+        {
+            method: 'POST',
+            body: JSON.stringify({ password: String(password) }),
+        },
+    );
+}
+
 /** Public super-supplier purchase bill (upstream vendor) — no login. */
 export function getPublicSuperSupplierPurchaseVerify(id) {
     if (id == null || id === '') {

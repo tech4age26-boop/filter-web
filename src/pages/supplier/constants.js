@@ -27,6 +27,7 @@ export const NAV_GROUPS = [
     ]},
     { label: 'FINANCE', items: [
         { id: 'sales_invoices', label: 'Sales Invoices (AR)', icon: FileText },
+        { id: 'sales_returns', label: 'Sales Returns', icon: Receipt },
         {
             id: 'affiliated_workshops',
             label: 'Affiliated Filter workshops',

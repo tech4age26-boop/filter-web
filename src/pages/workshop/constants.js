@@ -13,6 +13,7 @@ export const NAV_ITEMS = [
     { id: 'catalog-new', label: 'Master Catalog', icon: Package, permission: 'workshop.catalog.view' },
     { id: 'inventory', label: 'Manage Inventory', icon: Archive, permission: 'workshop.inventory.view' },
     { id: 'purchases', label: 'Purchase Invoices', icon: ShoppingCart, permission: 'workshop.purchases.view' },
+    { id: 'purchase-returns', label: 'Purchase Returns', icon: RotateCcw, permission: 'workshop.purchases.view' },
     { id: 'sales-returns', label: 'Sales Returns', icon: RotateCcw, permission: 'workshop.sales-returns.view' },
     { id: 'discounts', label: 'Discounts', icon: TicketPercent, permission: 'workshop.reports.view' },
     { id: 'suppliers', label: 'Suppliers & Purchases', icon: Truck, permission: 'workshop.suppliers.view' },
