@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Home, Package, FileText, Store, DollarSign, Tag, Users,
-    RotateCcw, Clock, List, ShoppingBag, LogOut, Play, Loader2,
+    RotateCcw, Clock, List, ShoppingBag, LogOut, Play, Loader2, MessageCircle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../services/api';
@@ -25,9 +25,15 @@ import CounterClosingScreen from '../components/pos/CounterClosingScreen';
 import YourJobsView from '../components/pos/YourJobsView';
 import CustomerHistory from '../components/pos/CustomerHistory';
 import { POSProvider, usePOS } from '../context/POSContext';
+import CashierPlatformChatPage from './pos/CashierPlatformChatPage';
+import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
+import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import { isPlatformChatNavId } from '../utils/platformChatForUser';
+import '../styles/admin/PlatformChat.css';
 
 const NAV_ITEMS = [
     { id: 'home',          label: 'Home',          Icon: Home },
+    { id: 'chat',          label: 'Chat',          Icon: MessageCircle },
     { id: 'products',      label: 'Products',      Icon: Package },
     { id: 'orders',        label: 'Orders',        Icon: FileText },
     { id: 'takeaway',      label: 'Takeaway',      Icon: ShoppingBag },
@@ -186,6 +192,14 @@ function POSContent() {
         );
     }
 
+    if (screen === 'chat') {
+        return (
+            <div className="portal-layout--chat-fullscreen">
+                <CashierPlatformChatPage />
+            </div>
+        );
+    }
+
     const renderScreen = () => {
         switch (screen) {
             case 'home':
@@ -284,6 +298,7 @@ function POSContent() {
                         }}
                     />
                 );
+            case 'chat':          return null;
             case 'products':      return <ProductsScreen />;
             case 'orders':        return <OrdersScreen />;
             case 'takeaway':      return <TakeawayScreen />;
@@ -340,6 +355,7 @@ function POSContent() {
                                 <span style={{ fontSize: '0.875rem', fontWeight: sel ? 800 : 500, color: sel ? '#000' : 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap' }}>
                                     {label}
                                 </span>
+                                {isPlatformChatNavId(id) && <PlatformChatNavBadge />}
                             </button>
                         );
                     })}
@@ -406,6 +422,7 @@ function POSContent() {
                     }
                 }
             `}</style>
+            <PlatformChatFab hidden={screen === 'chat'} onClick={() => setScreen('chat')} />
         </div>
     );
 }

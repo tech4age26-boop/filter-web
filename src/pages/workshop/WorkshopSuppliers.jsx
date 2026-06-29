@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ShoppingCart, Plus, RefreshCw, Loader, AlertCircle, Eye } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WorkshopAddSupplierScreen from './WorkshopAddSupplierScreen';
+import { AnimatePresence } from 'framer-motion';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
+import Modal from '../../components/Modal';
 import { PI_INVENTORY_ITEMS } from './constants';
 import { useAuth } from '../../context/AuthContext';
 
@@ -260,6 +263,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                         {error}
                     </div>
                 )}
+                <WsTableScroll>
                 <table className="ws-table">
                     <thead>
                         <tr>
@@ -343,6 +347,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
                 {!loading && total != null && total > PURCHASES_PAGE_SIZE ? (
                     <div
                         style={{
@@ -857,7 +862,8 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                         </div>
                     )}
                     <div className="ws-section">
-                        <table className="ws-table">
+                        <WsTableScroll>
+                <table className="ws-table">
                             <thead>
                                 <tr>
                                     <th>Supplier Name</th>
@@ -936,6 +942,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 )}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                     </div>
                 </>
             )}

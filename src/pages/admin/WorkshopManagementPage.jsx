@@ -278,6 +278,7 @@ function workshopRowToEditForm(w) {
             gpsLat: '',
             gpsLng: '',
             status: 'approved',
+            resetPassword: '',
         };
     }
     return {
@@ -292,6 +293,7 @@ function workshopRowToEditForm(w) {
         gpsLat: w.gpsLat != null && w.gpsLat !== '' ? String(w.gpsLat) : '',
         gpsLng: w.gpsLng != null && w.gpsLng !== '' ? String(w.gpsLng) : '',
         status: normalizeWorkshopEditStatus(w),
+        resetPassword: '',
     };
 }
 
@@ -320,6 +322,10 @@ function buildUpdateWorkshopBody(form) {
     const lng = form.gpsLng === '' || form.gpsLng == null ? NaN : Number(form.gpsLng);
     if (!Number.isNaN(lat)) out.gpsLat = lat;
     if (!Number.isNaN(lng)) out.gpsLng = lng;
+    if (form.resetPassword != null) {
+        const pwd = String(form.resetPassword).trim();
+        if (pwd !== '') out.ownerUserPassword = pwd;
+    }
     return out;
 }
 
@@ -559,9 +565,17 @@ export default function WorkshopManagementPage() {
             alert('Nothing to update.');
             return;
         }
+        const newPassword = String(editForm.resetPassword ?? '').trim();
         setEditSaving(true);
         try {
             await updateWorkshop(id, body);
+            if (newPassword) {
+                try {
+                    sessionStorage.setItem(sessionKeyWorkshopOwnerPassword(id), newPassword);
+                } catch {
+                    /* ignore quota / private mode */
+                }
+            }
             const fresh = await getWorkshops({ limit: '100', offset: '0' });
             setWorkshops(normalizeWorkshopsPayload(fresh));
             setEditWorkshop(null);
@@ -899,6 +913,20 @@ export default function WorkshopManagementPage() {
                                 value={editForm.email}
                                 onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
                             />
+                        </div>
+                        <div className="form-group" style={{ marginTop: 15 }}>
+                            <label className="form-label">Reset password</label>
+                            <input
+                                type="password"
+                                className="form-input-field"
+                                autoComplete="new-password"
+                                placeholder="Leave empty to keep current password"
+                                value={editForm.resetPassword}
+                                onChange={(e) => setEditForm({ ...editForm, resetPassword: e.target.value })}
+                            />
+                            <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 4 }}>
+                                Updates the workshop owner portal login. Saved in this browser session for WhatsApp credentials.
+                            </p>
                         </div>
                         <div className="form-group" style={{ marginTop: 15 }}>
                             <label className="form-label">Address</label>

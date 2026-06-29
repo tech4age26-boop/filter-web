@@ -1,10 +1,10 @@
 // Default: production/staging. Override with VITE_API_BASE_URL (see .env.development).
-// export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 
 // production url
 // export const BASE_URL  = 'https://api.filtercarservices.com';
 
-export const BASE_URL = 'http://localhost:3000';
+// export const BASE_URL = 'http://localhost:3000';
 
 
 const API_LOADING_EVENT = 'filter-api-loading';
@@ -117,7 +117,9 @@ function isInvalidSession401(errorBody) {
     msg.includes("bound to a workshop") ||
     msg.includes("not linked to a workshop") ||
     msg.includes("workshopid query param is required") ||
-    msg.includes("workshopid is required")
+    msg.includes("workshopid is required") ||
+    msg.includes("super admin access only") ||
+    msg.includes("missing permission:")
   ) {
     return false;
   }

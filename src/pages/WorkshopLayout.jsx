@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { Building2, LogOut, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Building2, LogOut, AlertTriangle, ChevronDown, ChevronRight, Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     NAV_ITEMS,
@@ -9,7 +9,7 @@ import { STAFF_APP_TAB_SLUG, STAFF_APP_PERMISSION_FALLBACK, STAFF_APP_LEGACY_ROU
 import StaffAppPage from './workshop/staff-app/StaffAppPage';
 import WorkshopEmployees from './workshop/WorkshopEmployees';
 import WorkshopApprovals from './workshop/WorkshopApprovals';
-import WorkshopPettyCashManagement from './workshop/WorkshopPettyCashManagement';
+import WorkshopMyPettyCash from './workshop/WorkshopMyPettyCash';
 import WorkshopDashboard from './workshop/WorkshopDashboard';
 import WorkshopDepartments from './workshop/WorkshopDepartments';
 import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
@@ -26,9 +26,16 @@ import WorkshopBranches from './workshop/WorkshopBranches';
 import WorkshopCommissions from './workshop/WorkshopCommissions';
 import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
+import WorkshopAccountLedgerPage from './workshop/accounting/WorkshopAccountLedgerPage';
 import WorkshopAffiliatedSuppliers from './workshop/WorkshopAffiliatedSuppliers';
 import WorkshopNonAffiliatedSuppliers from './workshop/WorkshopNonAffiliatedSuppliers';
 import WorkshopSupplierLedger from './workshop/WorkshopSupplierLedger';
+import WorkshopPlatformChatPage from './workshop/WorkshopPlatformChatPage';
+import MyWalletPage from './admin/MyWalletPage';
+import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
+import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import { isPlatformChatNavId } from '../utils/platformChatForUser';
+import '../styles/admin/PlatformChat.css';
 import { apiFetch } from '../services/api';
 import { workshopLogout } from '../services/authApi';
 import {
@@ -45,7 +52,7 @@ import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
 
 /** Tabs reachable by in-app navigation but not listed in the sidebar. */
-const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger']);
+const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger', 'acc-ledger-statement']);
 
 function parseLedgerTabStateFromSearch(search) {
     const params = new URLSearchParams(search || '');
@@ -116,11 +123,14 @@ export default function WorkshopLayout() {
                     });
                     return visibleSubs.length > 0 ? { ...item, subItems: visibleSubs } : null;
                 }
+                if (item.walletRequired) {
+                    return user?.walletEnabled ? item : null;
+                }
                 if (item.permission && !hasPermission(item.permission)) return null;
                 return item;
             })
             .filter(Boolean),
-        [hasPermission],
+        [hasPermission, user?.walletEnabled],
     );
 
     const handleLogout = async () => {
@@ -144,6 +154,9 @@ export default function WorkshopLayout() {
             return tab || 'sap-overview';
         }
         if (main === 'accounting' && sub) {
+            if (sub === 'ledger' && parts[3]) {
+                return 'acc-ledger-statement';
+            }
             const mapping = {
                 'chart-of-accounts': 'acc-chart',
                 'cash-bank': 'acc-cash',
@@ -231,6 +244,7 @@ export default function WorkshopLayout() {
     }, [location.pathname, location.search]);
 
     const handleTabChange = (tabId, state = null) => {
+        setIsMobileMenuOpen(false);
         setActiveTab(tabId);
         setTabState(state);
         
@@ -280,6 +294,11 @@ export default function WorkshopLayout() {
         accounting: activeTab.startsWith('acc-'),
         'staff-app': activeTab.startsWith('sap-'),
     });
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+    useEffect(() => {
+        setIsMobileMenuOpen(false);
+    }, [location.pathname, location.search]);
 
     const toggleMenu = (id) => {
         setOpenMenus(prev => ({ ...prev, [id]: !prev[id] }));
@@ -467,6 +486,7 @@ export default function WorkshopLayout() {
             case 'acc-payroll':
             case 'acc-approvals':
             case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'acc-ledger-statement': return <WorkshopAccountLedgerPage />;
             case 'sap-overview':
             case 'sap-expenses':
             case 'sap-requests':
@@ -486,6 +506,10 @@ export default function WorkshopLayout() {
                         onNavigate={handleTabChange}
                     />
                 );
+            case 'platform-chat':
+                return null;
+            case 'my-wallet':
+                return <MyWalletPage />;
             case 'employees':
                 return (
                     <WorkshopEmployees
@@ -571,7 +595,7 @@ export default function WorkshopLayout() {
             case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'my-petty-cash':
                 return (
-                    <WorkshopPettyCashManagement
+                    <WorkshopMyPettyCash
                         selectedBranchId={selectedBranch}
                         branches={activeBranches}
                     />
@@ -602,16 +626,38 @@ export default function WorkshopLayout() {
             : activeTab.startsWith('sap-')
                 ? 'Staff App Management'
                 : NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
-    const topbarSubtitle = activeTab === 'catalog-new' ? 'Corporate master catalog' : selectedBranchName;
+    const topbarSubtitle = activeTab === 'my-wallet'
+        ? ''
+        : activeTab === 'catalog-new'
+            ? 'Corporate master catalog'
+            : selectedBranchName;
+
+    const isWalletTab = activeTab === 'my-wallet';
+
+    if (activeTab === 'platform-chat') {
+        return (
+            <div className="portal-layout--chat-fullscreen">
+                <WorkshopPlatformChatPage />
+            </div>
+        );
+    }
 
     return (
-        <div className="workshop-layout">
-            <aside className="ws-sidebar">
+        <div className={`workshop-layout${isMobileMenuOpen ? ' mobile-menu-open' : ''}${isWalletTab ? ' workshop-layout--my-wallet' : ''}`}>
+            {isMobileMenuOpen && (
+                <button
+                    type="button"
+                    className="ws-sidebar-overlay"
+                    aria-label="Close navigation menu"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                />
+            )}
+            <aside className={`ws-sidebar${isMobileMenuOpen ? ' open' : ''}`}>
                 <div className="ws-logo">
                     <div className="ws-logo-icon"><Building2 size={20}/></div>
                     <div><p className="ws-logo-title">Filter Admin Workshop</p><p className="ws-logo-sub">Portal</p></div>
                 </div>
-                {activeTab !== 'catalog-new' && activeBranches.length > 0 && (
+                {activeTab !== 'catalog-new' && !isWalletTab && activeBranches.length > 0 && (
                 <div className="ws-branch-selector">
                     <select
                         className="ws-branch-select"
@@ -652,6 +698,7 @@ export default function WorkshopLayout() {
                                 >
                                     <item.icon size={18} stroke="currentColor" />
                                     <span>{item.label}</span>
+                                    {isPlatformChatNavId(item.id) && <PlatformChatNavBadge />}
                                     {hasSub && (
                                         <span style={{ marginLeft: 'auto', opacity: 0.5 }}>
                                             {isOpen ? <ChevronDown size={14} stroke="currentColor" /> : <ChevronRight size={14} stroke="currentColor" />}
@@ -711,7 +758,21 @@ export default function WorkshopLayout() {
             </aside>
             <div className="ws-main">
                 <header className="ws-topbar">
-                    <div><p className="ws-topbar-title">{currentLabel}</p><p className="ws-topbar-sub">{topbarSubtitle}</p></div>
+                    <div className="ws-topbar-left">
+                        <button
+                            type="button"
+                            className="ws-mobile-menu-toggle"
+                            onClick={() => setIsMobileMenuOpen((open) => !open)}
+                            aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+                            aria-expanded={isMobileMenuOpen}
+                        >
+                            {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+                        </button>
+                        <div>
+                            <p className="ws-topbar-title">{currentLabel}</p>
+                            <p className="ws-topbar-sub">{topbarSubtitle}</p>
+                        </div>
+                    </div>
                     <div className="ws-topbar-right">
                         {dashboardLowStockCount > 0 && (
                             <button className="ws-alert-badge" onClick={() => setActiveTab('departments')}>
@@ -721,16 +782,22 @@ export default function WorkshopLayout() {
                         <div className="ws-online-badge"><div className="ws-online-dot"/> Online</div>
                     </div>
                 </header>
-                <main className="ws-content">
-                    {apiLoading && (
-                        <div className="ws-global-loader" role="status" aria-live="polite">
-                            <div className="ws-global-loader__spinner" />
-                            <span>Loading...</span>
+                {apiLoading && (
+                    <div className="ws-global-loader" role="status" aria-live="polite">
+                        <div className="ws-global-loader__inner">
+                            <div className="ws-global-loader__spinner" aria-hidden="true" />
+                            <span className="ws-global-loader__text">Loading...</span>
                         </div>
-                    )}
+                    </div>
+                )}
+                <main className={`ws-content${isWalletTab ? ' ws-content--my-wallet' : ''}`}>
                     {renderContent()}
                 </main>
             </div>
+            <PlatformChatFab
+                hidden={activeTab === 'platform-chat'}
+                onClick={() => handleTabChange('platform-chat')}
+            />
         </div>
     );
 }

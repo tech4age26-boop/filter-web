@@ -102,6 +102,10 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/tax-codes',        permission: 'tax-codes.view' },
     { path: '/admin/marketing',        permission: 'marketing.view' },
     { path: '/admin/permissions',      permission: 'permissions.view' },
+    { path: '/admin/admin-wallets',    permission: 'admin-wallets.view' },
+    { path: '/admin/my-wallet', walletRequired: true },
+    { path: '/admin/chat',             permission: 'chat.view' },
+    { path: '/admin/demo-invoices',    permission: 'demo-invoices.view' },
     // OPERATIONS (sub-items: redirect to their parent route — InventoryPage handles default sub-tab)
     { path: '/admin/inventory/master-catalog',   permission: 'inventory.master-catalog.view' },
     { path: '/admin/inventory/stock-movements',  permission: 'inventory.stock-movements.view' },
@@ -109,6 +113,7 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/customers/all-customers',    permission: 'customers.all-customers.view' },
     { path: '/admin/customers/corporate-billing', permission: 'customers.corporate-billing.view' },
     { path: '/admin/suppliers', permission: 'suppliers.view' },
+    { path: '/admin/storage-facility', permission: 'storage-facility.view' },
     { path: '/admin/employees', permission: 'employees.view' },
     { path: '/admin/branches',  permission: 'branches.view' },
     { path: '/admin/workshop',  permission: 'workshop.view' },
@@ -136,29 +141,55 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/softpos-settlement',               permission: 'softpos-settlement.view' },
 ];
 
+function adminSidebarEntryAllowed(user, codes, entry) {
+    if (entry.walletRequired) return Boolean(user?.walletEnabled);
+    if (entry.permission) return codes.has(entry.permission);
+    return true;
+}
+
 /**
  * Compute the URL the user should land on after login (admin portal).
  *
- * Uses the same bootstrap rules as `hasPermission`:
+ * Uses the same bootstrap rules as `AuthContext.userHas`:
  *   - platform_admin without role / with system role → /admin/dashboard
  *   - any user without permissions field → /admin/dashboard (legacy)
- *   - otherwise pick the first sidebar item their role permits
- *   - fallback: /admin/dashboard
+ *   - user with no role assigned → /admin/dashboard (signup bootstrap)
+ *   - otherwise pick the first sidebar item their role permits (never dashboard
+ *     unless they have dashboard.view)
  */
-export function firstVisibleAdminPath(user) {
+export function firstVisibleAdminPath(user, options = {}) {
     if (!user) return '/admin/dashboard';
-    const codes = Array.isArray(user.permissions) ? new Set(user.permissions) : null;
 
-    // Bootstrap bypass — same as AuthContext.userHas
     if (user.userType === 'platform_admin' && (!user.role || user.role?.isSystem)) {
         return '/admin/dashboard';
     }
-    if (!codes || codes.size === 0) return '/admin/dashboard';
 
-    const match = ADMIN_SIDEBAR_ORDER.find((entry) =>
-        entry.permission ? codes.has(entry.permission) : true,
+    const codes = Array.isArray(user.permissions) ? new Set(user.permissions) : null;
+    if (!codes) return '/admin/dashboard';
+
+    if (!user.role) return '/admin/dashboard';
+
+    const excludePaths = new Set(
+        (options.excludePaths ?? []).map((p) => String(p).replace(/\/$/, '')),
     );
-    return match?.path ?? '/admin/dashboard';
+
+    const match = ADMIN_SIDEBAR_ORDER.find(
+        (entry) =>
+            !excludePaths.has(entry.path) &&
+            adminSidebarEntryAllowed(user, codes, entry),
+    );
+    if (match) return match.path;
+
+    if (user.walletEnabled && !excludePaths.has('/admin/my-wallet')) {
+        return '/admin/my-wallet';
+    }
+
+    return '/admin/permissions';
+}
+
+/** First admin route the user can open after leaving fullscreen chat (never /admin/chat). */
+export function adminHomePathAfterChat(user) {
+    return firstVisibleAdminPath(user, { excludePaths: ['/admin/chat'] });
 }
 
 const WORKSHOP_ACC_TAB_SLUG = {
@@ -209,7 +240,17 @@ function workshopUserCanAccessCode(user, codes, permission) {
     }
     if (!codes) return true;
     if (!user.role) return true;
-    return codes.has(permission);
+    if (codes.has(permission)) return true;
+    if (permission === 'workshop.platform-chat.view' && codes.has('chat.view')) return true;
+    if (permission === 'workshop.platform-chat.create' && codes.has('chat.create')) return true;
+    return false;
+}
+
+function workshopNavItemAllowed(user, codes, item) {
+    if (item.walletRequired) return Boolean(user?.walletEnabled);
+    if (item.subItems?.length) return false;
+    if (!item.permission) return true;
+    return workshopUserCanAccessCode(user, codes, item.permission);
 }
 
 /**
@@ -234,9 +275,13 @@ export function firstVisibleWorkshopPath(user) {
             if (visibleSubs.length > 0) {
                 return workshopTabToPath(visibleSubs[0].id);
             }
-        } else if (workshopUserCanAccessCode(user, codes, item.permission)) {
+        } else if (workshopNavItemAllowed(user, codes, item)) {
             return workshopTabToPath(item.id);
         }
+    }
+
+    if (user.walletEnabled) {
+        return '/workshop/my-wallet';
     }
 
     return null;

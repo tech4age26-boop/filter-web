@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Loader2, RefreshCw, Plus, Trash2, Edit2, Eye, X, FileText, Search,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 import {
     listDemoInvoices,
     getDemoInvoice,
@@ -45,6 +46,12 @@ function toLocalDateTimeInput(raw) {
  * admin only.
  */
 export default function DemoInvoicesPage() {
+    const { hasPermission } = useAuth();
+    const canView = hasPermission('demo-invoices.view');
+    const canCreate = hasPermission('demo-invoices.create');
+    const canEdit = hasPermission('demo-invoices.edit');
+    const canDelete = hasPermission('demo-invoices.delete');
+
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
@@ -58,6 +65,7 @@ export default function DemoInvoicesPage() {
     const [viewRow, setViewRow] = useState(null);
 
     const load = useCallback(async () => {
+        if (!canView) return;
         setLoading(true);
         setError('');
         try {
@@ -76,7 +84,7 @@ export default function DemoInvoicesPage() {
         } finally {
             setLoading(false);
         }
-    }, [filterWorkshopId, search, page]);
+    }, [canView, filterWorkshopId, search, page]);
 
     useEffect(() => { void load(); }, [load]);
     useEffect(() => { setPage(1); }, [filterWorkshopId, search]);
@@ -106,6 +114,7 @@ export default function DemoInvoicesPage() {
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
     const handleDelete = async (row) => {
+        if (!canDelete) return;
         if (!window.confirm(`Delete demo invoice ${row.invoiceNo}?`)) return;
         try {
             await deleteDemoInvoice(row.id);
@@ -133,6 +142,14 @@ export default function DemoInvoicesPage() {
     };
     const cellTd = { padding: '12px', verticalAlign: 'middle', fontSize: '0.8125rem' };
 
+    if (!canView) {
+        return (
+            <div style={{ padding: 20 }}>
+                <p style={{ color: '#64748b' }}>You do not have permission to view Demo Invoices.</p>
+            </div>
+        );
+    }
+
     return (
         <div style={{ padding: 20 }}>
             <header style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -153,13 +170,15 @@ export default function DemoInvoicesPage() {
                     >
                         <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => { setEditId(null); setModalOpen(true); }}
-                        style={btnPrimary}
-                    >
-                        <Plus size={14} /> New Demo Invoice
-                    </button>
+                    {canCreate && (
+                        <button
+                            type="button"
+                            onClick={() => { setEditId(null); setModalOpen(true); }}
+                            style={btnPrimary}
+                        >
+                            <Plus size={14} /> New Demo Invoice
+                        </button>
+                    )}
                 </div>
             </header>
 
@@ -240,12 +259,16 @@ export default function DemoInvoicesPage() {
                                         <button type="button" onClick={() => openView(r)} style={iconBtn('#1d4ed8', '#eff6ff', '#bfdbfe')} title="View">
                                             <Eye size={13} />
                                         </button>
-                                        <button type="button" onClick={() => { setEditId(r.id); setModalOpen(true); }} style={iconBtn('#92400e', '#fef3c7', '#fde68a')} title="Edit">
-                                            <Edit2 size={13} />
-                                        </button>
-                                        <button type="button" onClick={() => handleDelete(r)} style={iconBtn('#991b1b', '#fef2f2', '#fecaca')} title="Delete">
-                                            <Trash2 size={13} />
-                                        </button>
+                                        {canEdit && (
+                                            <button type="button" onClick={() => { setEditId(r.id); setModalOpen(true); }} style={iconBtn('#92400e', '#fef3c7', '#fde68a')} title="Edit">
+                                                <Edit2 size={13} />
+                                            </button>
+                                        )}
+                                        {canDelete && (
+                                            <button type="button" onClick={() => handleDelete(r)} style={iconBtn('#991b1b', '#fef2f2', '#fecaca')} title="Delete">
+                                                <Trash2 size={13} />
+                                            </button>
+                                        )}
                                     </div>
                                 </td>
                             </tr>

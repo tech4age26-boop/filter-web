@@ -45,3 +45,12 @@ export const updateWalkInSettings = ({ autoApproveCorporateWalkIns }) =>
         method: 'PATCH',
         body: JSON.stringify({ autoApproveCorporateWalkIns: !!autoApproveCorporateWalkIns }),
     });
+
+/** HQ Cash & Bank registers for admin wallet fund approval. */
+export const listAdminWalletCashAccounts = ({ workshopId, branchId } = {}) => {
+    const params = new URLSearchParams();
+    if (workshopId) params.set('workshopId', String(workshopId));
+    if (branchId) params.set('branchId', String(branchId));
+    const qs = params.toString();
+    return apiFetch(`/super-admin/approvals/admin-wallet-cash-accounts${qs ? `?${qs}` : ''}`);
+};

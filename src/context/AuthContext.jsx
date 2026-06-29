@@ -15,6 +15,20 @@ const AuthContext = createContext(null);
  *      even if the role's permission list is empty (admin can deliberately
  *      restrict a user to nothing)
  */
+const WORKSHOP_CHAT_PERMISSION_ALIASES = {
+    'workshop.platform-chat.view': ['chat.view'],
+    'workshop.platform-chat.create': ['chat.create'],
+};
+
+const WALLET_IMPLICIT_PERMISSIONS = new Set([
+    'workshop.my-wallet.view',
+    'workshop.my-wallet.create',
+    'workshop.platform-chat.view',
+    'workshop.platform-chat.create',
+    'chat.view',
+    'chat.create',
+]);
+
 function userHas(user, permissionSet, code) {
     if (!code) return true;
     if (!user) return false;
@@ -27,8 +41,14 @@ function userHas(user, permissionSet, code) {
     if (!permissionSet) return true;
     // 3. Fresh signup — no role assigned yet → default = everything visible
     if (!user.role) return true;
-    // 4. Role assigned → strict check (empty role.permissions blocks everything)
-    return permissionSet.has(code);
+    // 4. Wallet-enabled workshop users — My Wallet + Platform Chat
+    if (user.walletEnabled && WALLET_IMPLICIT_PERMISSIONS.has(code)) {
+        return true;
+    }
+    // 5. Role assigned → strict check (empty role.permissions blocks everything)
+    if (permissionSet.has(code)) return true;
+    const aliases = WORKSHOP_CHAT_PERMISSION_ALIASES[code];
+    return Boolean(aliases?.some((alias) => permissionSet.has(alias)));
 }
 
 export const AuthProvider = ({ children }) => {

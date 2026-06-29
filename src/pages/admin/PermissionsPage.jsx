@@ -5,7 +5,7 @@ import {
     ShieldCheck, Users,
     UserCircle, ChevronDown, ChevronRight,
     Building, Wrench, Store, ScrollText, Sparkles, Briefcase,
-    Loader2, RefreshCcw, AlertCircle,
+    Loader2, RefreshCcw, AlertCircle, Wallet,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -13,6 +13,7 @@ import ApprovalsPage from './ApprovalsPage';
 import * as permissionsApi from '../../services/permissionsApi';
 import { getWorkshopOptions, getBranches } from '../../services/superAdminApi';
 import { codesToActionsByTab, flattenActionsByTab } from '../../utils/permissions';
+import { portalLoginHint, portalRequiresWorkshopScope } from '../../utils/permissionsPortalUtils';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/PermissionsPage.css';
 
@@ -925,6 +926,7 @@ function UserModal({ onClose, onSave, roles, saving }) {
     const [email, setEmail] = useState('');
     const [mobile, setMobile] = useState('');
     const [password, setPassword] = useState('');
+    const [assignWallet, setAssignWallet] = useState(false);
 
     const [workshops, setWorkshops] = useState([]);
     const [branches, setBranches] = useState([]);
@@ -985,6 +987,7 @@ function UserModal({ onClose, onSave, roles, saving }) {
             password,
             mobile: mobile.trim() || undefined,
             isSuperAdmin,
+            assignWallet,
             workshopId: isSuperAdmin ? null : workshopId,
             branchId: isSuperAdmin ? null : branchId,
             workshopRole: isSuperAdmin ? null : (workshopRole || null),
@@ -1036,6 +1039,32 @@ function UserModal({ onClose, onSave, roles, saving }) {
                         if (v) { setWorkshopId(''); setBranchId(''); setWorkshopRole(''); }
                         setAssignRoleId('');
                     }} />
+                </div>
+
+                <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '12px 14px', borderRadius: 12,
+                    border: `2px solid ${assignWallet ? '#d97706' : '#e2e8f0'}`,
+                    background: assignWallet ? '#fffbeb' : '#fff',
+                    marginBottom: 16, transition: 'all 0.15s',
+                }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <div style={{
+                            width: 36, height: 36, borderRadius: 10,
+                            background: assignWallet ? '#f59e0b' : '#f1f5f9',
+                            color: assignWallet ? '#fff' : '#64748b',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <Wallet size={18} />
+                        </div>
+                        <div>
+                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem' }}>Assign Wallet</div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                Create a SAR wallet (0 balance) — user can request funds and record expenses later.
+                            </div>
+                        </div>
+                    </div>
+                    <ToggleSwitch checked={assignWallet} onChange={setAssignWallet} />
                 </div>
 
                 {/* Identity */}
@@ -1204,10 +1233,13 @@ function ToggleSwitch({ checked, onChange }) {
 
 function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
     const [roleId, setRoleId] = useState(user.role?.id ?? '');
+    const [resetPassword, setResetPassword] = useState('');
+    const [assignWallet, setAssignWallet] = useState(Boolean(user.walletEnabled));
+    const initialPortal = portalIdForUser(user) || user.role?.portal || 'workshop';
+    const [selectedPortal, setSelectedPortal] = useState(initialPortal);
+    const [workshopStaffRole, setWorkshopStaffRole] = useState(user.workshopStaffRole ?? '');
 
-    // Workshop / branch are editable only for non-platform-admin users
-    // (Super Admin users are unscoped — they don't belong to any workshop).
-    const isWorkshopScoped = user.userType !== 'platform_admin';
+    const needsWorkshopScope = portalRequiresWorkshopScope(selectedPortal);
     const [workshopId, setWorkshopId] = useState(user.workshopId ?? '');
     const [branchId, setBranchId] = useState(user.branchId ?? '');
 
@@ -1216,20 +1248,20 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
     const [loadingWs, setLoadingWs] = useState(false);
     const [loadingBr, setLoadingBr] = useState(false);
 
-    // Load workshops once when the modal opens (only if user is workshop-scoped).
+    // Load workshops when the selected portal requires workshop / branch scope.
     useEffect(() => {
-        if (!isWorkshopScoped) return;
+        if (!needsWorkshopScope) return;
         setLoadingWs(true);
         getWorkshopOptions()
             .then((res) => setWorkshops(res?.workshops ?? []))
             .catch(() => setWorkshops([]))
             .finally(() => setLoadingWs(false));
-    }, [isWorkshopScoped]);
+    }, [needsWorkshopScope]);
 
     // Load branches whenever the workshop selection changes. Reset branchId
     // if it no longer belongs to the new workshop.
     useEffect(() => {
-        if (!isWorkshopScoped || !workshopId) { setBranches([]); return; }
+        if (!needsWorkshopScope || !workshopId) { setBranches([]); return; }
         setLoadingBr(true);
         getBranches({ workshopId })
             .then((res) => {
@@ -1243,60 +1275,106 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
             .catch(() => setBranches([]))
             .finally(() => setLoadingBr(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [workshopId, isWorkshopScoped]);
+    }, [workshopId, needsWorkshopScope]);
 
-    // Strict portal filter — only show roles for the user's actual portal.
-    //   - platform_admin user → super_admin roles only
-    //   - workshop_user / workshop_owner → workshop roles only
-    //   - cashier / corporate / supplier / technician → their respective portal
-    // Edge case 1: if we can't determine portal, show everything (fallback).
-    // Edge case 2: if the user is currently assigned a role from a different
-    //   portal (legacy data), keep that role visible so the admin can see what
-    //   they had — but flag it via the portalMismatch warning below.
-    const userPortal = portalIdForUser(user);
     const assignableRoles = useMemo(() => {
-        if (!userPortal) return roles;
-        const matching = roles.filter((r) => r.portal === userPortal);
+        const matching = roles.filter((r) => r.portal === selectedPortal);
         if (user.role?.id && !matching.some((r) => String(r.id) === String(user.role.id))) {
             const current = roles.find((r) => String(r.id) === String(user.role.id));
-            if (current) return [current, ...matching];
+            if (current && String(current.id) === String(roleId)) {
+                return [current, ...matching.filter((r) => String(r.id) !== String(current.id))];
+            }
         }
         return matching;
-    }, [roles, userPortal, user.role?.id]);
+    }, [roles, selectedPortal, user.role?.id, roleId]);
 
     const selectedRole = roles.find((r) => String(r.id) === String(roleId));
-    // Portal mismatch is now impossible via the dropdown — but keep the warning
-    // in case the user's previously-assigned role was from a different portal
-    // (e.g., legacy data).
-    const portalMismatch = selectedRole && userPortal && selectedRole.portal !== userPortal;
+    const portalMismatch = selectedRole && selectedRole.portal !== selectedPortal;
+
+    const handlePortalChange = (nextPortal) => {
+        setSelectedPortal(nextPortal);
+        const currentRole = roles.find((r) => String(r.id) === String(roleId));
+        if (currentRole && currentRole.portal !== nextPortal) {
+            setRoleId('');
+        }
+        if (nextPortal === 'super_admin') {
+            setWorkshopId('');
+            setBranchId('');
+        }
+    };
 
     const handleSubmit = () => {
-        // Build the patch payload: include workshop/branch only if changed
-        // (or whenever user is workshop-scoped — backend ignores "undefined"
-        // semantics, so we send only fields the admin can actually change).
-        const opts = {};
-        if (isWorkshopScoped) {
-            opts.workshopId = workshopId || null;
-            opts.branchId   = branchId   || null;
+        const pwd = resetPassword.trim();
+        if (pwd && pwd.length < 6) {
+            alert('Password must be at least 6 characters');
+            return;
         }
+        if (needsWorkshopScope && (!workshopId || !branchId)) {
+            alert('Workshop and branch are required for this portal');
+            return;
+        }
+        const opts = {
+            assignWallet,
+            portal: selectedPortal,
+        };
+        if (needsWorkshopScope) {
+            opts.workshopId = workshopId || null;
+            opts.branchId = branchId || null;
+            if (selectedPortal === 'workshop') {
+                opts.workshopRole = workshopStaffRole || null;
+            }
+        } else if (selectedPortal === 'super_admin') {
+            opts.workshopId = null;
+            opts.branchId = null;
+        }
+        if (pwd) opts.password = pwd;
         onSave(user.id, roleId ? String(roleId) : null, opts);
     };
 
     return (
         <Modal
-            title={`Edit role — ${user.name || user.email}`}
+            title={`Edit user — ${user.name || user.email}`}
             onClose={onClose}
             className="create-role-modal"
             footer={(
                 <div className="modal-footer-actions">
                     <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-                    <button type="button" className="btn-submit" onClick={handleSubmit} disabled={saving}>
+                    <button type="button" className="btn-submit" onClick={handleSubmit} disabled={saving || portalMismatch}>
                         {saving ? 'Saving…' : 'Save Changes'}
                     </button>
                 </div>
             )}
         >
             <div className="create-role-form">
+                {/* Assign Wallet — available for any portal user */}
+                <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '12px 14px', borderRadius: 12,
+                    border: `2px solid ${assignWallet ? '#d97706' : '#e2e8f0'}`,
+                    background: assignWallet ? '#fffbeb' : '#fff',
+                    marginBottom: 16, transition: 'all 0.15s',
+                }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <div style={{
+                            width: 36, height: 36, borderRadius: 10,
+                            background: assignWallet ? '#f59e0b' : '#f1f5f9',
+                            color: assignWallet ? '#fff' : '#64748b',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                            <Wallet size={18} />
+                        </div>
+                        <div>
+                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem' }}>Assign Wallet</div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                {user.walletEnabled
+                                    ? 'SAR wallet is active — user can request funds and record expenses.'
+                                    : 'Create a SAR wallet (0 balance) — user can request funds and record expenses later.'}
+                            </div>
+                        </div>
+                    </div>
+                    <ToggleSwitch checked={assignWallet} onChange={setAssignWallet} />
+                </div>
+
                 {/* User summary */}
                 <div style={{
                     display: 'flex', gap: 12, alignItems: 'center',
@@ -1311,8 +1389,8 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
                         <div style={{ fontWeight: 800, color: '#0f172a' }}>{user.name || '—'}</div>
                         <div style={{ fontSize: '0.8125rem', color: '#64748b' }}>{user.email || '—'}</div>
                         <div style={{ marginTop: 4, display: 'flex', gap: 6, alignItems: 'center', fontSize: '0.75rem' }}>
-                            <span style={portalPillStyle(userPortal)}>
-                                {PORTALS.find((p) => p.id === userPortal)?.label ?? user.userType}
+                            <span style={portalPillStyle(selectedPortal)}>
+                                {PORTALS.find((p) => p.id === selectedPortal)?.label ?? selectedPortal}
                             </span>
                             {user.workshopName && (
                                 <span style={{ color: '#64748b' }}>· {user.workshopName}</span>
@@ -1321,6 +1399,34 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
                                 <span style={{ color: '#94a3b8' }}>/ {user.branchName}</span>
                             )}
                         </div>
+                    </div>
+                </div>
+
+                {/* Login portal assignment */}
+                <div style={{
+                    marginBottom: 14, padding: '12px 14px', borderRadius: 12,
+                    border: '2px solid #e2e8f0', background: '#fff',
+                }}>
+                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem', marginBottom: 8 }}>
+                        Login portal
+                    </div>
+                    <div className="form-group">
+                        <label>Assign portal *</label>
+                        <select
+                            className="form-input"
+                            value={selectedPortal}
+                            onChange={(e) => handlePortalChange(e.target.value)}
+                            style={selectStyle}
+                        >
+                            {PORTALS.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                    {p.label} — {p.desc}
+                                </option>
+                            ))}
+                        </select>
+                        <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: '#64748b', lineHeight: 1.45 }}>
+                            {portalLoginHint(selectedPortal)}
+                        </p>
                     </div>
                 </div>
 
@@ -1340,19 +1446,19 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
                     )}
                 </div>
 
-                {/* Workshop + Branch — only for non-Super-Admin users */}
-                {isWorkshopScoped && (
+                {/* Workshop + Branch — for workshop / cashier / technician portals */}
+                {needsWorkshopScope && (
                     <>
                         <div style={{
                             marginTop: 4, marginBottom: 10, padding: '8px 12px',
                             borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0',
                             fontSize: '0.75rem', color: '#166534', fontWeight: 600,
                         }}>
-                            Workshop scope — change which workshop / branch this user belongs to.
+                            Workshop scope — required for the selected portal login.
                         </div>
                         <div className="form-row">
                             <div className="form-group flex-1">
-                                <label>Workshop</label>
+                                <label>Workshop *</label>
                                 <select
                                     className="form-input"
                                     value={workshopId}
@@ -1370,7 +1476,7 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
                                 </select>
                             </div>
                             <div className="form-group flex-1">
-                                <label>Branch</label>
+                                <label>Branch *</label>
                                 <select
                                     className="form-input"
                                     value={branchId}
@@ -1385,6 +1491,25 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
                                 </select>
                             </div>
                         </div>
+                        {selectedPortal === 'workshop' && (
+                            <div className="form-row">
+                                <div className="form-group flex-1">
+                                    <label>Workshop Role</label>
+                                    <select
+                                        className="form-input"
+                                        value={workshopStaffRole}
+                                        onChange={(e) => setWorkshopStaffRole(e.target.value)}
+                                        style={selectStyle}
+                                    >
+                                        <option value="">— None —</option>
+                                        {WORKSHOP_ROLE_OPTIONS.map((r) => (
+                                            <option key={r.id} value={r.id}>{r.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="form-group flex-1" />
+                            </div>
+                        )}
                     </>
                 )}
 
@@ -1408,6 +1533,23 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
                     </div>
                 </div>
 
+                <div className="form-row">
+                    <div className="form-group flex-1">
+                        <label>Reset password</label>
+                        <input
+                            type="password"
+                            className="form-input"
+                            autoComplete="new-password"
+                            placeholder="Leave empty to keep current password"
+                            value={resetPassword}
+                            onChange={(e) => setResetPassword(e.target.value)}
+                        />
+                        <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                            Min 6 characters. Applies to this user&apos;s portal login.
+                        </p>
+                    </div>
+                </div>
+
                 {portalMismatch && (
                     <div style={{
                         marginTop: 10, padding: '10px 14px', borderRadius: 8,
@@ -1415,9 +1557,8 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
                         fontSize: '0.8125rem', color: '#92400e',
                     }}>
                         <strong>⚠ Portal mismatch:</strong> this role is designed for the
-                        <strong> {selectedRole.portal} </strong> portal but the user belongs to the
-                        <strong> {userPortal ?? user.userType} </strong> portal. The role will still
-                        be applied — but its permission codes may not match this portal's pages.
+                        <strong> {selectedRole.portal} </strong> portal but you selected
+                        <strong> {selectedPortal} </strong>. Pick a matching role before saving.
                     </div>
                 )}
 

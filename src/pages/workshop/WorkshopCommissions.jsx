@@ -4,6 +4,7 @@ import { Clock, CheckCircle, Users, Wallet, Calendar, AlertCircle } from 'lucide
 import Modal from '../../components/Modal';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import WorkshopCommissionRules from '../../components/commissions/WorkshopCommissionRules';
 import { useAuth } from '../../context/AuthContext';
@@ -847,6 +848,7 @@ export default function WorkshopCommissions({
             </div>
 
             <div className="ws-commissions-table-wrapper">
+                <WsTableScroll>
                 <table className="ws-table">
                     <thead>
                         <tr>
@@ -953,6 +955,7 @@ export default function WorkshopCommissions({
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
             </div>
 
             {listTotal > PAGE_SIZE && (

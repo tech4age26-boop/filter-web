@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { apiFetch } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
@@ -923,14 +924,19 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         const masterId = dept.departmentId || dept.masterId || dept.id;
         const currentlyActive = Boolean(dept.isActive ?? dept.status === 'active');
         const nextActive = !currentlyActive;
-        const msg = nextActive
-            ? `Reactivate "${dept.name}" for this workshop?\n\nLinked categories, products, and services under this department will also be marked active.`
-            : `Deactivate "${dept.name}" for this workshop?\n\nAll categories, products, and services under this department will be marked inactive and hidden from new sales, purchases, and catalog picks.\n\nPast invoices and historical records stay unchanged — nothing is deleted.`;
+        const branchLabel = selectedBranchName || 'this branch';
+        const msg = branchScope
+            ? nextActive
+                ? `Reactivate "${dept.name}" on ${branchLabel} only?\n\nCategories, products, and services under this department on this branch will be marked active. Other branches are not affected.`
+                : `Deactivate "${dept.name}" on ${branchLabel} only?\n\nCategories, products, and services under this department on this branch will be marked inactive.\n\nOther branches stay unchanged. Past invoices are unchanged — nothing is deleted.`
+            : nextActive
+              ? `Reactivate "${dept.name}" for the entire workshop?\n\nLinked categories, products, and services on all branches will be marked active.`
+              : `Deactivate "${dept.name}" for the entire workshop?\n\nAll categories, products, and services under this department will be marked inactive on every branch.\n\nPast invoices and historical records stay unchanged — nothing is deleted.`;
         if (!window.confirm(msg)) return;
         setDeptStatusLoadingId(String(masterId));
         setDeptError('');
         try {
-            await patchWorkshopDepartmentActive(masterId, nextActive);
+            await patchWorkshopDepartmentActive(masterId, nextActive, branchScope || undefined);
             await loadDepartments();
             await loadCategories();
             await loadProducts();
@@ -1405,25 +1411,43 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 </div>
             )}
 
-            <div style={{display:'flex',gap:8,marginBottom:20,borderBottom:'1px solid var(--color-border)'}}>
+            <div className="ws-dept-tabs">
                 {hasPermission('workshop.departments.departments.view') && (
-                    <button onClick={() => setActiveTab('departments')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='departments' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='departments' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('departments')}
+                        className={`ws-dept-tab${activeTab === 'departments' ? ' active' : ''}`}
+                    >
                         Departments ({departments.length})
                     </button>
                 )}
                 {hasPermission('workshop.departments.products.view') && (
-                    <button onClick={() => setActiveTab('products')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='products' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='products' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('products')}
+                        className={`ws-dept-tab${activeTab === 'products' ? ' active' : ''}`}
+                    >
                         Products ({productItems.length})
-                        {criticalCount > 0 && <span className="ws-nav-badge" style={{marginLeft:4}}>{criticalCount}</span>}
+                        {criticalCount > 0 && (
+                            <span className="ws-nav-badge ws-dept-tab-badge">{criticalCount}</span>
+                        )}
                     </button>
                 )}
                 {hasPermission('workshop.departments.services.view') && (
-                    <button onClick={() => setActiveTab('services')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='services' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='services' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('services')}
+                        className={`ws-dept-tab${activeTab === 'services' ? ' active' : ''}`}
+                    >
                         Services ({serviceItems.length})
                     </button>
                 )}
                 {hasPermission('workshop.departments.categories.view') && (
-                    <button onClick={() => setActiveTab('categories')} style={{padding:'10px 18px',border:'none',borderBottom: activeTab==='categories' ? '2px solid var(--color-text-dark)' : '2px solid transparent',background:'none',fontWeight:700,fontSize:'0.875rem',color: activeTab==='categories' ? 'var(--color-text-dark)' : 'var(--color-text-muted)',cursor:'pointer'}}>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('categories')}
+                        className={`ws-dept-tab${activeTab === 'categories' ? ' active' : ''}`}
+                    >
                         Categories ({categories.length})
                     </button>
                 )}
@@ -1447,6 +1471,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         </div>
                     )}
                     <div className="ws-section">
+                        <WsTableScroll>
                         <table className="ws-table">
                             <thead><tr><th>Name</th><th>Branches</th><th>Status</th>{(canEditDept || (branchScope && canDeleteDept)) && <th>Actions</th>}</tr></thead>
                             <tbody>
@@ -1510,6 +1535,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 })}
                             </tbody>
                         </table>
+                        </WsTableScroll>
                     </div>
                 </div>
             )}
@@ -1553,7 +1579,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         </div>
                     </div>
                     <div className="ws-section">
-                        <div style={{overflowX:'auto'}}>
+                        <WsTableScroll>
                             <table className="ws-table">
                                 <thead>
                                     <tr>
@@ -1631,7 +1657,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                     );
                                 })}</tbody>
                             </table>
-                        </div>
+                        </WsTableScroll>
                     </div>
                 </div>
             )}
@@ -1672,7 +1698,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         </div>
                     </div>
                     <div className="ws-section">
-                        <div style={{overflowX:'auto'}}>
+                        <WsTableScroll>
                             <table className="ws-table">
                                 <thead><tr><th style={{ width: 44 }}>
                                     <input
@@ -1716,7 +1742,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                     );
                                 })}</tbody>
                             </table>
-                        </div>
+                        </WsTableScroll>
                     </div>
                 </div>
             )}
@@ -1739,7 +1765,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         </div>
                     )}
                     <div className="ws-section">
-                        <div style={{overflowX:'auto'}}>
+                        <WsTableScroll>
                             <table className="ws-table">
                                 <thead><tr><th>Name</th><th>Type</th><th>Department</th><th>Branches</th><th>Status</th>{branchScope && <th>Actions</th>}</tr></thead>
                                 <tbody>
@@ -1781,7 +1807,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                     })}
                                 </tbody>
                             </table>
-                        </div>
+                        </WsTableScroll>
                     </div>
                 </div>
             )}

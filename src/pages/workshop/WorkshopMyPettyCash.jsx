@@ -1,125 +1,54 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Wallet, Plus, MessageSquare, RefreshCw, Clock } from 'lucide-react';
+import { Wallet, RefreshCw, Clock, MessageSquare } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
     getMyPettyCash,
     getMyExpenseRequests,
-    submitFundRequest,
-    submitExpense,
-    listExpenseCategories,
 } from '../../services/employeeExpenseApi';
-import { getWorkshopBranches, unwrapWorkshopBranchesResponse } from '../../services/workshopStaffApi';
 import WorkshopPettyCashManagement from './WorkshopPettyCashManagement';
+import PettyCashRecordForms from './PettyCashRecordForms';
 import { StatusBadge, MessageThread, formatSar, WalletTransactionsTable } from './WorkshopMyPettyCash.shared';
+import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import '../../styles/admin/AccountingPage.css';
 
-function WorkshopMyPettyCashStaff() {
+function WorkshopMyPettyCashStaff({ workshopId: workshopIdProp = null, defaultBranchId = '' }) {
+    const { user, workshop } = useAuth();
+
+    const scopeQuery = useMemo(() => {
+        const wid = workshopIdProp || user?.workshopId || workshop?.id;
+        return wid ? { workshopId: String(wid) } : {};
+    }, [workshopIdProp, user?.workshopId, workshop?.id]);
+
     const [wallet, setWallet] = useState(null);
     const [transactions, setTransactions] = useState([]);
     const [requests, setRequests] = useState([]);
-    const [categories, setCategories] = useState([]);
-    const [branches, setBranches] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [openThread, setOpenThread] = useState(null);
 
-    const [fundOpen, setFundOpen] = useState(false);
-    const [fundAmount, setFundAmount] = useState('');
-    const [fundNote, setFundNote] = useState('');
-    const [fundSubmitting, setFundSubmitting] = useState(false);
-    const [fundMsg, setFundMsg] = useState('');
-
-    const [expenseOpen, setExpenseOpen] = useState(false);
-    const [expCategory, setExpCategory] = useState('');
-    const [expBranch, setExpBranch] = useState('');
-    const [expAmount, setExpAmount] = useState('');
-    const [expNote, setExpNote] = useState('');
-    const [expDate, setExpDate] = useState('');
-    const [expSubmitting, setExpSubmitting] = useState(false);
-    const [expMsg, setExpMsg] = useState('');
-
     const loadAll = useCallback(async () => {
+        if (!scopeQuery.workshopId) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         setError('');
         try {
-            const [walletRes, reqRes, catRes, brRes] = await Promise.all([
-                getMyPettyCash({ limit: 50 }),
-                getMyExpenseRequests({ limit: 50 }),
-                listExpenseCategories(),
-                getWorkshopBranches().catch(() => ({ branches: [] })),
+            const [walletRes, reqRes] = await Promise.all([
+                getMyPettyCash({ limit: 50, ...scopeQuery }),
+                getMyExpenseRequests({ limit: 50, ...scopeQuery }),
             ]);
             setWallet(walletRes?.wallet ?? null);
             setTransactions(walletRes?.transactions ?? []);
             setRequests(reqRes?.items ?? []);
-            setCategories(catRes?.categories ?? []);
-            setBranches(unwrapWorkshopBranchesResponse(brRes));
         } catch (e) {
             setError(e?.message || 'Could not load petty cash data.');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [scopeQuery]);
 
-    useEffect(() => { loadAll(); }, [loadAll]);
-
-    const handleSubmitFund = async () => {
-        setFundMsg('');
-        const amt = Number(fundAmount);
-        if (!Number.isFinite(amt) || amt <= 0) {
-            setFundMsg('Enter a valid amount.');
-            return;
-        }
-        setFundSubmitting(true);
-        try {
-            await submitFundRequest({ amount: amt, description: fundNote.trim() || undefined });
-            setFundOpen(false);
-            setFundAmount('');
-            setFundNote('');
-            await loadAll();
-        } catch (e) {
-            setFundMsg(e?.message || 'Submit failed.');
-        } finally {
-            setFundSubmitting(false);
-        }
-    };
-
-    const handleSubmitExpense = async () => {
-        setExpMsg('');
-        const amt = Number(expAmount);
-        if (!Number.isFinite(amt) || amt <= 0) {
-            setExpMsg('Enter a valid amount.');
-            return;
-        }
-        if (!expCategory) {
-            setExpMsg('Select an expense category.');
-            return;
-        }
-        if (!expBranch) {
-            setExpMsg('Select a branch.');
-            return;
-        }
-        setExpSubmitting(true);
-        try {
-            await submitExpense({
-                categoryId: expCategory,
-                amount: amt,
-                branchId: expBranch,
-                description: expNote.trim() || undefined,
-                expenseDate: expDate || undefined,
-            });
-            setExpenseOpen(false);
-            setExpCategory('');
-            setExpBranch('');
-            setExpAmount('');
-            setExpNote('');
-            setExpDate('');
-            await loadAll();
-        } catch (e) {
-            setExpMsg(e?.message || 'Submit failed.');
-        } finally {
-            setExpSubmitting(false);
-        }
-    };
+    useEffect(() => { void loadAll(); }, [loadAll]);
 
     const summary = useMemo(() => {
         const pendingTotal = requests.filter((r) => r.status === 'pending')
@@ -135,13 +64,20 @@ function WorkshopMyPettyCashStaff() {
             <header className="cash-bank-header">
                 <h2 className="cash-bank-title">My Petty Cash</h2>
                 <p className="cash-bank-desc">
-                    View your petty-cash wallet balance, request a fund top-up, and submit expenses for approval.
+                    Request a fund top-up or submit an expense for approval. GL posts to branch-level{' '}
+                    <strong>[1280]</strong> and <strong>[6100]</strong> under the workshop you select.
                 </p>
             </header>
 
             {error ? (
                 <p className="form-help-text" style={{ color: '#B45309', marginBottom: 12 }}>{error}</p>
             ) : null}
+
+            <PettyCashRecordForms
+                workshopId={workshopIdProp}
+                defaultBranchId={defaultBranchId}
+                onSubmitted={loadAll}
+            />
 
             <div className="cash-bank-stats">
                 <div className="cash-bank-stat-card">
@@ -162,13 +98,7 @@ function WorkshopMyPettyCashStaff() {
                 </div>
             </div>
 
-            <div className="cash-bank-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-                <button type="button" className="btn-portal" onClick={() => setFundOpen(true)}>
-                    <Plus size={16} /> Request Fund Top-Up
-                </button>
-                <button type="button" className="btn-portal" onClick={() => setExpenseOpen(true)}>
-                    <Plus size={16} /> Submit Expense
-                </button>
+            <div style={{ marginBottom: 16 }}>
                 <button
                     type="button"
                     className="btn-portal-outline"
@@ -178,74 +108,6 @@ function WorkshopMyPettyCashStaff() {
                     <RefreshCw size={16} style={{ marginRight: 6 }} /> Refresh
                 </button>
             </div>
-
-            {fundOpen ? (
-                <section style={{ padding: 18, background: '#fafafa', borderRadius: 12, marginBottom: 16, border: '1px solid #E2E8F0' }}>
-                    <h3 style={{ margin: '0 0 12px' }}>Request Fund Top-Up</h3>
-                    {fundMsg ? <p className="form-help-text" style={{ color: '#B45309' }}>{fundMsg}</p> : null}
-                    <div className="modal-form-grid">
-                        <div className="form-group">
-                            <label className="form-label">Amount (SAR) *</label>
-                            <input type="number" min="0" step="0.01" className="form-input-field" value={fundAmount} onChange={(e) => setFundAmount(e.target.value)} />
-                        </div>
-                        <div className="form-group form-group-full">
-                            <label className="form-label">Reason / Note</label>
-                            <input type="text" className="form-input-field" value={fundNote} onChange={(e) => setFundNote(e.target.value)} />
-                        </div>
-                        <div className="form-group form-group-full" style={{ display: 'flex', gap: 8 }}>
-                            <button type="button" className="btn-portal" disabled={fundSubmitting} onClick={handleSubmitFund}>
-                                {fundSubmitting ? 'Submitting…' : 'Submit Request'}
-                            </button>
-                            <button type="button" className="btn-portal-outline" onClick={() => setFundOpen(false)}>Cancel</button>
-                        </div>
-                    </div>
-                </section>
-            ) : null}
-
-            {expenseOpen ? (
-                <section style={{ padding: 18, background: '#fafafa', borderRadius: 12, marginBottom: 16, border: '1px solid #E2E8F0' }}>
-                    <h3 style={{ margin: '0 0 12px' }}>Submit Expense</h3>
-                    {expMsg ? <p className="form-help-text" style={{ color: '#B45309' }}>{expMsg}</p> : null}
-                    <div className="modal-form-grid">
-                        <div className="form-group">
-                            <label className="form-label">Expense category *</label>
-                            <select className="form-input-field" value={expCategory} onChange={(e) => setExpCategory(e.target.value)}>
-                                <option value="">Select category</option>
-                                {categories.map((c) => (
-                                    <option key={c.id} value={c.id}>{c.code} · {c.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Branch *</label>
-                            <select className="form-input-field" value={expBranch} onChange={(e) => setExpBranch(e.target.value)}>
-                                <option value="">Select branch</option>
-                                {branches.map((b) => (
-                                    <option key={b.id} value={b.id}>{b.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Amount (SAR) *</label>
-                            <input type="number" min="0" step="0.01" className="form-input-field" value={expAmount} onChange={(e) => setExpAmount(e.target.value)} />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Expense date</label>
-                            <input type="date" className="form-input-field" value={expDate} onChange={(e) => setExpDate(e.target.value)} />
-                        </div>
-                        <div className="form-group form-group-full">
-                            <label className="form-label">Description</label>
-                            <input type="text" className="form-input-field" value={expNote} onChange={(e) => setExpNote(e.target.value)} />
-                        </div>
-                        <div className="form-group form-group-full" style={{ display: 'flex', gap: 8 }}>
-                            <button type="button" className="btn-portal" disabled={expSubmitting} onClick={handleSubmitExpense}>
-                                {expSubmitting ? 'Submitting…' : 'Submit Expense'}
-                            </button>
-                            <button type="button" className="btn-portal-outline" onClick={() => setExpenseOpen(false)}>Cancel</button>
-                        </div>
-                    </div>
-                </section>
-            ) : null}
 
             {openThread ? (
                 <MessageThread requestId={openThread} onClose={() => setOpenThread(null)} />
@@ -264,15 +126,16 @@ function WorkshopMyPettyCashStaff() {
                             <th className="table-th">Branch</th>
                             <th className="table-th">Amount</th>
                             <th className="table-th">Status</th>
+                            <th className="table-th">Proof</th>
                             <th className="table-th">Notes</th>
                             <th className="table-th">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={8} className="table-cell table-empty">Loading…</td></tr>
+                            <tr><td colSpan={9} className="table-cell table-empty">Loading…</td></tr>
                         ) : requests.length === 0 ? (
-                            <tr><td colSpan={8} className="table-cell table-empty">No requests yet.</td></tr>
+                            <tr><td colSpan={9} className="table-cell table-empty">No requests yet.</td></tr>
                         ) : requests.map((r) => (
                             <tr key={r.id}>
                                 <td className="table-cell">{new Date(r.createdAt).toLocaleDateString()}</td>
@@ -281,6 +144,11 @@ function WorkshopMyPettyCashStaff() {
                                 <td className="table-cell">{r.branch?.name ?? '—'}</td>
                                 <td className="table-cell">SAR {formatSar(r.amount)}</td>
                                 <td className="table-cell"><StatusBadge status={r.status} /></td>
+                                <td className="table-cell">
+                                    {r.kind === 'expense' ? (
+                                        <ExpenseProofThumbnail proofUrl={r.proofUrl} size={36} />
+                                    ) : '—'}
+                                </td>
                                 <td className="table-cell" style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                     {r.rejectionReason || r.description || '—'}
                                 </td>
@@ -305,16 +173,20 @@ function WorkshopMyPettyCashStaff() {
     );
 }
 
-export default function WorkshopMyPettyCash({ selectedBranchId = 'all' }) {
+export default function WorkshopMyPettyCash({ selectedBranchId = 'all', workshopId = null }) {
     const { user, hasPermission } = useAuth();
-    // Show the full management UI for anyone who can "view" petty cash —
-    // workshop owners (legacy bypass), roleless workshop users (legacy bypass),
-    // and custom-role users who were explicitly granted
-    // `workshop.my-petty-cash.view`. Falls back to the personal staff view
-    // only for users without the permission (which today is unreachable
-    // anyway, because the sidebar item is gated by the same code).
     if (user?.userType === 'workshop_owner' || hasPermission('workshop.my-petty-cash.view')) {
-        return <WorkshopPettyCashManagement selectedBranchId={selectedBranchId} />;
+        return (
+            <WorkshopPettyCashManagement
+                selectedBranchId={selectedBranchId}
+                workshopId={workshopId}
+            />
+        );
     }
-    return <WorkshopMyPettyCashStaff />;
+    return (
+        <WorkshopMyPettyCashStaff
+            workshopId={workshopId}
+            defaultBranchId={selectedBranchId}
+        />
+    );
 }

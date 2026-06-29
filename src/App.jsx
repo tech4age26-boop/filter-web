@@ -6,6 +6,8 @@ import DashboardPage from './pages/admin/DashboardPage';
 import ApprovalsPage from './pages/admin/ApprovalsPage';
 import ZoneManagementPage from './pages/admin/ZoneManagementPage';
 import PermissionsPage from './pages/admin/PermissionsPage';
+import AdminWalletsPage from './pages/admin/AdminWalletsPage';
+import MyWalletPage from './pages/admin/MyWalletPage';
 import DemoInvoicesPage from './pages/admin/DemoInvoicesPage';
 import TierManagementPage from './pages/admin/TierManagementPage';
 import TaxCodePage from './pages/admin/TaxCodePage';
@@ -24,6 +26,7 @@ import FleetManagementPage from './pages/admin/FleetManagementPage';
 import WarehousePortalPage from './pages/admin/WarehousePortalPage';
 import AdminStorageFacilityPage from './pages/admin/AdminStorageFacilityPage';
 import LockerManagementPage from './pages/admin/LockerManagementPage';
+import PlatformChatPage from './pages/admin/PlatformChatPage';
 import ReferralCommissionsPage from './pages/admin/ReferralCommissionsPage';
 import SoftPosSettlement from './pages/admin/SoftPosSettlement';
 import MarketingPortalPage from './pages/admin/MarketingPortalPage';
@@ -84,6 +87,7 @@ import ReferrerNotifications from './pages/referrer-portal/ReferrerNotifications
 import ReferrerSettings from './pages/referrer-portal/ReferrerSettings';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { PlatformChatUnreadProvider } from './context/PlatformChatUnreadContext';
 import { firstVisibleAdminPath } from './utils/permissions';
 import AppErrorBoundary from './components/AppErrorBoundary';
 
@@ -102,8 +106,9 @@ function App() {
     <AppErrorBoundary>
       <AuthProvider>
         <MarketingProvider>
-          <Router>
-          <Routes>
+          <PlatformChatUnreadProvider>
+            <Router>
+              <Routes>
             <Route path="/" element={<PortalHubPage />} />
 
             <Route path="/verify/wpi/:id" element={<PublicWpiVerifyPage />} />
@@ -184,7 +189,10 @@ function App() {
 
               <Route path="tax-codes" element={<TaxCodePage />} />
               <Route path="permissions" element={<PermissionsPage />} />
+              <Route path="admin-wallets" element={<AdminWalletsPage />} />
+              <Route path="my-wallet" element={<MyWalletPage />} />
               <Route path="demo-invoices" element={<DemoInvoicesPage />} />
+              <Route path="chat" element={<PlatformChatPage />} />
 
               <Route
                 path="inventory"
@@ -373,8 +381,9 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>
+        </PlatformChatUnreadProvider>
       </MarketingProvider>
-    </AuthProvider>
+      </AuthProvider>
     </AppErrorBoundary>
   );
 }

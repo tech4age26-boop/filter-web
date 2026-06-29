@@ -1,21 +1,202 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, CheckCircle, X, Eye, RefreshCw, FileText } from 'lucide-react';
+import { Clock, CheckCircle, X, Eye, RefreshCw, FileText, Check, Loader } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
+import Modal from '../../components/Modal';
+import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
 import { apiFetch } from '../../services/api';
-import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn } from '../../services/workshopStaffApi';
+import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn, listWorkshopCashBankAccounts } from '../../services/workshopStaffApi';
 import { approveExpenseRequest, rejectExpenseRequest } from '../../services/employeeExpenseApi';
 import { useAuth } from '../../context/AuthContext';
+
+function loadWorkshopRequesterWallet({ userId, currencyCode }) {
+    return apiFetch(
+        `/workshop-staff/admin-wallet-approvals/requester-wallet-balance${qs({
+            userId,
+            currencyCode: currencyCode || 'SAR',
+        })}`,
+    ).then((res) => ({ balance: Number(res?.balance ?? 0) }));
+}
+
+function cashBankRegisterKindLabel(row) {
+    const kind = String(row?.kind || 'OPERATING');
+    if (kind === 'SYSTEM_LOCKER_VAULT') return 'Locker vault';
+    if (kind === 'SYSTEM_CASHIER_TILL') return 'Cashier till';
+    if (kind === 'SYSTEM_PETTY_CASH_WALLET') return 'Petty cash wallet';
+    const type = String(row?.type || row?.apiType || '').toUpperCase();
+    if (type === 'BANK') return 'Bank';
+    if (type === 'PETTY_CASH') return 'Petty cash';
+    return 'Cash';
+}
+
+function normalizeWorkshopPayFromAccounts(res) {
+    const list = Array.isArray(res?.accounts)
+        ? res.accounts
+        : Array.isArray(res?.data?.accounts)
+            ? res.data.accounts
+            : [];
+    return list.map((row) => {
+        const id = String(row.id);
+        const name = row.name || 'Account';
+        const kindLabel = cashBankRegisterKindLabel(row);
+        const balance = Number(row.currentBalance ?? row.balance ?? 0);
+        const formatted = balance.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+        return {
+            id,
+            name,
+            kindLabel,
+            kind: row.kind || '',
+            type: row.type || '',
+            branchId: row.branchId != null ? String(row.branchId) : '',
+            branchName: row.branchName || row.branch?.name || '',
+            label: `${name} (${kindLabel}) — SAR ${formatted}`,
+            balance,
+        };
+    });
+}
+
+function loadWorkshopCashAccounts() {
+    return listWorkshopCashBankAccounts({ status: 'active' }).then(normalizeWorkshopPayFromAccounts);
+}
+
+function loadWorkshopBudgetAccounts({ branchId }) {
+    return apiFetch(
+        `/workshop-staff/admin-wallet-approvals/budget-accounts${qs({ branchId })}`,
+    ).then((res) => (Array.isArray(res?.accounts) ? res.accounts : []));
+}
+
+function AdminWalletWorkshopApproveModal({ row, mode, busy, error, onCancel, onConfirm }) {
+    const [remarks, setRemarks] = useState('');
+    const [acct, setAcct] = useState({ blocked: true, loading: true });
+    const branchId = row?.branchId != null ? String(row.branchId) : '';
+    const branchName = row?.branchName || 'this branch';
+    const requesterName = row?.cashier?.name || row?.requestedBy || 'Platform admin';
+    const amount = Number(row?.amount ?? 0);
+    const isExpense = mode === 'expense';
+    const displayError = error || acct.blockReason;
+
+    return (
+        <Modal
+            title={isExpense ? 'Approve Platform Admin Expense' : 'Approve Platform Admin Fund Request'}
+            onClose={busy ? undefined : onCancel}
+            width={520}
+            footer={(
+                <>
+                    <button type="button" className="btn-secondary" disabled={busy} onClick={onCancel}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="btn-submit btn-dark"
+                        disabled={busy || acct.blocked}
+                        onClick={() => onConfirm({
+                            remarks: remarks.trim() || undefined,
+                            ...(isExpense && acct.paymentSource === 'wallet'
+                                ? {}
+                                : {
+                                    sourceAccountId: acct.sourceAccountId,
+                                    sourceAccountName: acct.sourceAccountName,
+                                }),
+                            ...(isExpense
+                                ? {
+                                    budgetAccountId: acct.budgetAccountId,
+                                    budgetAccountName: acct.budgetAccountName,
+                                }
+                                : {}),
+                        })}
+                    >
+                        {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
+                        {' '}
+                        {isExpense ? 'Approve Expense' : 'Approve & Post Journal'}
+                    </button>
+                </>
+            )}
+        >
+            {displayError ? (
+                <p className="form-help-text" style={{ color: '#B45309', marginBottom: 12 }} role="alert">
+                    {displayError}
+                </p>
+            ) : null}
+            <p style={{ margin: '0 0 14px', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                Approve {isExpense ? 'expense' : 'fund request'} for <strong>{requesterName}</strong> at branch{' '}
+                <strong>{branchName}</strong>. Amount{' '}
+                <strong>SAR {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>{' '}
+                {isExpense
+                    ? 'will be drawn from the selected budget account.'
+                    : 'will be credited to their wallet from the selected payment account.'}
+            </p>
+            {row?.description ? (
+                <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                    {isExpense ? 'Details' : 'Purpose'}: <strong>{row.description}</strong>
+                </p>
+            ) : null}
+
+            <WalletApprovalAccountFields
+                workshopId={row?.workshopId != null ? String(row.workshopId) : ''}
+                branchId={branchId}
+                amount={amount}
+                mode={mode}
+                busy={busy}
+                requesterUserId={isExpense ? String(row?.adminUserId ?? '') : ''}
+                requesterName={isExpense ? (row?.adminUserName || requesterName) : ''}
+                currencyCode={row?.currencyCode ?? 'SAR'}
+                loadCashAccounts={loadWorkshopCashAccounts}
+                loadBudgetAccounts={loadWorkshopBudgetAccounts}
+                loadRequesterWalletBalance={isExpense ? loadWorkshopRequesterWallet : undefined}
+                onChange={setAcct}
+            />
+
+            <label className="form-label" htmlFor="ws-admin-wallet-approve-remarks" style={{ marginTop: 14 }}>
+                Remarks <span style={{ color: '#94a3b8', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <textarea
+                id="ws-admin-wallet-approve-remarks"
+                className="form-input-field"
+                rows={3}
+                placeholder="e.g. Approved for branch petty cash float."
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                disabled={busy}
+            />
+        </Modal>
+    );
+}
 
 function isSalesReturnRow(row) {
     return row?._source === 'sales_return';
 }
 
-/** Map a row kind → permission-code suffix. */
+function formatAdminWalletApproverSummary(row) {
+    if (String(row?.status || '').toLowerCase() !== 'approved') return null;
+    const parts = [];
+    if (row.superAdminApprovedByName?.trim()) {
+        parts.push(`Super Admin: ${row.superAdminApprovedByName.trim()}`);
+    }
+    if (row.workshopAdminApprovedByName?.trim()) {
+        parts.push(`Workshop Admin: ${row.workshopAdminApprovedByName.trim()}`);
+    }
+    if (parts.length > 0) return parts.join(' · ');
+    return row.approvedByName?.trim() || null;
+}
+
+function isAdminWalletFundRow(row) {
+    return row?.kind === 'admin_wallet_fund';
+}
+
+function isAdminWalletExpenseRow(row) {
+    return row?.kind === 'admin_wallet_expense';
+}
+
 function approvalTypeKey(row) {
     if (isSupplierSalesInvoiceRow(row)) return 'supplier-invoice';
     if (isSalesReturnRow(row)) return 'sales-return';
+    if (isAdminWalletFundRow(row)) return 'top-up';
+    if (isAdminWalletExpenseRow(row)) return 'expense';
     if (isTopUpRequest(row)) return 'top-up';
     if (isExpenseRequest(row)) return 'expense';
     return null;
@@ -113,6 +294,8 @@ function isExpenseRequest(row) {
 function formatRequestKindLabel(row) {
     if (isSupplierSalesInvoiceRow(row)) return 'Supplier invoice';
     if (isSalesReturnRow(row)) return 'Sales return';
+    if (isAdminWalletFundRow(row)) return 'Platform admin fund';
+    if (isAdminWalletExpenseRow(row)) return 'Platform admin expense';
     const kind = row?.kind ?? row?.type;
     const k = String(kind || '')
         .trim()
@@ -201,6 +384,9 @@ export default function WorkshopApprovals({
     /** Supplier invoice approve: preview showed new branch products — collect optional critical stock */
     const [siApproveModal, setSiApproveModal] = useState(null);
     const [siCriticalStock, setSiCriticalStock] = useState({});
+    const [fundApproveModal, setFundApproveModal] = useState(null);
+    const [expenseApproveModal, setExpenseApproveModal] = useState(null);
+    const [fundApproveError, setFundApproveError] = useState('');
 
     const loadApprovals = useCallback(async () => {
         setIsLoading(true);
@@ -218,7 +404,7 @@ export default function WorkshopApprovals({
             const supplierBranchScope = branchLockedId
                 ? branchScopeParams(branchLockedId)
                 : {};
-            const [response, siRes, srRes] = await Promise.all([
+            const [response, siRes, srRes, adminWalletRes] = await Promise.all([
                 apiFetch(`/workshop-staff/petty-cash/requests${qs(pettyQs)}`),
                 loadSupplierInvoices
                     ? apiFetch(
@@ -239,6 +425,11 @@ export default function WorkshopApprovals({
                           ...expenseScope,
                       }).catch(() => null)
                     : Promise.resolve(null),
+                apiFetch(`/workshop-staff/admin-wallet-approvals${qs({
+                    status: queueFilter === 'all' ? 'pending' : queueFilter,
+                    ...branchScopeParams(selectedBranchId),
+                    ...expenseScope,
+                })}`).catch(() => null),
             ]);
 
             if (!(response?.success && Array.isArray(response.requests))) {
@@ -304,7 +495,29 @@ export default function WorkshopApprovals({
                 items: sr.items,
             }));
 
-            const merged = [...supplierRows, ...salesReturnRows, ...list].sort((a, b) => {
+            const adminWalletRows = Array.isArray(adminWalletRes?.requests)
+                ? adminWalletRes.requests.map((r) => ({
+                    id: `admin-wallet-${r.kind}-${r.id}`,
+                    kind: r.kind,
+                    amount: Number(r.amount ?? 0),
+                    status: r.status,
+                    requestedAt: r.requestedAt,
+                    cashier: { name: r.requestedBy ?? r.adminUserName ?? 'Platform admin' },
+                    description: r.description,
+                    requestNumber: r.requestNumber,
+                    adminWalletRequestId: r.id,
+                    branchId: r.branchId,
+                    branchName: r.branchName,
+                    expenseCategory: r.expenseCategory,
+                    proofUrl: r.proofUrl,
+                    superAdminApprovedByName: r.superAdminApprovedByName ?? null,
+                    workshopAdminApprovedByName: r.workshopAdminApprovedByName ?? null,
+                    approvedByName: r.approvedByName ?? null,
+                    approvedAt: r.approvedAt ?? null,
+                }))
+                : [];
+
+            const merged = [...supplierRows, ...salesReturnRows, ...adminWalletRows, ...list].sort((a, b) => {
                 const ta = new Date(a.requestedAt || a.createdAt || 0).getTime();
                 const tb = new Date(b.requestedAt || b.createdAt || 0).getTime();
                 return tb - ta;
@@ -370,8 +583,8 @@ export default function WorkshopApprovals({
             // Per-type view permission — hide rows the user can't view at all.
             if (!canViewType(a)) return false;
             if (requestTypeFilter === 'all') return true;
-            if (requestTypeFilter === 'topup') return isTopUpRequest(a);
-            if (requestTypeFilter === 'expenses') return isExpenseRequest(a);
+            if (requestTypeFilter === 'topup') return isTopUpRequest(a) || isAdminWalletFundRow(a);
+            if (requestTypeFilter === 'expenses') return isExpenseRequest(a) || isAdminWalletExpenseRow(a);
             if (requestTypeFilter === 'supplier_invoices') return isSupplierSalesInvoiceRow(a);
             if (requestTypeFilter === 'sales_returns') return isSalesReturnRow(a);
             return true;
@@ -385,6 +598,8 @@ export default function WorkshopApprovals({
         purchase: 'ws-badge--purple',
         supplier_invoice: 'ws-badge--purple',
         sales_return: 'ws-badge--blue',
+        admin_wallet_fund: 'ws-badge--blue',
+        admin_wallet_expense: 'ws-badge--yellow',
     };
     const statusColors = { pending: 'ws-badge--yellow', approved: 'ws-badge--green', rejected: 'ws-badge--red' };
 
@@ -460,6 +675,18 @@ export default function WorkshopApprovals({
             }
             return;
         }
+        if (isAdminWalletFundRow(row)) {
+            if (row.status !== 'pending') return;
+            setFundApproveError('');
+            setFundApproveModal(row);
+            return;
+        }
+        if (isAdminWalletExpenseRow(row)) {
+            if (row.status !== 'pending') return;
+            setFundApproveError('');
+            setExpenseApproveModal(row);
+            return;
+        }
         const id = row.id;
         if (row.status !== 'pending') return;
         setActionLoadingId(`approve-${id}`);
@@ -518,6 +745,29 @@ export default function WorkshopApprovals({
             }
             return;
         }
+        if (isAdminWalletFundRow(rejectDialog) || isAdminWalletExpenseRow(rejectDialog)) {
+            const rid = rejectDialog.adminWalletRequestId;
+            const kind = rejectDialog.kind;
+            setActionLoadingId(`reject-aw-${rid}`);
+            try {
+                await apiFetch(
+                    `/workshop-staff/admin-wallet-approvals/${encodeURIComponent(kind)}/${encodeURIComponent(String(rid))}/reject`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ rejectionReason: rejectReason.trim() }),
+                    },
+                );
+                setRejectDialog(null);
+                setRejectReason('');
+                await loadApprovals();
+                window.dispatchEvent(new Event('workshop-approvals-updated'));
+            } catch (error) {
+                setLoadError(error.message || 'Failed to reject platform admin wallet request.');
+            } finally {
+                setActionLoadingId(null);
+            }
+            return;
+        }
         const id = rejectDialog.id;
         setActionLoadingId(`reject-${id}`);
         try {
@@ -535,6 +785,54 @@ export default function WorkshopApprovals({
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (error) {
             setLoadError(error.message || 'Failed to reject request.');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const submitAdminWalletFundApprove = async (payload) => {
+        if (!fundApproveModal) return;
+        const rid = fundApproveModal.adminWalletRequestId;
+        setActionLoadingId(`approve-aw-${rid}`);
+        setFundApproveError('');
+        try {
+            await apiFetch(
+                `/workshop-staff/admin-wallet-approvals/admin_wallet_fund/${encodeURIComponent(String(rid))}/approve${qs(expenseScope)}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                },
+            );
+            setFundApproveModal(null);
+            await loadApprovals();
+            window.dispatchEvent(new Event('workshop-approvals-updated'));
+        } catch (error) {
+            setFundApproveError(error.message || 'Failed to approve fund request.');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const submitAdminWalletExpenseApprove = async (payload) => {
+        if (!expenseApproveModal) return;
+        const rid = expenseApproveModal.adminWalletRequestId;
+        setActionLoadingId(`approve-aw-${rid}`);
+        setFundApproveError('');
+        try {
+            await apiFetch(
+                `/workshop-staff/admin-wallet-approvals/admin_wallet_expense/${encodeURIComponent(String(rid))}/approve${qs(expenseScope)}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                },
+            );
+            setExpenseApproveModal(null);
+            await loadApprovals();
+            window.dispatchEvent(new Event('workshop-approvals-updated'));
+        } catch (error) {
+            setFundApproveError(error.message || 'Failed to approve expense request.');
         } finally {
             setActionLoadingId(null);
         }
@@ -641,7 +939,7 @@ export default function WorkshopApprovals({
     if (siApproveModal) {
         return (
             <WorkshopSubScreen
-                        title="Products will be added to branch inventory"
+                title="Products will be added to branch inventory"
                 subtitle="Set critical stock for new branch products, then approve."
                 backLabel="Back to Approvals"
                 onBack={closeSiApproveScreen}
@@ -649,151 +947,151 @@ export default function WorkshopApprovals({
                 size="wide"
                 footer={(
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', width: '100%' }}>
-                                <button
-                                    type="button"
-                                    className="btn-secondary"
+                        <button
+                            type="button"
+                            className="btn-secondary"
                             onClick={closeSiApproveScreen}
-                                    disabled={actionLoadingId !== null}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn-submit"
-                                    onClick={submitSupplierInvoiceApproveFromModal}
-                                    disabled={actionLoadingId !== null}
-                                >
-                                    {actionLoadingId != null && String(actionLoadingId).startsWith('approve-si-')
-                                        ? 'Approving…'
-                                        : 'OK — approve & update inventory'}
-                                </button>
-                            </div>
+                            disabled={actionLoadingId !== null}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-submit"
+                            onClick={submitSupplierInvoiceApproveFromModal}
+                            disabled={actionLoadingId !== null}
+                        >
+                            {actionLoadingId != null && String(actionLoadingId).startsWith('approve-si-')
+                                ? 'Approving…'
+                                : 'OK — approve & update inventory'}
+                        </button>
+                    </div>
                 )}
-                    >
+            >
                 <div className="ws-section" style={{ padding: 20 }}>
-                        <div style={{ fontSize: '0.875rem', color: '#334155', lineHeight: 1.5, marginBottom: 14 }}>
-                            {(() => {
-                                const newProds = Array.isArray(siApproveModal.preview?.newProducts)
-                                    ? siApproveModal.preview.newProducts
-                                    : [];
-                                const unresolved = Array.isArray(siApproveModal.preview?.unresolvedLineNames)
-                                    ? siApproveModal.preview.unresolvedLineNames
-                                    : [];
-                                const branchNm = siApproveModal.preview?.branchName || 'this branch';
-                                if (newProds.length > 0) {
-                                    return (
-                                        <p style={{ margin: '0 0 10px' }}>
-                                            The following products are <strong>not on {branchNm}&apos;s inventory</strong>{' '}
-                                            yet. If you approve, the system will <strong>add them to this branch</strong>{' '}
-                                            and set <strong>opening stock</strong> to the <strong>quantities on this sales invoice</strong>{' '}
-                                            (per product, summed across lines). Set <strong>critical stock</strong> (low-stock
-                                            alert level) for each new branch product below, then confirm.
-                                        </p>
-                                    );
-                                }
-                                if (unresolved.length > 0) {
-                                    return (
-                                        <p style={{ margin: '0 0 10px' }}>
-                                            Some invoice lines could not be matched to a product in your workshop catalog.
-                                            You can still approve the invoice for accounting, but{' '}
-                                            <strong>inventory may not update</strong> for those lines until they are linked
-                                            to master products.
-                                        </p>
-                                    );
-                                }
+                    <div style={{ fontSize: '0.875rem', color: '#334155', lineHeight: 1.5, marginBottom: 14 }}>
+                        {(() => {
+                            const newProds = Array.isArray(siApproveModal.preview?.newProducts)
+                                ? siApproveModal.preview.newProducts
+                                : [];
+                            const unresolved = Array.isArray(siApproveModal.preview?.unresolvedLineNames)
+                                ? siApproveModal.preview.unresolvedLineNames
+                                : [];
+                            const branchNm = siApproveModal.preview?.branchName || 'this branch';
+                            if (newProds.length > 0) {
                                 return (
                                     <p style={{ margin: '0 0 10px' }}>
-                                        Review the details below before approving. Inventory will be updated for this branch
-                                        according to the invoice lines.
+                                        The following products are <strong>not on {branchNm}&apos;s inventory</strong>{' '}
+                                        yet. If you approve, the system will <strong>add them to this branch</strong>{' '}
+                                        and set <strong>opening stock</strong> to the <strong>quantities on this sales invoice</strong>{' '}
+                                        (per product, summed across lines). Set <strong>critical stock</strong> (low-stock
+                                        alert level) for each new branch product below, then confirm.
                                     </p>
                                 );
-                            })()}
-                            {Array.isArray(siApproveModal.preview?.unresolvedLineNames) &&
-                            siApproveModal.preview.unresolvedLineNames.length > 0 ? (
-                                <div
+                            }
+                            if (unresolved.length > 0) {
+                                return (
+                                    <p style={{ margin: '0 0 10px' }}>
+                                        Some invoice lines could not be matched to a product in your workshop catalog.
+                                        You can still approve the invoice for accounting, but{' '}
+                                        <strong>inventory may not update</strong> for those lines until they are linked
+                                        to master products.
+                                    </p>
+                                );
+                            }
+                            return (
+                                <p style={{ margin: '0 0 10px' }}>
+                                    Review the details below before approving. Inventory will be updated for this branch
+                                    according to the invoice lines.
+                                </p>
+                            );
+                        })()}
+                        {Array.isArray(siApproveModal.preview?.unresolvedLineNames) &&
+                        siApproveModal.preview.unresolvedLineNames.length > 0 ? (
+                            <div
+                                style={{
+                                    padding: 10,
+                                    borderRadius: 8,
+                                    background: '#FFFBEB',
+                                    border: '1px solid #FDE68A',
+                                    color: '#92400E',
+                                    marginBottom: 12,
+                                    fontSize: '0.8125rem',
+                                }}
+                            >
+                                <strong>Could not match to catalog:</strong>{' '}
+                                {siApproveModal.preview.unresolvedLineNames.join(', ')}. Stock may not apply for
+                                these lines until they are linked to a master product.
+                            </div>
+                        ) : null}
+                        {Array.isArray(siApproveModal.preview?.newProducts) &&
+                        siApproveModal.preview.newProducts.length > 0 ? (
+                            <div style={{ overflowX: 'auto' }}>
+                                <table
                                     style={{
-                                        padding: 10,
-                                        borderRadius: 8,
-                                        background: '#FFFBEB',
-                                        border: '1px solid #FDE68A',
-                                        color: '#92400E',
-                                        marginBottom: 12,
+                                        width: '100%',
+                                        borderCollapse: 'collapse',
                                         fontSize: '0.8125rem',
                                     }}
                                 >
-                                    <strong>Could not match to catalog:</strong>{' '}
-                                    {siApproveModal.preview.unresolvedLineNames.join(', ')}. Stock may not apply for
-                                    these lines until they are linked to a master product.
-                                </div>
-                            ) : null}
-                            {Array.isArray(siApproveModal.preview?.newProducts) &&
-                            siApproveModal.preview.newProducts.length > 0 ? (
-                                <div style={{ overflowX: 'auto' }}>
-                                    <table
-                                        style={{
-                                            width: '100%',
-                                            borderCollapse: 'collapse',
-                                            fontSize: '0.8125rem',
-                                        }}
-                                    >
-                                        <thead>
-                                            <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
-                                                <th style={{ padding: '8px 6px' }}>Product</th>
-                                                <th style={{ padding: '8px 6px', textAlign: 'right' }}>Qty (opening)</th>
-                                                <th style={{ padding: '8px 6px', textAlign: 'right' }}>
-                                                    Critical stock
-                                                </th>
+                                    <thead>
+                                        <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
+                                            <th style={{ padding: '8px 6px' }}>Product</th>
+                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>Qty (opening)</th>
+                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                Critical stock
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {siApproveModal.preview.newProducts.map((p) => (
+                                            <tr key={p.productId} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                <td style={{ padding: '8px 6px' }}>
+                                                    {p.name}
+                                                    {p.sku ? (
+                                                        <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
+                                                            {' '}
+                                                            ({p.sku})
+                                                        </span>
+                                                    ) : null}
+                                                </td>
+                                                <td style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                    {p.qty} {p.unit || ''}
+                                                </td>
+                                                <td style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                    <input
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        value={siCriticalStock[p.productId] ?? '0'}
+                                                        onChange={(e) =>
+                                                            setSiCriticalStock((prev) => ({
+                                                                ...prev,
+                                                                [p.productId]: e.target.value,
+                                                            }))
+                                                        }
+                                                        style={{
+                                                            width: 88,
+                                                            padding: '6px 8px',
+                                                            borderRadius: 6,
+                                                            border: '1px solid #cbd5e1',
+                                                            textAlign: 'right',
+                                                        }}
+                                                    />
+                                                </td>
                                             </tr>
-                                        </thead>
-                                        <tbody>
-                                            {siApproveModal.preview.newProducts.map((p) => (
-                                                <tr key={p.productId} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                    <td style={{ padding: '8px 6px' }}>
-                                                        {p.name}
-                                                        {p.sku ? (
-                                                            <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
-                                                                {' '}
-                                                                ({p.sku})
-                                                            </span>
-                                                        ) : null}
-                                                    </td>
-                                                    <td style={{ padding: '8px 6px', textAlign: 'right' }}>
-                                                        {p.qty} {p.unit || ''}
-                                                    </td>
-                                                    <td style={{ padding: '8px 6px', textAlign: 'right' }}>
-                                                        <input
-                                                            type="text"
-                                                            inputMode="decimal"
-                                                            value={siCriticalStock[p.productId] ?? '0'}
-                                                            onChange={(e) =>
-                                                                setSiCriticalStock((prev) => ({
-                                                                    ...prev,
-                                                                    [p.productId]: e.target.value,
-                                                                }))
-                                                            }
-                                                            style={{
-                                                                width: 88,
-                                                                padding: '6px 8px',
-                                                                borderRadius: 6,
-                                                                border: '1px solid #cbd5e1',
-                                                                textAlign: 'right',
-                                                            }}
-                                                        />
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : (
-                                <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>
-                                    {Array.isArray(siApproveModal.preview?.unresolvedLineNames) &&
-                                    siApproveModal.preview.unresolvedLineNames.length > 0
-                                        ? 'No new branch catalog products will be created from this invoice; only matched lines can receive stock.'
-                                        : 'No new branch products; approving will increase stock only for products you already carry on this branch.'}
-                                </p>
-                            )}
-                        </div>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>
+                                {Array.isArray(siApproveModal.preview?.unresolvedLineNames) &&
+                                siApproveModal.preview.unresolvedLineNames.length > 0
+                                    ? 'No new branch catalog products will be created from this invoice; only matched lines can receive stock.'
+                                    : 'No new branch products; approving will increase stock only for products you already carry on this branch.'}
+                            </p>
+                        )}
+                    </div>
                 </div>
             </WorkshopSubScreen>
         );
@@ -879,12 +1177,26 @@ export default function WorkshopApprovals({
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                     <span style={{ color: 'var(--color-text-muted)' }}>Branch</span>
-                                    <span>{viewDialog.branch?.name || '—'}</span>
+                                    <span>{viewDialog.branch?.name || viewDialog.branchName || '—'}</span>
                                 </div>
+                                {(isAdminWalletFundRow(viewDialog) || isAdminWalletExpenseRow(viewDialog)) && viewDialog.description ? (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                                        <span style={{ color: 'var(--color-text-muted)' }}>Details</span>
+                                        <span style={{ textAlign: 'right', maxWidth: 260 }}>{viewDialog.description}</span>
+                                    </div>
+                                ) : null}
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                     <span style={{ color: 'var(--color-text-muted)' }}>Reason</span>
                                     <span style={{ textAlign: 'right', maxWidth: 220 }}>{viewDialog.reason || '—'}</span>
                                 </div>
+                                {formatAdminWalletApproverSummary(viewDialog) ? (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                                        <span style={{ color: 'var(--color-text-muted)' }}>Approved by</span>
+                                        <span style={{ textAlign: 'right', maxWidth: 260, fontWeight: 600 }}>
+                                            {formatAdminWalletApproverSummary(viewDialog)}
+                                        </span>
+                                    </div>
+                                ) : null}
                                 {viewDialog.requestedAt && (
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <span style={{ color: 'var(--color-text-muted)' }}>Requested at</span>
@@ -1010,6 +1322,7 @@ export default function WorkshopApprovals({
                 </div>
             </div>
             <div className="ws-section">
+                <WsTableScroll>
                 <table className="ws-table">
                     <thead>
                         <tr>
@@ -1098,6 +1411,11 @@ export default function WorkshopApprovals({
                                             <span className={`ws-badge ${statusColors[a.status] || 'ws-badge--gray'}`}>
                                                 {a.status || 'unknown'}
                                             </span>
+                                            {formatAdminWalletApproverSummary(a) ? (
+                                                <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 4, maxWidth: 180 }}>
+                                                    {formatAdminWalletApproverSummary(a)}
+                                                </div>
+                                            ) : null}
                                         </td>
                                         <td>
                                             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1181,7 +1499,38 @@ export default function WorkshopApprovals({
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
             </div>
+
+            {fundApproveModal ? (
+                <AdminWalletWorkshopApproveModal
+                    row={fundApproveModal}
+                    mode="fund"
+                    busy={actionLoadingId != null && String(actionLoadingId).startsWith('approve-aw-')}
+                    error={fundApproveError}
+                    onCancel={() => {
+                        if (actionLoadingId !== null) return;
+                        setFundApproveModal(null);
+                        setFundApproveError('');
+                    }}
+                    onConfirm={submitAdminWalletFundApprove}
+                />
+            ) : null}
+
+            {expenseApproveModal ? (
+                <AdminWalletWorkshopApproveModal
+                    row={expenseApproveModal}
+                    mode="expense"
+                    busy={actionLoadingId != null && String(actionLoadingId).startsWith('approve-aw-')}
+                    error={fundApproveError}
+                    onCancel={() => {
+                        if (actionLoadingId !== null) return;
+                        setExpenseApproveModal(null);
+                        setFundApproveError('');
+                    }}
+                    onConfirm={submitAdminWalletExpenseApprove}
+                />
+            ) : null}
 
         </div>
     );

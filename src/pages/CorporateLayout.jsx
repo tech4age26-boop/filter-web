@@ -18,11 +18,16 @@ import QuotationModal from './corporate/QuotationModal';
 import MonthlyBilling from './corporate/MonthlyBilling';
 import CorporateWallet from './corporate/CorporateWallet';
 import CorporateReports from './corporate/CorporateReports';
+import CorporatePlatformChatPage from './corporate/CorporatePlatformChatPage';
+import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
+import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import { isPlatformChatNavId } from '../utils/platformChatForUser';
 import { apiFetch, BASE_URL } from '../services/api';
 import { formatPlateLettersFirst } from '../utils/formatPlate';
 import { fetchCorporateBranchCatalogPickerRows } from '../services/corporateBranchCatalog';
 import { fetchCorporateBranches } from '../services/corporateBookingsApi';
 import './workshop/Workshop.css';
+import '../styles/admin/PlatformChat.css';
 
 /** Map branch-catalog row → `departmentId` for order / booking lines. */
 function resolveDepartmentIdForCatalogRow(row, selectedDeptIds, defaultDeptId) {
@@ -426,6 +431,7 @@ export default function CorporateLayout() {
 
     const renderContent = () => {
         switch (activeTab) {
+            case 'platform-chat': return null;
             case 'dashboard': return <CorporateDashboard onTabChange={setActiveTab} setBookingOpen={setBookingOpen} setQuoteOpen={setQuoteOpen}/>;
             case 'profile': return <CorporateProfile onTabChange={setActiveTab}/>;
             case 'vehicles': return <CorporateVehicles vehicles={vehicles} setVehicles={setVehicles}/>;
@@ -441,6 +447,14 @@ export default function CorporateLayout() {
 
     const currentLabel = NAV_GROUPS.flatMap(g => g.items).find(i => i.id === activeTab)?.label || 'Dashboard';
 
+    if (activeTab === 'platform-chat') {
+        return (
+            <div className="portal-layout--chat-fullscreen">
+                <CorporatePlatformChatPage />
+            </div>
+        );
+    }
+
     return (
         <div className="workshop-layout">
             <aside className="ws-sidebar">
@@ -452,7 +466,13 @@ export default function CorporateLayout() {
                     {NAV_GROUPS.map(grp => (
                         <div key={grp.label}>
                             <div style={{fontSize:'0.625rem',fontWeight:800,color:'rgba(255,255,255,0.28)',padding:'14px 14px 6px',textTransform:'uppercase',letterSpacing:'0.14em'}}>{grp.label}</div>
-                            {grp.items.map(item => <button key={item.id} className={`ws-nav-btn ${activeTab===item.id?'active':''}`} onClick={() => setActiveTab(item.id)}><item.icon size={17}/><span>{item.label}</span></button>)}
+                            {grp.items.map(item => (
+                                <button key={item.id} className={`ws-nav-btn ${activeTab===item.id?'active':''}`} onClick={() => setActiveTab(item.id)}>
+                                    <item.icon size={17}/>
+                                    <span>{item.label}</span>
+                                    {isPlatformChatNavId(item.id) && <PlatformChatNavBadge />}
+                                </button>
+                            ))}
                         </div>
                     ))}
                 </nav>
@@ -902,6 +922,10 @@ export default function CorporateLayout() {
                     />
                 )}
             </AnimatePresence>
+            <PlatformChatFab
+                hidden={activeTab === 'platform-chat'}
+                onClick={() => setActiveTab('platform-chat')}
+            />
         </div>
     );
 }

@@ -4,7 +4,7 @@ import { Mic, Square } from 'lucide-react';
 /**
  * Browser voice recorder — encodes short clips as data URLs for chat voice messages.
  */
-export default function StaffAppVoiceRecorder({ onRecorded, disabled = false }) {
+export default function StaffAppVoiceRecorder({ onRecorded, onRecordedBlob, disabled = false }) {
     const [recording, setRecording] = useState(false);
     const [seconds, setSeconds] = useState(0);
     const mediaRef = useRef(null);
@@ -31,7 +31,13 @@ export default function StaffAppVoiceRecorder({ onRecorded, disabled = false }) 
                 if (e.data.size > 0) chunksRef.current.push(e.data);
             };
             recorder.onstop = () => {
-                const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+                const mime = recorder.mimeType || 'audio/webm';
+                const blob = new Blob(chunksRef.current, { type: mime });
+                if (onRecordedBlob) {
+                    onRecordedBlob(blob, mime);
+                    stopTracks();
+                    return;
+                }
                 const reader = new FileReader();
                 reader.onloadend = () => {
                     onRecorded?.(String(reader.result || ''));
@@ -45,7 +51,12 @@ export default function StaffAppVoiceRecorder({ onRecorded, disabled = false }) 
             setSeconds(0);
             timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
         } catch (e) {
-            onRecorded?.(null, e?.message || 'Microphone access denied');
+            const msg = e?.message || 'Microphone access denied';
+            if (onRecordedBlob) {
+                onRecordedBlob(null, null, msg);
+            } else {
+                onRecorded?.(null, msg);
+            }
         }
     };
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw, FileText, Edit } from 'lucide-react';
 import Modal from '../../components/Modal';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import {
     listLocalSuppliers,
     createLocalSupplier,
@@ -39,40 +40,41 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
         <Modal
             title={isEdit ? 'Edit Non-Affiliated Supplier' : 'Add Non-Affiliated Supplier'}
             onClose={isSaving ? () => {} : onClose}
-            width="640px"
+            width="min(640px, 96vw)"
             footer={
-                <>
-                    <button className="btn-portal-outline" onClick={onClose} disabled={isSaving}>
+                <div className="ws-aff-modal-footer">
+                    <button type="button" className="btn-portal-outline" onClick={onClose} disabled={isSaving}>
                         Cancel
                     </button>
                     <button
+                        type="button"
                         className="btn-portal"
                         disabled={isSaving || !form.name.trim()}
                         onClick={() => onSave(form)}
                     >
                         {isSaving ? 'Saving...' : isEdit ? 'Update' : 'Add supplier'}
                     </button>
-                </>
+                </div>
             }
         >
-            <div style={{ fontSize: '0.875rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                    <div style={{ gridColumn: '1/-1' }}>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Supplier name *</label>
+            <div className="ws-local-sup-modal-form">
+                <div className="ws-local-sup-modal-grid">
+                    <div className="ws-local-sup-modal-field ws-local-sup-modal-field--full">
+                        <label>Supplier name *</label>
                         <input
+                            className="ws-local-sup-modal-input"
                             value={form.name}
                             onChange={(e) => set('name', e.target.value)}
                             placeholder="e.g. Local Trading Co."
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                         />
                     </div>
-                    <div>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Branch (optional)</label>
+                    <div className="ws-local-sup-modal-field">
+                        <label>Branch (optional)</label>
                         <select
+                            className="ws-local-sup-modal-input"
                             value={form.branchId || ''}
                             onChange={(e) => set('branchId', e.target.value)}
                             disabled={!isAll}
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', opacity: isAll ? 1 : 0.85 }}
                         >
                             {isAll && <option value="">— None (workshop-wide) —</option>}
                             {visibleBranches.map((b) => (
@@ -82,77 +84,77 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                             ))}
                         </select>
                     </div>
-                    <div>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Contact person</label>
+                    <div className="ws-local-sup-modal-field">
+                        <label>Contact person</label>
                         <input
+                            className="ws-local-sup-modal-input"
                             value={form.contactPerson}
                             onChange={(e) => set('contactPerson', e.target.value)}
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                         />
                     </div>
-                    <div>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Phone</label>
+                    <div className="ws-local-sup-modal-field">
+                        <label>Phone</label>
                         <input
+                            className="ws-local-sup-modal-input"
                             value={form.phone}
                             onChange={(e) => set('phone', e.target.value)}
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                         />
                     </div>
-                    <div>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Email</label>
+                    <div className="ws-local-sup-modal-field">
+                        <label>Email</label>
                         <input
+                            className="ws-local-sup-modal-input"
                             value={form.email}
                             onChange={(e) => set('email', e.target.value)}
                             type="email"
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                         />
                     </div>
-                    <div>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>VAT ID</label>
+                    <div className="ws-local-sup-modal-field">
+                        <label>VAT ID</label>
                         <input
+                            className="ws-local-sup-modal-input"
                             value={form.vatId}
                             onChange={(e) => set('vatId', e.target.value)}
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                         />
                     </div>
-                    <div>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>CR Number</label>
+                    <div className="ws-local-sup-modal-field">
+                        <label>CR Number</label>
                         <input
+                            className="ws-local-sup-modal-input"
                             value={form.crNumber}
                             onChange={(e) => set('crNumber', e.target.value)}
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                         />
                     </div>
-                    <div style={{ gridColumn: '1/-1' }}>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Address</label>
+                    <div className="ws-local-sup-modal-field ws-local-sup-modal-field--full">
+                        <label>Address</label>
                         <textarea
+                            className="ws-local-sup-modal-input"
                             rows={2}
                             value={form.address}
                             onChange={(e) => set('address', e.target.value)}
-                            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', resize: 'vertical' }}
                         />
                     </div>
                     {!isEdit && (
                         <>
-                            <div>
-                                <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Opening balance (SAR)</label>
+                            <div className="ws-local-sup-modal-field">
+                                <label>Opening balance (SAR)</label>
                                 <input
+                                    className="ws-local-sup-modal-input"
                                     type="number"
                                     step="0.01"
                                     min="0"
                                     value={form.openingBalance}
                                     onChange={(e) => set('openingBalance', e.target.value)}
                                     placeholder="0.00"
-                                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                                 />
                             </div>
-                            <div>
-                                <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>As of date</label>
+                            <div className="ws-local-sup-modal-field">
+                                <label>As of date</label>
                                 <input
+                                    className="ws-local-sup-modal-input"
                                     type="date"
                                     value={form.openingBalanceDate}
                                     onChange={(e) => set('openingBalanceDate', e.target.value)}
-                                    style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                                 />
                             </div>
                         </>
@@ -252,38 +254,42 @@ export default function WorkshopNonAffiliatedSuppliers({
     );
 
     return (
-        <div className="ws-page" style={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <h2 style={{ margin: 0, flex: 1 }}>Non-Affiliated Suppliers</h2>
-                <button className="btn-portal-outline" onClick={loadList} disabled={loading}>
-                    <RefreshCw size={14} style={{ marginRight: 6 }} />
-                    Refresh
-                </button>
-                {canCreate && (
-                    <button
-                        className="btn-portal"
-                        onClick={() => {
-                            setEditTarget(null);
-                            setShowForm(true);
-                        }}
-                    >
-                        <Plus size={14} style={{ marginRight: 6 }} />
-                        Add new non-affiliated supplier
+        <div className="ws-suppliers-page">
+            <div className="ws-suppliers-header">
+                <h2 className="ws-suppliers-title">Non-Affiliated Suppliers</h2>
+                <div className="ws-suppliers-header-actions">
+                    <button type="button" className="btn-portal-outline" onClick={loadList} disabled={loading}>
+                        <RefreshCw size={14} />
+                        Refresh
                     </button>
-                )}
+                    {canCreate && (
+                        <button
+                            type="button"
+                            className="btn-portal ws-suppliers-add-btn"
+                            onClick={() => {
+                                setEditTarget(null);
+                                setShowForm(true);
+                            }}
+                        >
+                            <Plus size={14} />
+                            Add new non-affiliated supplier
+                        </button>
+                    )}
+                </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
-                <div style={{ background: '#F1F5F9', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>
+            <div className="ws-suppliers-stats">
+                <div className="ws-suppliers-stat ws-suppliers-stat--neutral">
                     Total: <strong>{rows.length}</strong>
                 </div>
-                <div style={{ background: '#FEF3C7', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>
+                <div className="ws-suppliers-stat ws-suppliers-stat--balance">
                     Aggregate payable balance: <strong>{fmtMoney(totalBalance)} SAR</strong>
                 </div>
             </div>
 
-            <div style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 12, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <div className="ws-suppliers-table-wrap">
+                <WsTableScroll>
+                <table className="ws-suppliers-table">
                     <thead>
                         <tr style={{ background: '#F8FAFC', textAlign: 'left' }}>
                             <th style={{ padding: 12, width: 60 }}>S.No.</th>
@@ -328,75 +334,58 @@ export default function WorkshopNonAffiliatedSuppliers({
                                     <td style={{ padding: 12 }}>{fmtMoney(r.openingBalance)}</td>
                                     <td style={{ padding: 12 }}>{fmtMoney(r.finalBalance)}</td>
                                     <td style={{ padding: 12, textAlign: 'center' }}>
-                                        <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, opacity: canEdit ? 1 : 0.55, cursor: canEdit ? 'pointer' : 'not-allowed' }} title={canEdit ? undefined : 'No edit permission'}>
+                                        <label className="ws-suppliers-toggle" title={canEdit ? undefined : 'No edit permission'} style={{ opacity: canEdit ? 1 : 0.55, cursor: canEdit ? 'pointer' : 'not-allowed' }}>
                                             <input
                                                 type="checkbox"
                                                 checked={Boolean(r.isActive)}
                                                 onChange={() => { if (canEdit) onToggleActive(r); }}
                                                 disabled={!canEdit}
-                                                style={{ opacity: 0, width: 0, height: 0 }}
                                             />
-                                            <span
-                                                style={{
-                                                    position: 'absolute',
-                                                    inset: 0,
-                                                    background: r.isActive ? '#10B981' : '#CBD5E1',
-                                                    borderRadius: 22,
-                                                    transition: 'background 0.2s',
-                                                }}
-                                            />
-                                            <span
-                                                style={{
-                                                    position: 'absolute',
-                                                    top: 3,
-                                                    left: r.isActive ? 21 : 3,
-                                                    width: 16,
-                                                    height: 16,
-                                                    background: '#fff',
-                                                    borderRadius: '50%',
-                                                    transition: 'left 0.2s',
-                                                }}
-                                            />
+                                            <span className="ws-suppliers-toggle-track" data-on={r.isActive ? '1' : '0'} />
+                                            <span className="ws-suppliers-toggle-thumb" data-on={r.isActive ? '1' : '0'} />
                                         </label>
                                     </td>
-                                    <td style={{ padding: 12, display: 'flex', gap: 6 }}>
-                                        <button
-                                            className="btn-portal-outline"
-                                            style={{ padding: '6px 10px', fontSize: 12 }}
-                                            onClick={() =>
-                                                onTabChange?.('supplier-ledger', {
-                                                    type: 'local',
-                                                    id: r.id,
-                                                    name: r.name,
-                                                })
-                                            }
-                                        >
-                                            <FileText size={12} style={{ marginRight: 4 }} />
-                                            Ledger
-                                        </button>
-                                        {canEdit && (
+                                    <td style={{ padding: 12 }}>
+                                        <div className="ws-suppliers-row-actions">
                                             <button
-                                                className="btn-portal-outline"
-                                                style={{ padding: '6px 10px', fontSize: 12 }}
-                                                onClick={() => {
-                                                    setEditTarget(r);
-                                                    setShowForm(true);
-                                                }}
+                                                type="button"
+                                                className="btn-portal-outline ws-suppliers-ledger-btn"
+                                                onClick={() =>
+                                                    onTabChange?.('supplier-ledger', {
+                                                        type: 'local',
+                                                        id: r.id,
+                                                        name: r.name,
+                                                    })
+                                                }
                                             >
-                                                <Edit size={12} style={{ marginRight: 4 }} />
-                                                Edit
+                                                <FileText size={12} />
+                                                Ledger
                                             </button>
-                                        )}
+                                            {canEdit && (
+                                                <button
+                                                    type="button"
+                                                    className="btn-portal-outline ws-suppliers-ledger-btn"
+                                                    onClick={() => {
+                                                        setEditTarget(r);
+                                                        setShowForm(true);
+                                                    }}
+                                                >
+                                                    <Edit size={12} />
+                                                    Edit
+                                                </button>
+                                            )}
+                                        </div>
                                     </td>
                                 </tr>
                             ))
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
             </div>
 
             {error && (
-                <p style={{ marginTop: 12, color: '#B91C1C', fontSize: 13 }}>{error}</p>
+                <p className="ws-suppliers-error">{error}</p>
             )}
 
             {showForm && (

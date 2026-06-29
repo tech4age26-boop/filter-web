@@ -10,6 +10,9 @@ const qs = (params = {}) => {
 export const listExpenseCategories = (params = {}) =>
     apiFetch(`/employee-expense/categories${qs(params)}`);
 
+export const listExpenseWorkshopBranches = (params = {}) =>
+    apiFetch(`/employee-expense/branches${qs(params)}`);
+
 export const getMyExpenseRequests = (params = {}) =>
     apiFetch(`/employee-expense/my${qs(params)}`);
 
@@ -28,14 +31,14 @@ export const getStaffPettyCashWallet = (userId, params = {}) =>
 export const listExpenseIssuanceTargets = (params = {}) =>
     apiFetch(`/employee-expense/issuance-targets${qs(params)}`);
 
-export const submitFundRequest = (body) =>
-    apiFetch('/employee-expense/fund-request', {
+export const submitFundRequest = (body, params = {}) =>
+    apiFetch(`/employee-expense/fund-request${qs(params)}`, {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
     });
 
-export const submitExpense = (body) =>
-    apiFetch('/employee-expense/expense', {
+export const submitExpense = (body, params = {}) =>
+    apiFetch(`/employee-expense/expense${qs(params)}`, {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
     });

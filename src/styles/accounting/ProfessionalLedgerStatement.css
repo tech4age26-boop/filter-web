@@ -262,6 +262,36 @@
     font-size: 0.8125rem;
 }
 
+.pls-filter-field--check {
+    display: flex;
+    align-items: flex-end;
+    min-height: 52px;
+}
+
+.pls-filter-check-label {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 0 !important;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: #fff;
+    font-size: 0.8125rem !important;
+    font-weight: 600 !important;
+    color: #334155 !important;
+    cursor: pointer;
+    user-select: none;
+}
+
+.pls-filter-check-label input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    cursor: pointer;
+}
+
 @media print {
     .no-print {
         display: none !important;

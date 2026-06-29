@@ -5,6 +5,7 @@ import './Workshop.css';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import { MOCK_SUPPLIERS_CATALOG } from './constants';
 import { getMyProducts, getBranchProducts, patchBranchProduct } from '../../services/workshopCatalogApi';
@@ -2115,7 +2116,14 @@ export default function WorkshopInventory({
                                                         (e) => e.reference?.id || (e.source && e.source !== 'manual'),
                                                     );
                                                     return (
-                                                        <div style={{ overflowX: 'auto', maxHeight: 'min(420px, 55vh)', overflowY: 'auto', border: '1px solid var(--color-border-light)', borderRadius: 12 }}>
+                                                        <WsTableScroll
+                                                            bodyStyle={{
+                                                                maxHeight: 'min(420px, 55vh)',
+                                                                overflowY: 'auto',
+                                                                border: '1px solid var(--color-border-light)',
+                                                                borderRadius: 12,
+                                                            }}
+                                                        >
                                                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                                                                 <thead>
                                                                     <tr style={{ background: '#F9FAFB', position: 'sticky', top: 0 }}>
@@ -2205,7 +2213,7 @@ export default function WorkshopInventory({
                                                                     })}
                                                                 </tbody>
                                                             </table>
-                                                        </div>
+                                                        </WsTableScroll>
                                                     );
                                                 })()}
                                             </div>
@@ -2953,7 +2961,8 @@ export default function WorkshopInventory({
                             </p>
                         </div>
 
-                        <div className="mc-table-container" style={{ overflowX: 'auto' }}>
+                        <div className="mc-table-container">
+                            <WsTableScroll>
                             <table className="mc-data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ background: '#F9FAFB', borderBottom: '1px solid var(--color-border-light)' }}>
@@ -3382,6 +3391,7 @@ export default function WorkshopInventory({
                                     )}
                                 </tbody>
                             </table>
+                            </WsTableScroll>
                         </div>
                     </div>
                 </div>
@@ -3489,7 +3499,7 @@ export default function WorkshopInventory({
                                     or critical level is not set on any product.
                                 </p>
                             ) : (
-                                <div className="ws-kpi-proof-scroll">
+                                <WsTableScroll bodyClassName="ws-kpi-proof-scroll">
                                     <table className="ws-table ws-kpi-proof-table">
                                         <thead>
                                             <tr>
@@ -3547,7 +3557,7 @@ export default function WorkshopInventory({
                                             ))}
                                         </tbody>
                                     </table>
-                                </div>
+                                </WsTableScroll>
                             )}
                         </div>
                     </Modal>
@@ -3605,7 +3615,7 @@ export default function WorkshopInventory({
                             {inventoryValueBreakdown.lines.length === 0 ? (
                                 <p className="ws-kpi-proof-note">No products in this scope yet.</p>
                             ) : (
-                                <div className="ws-kpi-proof-scroll">
+                                <WsTableScroll bodyClassName="ws-kpi-proof-scroll">
                                     <table className="ws-table ws-kpi-proof-table">
                                         <thead>
                                             <tr>
@@ -3659,7 +3669,7 @@ export default function WorkshopInventory({
                                             </tr>
                                         </tfoot>
                                     </table>
-                                </div>
+                                </WsTableScroll>
                             )}
                         </div>
                     </Modal>
