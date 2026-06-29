@@ -39,7 +39,7 @@ import {
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { formatAffiliatedBranchCustomerLabel } from '../../utils/affiliatedCustomerLabels';
-import { resolveManualInvoiceLineLabel } from '../../utils/invoiceLineLabel';
+import { resolveInvoiceLineProductName } from '../../utils/invoiceLineLabel';
 
 /** Session key: JSON line preset (legacy / fallback). Primary path is router state `salesInvoiceFromAlert`. */
 const SI_PRESET_LINE_KEY = 'supplier_sales_invoice_preset_line';
@@ -1492,7 +1492,7 @@ export default function SupplierSalesInvoices() {
                 qtyNum > 0 ? roundMoney2(f.lineEx / qtyNum) : 0;
             return {
                 index: idx,
-                productName: resolveManualInvoiceLineLabel(line),
+                productName: resolveInvoiceLineProductName(line, { inventoryItems }),
                 qty: qtyNum,
                 unitPrice: unitPriceExForApi,
                 vatRate: Number(TAXES.find((t) => t.code === line.taxCode)?.percent || 0),

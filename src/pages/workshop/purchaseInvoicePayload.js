@@ -10,7 +10,10 @@ import {
     roundMoney2 as money2,
     DEFAULT_INVOICE_TAXES,
 } from '../../utils/invoiceLineFinancials';
-import { isInvoiceLineSubmitReady, resolveManualInvoiceLineLabel } from '../../utils/invoiceLineLabel';
+import {
+    isInvoiceLineSubmitReady,
+    resolveInvoiceLineProductName,
+} from '../../utils/invoiceLineLabel';
 
 export { reconstructInvoiceUnitPriceInput };
 
@@ -328,12 +331,11 @@ export function buildPurchaseInvoiceLinesForSave(
 ) {
     const mapped = (lineItems ?? []).map((line) => {
         const searchText = String(productSearchByLineId[line.id] ?? line.item ?? '').trim();
-        const accountLabel =
-            resolveManualInvoiceLineLabel(line, searchText) ||
+        const itemLabel =
+            resolveInvoiceLineProductName(line, { searchText }) ||
             parseAccountDisplay(line.account).name ||
             parseAccountDisplay(line.account).code ||
             '';
-        const itemLabel = searchText || String(line.item ?? '').trim() || accountLabel;
         const qtyRaw = parseFloat(String(line.qty ?? '').replace(',', '.'));
         const qty =
             forDraft && (!Number.isFinite(qtyRaw) || qtyRaw <= 0)
