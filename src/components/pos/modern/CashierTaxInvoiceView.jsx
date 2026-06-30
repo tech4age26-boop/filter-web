@@ -54,7 +54,7 @@ function TotalsRow({ en, ar, amount, emphasis = false }) {
   );
 }
 
-export default function CashierTaxInvoiceView({ invoice: rawInvoice }) {
+export default function CashierTaxInvoiceView({ invoice: rawInvoice, pdfCapture = false }) {
   const invoice = useMemo(() => normalizeCashierInvoice(rawInvoice), [rawInvoice]);
   const totals = useMemo(() => computeThermalInvoiceTotals(invoice), [invoice]);
   const lineRows = useMemo(() => computeThermalInvoiceLineRows(invoice), [invoice]);
@@ -121,7 +121,7 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice }) {
   const fmtQty = (q) => (q % 1 === 0 ? String(q) : q.toFixed(2));
 
   return (
-    <div className="cti-root">
+    <div className={`cti-root${pdfCapture ? ' cti--pdf-capture' : ''}`}>
       <div className="cti-header">
         <div className="cti-header-main">
           <div className="cti-header-brand-row">
@@ -242,7 +242,7 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice }) {
 
       <div className="cti-totals-banner">
         <span>Total Amount</span>
-        <span>إجمالي المبالغ</span>
+        <span className="ar">إجمالي المبالغ</span>
       </div>
       <table className="cti-totals-table">
         <tbody>
@@ -307,7 +307,7 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice }) {
 
       <div className="cti-checklist-banner">
         <span>Check list</span>
-        <span>قائمة الفحص</span>
+        <span className="ar">قائمة الفحص</span>
       </div>
       <table className="cti-checklist-grid">
         <tbody>

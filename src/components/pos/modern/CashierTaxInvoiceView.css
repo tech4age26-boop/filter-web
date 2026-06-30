@@ -5,6 +5,17 @@
   line-height: 1.2;
 }
 
+/* Naskh-style Arabic (not Nastaliq / Urdu fallbacks from system fonts). */
+.cti-root .ar,
+.cti-root .cti-brand-ar,
+.cti-root .cti-doc-title-ar,
+.cti-root .cti-header-meta-ar,
+.cti-root .cti-totals-table .label-ar,
+.cti-root .cti-totals-banner .ar,
+.cti-root .cti-checklist-banner .ar {
+  font-family: 'Noto Sans Arabic', 'Segoe UI', Tahoma, sans-serif;
+}
+
 .cti-header {
   display: flex;
   gap: 12px;
@@ -149,6 +160,46 @@
 .cti-goods-wrap {
   margin-top: 12px;
   overflow-x: auto;
+}
+
+/* PDF raster capture — match on-screen invoice modal (no inner scrollbars / clipping). */
+.cti-root.cti--pdf-capture {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.cti-root.cti--pdf-capture .cti-goods-wrap {
+  overflow: hidden !important;
+  max-width: 100%;
+}
+
+.cti-root.cti--pdf-capture .cti-goods-table {
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+.cti-root.cti--pdf-capture .cti-meta-table,
+.cti-root.cti--pdf-capture .cti-totals-table,
+.cti-root.cti--pdf-capture .cti-checklist-grid {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+.cti-root.cti--pdf-capture .cti-goods-table tbody td.cti-goods-name {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+.cti-root.cti--pdf-capture .cti-meta-value {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
 }
 
 .cti-goods-table {

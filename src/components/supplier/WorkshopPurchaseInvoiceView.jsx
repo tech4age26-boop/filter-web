@@ -75,8 +75,19 @@ function lineQty(line) {
 }
 
 function lineUom(line) {
-    const u = line?.uom ?? line?.unit ?? line?.unitOfMeasure ?? line?.unit_of_measure;
-    return u != null && String(u).trim() !== '' ? String(u).trim() : 'piece';
+    const candidates = [
+        line?.uom,
+        line?.unit,
+        line?.warehouseUnit,
+        line?.warehouse_unit,
+        line?.supplierProduct?.warehouseUnit,
+        line?.unitOfMeasure,
+        line?.unit_of_measure,
+    ];
+    for (const c of candidates) {
+        if (c != null && String(c).trim() !== '') return String(c).trim();
+    }
+    return 'piece';
 }
 
 function lineWorkshopConversionNote(line) {
