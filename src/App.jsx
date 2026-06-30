@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import SignInPage from './pages/SignInPage';
 import AdminLayout from './pages/AdminLayout';
@@ -70,8 +70,8 @@ import ReferrerFormPage from './pages/marketing/ReferrerFormPage';
 import ReferrerCommissionRuleFormPage from './pages/marketing/ReferrerCommissionRuleFormPage';
 import ReferrerPayoutFormPage from './pages/marketing/ReferrerPayoutFormPage';
 
-import WorkshopLayout from './pages/WorkshopLayout';
-import SupplierLayout from './pages/SupplierLayout';
+const WorkshopLayout = lazy(() => import('./pages/WorkshopLayout'));
+const SupplierLayout = lazy(() => import('./pages/SupplierLayout'));
 import CorporateLayout from './pages/CorporateLayout';
 import ReferralLayout from './pages/ReferralLayout';
 import TechnicianLayout from './pages/TechnicianLayout';
@@ -101,6 +101,31 @@ import PublicWpiVerifyPage from './pages/PublicWpiVerifyPage';
 import PublicSinvVerifyPage from './pages/PublicSinvVerifyPage';
 import PublicSspVerifyPage from './pages/PublicSspVerifyPage';
 import PublicAprVerifyPage from './pages/PublicAprVerifyPage';
+
+function RouteLoadingFallback() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        background: '#F5F5F7',
+      }}
+    >
+      <div
+        style={{
+          width: 32,
+          height: 32,
+          border: '3px solid #FCC245',
+          borderTopColor: 'transparent',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+        }}
+      />
+    </div>
+  );
+}
 
 function App() {
   return (
@@ -325,7 +350,9 @@ function App() {
               path="/workshop/*"
               element={
                 <ProtectedRoute requiredType="workshop_user">
-                  <WorkshopLayout />
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkshopLayout />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />
@@ -342,7 +369,9 @@ function App() {
               path="/supplier/*"
               element={
                 <ProtectedRoute requiredType="supplier_user">
-                  <SupplierLayout />
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <SupplierLayout />
+                  </Suspense>
                 </ProtectedRoute>
               }
             />

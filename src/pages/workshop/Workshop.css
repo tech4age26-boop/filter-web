@@ -3818,6 +3818,11 @@
     border-radius: 12px;
     overflow: visible;
 }
+.ws-pi-sub-screen .modal-content-purchase:has(.wpr-view),
+.ws-pi-sub-screen .modal-content-purchase:has(.wpi-view) {
+    background: transparent;
+    padding: 0;
+}
 .ws-pi-sub-screen .ws-sub-screen-inner--full {
     width: 100%;
 }

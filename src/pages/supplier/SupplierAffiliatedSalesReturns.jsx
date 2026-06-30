@@ -1,15 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, Loader2, Plus, RotateCcw, Search } from 'lucide-react';
+import { Check, Eye, FileText, Loader2, Plus, RotateCcw, Search } from 'lucide-react';
 import InlineFormScreen from '../../components/InlineFormScreen';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import WorkshopPurchaseReturnDetailView from '../../components/workshop/WorkshopPurchaseReturnDetailView';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import {
+    approveSupplierAffiliatedSalesReturn,
     createSupplierAffiliatedSalesReturn,
+    getSupplierAffiliatedSalesReturn,
     getSupplierInvoice,
+    getSupplierProfile,
     listSupplierAffiliatedSalesReturns,
     listSupplierInvoiceReturns,
     listSupplierInvoices,
 } from '../../services/supplierApi';
+import { mapSupplierAffiliatedReturnForView } from '../../utils/mapAffiliatedReturnDetail';
+import { supplierProfileFromApi } from '../../utils/supplierProfile';
 import '../../styles/admin/AccountingPage.css';
 
 function sarFmt(v) {
@@ -99,7 +105,7 @@ function aggregateReturnedQtyByInvoiceLine(returns) {
     return m;
 }
 
-function returnStatusBadge(status) {
+function returnStatusBadge(status, row) {
     const s = String(status || 'pending').toLowerCase();
     if (s === 'approved' || s === 'posted') {
         return { label: s === 'posted' ? 'Posted' : 'Approved', cls: 'mgr-si-status mgr-si-status--paid' };
@@ -107,13 +113,23 @@ function returnStatusBadge(status) {
     if (s === 'rejected') {
         return { label: 'Rejected', cls: 'mgr-si-status mgr-si-status--overdue' };
     }
+    if (row?.mode === 'workshop_initiated' || row?.linkedPurchaseReturn?.mode === 'workshop_initiated') {
+        return { label: 'Pending supplier', cls: 'mgr-si-status mgr-si-status--pending' };
+    }
     return { label: 'Pending workshop', cls: 'mgr-si-status mgr-si-status--pending' };
+}
+
+function isWorkshopInitiatedReturn(row) {
+    return (
+        row?.mode === 'workshop_initiated' ||
+        row?.linkedPurchaseReturn?.mode === 'workshop_initiated'
+    );
 }
 
 function linkedPurchaseStatus(row) {
     const st = row?.linkedPurchaseReturn?.status;
     if (!st) return '—';
-    const badge = returnStatusBadge(st);
+    const badge = returnStatusBadge(st, row);
     return badge.label;
 }
 
@@ -140,6 +156,10 @@ export default function SupplierAffiliatedSalesReturns() {
     const [reference, setReference] = useState('');
     const [description, setDescription] = useState('');
     const [notes, setNotes] = useState('');
+    const [viewReturnId, setViewReturnId] = useState(null);
+    const [viewReturnDetail, setViewReturnDetail] = useState(null);
+    const [viewReturnLoading, setViewReturnLoading] = useState(false);
+    const [approvingId, setApprovingId] = useState(null);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -266,6 +286,55 @@ export default function SupplierAffiliatedSalesReturns() {
         setFormError('');
     };
 
+    const closeViewReturn = useCallback(() => {
+        setViewReturnId(null);
+        setViewReturnDetail(null);
+        setViewReturnLoading(false);
+    }, []);
+
+    const handleViewReturn = useCallback(async (row) => {
+        if (!row?.id) return;
+        setViewReturnId(String(row.id));
+        setViewReturnLoading(true);
+        setViewReturnDetail(null);
+        try {
+            const [profileRes, detailRes] = await Promise.all([
+                getSupplierProfile().catch(() => null),
+                getSupplierAffiliatedSalesReturn(row.id),
+            ]);
+            const detail = mapSupplierAffiliatedReturnForView(detailRes);
+            const profile = supplierProfileFromApi(profileRes);
+            if (detail && profile) {
+                detail.supplier = profile;
+            }
+            setViewReturnDetail(detail);
+        } catch (err) {
+            setError(err?.message || 'Failed to load return details.');
+            setViewReturnId(null);
+        } finally {
+            setViewReturnLoading(false);
+        }
+    }, []);
+
+    const handleApproveReturn = useCallback(async (row) => {
+        if (!row?.id || row.status !== 'pending' || !isWorkshopInitiatedReturn(row)) return;
+        const ok = window.confirm(
+            `Approve return ${row.returnNo}?\n\nWorkshop branch stock will decrease and your supplier warehouse stock will increase.\n\nThis action cannot be undone.`,
+        );
+        if (!ok) return;
+        setApprovingId(String(row.id));
+        setError('');
+        try {
+            await approveSupplierAffiliatedSalesReturn(row.id);
+            setSuccess(`Approved ${row.returnNo}`);
+            await load();
+        } catch (err) {
+            setError(err?.message || 'Failed to approve return.');
+        } finally {
+            setApprovingId(null);
+        }
+    }, [load]);
+
     const handleSubmit = async (event) => {
         event.preventDefault();
         if (!selectedInvoiceId) {
@@ -336,7 +405,7 @@ export default function SupplierAffiliatedSalesReturns() {
 
     return (
         <div className="mgr-si-page">
-            {!formOpen ? (
+            {!formOpen && !viewReturnId ? (
                 <>
                     <header className="mgr-si-header">
                         <div className="mgr-si-header-top">
@@ -423,12 +492,13 @@ export default function SupplierAffiliatedSalesReturns() {
                                             <th className="table-th">Supplier status</th>
                                             <th className="table-th">Workshop return</th>
                                             <th className="table-th">Workshop status</th>
+                                            <th className="table-th" style={{ width: 72 }} />
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {!loading && filteredReturns.length === 0 ? (
                                             <tr>
-                                                <td colSpan={8} className="table-cell table-empty">
+                                                <td colSpan={9} className="table-cell table-empty">
                                                     <FileText
                                                         size={36}
                                                         style={{
@@ -456,7 +526,10 @@ export default function SupplierAffiliatedSalesReturns() {
                                             </tr>
                                         ) : (
                                             filteredReturns.map((row) => {
-                                                const badge = returnStatusBadge(row.status);
+                                                const badge = returnStatusBadge(row.status, row);
+                                                const canApprove =
+                                                    row.status === 'pending' &&
+                                                    isWorkshopInitiatedReturn(row);
                                                 return (
                                                     <tr key={row.id} className="table-row">
                                                         <td className="table-cell">
@@ -486,6 +559,7 @@ export default function SupplierAffiliatedSalesReturns() {
                                                                     className={
                                                                         returnStatusBadge(
                                                                             row.linkedPurchaseReturn.status,
+                                                                            row,
                                                                         ).cls
                                                                     }
                                                                 >
@@ -494,6 +568,31 @@ export default function SupplierAffiliatedSalesReturns() {
                                                             ) : (
                                                                 '—'
                                                             )}
+                                                        </td>
+                                                        <td className="table-cell">
+                                                            <div style={{ display: 'flex', gap: 6 }}>
+                                                                {canApprove ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn-portal"
+                                                                        style={{ padding: '6px 10px' }}
+                                                                        onClick={() => handleApproveReturn(row)}
+                                                                        disabled={approvingId !== null}
+                                                                        title="Approve and receive stock"
+                                                                    >
+                                                                        <Check size={15} />
+                                                                    </button>
+                                                                ) : null}
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn-portal-outline"
+                                                                    style={{ padding: '6px 10px' }}
+                                                                    onClick={() => handleViewReturn(row)}
+                                                                    title="View credit note"
+                                                                >
+                                                                    <Eye size={15} />
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 );
@@ -947,6 +1046,40 @@ export default function SupplierAffiliatedSalesReturns() {
                             </>
                         )}
                     </form>
+                </InlineFormScreen>
+            ) : null}
+
+            {viewReturnId ? (
+                <InlineFormScreen
+                    title={
+                        <div className="pi-modal-title">
+                            <span className="pi-breadcrumb">
+                                Sales Returns ›{' '}
+                                <span className="pi-b-active">
+                                    {viewReturnDetail?.returnNumber || 'Return'}
+                                </span>
+                            </span>
+                            <div className="pi-title-main">
+                                <RotateCcw size={24} />
+                                <span>Credit Note</span>
+                            </div>
+                        </div>
+                    }
+                    onBack={closeViewReturn}
+                    backLabel="Back to Sales Returns"
+                    bodyClassName="supplier-affiliated-return-view-body"
+                >
+                    {viewReturnLoading ? (
+                        <ShimmerTextBlock lines={12} />
+                    ) : viewReturnDetail ? (
+                        <WorkshopPurchaseReturnDetailView
+                            detail={viewReturnDetail}
+                            variant="supplier"
+                            compact
+                        />
+                    ) : (
+                        <p style={{ margin: 0, color: '#64748b' }}>Could not load return details.</p>
+                    )}
                 </InlineFormScreen>
             ) : null}
         </div>

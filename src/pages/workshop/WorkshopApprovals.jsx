@@ -8,6 +8,7 @@ import WorkshopPurchaseReturnDetailView from '../../components/workshop/Workshop
 import Modal from '../../components/Modal';
 import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
 import { apiFetch } from '../../services/api';
+import { buildReceivedQtyByInvoiceItemIdPayload } from '../../utils/receivedQtyPayload';
 import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn, listWorkshopCashBankAccounts, listAffiliatedPurchaseReturns, getAffiliatedPurchaseReturn, approveAffiliatedPurchaseReturn } from '../../services/workshopStaffApi';
 import { approveExpenseRequest, rejectExpenseRequest } from '../../services/employeeExpenseApi';
 import { useAuth } from '../../context/AuthContext';
@@ -393,6 +394,7 @@ export default function WorkshopApprovals({
     /** Supplier invoice approve: preview showed new branch products — collect optional critical stock */
     const [siApproveModal, setSiApproveModal] = useState(null);
     const [siCriticalStock, setSiCriticalStock] = useState({});
+    const [siReceivedQty, setSiReceivedQty] = useState({});
     const [fundApproveModal, setFundApproveModal] = useState(null);
     const [expenseApproveModal, setExpenseApproveModal] = useState(null);
     const [fundApproveError, setFundApproveError] = useState('');
@@ -518,6 +520,7 @@ export default function WorkshopApprovals({
                 purchaseReturnId: pr.id,
                 kind: 'purchase_return',
                 status: pr.status || 'pending',
+                initiationMode: pr.mode ?? null,
                 amount: Number(pr.grandTotal ?? 0),
                 returnNumber: pr.returnNumber,
                 invoiceNo: pr.sourcePurchaseInvoiceNumber,
@@ -637,6 +640,7 @@ export default function WorkshopApprovals({
         if (actionLoadingId) return;
         setSiApproveModal(null);
         setSiCriticalStock({});
+        setSiReceivedQty({});
     }, [actionLoadingId]);
 
     const closeViewDialog = useCallback(() => {
@@ -696,6 +700,7 @@ export default function WorkshopApprovals({
         }
         if (isAffiliatedPurchaseReturnRow(row)) {
             if (row.status !== 'pending') return;
+            if (row.initiationMode === 'workshop_initiated') return;
             const rid = row.purchaseReturnId;
             const ok = window.confirm(
                 `Approve purchase return ${row.returnNumber || ''}?\n\n` +
@@ -723,46 +728,18 @@ export default function WorkshopApprovals({
         if (isSupplierSalesInvoiceRow(row)) {
             if (!supplierRowCanAct(row)) return;
             const sid = row.supplierInvoiceId;
-            const branchLabel = row.branchName || row.branch_name || 'this branch';
             setActionLoadingId(`approve-si-${sid}`);
             try {
                 const preview = await apiFetch(
                     `/workshop-staff/supplier-sales-invoices/${encodeURIComponent(String(sid))}/approval-preview`,
                 );
-                const needsSetupModal =
-                    Boolean(preview?.hasNewProducts) ||
-                    (Array.isArray(preview?.unresolvedLineNames) && preview.unresolvedLineNames.length > 0);
-                if (needsSetupModal) {
-                    const init = {};
-                    (preview.newProducts || []).forEach((p) => {
-                        init[String(p.productId)] = '0';
-                    });
-                    setSiCriticalStock(init);
-                    setSiApproveModal({ row, preview });
-                    return;
-                }
-                const ok = window.confirm(
-                    `Approve supplier invoice ${row.invoiceNo || ''}?\n\n` +
-                        `Preview: all invoice lines are already on "${branchLabel}" inventory (or only stock increases apply). ` +
-                        `On-hand quantities will go up by the amounts on this invoice.\n\n` +
-                        `This action cannot be undone.`,
-                );
-                if (!ok) {
-                    setActionLoadingId(null);
-                    return;
-                }
-                await apiFetch(`/workshop-staff/supplier-sales-invoices/${encodeURIComponent(String(sid))}/approve`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({}),
+                const init = {};
+                (preview.newProducts || []).forEach((p) => {
+                    init[String(p.productId)] = '0';
                 });
-                await loadApprovals();
-                window.dispatchEvent(new Event('workshop-approvals-updated'));
-                window.dispatchEvent(
-                    new CustomEvent('workshop-inventory-updated', {
-                        detail: { branchId: row.branchId ?? row.branch_id ?? null, source: 'approve_supplier_invoice' },
-                    }),
-                );
+                setSiCriticalStock(init);
+                setSiReceivedQty({});
+                setSiApproveModal({ row, preview });
             } catch (error) {
                 setLoadError(error.message || 'Failed to approve supplier invoice.');
             } finally {
@@ -955,13 +932,23 @@ export default function WorkshopApprovals({
         setActionLoadingId(`approve-si-${sid}`);
         setLoadError('');
         try {
+            const receiveLines = Array.isArray(siApproveModal.preview?.receiveLines)
+                ? siApproveModal.preview.receiveLines
+                : [];
             await apiFetch(`/workshop-staff/supplier-sales-invoices/${encodeURIComponent(String(sid))}/approve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ criticalStockByProductId }),
+                body: JSON.stringify({
+                    criticalStockByProductId,
+                    receivedQtyByInvoiceItemId: buildReceivedQtyByInvoiceItemIdPayload(
+                        receiveLines,
+                        siReceivedQty,
+                    ),
+                }),
             });
             setSiApproveModal(null);
             setSiCriticalStock({});
+            setSiReceivedQty({});
             await loadApprovals();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
             window.dispatchEvent(
@@ -1034,8 +1021,8 @@ export default function WorkshopApprovals({
     if (siApproveModal) {
         return (
             <WorkshopSubScreen
-                title="Products will be added to branch inventory"
-                subtitle="Set critical stock for new branch products, then approve."
+                title="Approve supplier invoice & receive stock"
+                subtitle="Confirm received quantities, set critical stock for new branch products, then approve."
                 backLabel="Back to Approvals"
                 onBack={closeSiApproveScreen}
                 backDisabled={actionLoadingId !== null}
@@ -1186,6 +1173,84 @@ export default function WorkshopApprovals({
                                     : 'No new branch products; approving will increase stock only for products you already carry on this branch.'}
                             </p>
                         )}
+                        {Array.isArray(siApproveModal.preview?.receiveLines) &&
+                        siApproveModal.preview.receiveLines.length > 0 ? (
+                            <div style={{ marginTop: 16, overflowX: 'auto' }}>
+                                <p
+                                    style={{
+                                        margin: '0 0 8px',
+                                        fontSize: '0.8125rem',
+                                        fontWeight: 700,
+                                        color: '#0f172a',
+                                    }}
+                                >
+                                    Invoice lines — received quantity
+                                </p>
+                                <p style={{ margin: '0 0 10px', fontSize: '0.75rem', color: '#64748b' }}>
+                                    Leave <strong>Received qty</strong> empty when the physical count matches
+                                    the invoiced branch amount. Enter a value in workshop UOM only when different.
+                                </p>
+                                <table
+                                    style={{
+                                        width: '100%',
+                                        borderCollapse: 'collapse',
+                                        fontSize: '0.8125rem',
+                                    }}
+                                >
+                                    <thead>
+                                        <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
+                                            <th style={{ padding: '8px 6px' }}>Product</th>
+                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>Supplier shipped</th>
+                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>Branch stock +</th>
+                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>Received qty</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {siApproveModal.preview.receiveLines.map((ln) => {
+                                            const itemId = String(ln.invoiceItemId ?? '');
+                                            const wsUnit = ln.workshopReceiveUnit ?? 'Liter';
+                                            return (
+                                                <tr key={itemId || ln.itemName} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                    <td style={{ padding: '8px 6px' }}>{ln.itemName}</td>
+                                                    <td style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                        {ln.supplierQty} {ln.supplierUnit ?? 'Box'}
+                                                    </td>
+                                                    <td style={{ padding: '8px 6px', textAlign: 'right', color: '#047857', fontWeight: 600 }}>
+                                                        +{ln.workshopReceiveQty} {wsUnit}
+                                                    </td>
+                                                    <td style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                        {itemId ? (
+                                                            <input
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                placeholder={`${ln.workshopReceiveQty} ${wsUnit}`}
+                                                                value={siReceivedQty[itemId] ?? ''}
+                                                                onChange={(e) =>
+                                                                    setSiReceivedQty((prev) => ({
+                                                                        ...prev,
+                                                                        [itemId]: e.target.value,
+                                                                    }))
+                                                                }
+                                                                style={{
+                                                                    width: 100,
+                                                                    padding: '6px 8px',
+                                                                    borderRadius: 6,
+                                                                    border: '1px solid #cbd5e1',
+                                                                    textAlign: 'right',
+                                                                }}
+                                                                aria-label={`Received qty for ${ln.itemName}`}
+                                                            />
+                                                        ) : (
+                                                            '—'
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             </WorkshopSubScreen>
@@ -1267,6 +1332,8 @@ export default function WorkshopApprovals({
                                     <WorkshopPurchaseReturnDetailView
                                         detail={viewPurchaseReturnDetail}
                                         currency={currency}
+                                        variant="workshop"
+                                        compact
                                     />
                                 ) : (
                                     <p style={{ color: 'var(--color-text-muted)' }}>Could not load purchase return details.</p>
@@ -1478,7 +1545,9 @@ export default function WorkshopApprovals({
                                 const pettyPending = !isSupplier && !isPurchaseReturn && !isSalesReturn && a.status === 'pending';
                                 const rowActionable =
                                     (isSupplier && supplierRowCanAct(a)) ||
-                                    (isPurchaseReturn && a.status === 'pending') ||
+                                    (isPurchaseReturn &&
+                                        a.status === 'pending' &&
+                                        a.initiationMode !== 'workshop_initiated') ||
                                     (isSalesReturn && a.status === 'pending') ||
                                     pettyPending;
                                 const allowApprove = rowActionable && canApproveType(a);

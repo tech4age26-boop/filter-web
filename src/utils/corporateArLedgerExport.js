@@ -573,7 +573,7 @@ function splitPeriodIntoMonthChunks(startStr, endStr) {
 }
 
 function normalizeInvoiceAmounts(line) {
-    const incl = Number(line.invoiceInclusiveVat ?? line.invoiceAmount ?? 0);
+    let incl = Number(line.invoiceInclusiveVat ?? line.invoiceAmount ?? 0);
     let excl = Number(line.invoiceExclVat ?? 0);
     let vat = Number(line.vat15 ?? 0);
     if (incl > 0 && excl <= 0) {

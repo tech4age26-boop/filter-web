@@ -5,6 +5,7 @@ import {
     getPublicWorkshopPurchaseInvoiceVerify,
     getPublicWorkshopPurchaseInvoiceReceivePreview,
     publicReceiveWorkshopPurchaseInvoiceWithPassword,
+    buildReceivedQtyByInvoiceItemIdPayload,
 } from '../services/publicVerifyApi';
 import './PublicWpiVerifyPage.css';
 
@@ -74,6 +75,7 @@ export default function PublicWpiVerifyPage() {
     const [inventoryPreview, setInventoryPreview] = useState(null);
     const [inventoryPreviewLoading, setInventoryPreviewLoading] = useState(false);
     const [receiveCriticalByPid, setReceiveCriticalByPid] = useState({});
+    const [receiveQtyByItemId, setReceiveQtyByItemId] = useState({});
 
     const closeReceiveModal = () => {
         if (receiveSubmitting) return;
@@ -110,6 +112,10 @@ export default function PublicWpiVerifyPage() {
                     Object.keys(criticalStockByProductId).length > 0
                         ? criticalStockByProductId
                         : undefined,
+                receivedQtyByInvoiceItemId: buildReceivedQtyByInvoiceItemIdPayload(
+                    data?.lines,
+                    receiveQtyByItemId,
+                ),
             });
             setReceiveResult(res);
             setReceiveOpen(false);
@@ -129,6 +135,7 @@ export default function PublicWpiVerifyPage() {
             setData(null);
             setInventoryPreview(null);
             setReceiveCriticalByPid({});
+            setReceiveQtyByItemId({});
             try {
                 const res = await getPublicWorkshopPurchaseInvoiceVerify(id);
                 if (cancelled) return;
@@ -393,6 +400,24 @@ export default function PublicWpiVerifyPage() {
                                     >
                                         LINE ITEMS — SUPPLIER SHIPPED vs BRANCH STOCK
                                     </p>
+                                    {!(
+                                        Boolean(data?.received) ||
+                                        Boolean(data?.stockApplied) ||
+                                        Boolean(receiveResult)
+                                    ) ? (
+                                        <p
+                                            style={{
+                                                margin: '0 0 10px',
+                                                fontSize: '0.75rem',
+                                                color: '#64748b',
+                                                lineHeight: 1.45,
+                                            }}
+                                        >
+                                            If you received the full invoiced quantity, leave{' '}
+                                            <strong>Received qty</strong> empty. Enter a value only when
+                                            the physical count differs (workshop UOM).
+                                        </p>
+                                    ) : null}
                                     <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
                                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
                                             <thead>
@@ -407,12 +432,36 @@ export default function PublicWpiVerifyPage() {
                                                     <th style={{ textAlign: 'left', padding: 8 }}>
                                                         Branch stock +
                                                     </th>
+                                                    {!(
+                                                        Boolean(data?.received) ||
+                                                        Boolean(data?.stockApplied) ||
+                                                        Boolean(receiveResult)
+                                                    ) ? (
+                                                        <th style={{ textAlign: 'left', padding: 8 }}>
+                                                            Received qty
+                                                        </th>
+                                                    ) : null}
                                                     <th style={{ textAlign: 'right', padding: 8 }}>Line total</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {data.lines.map((ln, i) => (
-                                                    <tr key={i} style={{ borderTop: '1px solid #f1f5f9' }}>
+                                                {data.lines.map((ln, i) => {
+                                                    const itemId =
+                                                        ln.invoiceItemId != null
+                                                            ? String(ln.invoiceItemId)
+                                                            : null;
+                                                    const canEditReceive = !(
+                                                        Boolean(data?.received) ||
+                                                        Boolean(data?.stockApplied) ||
+                                                        Boolean(receiveResult)
+                                                    );
+                                                    const wsUnit =
+                                                        ln.workshopReceiveUnit ?? ln.unit ?? 'Liter';
+                                                    return (
+                                                    <tr
+                                                        key={itemId ?? `line-${i}`}
+                                                        style={{ borderTop: '1px solid #f1f5f9' }}
+                                                    >
                                                         <td style={{ padding: 8, fontWeight: 600 }}>
                                                             {ln.itemName}
                                                         </td>
@@ -434,14 +483,42 @@ export default function PublicWpiVerifyPage() {
                                                         <td style={{ padding: 8, color: '#047857', fontWeight: 700 }}>
                                                             {ln.stockIncreaseLabel ??
                                                                 (ln.workshopReceiveQty != null
-                                                                    ? `+${fmtQty(ln.workshopReceiveQty)} ${ln.workshopReceiveUnit ?? 'Liter'}`
+                                                                    ? `+${fmtQty(ln.workshopReceiveQty)} ${wsUnit}`
                                                                     : '—')}
                                                         </td>
+                                                        {canEditReceive && itemId ? (
+                                                            <td style={{ padding: 8, minWidth: 120 }}>
+                                                                <input
+                                                                    type="text"
+                                                                    inputMode="decimal"
+                                                                    placeholder={`${fmtQty(ln.workshopReceiveQty)} ${wsUnit}`}
+                                                                    value={receiveQtyByItemId[itemId] ?? ''}
+                                                                    onChange={(e) =>
+                                                                        setReceiveQtyByItemId((prev) => ({
+                                                                            ...prev,
+                                                                            [itemId]: e.target.value,
+                                                                        }))
+                                                                    }
+                                                                    style={{
+                                                                        width: '100%',
+                                                                        maxWidth: 120,
+                                                                        padding: '6px 8px',
+                                                                        borderRadius: 6,
+                                                                        border: '1px solid #cbd5e1',
+                                                                        fontSize: '0.75rem',
+                                                                    }}
+                                                                    aria-label={`Received qty for ${ln.itemName}`}
+                                                                />
+                                                            </td>
+                                                        ) : canEditReceive ? (
+                                                            <td style={{ padding: 8 }}>—</td>
+                                                        ) : null}
                                                         <td style={{ padding: 8, textAlign: 'right' }}>
                                                             {fmtMoney(ln.lineTotal, data.currencyCode)}
                                                         </td>
                                                     </tr>
-                                                ))}
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>

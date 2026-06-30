@@ -177,8 +177,14 @@ function mapSupplierSalesInvoiceToWorkshopDetail(inv) {
             id: it.id,
             productName: it.productName,
             product_name: it.productName,
-            productNameArabic: it.productNameArabic ?? it.product_name_arabic ?? null,
-            product_name_arabic: it.productNameArabic ?? it.product_name_arabic ?? null,
+            productNameArabic: it.productNameArabic ?? it.product_name_arabic ?? it.product?.arabicName ?? null,
+            product_name_arabic: it.productNameArabic ?? it.product_name_arabic ?? it.product?.arabicName ?? null,
+            product: it.product
+                ? {
+                      name: it.product.name,
+                      arabicName: it.productNameArabic ?? it.product.arabicName ?? null,
+                  }
+                : null,
             qty: it.qty,
             quantity: it.qty,
             qtyReturned: Number(it.qtyReturned ?? it.qty_returned ?? 0),
@@ -869,10 +875,13 @@ export default function SupplierSalesInvoices() {
     const [invoiceListSearch, setInvoiceListSearch] = useState('');
     const [invoiceListFilter, setInvoiceListFilter] = useState('all');
     const [saveError, setSaveError] = useState('');
-    const [saving, setSaving] = useState(false);
-    const [viewOpen, setViewOpen] = useState(false);
+    /** Which footer action is in flight — avoids both buttons showing "Saving…". */
+    const [savingAction, setSavingAction] = useState(null);
+    const saving = savingAction != null;
+    const [viewInvoiceId, setViewInvoiceId] = useState(null);
     const [viewLoading, setViewLoading] = useState(false);
     const [viewPayload, setViewPayload] = useState(null);
+    const viewInvoiceRef = useRef(null);
     /** Off-screen `WorkshopPurchaseInvoiceView` for row-download PDF (same template as View modal). */
     const salesInvoicePdfRef = useRef(null);
     const [salesInvoicePdfExport, setSalesInvoicePdfExport] = useState(null);
@@ -1466,6 +1475,12 @@ export default function SupplierSalesInvoices() {
         }
     };
 
+    const closeViewInvoice = useCallback(() => {
+        setViewInvoiceId(null);
+        setViewPayload(null);
+        setViewLoading(false);
+    }, []);
+
     const handleSaveInvoice = async (saveMode = 'issue') => {
         const isDraftSave = saveMode === 'draft';
         const isEditingDraft =
@@ -1545,7 +1560,7 @@ export default function SupplierSalesInvoices() {
                   ),
               ]
             : [];
-        setSaving(true);
+        setSavingAction(isDraftSave ? 'draft' : 'issue');
         const due =
             calculatedDueDate === '—' ? issueDate : calculatedDueDate;
         const itemsPayload = normalizedLines.map((line, idx) => {
@@ -1679,7 +1694,7 @@ export default function SupplierSalesInvoices() {
             console.error('Save supplier invoice failed:', err);
             setSaveError(err?.message || 'Failed to save invoice.');
         } finally {
-            setSaving(false);
+            setSavingAction(null);
         }
     };
 
@@ -1815,7 +1830,7 @@ export default function SupplierSalesInvoices() {
     };
 
     const handleViewInvoice = async (row) => {
-        setViewOpen(true);
+        setViewInvoiceId(String(row.id));
         setViewLoading(true);
         setViewPayload(null);
         try {
@@ -2754,7 +2769,7 @@ export default function SupplierSalesInvoices() {
 
     return (
         <div className="mgr-si-page">
-            {!modalOpen && (
+            {!modalOpen && !viewInvoiceId && (
             <>
             <header className="mgr-si-header">
                 <div className="mgr-si-header-top">
@@ -3069,18 +3084,18 @@ export default function SupplierSalesInvoices() {
                                             type="button"
                                             className="btn-pi-draft"
                                             onClick={() => void handleSaveInvoice('draft')}
-                                            disabled={draftSaveDisabled}
+                                            disabled={draftSaveDisabled || savingAction === 'issue'}
                                         >
-                                            {saving ? 'Saving…' : 'Save as Draft'}
+                                            {savingAction === 'draft' ? 'Saving…' : 'Save as Draft'}
                                         </button>
                                     ) : null}
                                     <button
                                         type="button"
                                         className="btn-pi-create"
                                         onClick={() => void handleSaveInvoice('issue')}
-                                        disabled={issueSaveDisabled}
+                                        disabled={issueSaveDisabled || savingAction === 'draft'}
                                     >
-                                        {saving ? 'Saving…' : issueButtonLabel}
+                                        {savingAction === 'issue' ? 'Saving…' : issueButtonLabel}
                                     </button>
                                 </div>
                             </div>
@@ -5052,23 +5067,43 @@ export default function SupplierSalesInvoices() {
                     </Modal>
                 )}
             </AnimatePresence>
-            <AnimatePresence>
-                {viewOpen && (
-                    <Modal
-                        title="Sales invoice"
-                        width="min(980px, 99vw)"
-                        contentClassName="wpi-invoice-preview-modal"
-                        onClose={() => {
-                            setViewOpen(false);
-                            setViewPayload(null);
-                        }}
+            {viewInvoiceId ? (
+                <InlineFormScreen
+                        title={
+                            <div className="pi-modal-title">
+                                <span className="pi-breadcrumb">
+                                    Sales Invoices ›{' '}
+                                    <span className="pi-b-active">
+                                        {viewPayload?.invoice?.invoiceNo || 'Invoice'}
+                                    </span>
+                                </span>
+                                <div className="pi-title-main">
+                                    <FileText size={24} />
+                                    <span>Sales Invoice</span>
+                                </div>
+                            </div>
+                        }
+                        onBack={closeViewInvoice}
+                        backLabel="Back to Sales Invoices"
+                        bodyClassName="wpi-invoice-preview-modal"
                     >
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                            <button
+                                type="button"
+                                className="btn-pi-cancel"
+                                onClick={() => viewInvoiceRef.current?.downloadPdf?.()}
+                                disabled={viewLoading || !viewPayload?.invoice}
+                            >
+                                Download PDF
+                            </button>
+                        </div>
                         {viewLoading ? (
                             <ShimmerTextBlock lines={8} />
                         ) : viewPayload?.error ? (
                             <p style={{ margin: 0, color: '#B91C1C' }}>{viewPayload.error}</p>
                         ) : viewPayload?.invoice ? (
                             <WorkshopPurchaseInvoiceView
+                                ref={viewInvoiceRef}
                                 compact
                                 variant="supplier_sales"
                                 detail={mapSupplierSalesInvoiceToWorkshopDetail(viewPayload.invoice)}
@@ -5077,9 +5112,8 @@ export default function SupplierSalesInvoices() {
                         ) : (
                             <p style={{ margin: 0 }}>No data.</p>
                         )}
-                    </Modal>
-                )}
-            </AnimatePresence>
+                    </InlineFormScreen>
+                ) : null}
             {salesInvoicePdfExport ? (
                 <div
                     aria-hidden
