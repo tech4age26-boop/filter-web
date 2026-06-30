@@ -84,6 +84,7 @@ export default function PublicAprVerifyPage() {
 
     const finalized = Boolean(data?.finalized || data?.finalizedAt || confirmResult?.success);
     const currency = data?.currencyCode || 'SAR';
+    const supplierConfirms = data?.confirmWithParty === 'supplier' || data?.initiatedBy === 'workshop';
 
     return (
         <div className="public-verify-page">
@@ -114,7 +115,10 @@ export default function PublicAprVerifyPage() {
                                 </span>
                             ) : (
                                 <span className="public-verify-pill public-verify-pill--pending">
-                                    <PackageMinus size={16} /> Pending workshop confirmation
+                                    <PackageMinus size={16} />{' '}
+                                    {supplierConfirms
+                                        ? 'Pending supplier confirmation'
+                                        : 'Pending workshop confirmation'}
                                 </span>
                             )}
                         </div>
@@ -180,11 +184,17 @@ export default function PublicAprVerifyPage() {
                                 className="public-verify-btn public-verify-btn--primary"
                                 onClick={() => setConfirmOpen(true)}
                             >
-                                <Lock size={16} /> Confirm return with workshop password
+                                <Lock size={16} />{' '}
+                                {supplierConfirms
+                                    ? 'Confirm return with supplier password'
+                                    : 'Confirm return with workshop password'}
                             </button>
                         ) : (
                             <p className="public-verify-success">
                                 This return has been finalized. Stock and accounting were updated on both sides.
+                                {confirmResult?.alreadyFinalized
+                                    ? ' Scanning again will not receive stock a second time.'
+                                    : null}
                             </p>
                         )}
                     </div>
@@ -201,12 +211,13 @@ export default function PublicAprVerifyPage() {
                     >
                         <h2>Confirm purchase return</h2>
                         <p>
-                            Enter your workshop or branch login password to finalize this return. Branch stock will
-                            decrease and the linked supplier return will be posted.
+                            {supplierConfirms
+                                ? 'Enter your supplier portal login password to receive returned stock. This QR can only finalize stock once.'
+                                : 'Enter your workshop or branch login password to finalize this return. Branch stock will decrease and the linked supplier return will be posted.'}
                         </p>
                         <form onSubmit={handleConfirmSubmit}>
                             <label className="public-verify-field">
-                                <span>Workshop password</span>
+                                <span>{supplierConfirms ? 'Supplier password' : 'Workshop password'}</span>
                                 <input
                                     type="password"
                                     value={password}

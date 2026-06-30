@@ -1,4 +1,7 @@
 import { apiFetch } from './api';
+import { buildReceivedQtyByInvoiceItemIdPayload } from '../utils/receivedQtyPayload';
+
+export { buildReceivedQtyByInvoiceItemIdPayload };
 
 /**
  * Public (no login) workshop purchase invoice verification — backend must allow unauthenticated GET.
@@ -34,6 +37,10 @@ export function publicReceiveWorkshopPurchaseInvoiceWithPassword(id, password, o
         ...(opts.criticalStockByProductId && Object.keys(opts.criticalStockByProductId).length > 0
             ? { criticalStockByProductId: opts.criticalStockByProductId }
             : {}),
+        ...(opts.receivedQtyByInvoiceItemId &&
+        Object.keys(opts.receivedQtyByInvoiceItemId).length > 0
+            ? { receivedQtyByInvoiceItemId: opts.receivedQtyByInvoiceItemId }
+            : {}),
     };
     return apiFetch(
         `/public/workshop-purchase-invoices/${encodeURIComponent(String(id))}/receive-with-password`,
@@ -66,7 +73,7 @@ export function getPublicSupplierSalesInvoiceReceivePreview(id) {
  * backend marks the invoice received and applies branch inventory. Idempotent.
  * @param {string} id
  * @param {string} password
- * @param {{ criticalStockByProductId?: Record<string, number> }} [opts]
+ * @param {{ criticalStockByProductId?: Record<string, number>, receivedQtyByInvoiceItemId?: Record<string, number> }} [opts]
  */
 export function publicReceiveSupplierSalesInvoiceWithPassword(id, password, opts = {}) {
     if (id == null || id === '') {
@@ -79,6 +86,10 @@ export function publicReceiveSupplierSalesInvoiceWithPassword(id, password, opts
         password: String(password),
         ...(opts.criticalStockByProductId && Object.keys(opts.criticalStockByProductId).length > 0
             ? { criticalStockByProductId: opts.criticalStockByProductId }
+            : {}),
+        ...(opts.receivedQtyByInvoiceItemId &&
+        Object.keys(opts.receivedQtyByInvoiceItemId).length > 0
+            ? { receivedQtyByInvoiceItemId: opts.receivedQtyByInvoiceItemId }
             : {}),
     };
     return apiFetch(
