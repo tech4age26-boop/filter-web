@@ -4,6 +4,34 @@ import { flushSync } from 'react-dom';
 import CashierTaxInvoiceView from '../components/pos/modern/CashierTaxInvoiceView';
 import { getInvoices, getSuperAdminInvoiceView } from '../services/superAdminApi';
 
+/** Inner content width of InvoiceDetailsModal (.invoice-modal-card 940px − 14px×2 padding). */
+const INVOICE_PDF_CONTENT_WIDTH = 912;
+
+const INVOICE_ARABIC_FONT_LINK_ID = 'filter-noto-sans-arabic-font';
+
+/** Load Noto Sans Arabic before rasterizing so PDF Arabic matches on-screen Naskh style. */
+async function ensureInvoicePdfFonts() {
+    if (!document.getElementById(INVOICE_ARABIC_FONT_LINK_ID)) {
+        const link = document.createElement('link');
+        link.id = INVOICE_ARABIC_FONT_LINK_ID;
+        link.rel = 'stylesheet';
+        link.href =
+            'https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;600;700;800&display=swap';
+        document.head.appendChild(link);
+    }
+    if (document.fonts?.load) {
+        await Promise.all([
+            document.fonts.load('400 12px "Noto Sans Arabic"'),
+            document.fonts.load('600 12px "Noto Sans Arabic"'),
+            document.fonts.load('700 14px "Noto Sans Arabic"'),
+            document.fonts.load('800 15px "Noto Sans Arabic"'),
+        ]).catch(() => {});
+        await document.fonts.ready;
+    } else {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+}
+
 /** Invoice / credit-note refs that can be opened as PDF. */
 export function isClickableInvoiceRef(invoiceNo) {
     const s = String(invoiceNo ?? '').trim();
@@ -64,30 +92,60 @@ export async function resolveInvoiceId({ invoiceId, invoiceNo, workshopId } = {}
 
 /**
  * Rasterize CashierTaxInvoiceView off-screen and save as PDF.
+ * Uses the same 940px width as InvoiceDetailsModal so output matches View Invoice.
  */
 export async function downloadPosInvoicePdf(invoice) {
     const normalized = normalizeInvoiceForModal(invoice);
     const invoiceNo =
         normalized?.invoiceNo ?? normalized?.invoice_no ?? normalized?.id ?? 'invoice';
 
+    await ensureInvoicePdfFonts();
+
     const mount = document.createElement('div');
     mount.setAttribute('data-pos-invoice-pdf-mount', '1');
-    mount.style.cssText =
-        'position:fixed;left:-10000px;top:0;width:800px;background:#fff;pointer-events:none;';
+    mount.style.cssText = [
+        'position:fixed',
+        'left:-10000px',
+        'top:0',
+        `width:${INVOICE_PDF_CONTENT_WIDTH}px`,
+        'padding:0',
+        'background:#fff',
+        'pointer-events:none',
+        'overflow:hidden',
+        'box-sizing:border-box',
+    ].join(';');
     document.body.appendChild(mount);
 
     const root = createRoot(mount);
     try {
         flushSync(() => {
-            root.render(React.createElement(CashierTaxInvoiceView, { invoice: normalized }));
+            root.render(
+                React.createElement(CashierTaxInvoiceView, {
+                    invoice: normalized,
+                    pdfCapture: true,
+                }),
+            );
         });
 
         await new Promise((resolve) => {
             requestAnimationFrame(() => requestAnimationFrame(resolve));
         });
 
+        const qrImg = mount.querySelector('.cti-qr-wrap img');
+        if (qrImg && !qrImg.complete) {
+            await new Promise((resolve) => {
+                qrImg.addEventListener('load', resolve, { once: true });
+                qrImg.addEventListener('error', resolve, { once: true });
+            });
+        } else {
+            await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+
         const el = mount.querySelector('.cti-root');
         if (!el) throw new Error('Invoice preview could not be rendered.');
+
+        const captureWidth = INVOICE_PDF_CONTENT_WIDTH;
+        const captureHeight = Math.max(el.scrollHeight, el.offsetHeight);
 
         const [{ toPng }, { jsPDF }] = await Promise.all([
             import('html-to-image'),
@@ -96,8 +154,15 @@ export async function downloadPosInvoicePdf(invoice) {
 
         const imgData = await toPng(el, {
             backgroundColor: '#ffffff',
-            pixelRatio: Math.min(2, window.devicePixelRatio || 2),
+            pixelRatio: 2,
             cacheBust: true,
+            width: captureWidth,
+            height: captureHeight,
+            style: {
+                overflow: 'hidden',
+                width: `${captureWidth}px`,
+                maxWidth: `${captureWidth}px`,
+            },
         });
 
         const dims = await new Promise((resolve, reject) => {
@@ -116,16 +181,22 @@ export async function downloadPosInvoicePdf(invoice) {
         const imgDisplayHeight = (dims.h * usableW) / dims.w;
 
         if (imgDisplayHeight <= usableH) {
-            pdf.addImage(imgData, 'PNG', margin, margin, usableW, imgDisplayHeight);
+            pdf.addImage(imgData, 'PNG', margin, margin, usableW, imgDisplayHeight, undefined, 'FAST');
         } else {
-            let heightLeft = imgDisplayHeight;
-            let position = 0;
-            while (heightLeft > 0) {
-                pdf.addImage(imgData, 'PNG', margin, margin + position, usableW, imgDisplayHeight);
-                heightLeft -= usableH;
-                position -= usableH;
-                if (heightLeft > 0) pdf.addPage();
-            }
+            // One continuous page (like the view modal scroll) — avoids slicing through the goods table.
+            const pageH = Math.ceil(imgDisplayHeight + margin * 2);
+            const tallPdf = new jsPDF({
+                unit: 'pt',
+                format: [pageWidth, pageH],
+                orientation: 'portrait',
+                compress: true,
+            });
+            tallPdf.addImage(imgData, 'PNG', margin, margin, usableW, imgDisplayHeight, undefined, 'FAST');
+            const safe =
+                String(invoiceNo).replace(/[^\w.-]+/g, '_').replace(/^_|_$/g, '').slice(0, 96) ||
+                'invoice';
+            tallPdf.save(`${safe}.pdf`);
+            return;
         }
 
         const safe = String(invoiceNo).replace(/[^\w.-]+/g, '_').replace(/^_|_$/g, '').slice(0, 96) || 'invoice';

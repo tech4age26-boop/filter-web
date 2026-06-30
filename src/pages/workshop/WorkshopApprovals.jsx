@@ -209,6 +209,15 @@ function approvalTypeKey(row) {
     return null;
 }
 
+function resolveSupplierInvoiceLineUnit(it) {
+    return (
+        String(it?.unit ?? '').trim() ||
+        String(it?.supplierProduct?.warehouseUnit ?? '').trim() ||
+        String(it?.warehouseUnit ?? '').trim() ||
+        'pcs'
+    );
+}
+
 /**
  * Map a supplier sales invoice (as returned by GET
  * /workshop-staff/supplier-sales-invoices/:id) to the field shape consumed by
@@ -256,7 +265,9 @@ function mapSupplierInvoiceToPrintableDetail(inv) {
                 : 'unpaid',
         notes: inv.internalNotes ?? '',
         description: inv.deliveryNoteUrl ?? '',
-        items: items.map((it) => ({
+        items: items.map((it) => {
+            const lineUnit = resolveSupplierInvoiceLineUnit(it);
+            return {
             id: it.id,
             productName: it.productName,
             product_name: it.productName,
@@ -271,10 +282,11 @@ function mapSupplierInvoiceToPrintableDetail(inv) {
             qty: it.qty,
             quantity: it.qty,
             qtyReturned: Number(it.qtyReturned ?? 0),
-            unit: it.unit || 'pcs',
-            uom: it.unit || 'pcs',
+            unit: lineUnit,
+            uom: lineUnit,
+            warehouseUnit: it.supplierProduct?.warehouseUnit ?? it.warehouseUnit ?? null,
             qtyWorkshop: it.qtyWorkshop ?? null,
-            workshopUnit: it.workshopUnit ?? null,
+            workshopUnit: it.workshopUnit ?? it.supplierProduct?.workshopUnit ?? null,
             unitPrice: it.unitPrice,
             unit_price: it.unitPrice,
             unitPriceExVat: it.unitPrice,
@@ -282,7 +294,8 @@ function mapSupplierInvoiceToPrintableDetail(inv) {
             vat_rate: it.vatRate,
             lineTotal: it.lineTotal,
             line_total: it.lineTotal,
-        })),
+        };
+        }),
     };
 }
 

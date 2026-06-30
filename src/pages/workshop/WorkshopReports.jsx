@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { RefreshCw, MoreVertical } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import RowActionsMenu from '../../components/RowActionsMenu';
+import '../../styles/RowActionsMenu.css';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Modal from '../../components/Modal';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTextBlock, ShimmerTable } from '../../components/supplier/Shimmer';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
+import { downloadPosInvoicePdf } from '../../utils/posInvoiceActions';
 import { apiFetch } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 
@@ -483,10 +486,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [recentOrderDetails, setRecentOrderDetails] = useState(null);
     const [recentOrderDetailsLoading, setRecentOrderDetailsLoading] = useState(false);
     const [recentOrderDetailsError, setRecentOrderDetailsError] = useState('');
-    const [openRecentOrderMenuId, setOpenRecentOrderMenuId] = useState('');
     const [recentOrderActionBusyId, setRecentOrderActionBusyId] = useState('');
     const [invoicePreviewData, setInvoicePreviewData] = useState(null);
-    const [autoDownloadAfterPreview, setAutoDownloadAfterPreview] = useState(false);
     const [kpiProofModalId, setKpiProofModalId] = useState(null);
 
     /** When set, summary reloads re-fetch the same drill-down row for the new range. */
@@ -785,44 +786,46 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             if (!invoiceObj) throw new Error('Invalid invoice response.');
             if (actionType === 'view') {
                 setInvoicePreviewData(invoiceObj);
-                setAutoDownloadAfterPreview(false);
             } else if (actionType === 'download') {
-                setInvoicePreviewData(invoiceObj);
-                setAutoDownloadAfterPreview(true);
+                await downloadPosInvoicePdf(invoiceObj);
             } else if (actionType === 'whatsapp') {
-                // Send the invoice as a WhatsApp DOCUMENT via the configured
-                // provider (Bevatel template). Server fetches phone + ensures
-                // the public invoice URL, then calls the provider API.
-                const res = await apiFetch(
-                    `/workshop-staff/invoices/${encodeURIComponent(String(invoiceId))}/send-whatsapp`,
-                    { method: 'POST' },
-                );
-                const to = res?.to || res?.data?.to;
-                window.alert(
-                    to
-                        ? `Invoice sent to WhatsApp (${to}).`
-                        : 'Invoice sent to WhatsApp.',
-                );
+                try {
+                    const waRes = await apiFetch(
+                        `/workshop-staff/invoices/${encodeURIComponent(String(invoiceId))}/send-whatsapp`,
+                        { method: 'POST' },
+                    );
+                    const to = waRes?.to || waRes?.data?.to;
+                    window.alert(
+                        to
+                            ? `Invoice sent to WhatsApp (${to}).`
+                            : 'Invoice sent to WhatsApp.',
+                    );
+                } catch (waErr) {
+                    const msg = String(waErr?.message || '');
+                    const bevatelMissing =
+                        /BEVATEL_ACCESS_TOKEN|BEVATEL_INBOX_ID|PUBLIC_INVOICE_BASE_URL/i.test(msg);
+                    if (!bevatelMissing) throw waErr;
+                    const linkRes = await apiFetch(
+                        `/workshop-staff/invoices/${encodeURIComponent(String(invoiceId))}/whatsapp-link`,
+                    );
+                    const waMeUrl = linkRes?.waMeUrl || linkRes?.data?.waMeUrl;
+                    if (!waMeUrl) {
+                        throw new Error(
+                            `${msg}\n\nConfigure BEVATEL_ACCESS_TOKEN, BEVATEL_INBOX_ID, and PUBLIC_INVOICE_BASE_URL on the server for automatic PDF delivery.`,
+                        );
+                    }
+                    window.open(waMeUrl, '_blank', 'noopener,noreferrer');
+                    window.alert(
+                        'Automatic WhatsApp PDF is not configured on the server. Opened WhatsApp with the invoice link — tap Send to deliver it manually.',
+                    );
+                }
             }
         } catch (error) {
             window.alert(error?.message || 'Failed to execute action.');
         } finally {
             setRecentOrderActionBusyId('');
-            setOpenRecentOrderMenuId('');
         }
     }, [selectedBranchId, rangeFromLocal, rangeToLocal, openRecentOrderDetails]);
-
-    useEffect(() => {
-        if (!autoDownloadAfterPreview || !invoicePreviewData) return;
-        const timer = setTimeout(() => {
-            const btn = document.querySelector('.invoice-modal-root .invoice-btn-tertiary');
-            if (btn && btn instanceof HTMLElement) {
-                btn.click();
-            }
-            setAutoDownloadAfterPreview(false);
-        }, 180);
-        return () => clearTimeout(timer);
-    }, [autoDownloadAfterPreview, invoicePreviewData]);
 
     useEffect(() => {
         detailAnchorRef.current = null;
@@ -2199,38 +2202,29 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             </td>
                                             <td>{row.plateNo ? formatPlateLettersFirst(row.plateNo) : '—'}</td>
                                             <td className="ws-font-bold">SAR {toNumber(row.invoiceTotal).toLocaleString()}</td>
-                                            <td onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
-                                                <button
-                                                    type="button"
-                                                    className="ws-row-actions-trigger"
-                                                    onClick={() =>
-                                                        setOpenRecentOrderMenuId((prev) =>
-                                                            prev === rk ? '' : rk,
-                                                        )
-                                                    }
+                                            <td onClick={(e) => e.stopPropagation()}>
+                                                <RowActionsMenu
                                                     disabled={recentOrderActionBusyId === rk}
-                                                >
-                                                    <MoreVertical size={14} />
-                                                </button>
-                                                {openRecentOrderMenuId === rk && (
-                                                    <div
-                                                        className={`ws-row-actions-menu ${i >= Math.max(recentOrders.length - 3, 0) ? 'up' : ''}`}
-                                                    >
-                                                        <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row, 'view')}>
-                                                            {isOpen ? 'View order' : 'View Invoice'}
-                                                        </button>
-                                                        {!isOpen ? (
-                                                            <>
-                                                                <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row, 'download')}>
-                                                                    Download PDF
-                                                                </button>
-                                                                <button type="button" className="ws-row-action-btn" onClick={() => handleRecentOrderAction(row, 'whatsapp')}>
-                                                                    Send Invoice to WhatsApp (PDF)
-                                                                </button>
-                                                            </>
-                                                        ) : null}
-                                                    </div>
-                                                )}
+                                                    ariaLabel={isOpen ? 'Order actions' : 'Invoice actions'}
+                                                    items={[
+                                                        {
+                                                            label: isOpen ? 'View order' : 'View Invoice',
+                                                            onClick: () => handleRecentOrderAction(row, 'view'),
+                                                        },
+                                                        ...(!isOpen
+                                                            ? [
+                                                                  {
+                                                                      label: 'Download PDF',
+                                                                      onClick: () => handleRecentOrderAction(row, 'download'),
+                                                                  },
+                                                                  {
+                                                                      label: 'Send Invoice to WhatsApp (PDF)',
+                                                                      onClick: () => handleRecentOrderAction(row, 'whatsapp'),
+                                                                  },
+                                                              ]
+                                                            : []),
+                                                    ]}
+                                                />
                                             </td>
                                         </tr>
                                         );
@@ -2500,7 +2494,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 footerVariant="corporate"
                 onClose={() => {
                     setInvoicePreviewData(null);
-                    setAutoDownloadAfterPreview(false);
                 }}
             />
             {(detailsLoading || detailsError || detailRows.length > 0) && (
