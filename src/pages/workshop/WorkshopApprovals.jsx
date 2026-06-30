@@ -260,10 +260,21 @@ function mapSupplierInvoiceToPrintableDetail(inv) {
             id: it.id,
             productName: it.productName,
             product_name: it.productName,
+            productNameArabic: it.productNameArabic ?? it.product?.arabicName ?? null,
+            product_name_arabic: it.productNameArabic ?? it.product?.arabicName ?? null,
+            product: it.product
+                ? {
+                      name: it.product.name,
+                      arabicName: it.productNameArabic ?? it.product.arabicName ?? null,
+                  }
+                : null,
             qty: it.qty,
             quantity: it.qty,
-            unit: 'piece',
-            uom: 'piece',
+            qtyReturned: Number(it.qtyReturned ?? 0),
+            unit: it.unit || 'pcs',
+            uom: it.unit || 'pcs',
+            qtyWorkshop: it.qtyWorkshop ?? null,
+            workshopUnit: it.workshopUnit ?? null,
             unitPrice: it.unitPrice,
             unit_price: it.unitPrice,
             unitPriceExVat: it.unitPrice,

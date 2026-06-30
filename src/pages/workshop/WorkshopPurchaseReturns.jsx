@@ -26,11 +26,15 @@ import { getBranchProducts, listWorkshopUomProfiles } from '../../services/works
 import WorkshopUomSelect from './WorkshopUomSelect';
 import { branchProductToUomCaps, lineInventoryCapsForInvoice } from './workshopUomUtils';
 import {
+    convertQtyWhenUomChanges,
     defaultUomForWarehouseProduct,
     findUomCapsForLine,
     formatWorkshopPurchaseLineUomHint,
     isWarehouseUomLine,
+    maxReturnQtyInLineUom,
+    returnQtyInInvoiceLineUom,
     roundMoney2,
+    normUomLabel,
 } from './workshopPurchaseUomUtils';
 import '../../styles/admin/AccountingPage.css';
 
@@ -232,19 +236,93 @@ function createEmptyManualLine() {
     };
 }
 
+function pickPurchaseInvoiceNo(inv) {
+    if (!inv || typeof inv !== 'object') return '—';
+    const raw =
+        inv.invoiceNo ??
+        inv.invoiceNumber ??
+        inv.invoice_number ??
+        inv.reference ??
+        inv.ref ??
+        inv.refNumber ??
+        inv.ref_number;
+    if (raw != null && String(raw).trim() !== '') return String(raw).trim();
+    if (inv.id != null && String(inv.id).trim() !== '') return String(inv.id);
+    return '—';
+}
+
+/** Qty + UOM as billed on the supplier/warehouse invoice (Box), when split UOM applies. */
+function invoiceLineBilledQty(item) {
+    const raw = item?.billedQty ?? item?.billed_qty;
+    if (raw != null) {
+        const n = Number(raw);
+        if (Number.isFinite(n)) return n;
+    }
+    return 0;
+}
+
+function invoiceLineBilledUom(item) {
+    const raw = item?.billedUom ?? item?.billed_uom;
+    if (raw != null && String(raw).trim() !== '') return String(raw).trim();
+    return '—';
+}
+
+/** Workshop branch inventory qty + UOM (what was actually received — basis for returns). */
+function invoiceLineInventoryQty(item) {
+    const wsQty = item?.qtyWorkshop ?? item?.qty_workshop;
+    if (wsQty != null) {
+        const n = Number(wsQty);
+        if (Number.isFinite(n) && n > 0) return n;
+    }
+    const raw = item?.qty ?? item?.quantity ?? 0;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function invoiceLineInventoryUom(item) {
+    const wsUnit = item?.workshopUnit ?? item?.workshop_unit;
+    if (wsUnit != null && String(wsUnit).trim() !== '') return String(wsUnit).trim();
+    return (
+        String(item?.uom ?? item?.unit ?? '').trim() || '—'
+    );
+}
+
+function invoiceLineForReturnCalc(item) {
+    return {
+        ...item,
+        qty: invoiceLineInventoryQty(item),
+        uom: invoiceLineInventoryUom(item),
+    };
+}
+
+function formatInvoiceInvQtyDisplay(item) {
+    const qty = invoiceLineInventoryQty(item);
+    const uom = invoiceLineInventoryUom(item);
+    const billedQty = invoiceLineBilledQty(item);
+    const billedUom = invoiceLineBilledUom(item);
+    const conversionNote =
+        billedQty > 0 &&
+        billedUom &&
+        billedUom !== '—' &&
+        normUomLabel(uom) !== normUomLabel(billedUom)
+            ? `= ${billedQty} ${billedUom} on supplier invoice`
+            : '';
+    return { qty, uom, conversionNote };
+}
+
 function mapPurchaseInvoicesFromResponse(res, invoiceKind = 'affiliated') {
     if (!res || !Array.isArray(res.invoices)) return [];
     return res.invoices.map((inv) => ({
         id: inv.id,
         invoiceKind,
-        invoiceNo: inv.invoiceNumber || inv.invoiceNo,
-        supplierName: inv.supplier?.name || inv.supplierName || inv.localSupplier?.name || 'Supplier',
+        invoiceNo: pickPurchaseInvoiceNo(inv),
+        supplierName: inv.supplier?.name || inv.supplierName || inv.supplier_name || inv.vendor_name || inv.localSupplier?.name || 'Supplier',
         supplierId: inv.supplier?.id ?? inv.supplierId ?? inv.localSupplierId ?? inv.local_supplier_id,
-        branchName: inv.branch?.name || '—',
-        branchId: inv.branch?.id ?? inv.branchId,
-        date: inv.issueDate || inv.invoiceDate,
+        branchName: inv.branch?.name || inv.branchName || inv.branch_name || '—',
+        branchId: inv.branch?.id ?? inv.branchId ?? inv.branch_id,
+        date: inv.issueDate || inv.issue_date || inv.invoiceDate || inv.date,
         amount: Number(inv.grandTotal || inv.grand_total || 0),
-        productLabel: inv.productLabel || inv.items?.[0]?.itemName || '—',
+        productLabel: inv.productLabel || inv.product_label || inv.items?.[0]?.itemName || inv.items?.[0]?.product_name || '—',
     }));
 }
 
@@ -259,7 +337,7 @@ function piComboboxSubtitle(inv) {
 
 function piSelectedDisplay(inv) {
     if (!inv) return '';
-    return `${inv.invoiceNo} · ${inv.supplierName}`;
+    return `${pickPurchaseInvoiceNo(inv)} · ${inv.supplierName || 'Supplier'}`;
 }
 
 function returnStatusBadge(row) {
@@ -405,38 +483,55 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
         }
     }, [scopeBranchId]);
 
-    const loadPurchaseInvoicesForSupplier = useCallback(async () => {
-        if (!selectedSupplier) {
-            setPurchaseInvoices([]);
-            return;
-        }
+    const loadPurchaseInvoices = useCallback(async () => {
         setInvoicesLoading(true);
+        setFormError('');
         try {
-            if (isLocalSupplier) {
-                const res = await listAllLocalSupplierPurchaseInvoices({
-                    ...branchParams,
-                    localSupplierId: selectedSupplier.id,
-                    limit: 200,
-                    offset: 0,
-                });
-                setPurchaseInvoices(mapPurchaseInvoicesFromResponse(res, 'local'));
-            } else {
-                const res = await listWorkshopSupplierPurchaseInvoices({
-                    ...branchParams,
-                    supplierId: selectedSupplier.id,
-                    forAffiliatedReturns: 'true',
-                    limit: 200,
-                    offset: 0,
-                });
-                setPurchaseInvoices(mapPurchaseInvoicesFromResponse(res, 'affiliated'));
+            const baseParams = { ...branchParams, limit: 200, offset: 0 };
+            const fetchAffiliatedBatch = async (extra = {}) => {
+                const rows = [];
+                let offset = 0;
+                let pages = 0;
+                while (pages++ < 15) {
+                    const res = await listWorkshopSupplierPurchaseInvoices({
+                        ...baseParams,
+                        ...extra,
+                        offset,
+                    });
+                    rows.push(...mapPurchaseInvoicesFromResponse(res, 'affiliated'));
+                    const total = res?.total != null ? Number(res.total) : null;
+                    const batchLen = Array.isArray(res?.invoices) ? res.invoices.length : 0;
+                    if (total != null && rows.length >= total) break;
+                    if (batchLen < 200) break;
+                    offset += 200;
+                }
+                return rows;
+            };
+
+            const [workshopCreated, affiliatedMirrors, localRes] = await Promise.all([
+                fetchAffiliatedBatch(),
+                fetchAffiliatedBatch({ forAffiliatedReturns: 'true' }),
+                listAllLocalSupplierPurchaseInvoices({ ...branchParams, limit: 500, offset: 0 }).catch(
+                    () => ({ invoices: [] }),
+                ),
+            ]);
+
+            const byKey = new Map();
+            for (const inv of [...workshopCreated, ...affiliatedMirrors, ...mapPurchaseInvoicesFromResponse(localRes, 'local')]) {
+                const key = `${inv.invoiceKind}:${inv.id}`;
+                if (!byKey.has(key)) byKey.set(key, inv);
             }
+            const merged = [...byKey.values()].sort((a, b) =>
+                String(b.date || '').localeCompare(String(a.date || '')),
+            );
+            setPurchaseInvoices(merged);
         } catch (err) {
             setFormError(err.message || 'Failed to load purchase invoices.');
             setPurchaseInvoices([]);
         } finally {
             setInvoicesLoading(false);
         }
-    }, [selectedSupplier, isLocalSupplier, branchParams]);
+    }, [branchParams]);
 
     const loadBranchProducts = useCallback(async () => {
         if (!effectiveBranchId) {
@@ -511,11 +606,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 }
                 setSelectedInvoiceId(prefillId);
                 setSelectedInvoiceKind('affiliated');
-                if (invoice?.invoiceNumber) {
-                    setInvoiceSearchDraft(
-                        `${invoice.invoiceNumber} · ${supplierName || 'Supplier'}`,
-                    );
-                }
+                setInvoiceSearchDraft(
+                    `${pickPurchaseInvoiceNo(invoice)} · ${supplierName || 'Supplier'}`,
+                );
             })
             .catch(() => undefined);
         return () => {
@@ -530,8 +623,8 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
 
     useEffect(() => {
         if (!formOpen) return;
-        loadPurchaseInvoicesForSupplier();
-    }, [formOpen, loadPurchaseInvoicesForSupplier]);
+        loadPurchaseInvoices();
+    }, [formOpen, loadPurchaseInvoices]);
 
     useEffect(() => {
         if (!formOpen || selectedInvoiceId) return;
@@ -611,15 +704,27 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 setLineReason(nextReason);
                 const nextUom = {};
                 (invoice?.items || []).forEach((item) => {
+                    const inventoryUom = invoiceLineInventoryUom(item);
+                    const wsUnit = item?.workshopUnit ?? item?.workshop_unit;
+                    const caps = findUomCapsForLine(item, supplierUomByProductId, branchProductOptions);
+                    const defaultUom =
+                        inventoryUom !== '—'
+                            ? inventoryUom
+                            : wsUnit || item.uom || 'piece';
+                    const isWorkshopDefault =
+                        caps &&
+                        wsUnit &&
+                        normUomLabel(defaultUom) === normUomLabel(wsUnit);
                     nextUom[String(item.id)] = {
-                        uom: item.uom || 'piece',
+                        uom: defaultUom,
                         uomProfileId: item.uomProfileId ?? null,
-                        uomMode: 'warehouse',
+                        uomMode: isWorkshopDefault ? 'workshop' : 'warehouse',
                     };
                 });
                 setInvoiceLineUom(nextUom);
-                if (referenceAuto && (invoice?.invoiceNumber || invoice?.invoiceNo)) {
-                    setReference(String(invoice.invoiceNumber || invoice.invoiceNo));
+                if (referenceAuto) {
+                    const refNo = pickPurchaseInvoiceNo(invoice);
+                    if (refNo !== '—') setReference(refNo);
                 }
             })
             .catch((err) => {
@@ -661,14 +766,35 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
 
     const invoiceLineTotal = useMemo(() => {
         return (invoiceDetail?.items || []).reduce((sum, item) => {
-            const qty = Number(lineQty[String(item.id)] || 0);
-            if (!(qty > 0)) return sum;
-            const ratio = Number(item.qty) > 0 ? qty / Number(item.qty) : 0;
+            const invLineUom = invoiceLineUom[String(item.id)] ?? {
+                uom: item.uom || 'piece',
+                uomMode: 'warehouse',
+            };
+            const caps = lineInventoryCapsForInvoice(
+                findUomCapsForLine(
+                    { productId: item.productId, ...invLineUom },
+                    supplierUomByProductId,
+                    branchProductOptions,
+                ),
+                { productId: item.productId, ...invLineUom },
+                workshopUomProfiles,
+            );
+            const typedQty = Number(lineQty[String(item.id)] || 0);
+            const billedItem = invoiceLineForReturnCalc(item);
+            const qtyInInvoiceUom = returnQtyInInvoiceLineUom(
+                typedQty,
+                invLineUom,
+                billedItem,
+                caps,
+            );
+            if (!(qtyInInvoiceUom > 0)) return sum;
+            const ratio =
+                billedItem.qty > 0 ? qtyInInvoiceUom / Number(billedItem.qty) : 0;
             const lineTotal = Number(item.lineTotal || 0) * ratio;
             const lineTax = Number(item.taxAmount || 0) * ratio;
             return sum + lineTotal + lineTax;
         }, 0);
-    }, [invoiceDetail, lineQty]);
+    }, [invoiceDetail, lineQty, invoiceLineUom, supplierUomByProductId, branchProductOptions, workshopUomProfiles]);
 
     const manualLineTotal = useMemo(() => {
         return manualLines.reduce((sum, line) => {
@@ -706,7 +832,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
         () =>
             purchaseInvoices.map((inv) => ({
                 id: String(inv.id),
-                label: inv.invoiceNo || '—',
+                label: pickPurchaseInvoiceNo(inv),
                 subtitle: piComboboxSubtitle(inv),
                 trailing: `SAR ${sarFmt(inv.amount)}`,
                 searchTokens: [
@@ -780,8 +906,24 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
         const inv = purchaseInvoices.find((row) => String(row.id) === String(opt.id));
         setSelectedInvoiceId(String(opt.id));
         setSelectedInvoiceKind(inv?.invoiceKind || 'affiliated');
-        setInvoiceSearchDraft(inv ? piSelectedDisplay(inv) : opt.label);
+        setInvoiceSearchDraft(
+            inv ? piSelectedDisplay(inv) : String(opt.label || opt.id || '').trim(),
+        );
         setManualLines([createEmptyManualLine()]);
+        if (inv?.supplierId) {
+            const kind = inv.invoiceKind === 'local' ? 'local' : 'affiliated';
+            const supplierKey = `${kind}:${inv.supplierId}`;
+            const match = suppliers.find(
+                (s) => s.__supplierType === kind && String(s.id) === String(inv.supplierId),
+            );
+            if (match) {
+                setSelectedSupplierKey(supplierKey);
+                setSupplierSearchDraft(match.name);
+            } else if (inv.supplierName) {
+                setSelectedSupplierKey(supplierKey);
+                setSupplierSearchDraft(inv.supplierName);
+            }
+        }
     };
 
     const clearInvoiceSelection = () => {
@@ -864,21 +1006,43 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
         );
     };
 
-    const updateInvoiceLineUom = (itemId, uomValue) => {
-        setInvoiceLineUom((prev) => {
-            const current = prev[String(itemId)] ?? {};
-            if (uomValue && typeof uomValue === 'object') {
-                return {
-                    ...prev,
-                    [String(itemId)]: {
-                        ...current,
-                        uom: uomValue.uom ?? current.uom,
-                        uomProfileId: uomValue.uomProfileId ?? null,
-                        uomMode: uomValue.uomMode ?? 'warehouse',
-                    },
-                };
-            }
-            return { ...prev, [String(itemId)]: { ...current, uom: uomValue } };
+    const updateInvoiceLineUom = (itemId, uomValue, invoiceItem) => {
+        const itemKey = String(itemId);
+        const current = invoiceLineUom[itemKey] ?? {
+            uom: invoiceItem?.uom || 'piece',
+            uomMode: 'warehouse',
+        };
+        const next =
+            uomValue && typeof uomValue === 'object'
+                ? {
+                      ...current,
+                      uom: uomValue.uom ?? current.uom,
+                      uomProfileId: uomValue.uomProfileId ?? null,
+                      uomMode: uomValue.uomMode ?? 'warehouse',
+                  }
+                : { ...current, uom: uomValue };
+
+        const caps = lineInventoryCapsForInvoice(
+            findUomCapsForLine(
+                { productId: invoiceItem?.productId, ...next },
+                supplierUomByProductId,
+                branchProductOptions,
+            ),
+            { productId: invoiceItem?.productId, ...next },
+            workshopUomProfiles,
+        );
+
+        setInvoiceLineUom((prev) => ({
+            ...prev,
+            [itemKey]: next,
+        }));
+
+        setLineQty((prev) => {
+            const raw = prev[itemKey];
+            if (raw == null || raw === '') return prev;
+            const converted = convertQtyWhenUomChanges(raw, current, next, caps);
+            if (converted === '' || converted === raw) return prev;
+            return { ...prev, [itemKey]: converted };
         });
     };
 
@@ -916,12 +1080,28 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
         let lines = [];
         if (selectedInvoiceId) {
             lines = (invoiceDetail?.items || [])
-                .map((item) => ({
-                    sourcePurchaseInvoiceItemId: String(item.id),
-                    qty: Number(lineQty[String(item.id)] || 0),
-                    reason: lineReason[String(item.id)] || '',
-                    uom: invoiceLineUom[String(item.id)]?.uom ?? item.uom ?? undefined,
-                }))
+                .map((item) => {
+                    const invLineUom = invoiceLineUom[String(item.id)] ?? {
+                        uom: invoiceLineInventoryUom(item),
+                        uomMode:
+                            item?.workshopUnit || item?.workshop_unit ? 'workshop' : 'warehouse',
+                    };
+                    const caps = capsForInvoiceItem(item);
+                    const typedQty = Number(lineQty[String(item.id)] || 0);
+                    const billedItem = invoiceLineForReturnCalc(item);
+                    const qtyInInvoiceUom = returnQtyInInvoiceLineUom(
+                        typedQty,
+                        invLineUom,
+                        billedItem,
+                        caps,
+                    );
+                    return {
+                        sourcePurchaseInvoiceItemId: String(item.id),
+                        qty: qtyInInvoiceUom,
+                        reason: lineReason[String(item.id)] || '',
+                        uom: invLineUom.uom ?? billedItem.uom ?? undefined,
+                    };
+                })
                 .filter((item) => item.qty > 0);
         } else {
             lines = manualLines
@@ -941,6 +1121,35 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                     : 'Add at least one product line with quantity.',
             );
             return;
+        }
+
+        if (selectedInvoiceId) {
+            for (const item of invoiceDetail?.items || []) {
+                const invLineUom = invoiceLineUom[String(item.id)] ?? {
+                    uom: item.uom || 'piece',
+                    uomMode: 'warehouse',
+                };
+                const caps = capsForInvoiceItem(item);
+                const typedQty = Number(lineQty[String(item.id)] || 0);
+                if (!(typedQty > 0)) continue;
+                const billedItem = invoiceLineForReturnCalc(item);
+                const qtyInInvoiceUom = returnQtyInInvoiceLineUom(
+                    typedQty,
+                    invLineUom,
+                    billedItem,
+                    caps,
+                );
+                const maxTyped = maxReturnQtyInLineUom(billedItem, invLineUom, caps);
+                if (qtyInInvoiceUom > Number(billedItem.qty) + 1e-9) {
+                    const label = item.itemName || item.productName || 'line';
+                    setFormError(
+                        maxTyped != null
+                            ? `Return qty for "${label}" exceeds invoice qty (max ${maxTyped} ${invLineUom.uom}).`
+                            : `Return qty for "${label}" exceeds invoice qty.`,
+                    );
+                    return;
+                }
+            }
         }
 
         setSaving(true);
@@ -1450,21 +1659,15 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                     displayText={invoiceSearchDraft}
                                                     entityLabel="invoice"
                                                     loading={invoicesLoading}
-                                                    placeholder={
-                                                        selectedSupplier
-                                                            ? 'Link invoice to prefill lines…'
-                                                            : 'Select a supplier first'
-                                                    }
+                                                    placeholder="Type to search purchase invoice…"
                                                     emptyHint={
-                                                        !selectedSupplier
-                                                            ? 'Select a supplier first'
-                                                            : invoicesLoading
-                                                              ? 'Loading invoices…'
-                                                              : purchaseInvoices.length === 0
-                                                                ? 'No invoices for this supplier'
-                                                                : 'No matches'
+                                                        invoicesLoading
+                                                            ? 'Loading invoices…'
+                                                            : purchaseInvoices.length === 0
+                                                              ? 'No purchase invoices found'
+                                                              : 'No matches — try invoice # or supplier'
                                                     }
-                                                    disabled={saving || !selectedSupplier}
+                                                    disabled={saving}
                                                     onDisplayTextChange={(text) => {
                                                         setInvoiceSearchDraft(text);
                                                         if (!text.trim()) {
@@ -1487,12 +1690,12 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                         Lines prefilled from invoice — adjust return
                                                         quantities below
                                                     </p>
-                                                ) : selectedSupplier ? (
+                                                ) : (
                                                     <p className="dn-field-hint">
-                                                        Skip to add products manually, or pick an invoice
-                                                        to prefill
+                                                        Pick any invoice to prefill lines, or skip and add
+                                                        products manually
                                                     </p>
-                                                ) : null}
+                                                )}
                                             </div>
                                         </div>
                                     </section>
@@ -1534,23 +1737,40 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                             <thead>
                                                                 <tr>
                                                                     <th className="dn-th-item">Item</th>
-                                                                    <th className="dn-th-num">Inv. qty</th>
+                                                                    <th className="dn-th-inv-qty">Inv. qty</th>
                                                                     <th className="dn-th-uom">UOM</th>
-                                                                    <th className="dn-th-num">Return qty</th>
-                                                                    <th className="dn-th-num">Unit price</th>
-                                                                    <th className="dn-th-num">Total</th>
+                                                                    <th className="dn-th-return-qty">Return qty</th>
+                                                                    <th className="dn-th-price">Unit price</th>
+                                                                    <th className="dn-th-total">Total</th>
                                                                     <th className="dn-th-reason">Reason</th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody>
                                                                 {(invoiceDetail?.items || []).map(
                                                                     (item, idx) => {
-                                                                        const qty = Number(
+                                                                        const invLineUom = invoiceLineUom[String(item.id)] ?? {
+                                                                            uom: invoiceLineInventoryUom(item),
+                                                                            uomProfileId: null,
+                                                                            uomMode:
+                                                                                item?.workshopUnit || item?.workshop_unit
+                                                                                    ? 'workshop'
+                                                                                    : 'warehouse',
+                                                                        };
+                                                                        const invCaps = capsForInvoiceItem(item);
+                                                                        const billedItem = invoiceLineForReturnCalc(item);
+                                                                        const invQtyDisplay = formatInvoiceInvQtyDisplay(item);
+                                                                        const typedQty = Number(
                                                                             lineQty[String(item.id)] || 0,
                                                                         );
+                                                                        const qtyInInvoiceUom = returnQtyInInvoiceLineUom(
+                                                                            typedQty,
+                                                                            invLineUom,
+                                                                            billedItem,
+                                                                            invCaps,
+                                                                        );
                                                                         const ratio =
-                                                                            Number(item.qty) > 0
-                                                                                ? qty / Number(item.qty)
+                                                                            billedItem.qty > 0
+                                                                                ? qtyInInvoiceUom / Number(billedItem.qty)
                                                                                 : 0;
                                                                         const lineTotal =
                                                                             (Number(item.lineTotal || 0) +
@@ -1558,16 +1778,16 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                     item.taxAmount || 0,
                                                                                 )) *
                                                                             ratio;
-                                                                        const hasQty = qty > 0;
-                                                                        const invLineUom = invoiceLineUom[String(item.id)] ?? {
-                                                                            uom: item.uom || 'piece',
-                                                                            uomProfileId: null,
-                                                                        };
-                                                                        const invCaps = capsForInvoiceItem(item);
+                                                                        const hasQty = typedQty > 0;
+                                                                        const maxReturnQty = maxReturnQtyInLineUom(
+                                                                            billedItem,
+                                                                            invLineUom,
+                                                                            invCaps,
+                                                                        );
                                                                         const invUomHint = formatWorkshopPurchaseLineUomHint(
                                                                             {
                                                                                 ...invLineUom,
-                                                                                qty,
+                                                                                qty: typedQty,
                                                                                 unitPrice: item.unitPrice,
                                                                             },
                                                                             invCaps,
@@ -1591,10 +1811,20 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                     </span>
                                                                                 </td>
                                                                                 <td className="dn-td-num dn-td-muted">
-                                                                                    {item.qty}{' '}
-                                                                                    {item.uom || ''}
+                                                                                    <div className="dn-inv-qty-display">
+                                                                                        <span>
+                                                                                            {invQtyDisplay.qty}{' '}
+                                                                                            {invQtyDisplay.uom}
+                                                                                        </span>
+                                                                                        {invQtyDisplay.conversionNote ? (
+                                                                                            <span className="dn-inv-qty-sub">
+                                                                                                {invQtyDisplay.conversionNote}
+                                                                                            </span>
+                                                                                        ) : null}
+                                                                                    </div>
                                                                                 </td>
                                                                                 <td className="dn-td-uom">
+                                                                                    <div className="dn-uom-cell">
                                                                                     {item.productId && (invCaps || workshopUomProfiles.length > 0) ? (
                                                                                         <>
                                                                                             <WorkshopUomSelect
@@ -1608,6 +1838,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                                     updateInvoiceLineUom(
                                                                                                         item.id,
                                                                                                         parsed,
+                                                                                                        item,
                                                                                                     )
                                                                                                 }
                                                                                             />
@@ -1625,36 +1856,52 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                             {invLineUom.uom}
                                                                                         </span>
                                                                                     )}
+                                                                                    </div>
                                                                                 </td>
-                                                                                <td className="dn-td-num">
-                                                                                    <input
-                                                                                        type="number"
-                                                                                        min="0"
-                                                                                        step="0.001"
-                                                                                        className="dn-input dn-input--qty"
-                                                                                        value={
-                                                                                            lineQty[
-                                                                                                String(
-                                                                                                    item.id,
-                                                                                                )
-                                                                                            ] ?? ''
-                                                                                        }
-                                                                                        onChange={(e) =>
-                                                                                            setLineQty(
-                                                                                                (prev) => ({
-                                                                                                    ...prev,
-                                                                                                    [String(
+                                                                                <td className="dn-td-num dn-return-qty-cell">
+                                                                                    <div className="dn-qty-with-uom">
+                                                                                        <input
+                                                                                            type="number"
+                                                                                            min="0"
+                                                                                            max={
+                                                                                                maxReturnQty != null
+                                                                                                    ? maxReturnQty
+                                                                                                    : undefined
+                                                                                            }
+                                                                                            step="0.001"
+                                                                                            className="dn-input dn-input--qty"
+                                                                                            value={
+                                                                                                lineQty[
+                                                                                                    String(
                                                                                                         item.id,
-                                                                                                    )]:
-                                                                                                        e
-                                                                                                            .target
-                                                                                                            .value,
-                                                                                                }),
-                                                                                            )
-                                                                                        }
-                                                                                        disabled={saving}
-                                                                                        aria-label={`Return qty for ${item.itemName || item.productName}`}
-                                                                                    />
+                                                                                                    )
+                                                                                                ] ?? ''
+                                                                                            }
+                                                                                            onChange={(e) =>
+                                                                                                setLineQty(
+                                                                                                    (prev) => ({
+                                                                                                        ...prev,
+                                                                                                        [String(
+                                                                                                            item.id,
+                                                                                                        )]:
+                                                                                                            e
+                                                                                                                .target
+                                                                                                                .value,
+                                                                                                    }),
+                                                                                                )
+                                                                                            }
+                                                                                            placeholder={
+                                                                                                maxReturnQty != null
+                                                                                                    ? `Max ${maxReturnQty}`
+                                                                                                    : undefined
+                                                                                            }
+                                                                                            disabled={saving}
+                                                                                            aria-label={`Return qty (${invLineUom.uom}) for ${item.itemName || item.productName}`}
+                                                                                        />
+                                                                                        <span className="dn-qty-uom">
+                                                                                            {invLineUom.uom}
+                                                                                        </span>
+                                                                                    </div>
                                                                                 </td>
                                                                                 <td className="dn-td-num dn-td-muted">
                                                                                     {sarFmt(item.unitPrice)}
@@ -1717,9 +1964,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                 <tr>
                                                                     <th className="dn-th-item">Product</th>
                                                                     <th className="dn-th-uom">UOM</th>
-                                                                    <th className="dn-th-num">Return qty</th>
-                                                                    <th className="dn-th-num">Unit price</th>
-                                                                    <th className="dn-th-num">Total</th>
+                                                                    <th className="dn-th-return-qty">Return qty</th>
+                                                                    <th className="dn-th-price">Unit price</th>
+                                                                    <th className="dn-th-total">Total</th>
                                                                     <th className="dn-th-reason">Reason</th>
                                                                     <th className="dn-th-action" aria-label="Remove" />
                                                                 </tr>
@@ -1834,6 +2081,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                 />
                                                                             </td>
                                                                             <td className="dn-td-uom">
+                                                                                <div className="dn-uom-cell">
                                                                                 {line.productId &&
                                                                                 (lineCaps || workshopUomProfiles.length > 0) ? (
                                                                                     <>
@@ -1865,25 +2113,32 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                         {line.uom || '—'}
                                                                                     </span>
                                                                                 )}
+                                                                                </div>
                                                                             </td>
-                                                                            <td className="dn-td-num">
-                                                                                <input
-                                                                                    type="number"
-                                                                                    min="0"
-                                                                                    step="0.001"
-                                                                                    className="dn-input dn-input--qty"
-                                                                                    value={line.qty}
-                                                                                    onChange={(e) =>
-                                                                                        updateManualLine(
-                                                                                            line.id,
-                                                                                            {
-                                                                                                qty: e.target
-                                                                                                    .value,
-                                                                                            },
-                                                                                        )
-                                                                                    }
-                                                                                    disabled={saving}
-                                                                                />
+                                                                            <td className="dn-td-num dn-return-qty-cell">
+                                                                                <div className="dn-qty-with-uom">
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min="0"
+                                                                                        step="0.001"
+                                                                                        className="dn-input dn-input--qty"
+                                                                                        value={line.qty}
+                                                                                        onChange={(e) =>
+                                                                                            updateManualLine(
+                                                                                                line.id,
+                                                                                                {
+                                                                                                    qty: e.target
+                                                                                                        .value,
+                                                                                                },
+                                                                                            )
+                                                                                        }
+                                                                                        disabled={saving}
+                                                                                        aria-label={`Return qty (${line.uom || 'unit'})`}
+                                                                                    />
+                                                                                    <span className="dn-qty-uom">
+                                                                                        {line.uom || 'unit'}
+                                                                                    </span>
+                                                                                </div>
                                                                             </td>
                                                                             <td className="dn-td-num">
                                                                                 <div className="dn-price-cell">

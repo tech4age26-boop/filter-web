@@ -7201,10 +7201,86 @@
 }
 
 .dn-input--qty {
-    max-width: 108px;
-    margin-left: auto;
     text-align: right;
     font-variant-numeric: tabular-nums;
+}
+
+.dn-inv-qty-display {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    line-height: 1.35;
+}
+
+.dn-inv-qty-sub {
+    font-size: 0.65rem;
+    color: #94a3b8;
+    font-weight: 500;
+    max-width: 140px;
+    text-align: right;
+    line-height: 1.35;
+}
+
+.dn-return-qty-cell {
+    text-align: right;
+    vertical-align: middle;
+    min-width: 148px;
+}
+
+.dn-qty-with-uom {
+    display: inline-flex;
+    align-items: stretch;
+    justify-content: flex-end;
+    width: auto;
+    max-width: 100%;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #ffffff;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dn-qty-with-uom:focus-within {
+    border-color: #f97316;
+    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
+}
+
+.dn-qty-with-uom .dn-input--qty {
+    width: 5.5rem;
+    min-width: 5.5rem;
+    max-width: 7.5rem;
+    margin: 0;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    font-size: 0.875rem;
+}
+
+.dn-qty-with-uom .dn-input--qty:hover:not(:disabled) {
+    border-color: transparent;
+}
+
+.dn-qty-with-uom .dn-input--qty:focus {
+    outline: none;
+    border: none;
+    box-shadow: none;
+}
+
+.dn-qty-uom {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #475569;
+    background: #f8fafc;
+    border-left: 1px solid #e2e8f0;
+    white-space: nowrap;
+    min-width: 3.25rem;
 }
 
 .dn-switch {
@@ -7330,6 +7406,7 @@
 
 .dn-lines-table {
     width: 100%;
+    min-width: 920px;
     border-collapse: collapse;
     font-size: 0.875rem;
     background: #ffffff;
@@ -7360,33 +7437,68 @@
 
 .dn-th-uom {
     text-align: left;
-    min-width: 120px;
+    min-width: 210px;
+    width: 24%;
+}
+
+.dn-th-inv-qty {
+    text-align: right;
+    min-width: 92px;
+    white-space: nowrap;
+}
+
+.dn-th-return-qty {
+    text-align: right;
+    min-width: 148px;
+    width: 148px;
+    white-space: nowrap;
+}
+
+.dn-th-price,
+.dn-th-total {
+    text-align: right;
+    min-width: 96px;
+    white-space: nowrap;
 }
 
 .dn-td-uom {
     vertical-align: top;
-    min-width: 130px;
+    min-width: 210px;
+}
+
+.dn-uom-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    min-width: 0;
 }
 
 .dn-uom-select {
     width: 100%;
-    min-width: 100px;
+    min-width: 108px;
+    max-width: 100%;
     padding: 8px 10px;
     font-size: 0.8125rem;
 }
 
 .dn-uom-hint {
     display: block;
-    margin-top: 4px;
-    font-size: 0.6875rem;
-    line-height: 1.35;
+    margin-top: 0;
+    padding: 6px 8px;
+    font-size: 0.65rem;
+    line-height: 1.45;
     color: #64748b;
-    max-width: 220px;
+    background: #f8fafc;
+    border: 1px solid #eef2f6;
+    border-radius: 6px;
+    max-width: none;
+    word-break: break-word;
 }
 
 .dn-th-num {
     text-align: right;
-    width: 100px;
+    min-width: 96px;
 }
 
 .dn-th-reason {
@@ -7481,6 +7593,21 @@
     align-items: center;
     justify-content: flex-end;
     gap: 6px;
+}
+
+.dn-td-num > .dn-input--qty {
+    width: 5.5rem;
+    min-width: 5.5rem;
+    max-width: 7.5rem;
+    margin-left: auto;
+    display: block;
+    padding: 8px 10px;
+    font-size: 0.875rem;
+}
+
+.dn-price-cell .dn-input--qty {
+    width: 5.5rem;
+    min-width: 5.5rem;
 }
 
 .dn-currency {

@@ -12,11 +12,31 @@ export function mapSupplierAffiliatedReturnForView(apiRes) {
 
     const sourceItems = linked?.items?.length ? linked.items : row.items;
     const items = (Array.isArray(sourceItems) ? sourceItems : []).map((item) => {
-        const invoiceLine = item.invoiceLine || item.invoice_line || null;
+        const invoiceLine =
+            item.invoiceLine ||
+            item.invoice_line ||
+            item.sourceSupplierInvoiceItem ||
+            null;
         const qty = Number(item.qty ?? item.qtyReturned ?? 0);
         const unitPrice = Number(item.unitPrice ?? item.unit_price ?? 0);
         const taxAmount = Number(item.taxAmount ?? item.vatAmount ?? item.tax_amount ?? 0);
         const total = Number(item.total ?? item.lineTotal ?? item.line_total ?? qty * unitPrice + taxAmount);
+        const uom = item.uom || item.unit || invoiceLine?.unit || null;
+        const workshopUnit = item.workshopUnit ?? invoiceLine?.workshopUnit ?? null;
+        const invoiceQty = invoiceLine?.qty != null ? Number(invoiceLine.qty) : null;
+        const invoiceQtyWorkshop =
+            invoiceLine?.qtyWorkshop != null ? Number(invoiceLine.qtyWorkshop) : null;
+        let qtyWorkshop = item.qtyWorkshop != null ? Number(item.qtyWorkshop) : null;
+        if (
+            qtyWorkshop == null &&
+            invoiceQty != null &&
+            invoiceQty > 0 &&
+            invoiceQtyWorkshop != null &&
+            invoiceQtyWorkshop > 0 &&
+            qty > 0
+        ) {
+            qtyWorkshop = Math.round((qty / invoiceQty) * invoiceQtyWorkshop * 1000) / 1000;
+        }
         return {
             id: item.id != null ? String(item.id) : undefined,
             itemName:
@@ -24,8 +44,11 @@ export function mapSupplierAffiliatedReturnForView(apiRes) {
                 item.productName ||
                 invoiceLine?.productName ||
                 '—',
-            uom: item.uom || item.unit || invoiceLine?.unit || null,
+            uom,
+            unit: uom,
             qty,
+            qtyWorkshop,
+            workshopUnit,
             unitPrice,
             taxCode: item.taxCode || item.tax_code || 'VAT 15%',
             taxAmount,

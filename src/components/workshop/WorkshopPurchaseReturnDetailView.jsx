@@ -26,6 +26,20 @@ function fmtMoney(value, currency = 'SAR') {
     })}`;
 }
 
+function lineWorkshopConversionNote(item) {
+    const wsQty = item?.qtyWorkshop ?? item?.qty_workshop;
+    const wsUnit = item?.workshopUnit ?? item?.workshop_unit;
+    if (wsQty == null || wsUnit == null || String(wsUnit).trim() === '') return '';
+    const n = Number(wsQty);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return `= ${n} ${String(wsUnit).trim()} at workshop`;
+}
+
+function lineUom(item) {
+    const u = item?.uom ?? item?.unit;
+    return u != null && String(u).trim() !== '' ? String(u).trim() : '';
+}
+
 function lineAmountExVat(item) {
     const total = Number(item?.total ?? 0);
     const tax = Number(item?.taxAmount ?? 0);
@@ -339,11 +353,6 @@ export default function WorkshopPurchaseReturnDetailView({
                                                     <div className="wpr-view__item-name">
                                                         {item.itemName || '—'}
                                                     </div>
-                                                    {item.uom ? (
-                                                        <div className="wpr-view__item-sub">
-                                                            UOM: {item.uom}
-                                                        </div>
-                                                    ) : null}
                                                     {item.reason ? (
                                                         <div className="wpr-view__item-sub">
                                                             Reason: {item.reason}
@@ -352,7 +361,15 @@ export default function WorkshopPurchaseReturnDetailView({
                                                 </td>
                                                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                                                     {Number(item.qty ?? 0).toLocaleString()}
-                                                    {item.uom ? ` ${item.uom}` : ''}
+                                                    {lineUom(item) ? ` ${lineUom(item)}` : ''}
+                                                    {lineWorkshopConversionNote(item) ? (
+                                                        <div
+                                                            className="wpr-view__item-sub"
+                                                            style={{ marginTop: 2 }}
+                                                        >
+                                                            {lineWorkshopConversionNote(item)}
+                                                        </div>
+                                                    ) : null}
                                                 </td>
                                                 <td style={{ textAlign: 'right' }}>
                                                     {fmtMoney(item.unitPrice, ccy)}
