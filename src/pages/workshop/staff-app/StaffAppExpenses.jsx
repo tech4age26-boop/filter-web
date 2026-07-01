@@ -72,7 +72,7 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
         if (!reason?.trim()) return;
         setActionId(id);
         try {
-            await rejectExpenseRequest(id, { rejectionReason: reason.trim() }, scope.scopeParams());
+            await rejectExpenseRequest(id, { reason: reason.trim() }, scope.scopeParams());
             await load();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (e) {

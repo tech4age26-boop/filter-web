@@ -236,6 +236,10 @@ export const PromoCodes = () => {
                       {mapDiscountTypeToUi(item.discountType)} • Value:{' '}
                       {item.discountValue ?? '-'}
                     </div>
+                    <div className="mkp-card-sub" style={{ marginTop: 4 }}>
+                      {item.workshopScope || 'All workshops'} •{' '}
+                      {item.branchScopeLabel || 'All branches'}
+                    </div>
                   </div>
 
                   <div className="mkp-card-badges">

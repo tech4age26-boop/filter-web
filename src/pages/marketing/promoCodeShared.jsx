@@ -77,6 +77,46 @@ const normalizeOption = (item, fallbackPrefix) => {
   };
 };
 
+const formatPromoWorkshopScope = (item) => {
+  const ids = Array.isArray(item?.workshopIds)
+    ? item.workshopIds
+    : Array.isArray(item?.workshop_ids)
+      ? item.workshop_ids
+      : [];
+  if (item?.appliesToAllWorkshops || item?.applies_to_all_workshops) {
+    return 'All workshops';
+  }
+  if (Array.isArray(item?.applicableWorkshops) && item.applicableWorkshops.length > 0) {
+    const names = item.applicableWorkshops
+      .map((row) => row?.name)
+      .filter(Boolean);
+    if (names.length === 1) return names[0];
+    if (names.length > 1) return `${names.length} workshops`;
+  }
+  if (ids.length === 0) return 'All workshops';
+  if (ids.length === 1) return '1 workshop';
+  return `${ids.length} workshops`;
+};
+
+const formatPromoBranchScope = (item) => {
+  const branchIds = Array.isArray(item?.branchIds)
+    ? item.branchIds
+    : Array.isArray(item?.branch_ids)
+      ? item.branch_ids
+      : Array.isArray(item?.applicable_branches)
+        ? item.applicable_branches
+        : Array.isArray(item?.applicableBranches)
+          ? item.applicableBranches
+          : [];
+  if (item?.appliesToAllBranches || branchIds.length === 0) {
+    return item?.branchScope || 'All branches';
+  }
+  if (typeof item?.branchScope === 'string' && item.branchScope.trim()) {
+    return item.branchScope;
+  }
+  return `${branchIds.length} branches`;
+};
+
 const normalizePromoCode = (item) => {
   const statusRaw = String(
     item?.status || (item?.isActive === false ? 'inactive' : 'active')
@@ -129,6 +169,10 @@ const normalizePromoCode = (item) => {
       item?.totalDiscountProvided ?? item?.total_discount_provided ?? 0,
     totalRevenue: item?.totalRevenue ?? item?.total_revenue ?? 0,
     remainingUsage: item?.remainingUsage ?? item?.remaining_usage ?? null,
+    workshopIds: item?.workshopIds ?? item?.workshop_ids ?? [],
+    branchIds: item?.branchIds ?? item?.branch_ids ?? [],
+    workshopScope: formatPromoWorkshopScope(item),
+    branchScopeLabel: formatPromoBranchScope(item),
   };
 };
 
@@ -478,6 +522,8 @@ export {
   mapStatusToIsActive,
   formatPromoCodeSar,
   formatPromoCodeUsageLabel,
+  formatPromoBranchScope,
+  formatPromoWorkshopScope,
   canTogglePromoCodeActivation,
   activationToggleHint,
   isPromoCodeLiveOnPos,

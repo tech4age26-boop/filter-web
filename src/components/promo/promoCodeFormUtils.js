@@ -25,6 +25,7 @@ export const emptyPromoForm = () => ({
   code: '',
   workshopMode: 'all',
   workshopId: '',
+  workshopIds: [],
   discountType: 'fixed',
   discountValue: '',
   validFrom: '',
@@ -59,6 +60,79 @@ export const inferScope = (explicit, ids) => {
   const s = String(explicit ?? '').trim().toLowerCase();
   if (s === 'all' || s === 'selected' || s === 'none') return s;
   return ids.length > 0 ? 'selected' : 'all';
+};
+
+export const extractWorkshopIdsFromPromo = (promo) => {
+  if (Array.isArray(promo?.workshopIds)) {
+    return promo.workshopIds.map(String).filter(Boolean);
+  }
+  if (Array.isArray(promo?.workshop_ids)) {
+    return promo.workshop_ids.map(String).filter(Boolean);
+  }
+  if (Array.isArray(promo?.applicableWorkshops)) {
+    return promo.applicableWorkshops
+      .map((item) =>
+        typeof item === 'object'
+          ? String(item.id ?? item.workshopId ?? item.workshop_id ?? '')
+          : String(item),
+      )
+      .filter(Boolean);
+  }
+  if (Array.isArray(promo?.workshops)) {
+    return promo.workshops
+      .map((item) =>
+        String(
+          item?.workshopId
+            ?? item?.workshop_id
+            ?? item?.workshop?.id
+            ?? item?.id
+            ?? '',
+        ),
+      )
+      .filter(Boolean);
+  }
+  if (promo?.workshopId != null || promo?.workshop_id != null) {
+    return [String(promo.workshopId ?? promo.workshop_id)];
+  }
+  return [];
+};
+
+export const reconcilePromoFormWithWorkshops = (promo, allWorkshops = []) => {
+  const allIds = (Array.isArray(allWorkshops) ? allWorkshops : [])
+    .map((row) => String(row?.id ?? row?.value ?? ''))
+    .filter(Boolean);
+
+  const workshopIds = extractWorkshopIdsFromPromo(promo);
+  const appliesToAll =
+    promo?.appliesToAllWorkshops === true
+    || promo?.applies_to_all_workshops === true
+    || (
+      allIds.length > 0
+      && workshopIds.length === allIds.length
+      && allIds.every((id) => workshopIds.includes(id))
+    );
+
+  const form = promoToForm({
+    ...promo,
+    workshopIds: appliesToAll ? allIds : workshopIds,
+    appliesToAllWorkshops: appliesToAll,
+  });
+
+  if (appliesToAll) {
+    return {
+      ...form,
+      workshopMode: 'all',
+      workshopIds: allIds,
+      workshopId: '',
+    };
+  }
+
+  return {
+    ...form,
+    workshopMode: 'selected',
+    workshopIds,
+    workshopId: workshopIds.length === 1 ? workshopIds[0] : '',
+  };
 };
 
 export const promoToForm = (promo) => {
@@ -104,14 +178,18 @@ export const promoToForm = (promo) => {
     promo.discountType ?? promo.discount_type ?? 'fixed',
   ).toLowerCase();
 
+  const workshopIds = extractWorkshopIdsFromPromo(promo);
+
+  const appliesToAll =
+    promo.appliesToAllWorkshops === true
+    || promo.applies_to_all_workshops === true;
+
   return {
     code: promo.code || '',
     workshopMode:
-      promo.appliesToAllWorkshops === true
-      || promo.applies_to_all_workshops === true
-        ? 'all'
-        : 'selected',
-    workshopId: String(promo.workshopId ?? promo.workshop_id ?? ''),
+      appliesToAll || workshopIds.length === 0 ? 'all' : 'selected',
+    workshopId: workshopIds.length === 1 ? workshopIds[0] : '',
+    workshopIds,
     discountType:
       discountRaw.includes('percent') || discountRaw === 'percent'
         ? 'percent'
@@ -161,11 +239,21 @@ export const promoToForm = (promo) => {
   };
 };
 
-export function buildPromoPayload(form, { includeIsActive = false } = {}) {
+export function buildPromoPayload(form, { includeIsActive = false, allWorkshopIds = [] } = {}) {
+  const resolvedWorkshopIds =
+    form.workshopMode === 'all'
+      ? allWorkshopIds.map(String).filter(Boolean)
+      : form.workshopIds.length > 0
+        ? form.workshopIds.map(String)
+        : strTrim(form.workshopId)
+          ? [strTrim(form.workshopId)]
+          : [];
+
   const payload = {
     code: strTrim(form.code).toUpperCase(),
     workshopMode: form.workshopMode === 'selected' ? 'selected' : 'all',
-    workshopId: form.workshopMode === 'selected' ? strTrim(form.workshopId) || null : null,
+    workshopIds: resolvedWorkshopIds,
+    workshopId: resolvedWorkshopIds.length === 1 ? resolvedWorkshopIds[0] : null,
     discountType: form.discountType,
     discountValue: toNumber(form.discountValue),
     validFrom: dateOnly(form.validFrom),
@@ -191,21 +279,17 @@ export function buildPromoPayload(form, { includeIsActive = false } = {}) {
   return payload;
 }
 
-export function buildMarketingPromoPayload(form, { isEdit = false } = {}) {
-  const base = buildPromoPayload(form, { includeIsActive: isEdit });
+export function buildMarketingPromoPayload(form, { isEdit = false, allWorkshopIds = [] } = {}) {
+  const base = buildPromoPayload(form, { includeIsActive: isEdit, allWorkshopIds });
   const workflow = String(form.workflowStatus || '').toLowerCase();
   const blockedWorkflow = ['pending_approval', 'pending', 'rejected'];
 
   return {
     code: base.code,
-    workshopId: base.workshopMode === 'selected' ? base.workshopId : null,
-    workshop_id: base.workshopMode === 'selected' ? base.workshopId : null,
-    allWorkshops: base.workshopMode === 'all',
-    all_workshops: base.workshopMode === 'all',
-    appliesToAllWorkshops: base.workshopMode === 'all',
-    applies_to_all_workshops: base.workshopMode === 'all',
-    workshopScope: base.workshopMode === 'all' ? 'all_workshops' : 'selected',
-    workshop_scope: base.workshopMode === 'all' ? 'all_workshops' : 'selected',
+    workshopIds: base.workshopIds,
+    workshop_ids: base.workshopIds,
+    workshopId: base.workshopId,
+    workshop_id: base.workshopId,
     discountType: base.discountType === 'percent' ? 'percentage' : 'fixed_amount',
     discount_type: base.discountType === 'percent' ? 'percentage' : 'fixed_amount',
     discountValue: base.discountValue,
@@ -245,8 +329,8 @@ export function validatePromoForm(form, { catalogLoading = false, requireWorksho
   if (!strTrim(form.code) || !dateOnly(form.validFrom) || !dateOnly(form.validTo)) {
     return 'Code, valid from, and valid to are required.';
   }
-  if (requireWorkshop && form.workshopMode === 'selected' && !strTrim(form.workshopId)) {
-    return 'Select a workshop or choose All workshops.';
+  if (requireWorkshop && form.workshopMode === 'selected' && form.workshopIds.length === 0 && !strTrim(form.workshopId)) {
+    return 'Select at least one workshop, or choose All workshops.';
   }
   if (form.branchMode === 'selected' && form.branchIds.length === 0) {
     return 'Select at least one branch, or choose All branches.';

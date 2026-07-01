@@ -8,6 +8,8 @@ import {
   emptyPromoForm,
   generatePromoCode,
   promoToForm,
+  reconcilePromoFormWithWorkshops,
+  strTrim,
   validatePromoForm,
 } from '../../components/promo/promoCodeFormUtils';
 import {
@@ -87,18 +89,33 @@ export default function PromoCodeFormPage() {
   const goBack = () => navigate(listPath);
 
   const branchIdsForCatalog = useMemo(() => {
-    if (form.workshopMode === 'selected' && !form.workshopId) return [];
+    const selectedWorkshopIds =
+      form.workshopMode === 'all'
+        ? workshops.map((w) => String(w.id)).filter(Boolean)
+        : form.workshopIds.length > 0
+          ? form.workshopIds.map(String)
+          : strTrim(form.workshopId)
+            ? [String(form.workshopId)]
+            : [];
+
+    if (selectedWorkshopIds.length === 0) return [];
+
     if (form.branchMode === 'all') {
-      if (form.workshopMode === 'all') {
-        return branches.map((b) => String(b.id)).filter(Boolean);
-      }
       return branches
-        .filter((b) => String(b.workshopId) === String(form.workshopId))
+        .filter((b) => selectedWorkshopIds.includes(String(b.workshopId ?? '')))
         .map((b) => String(b.id))
         .filter(Boolean);
     }
     return form.branchIds;
-  }, [form.branchMode, form.branchIds, form.workshopId, form.workshopMode, branches]);
+  }, [
+    form.branchMode,
+    form.branchIds,
+    form.workshopId,
+    form.workshopIds,
+    form.workshopMode,
+    branches,
+    workshops,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +146,7 @@ export default function PromoCodeFormPage() {
   }, []);
 
   useEffect(() => {
-    if (!isEdit) return undefined;
+    if (!isEdit || loadingOptions) return undefined;
 
     let cancelled = false;
 
@@ -144,7 +161,7 @@ export default function PromoCodeFormPage() {
           data?.promoCode || data?.data || data?.item || data,
         );
 
-        setForm(promoToForm(item));
+        setForm(reconcilePromoFormWithWorkshops(item, workshops));
         setUsageCount(item.currentUsage ?? item.current_usage_count ?? null);
       } catch (error) {
         if (!cancelled) {
@@ -158,7 +175,7 @@ export default function PromoCodeFormPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, isEdit]);
+  }, [id, isEdit, loadingOptions, workshops]);
 
   useEffect(() => {
     let cancelled = false;
@@ -264,7 +281,10 @@ export default function PromoCodeFormPage() {
 
     try {
       setSubmitting(true);
-      const payload = buildMarketingPromoPayload(form, { isEdit });
+      const payload = buildMarketingPromoPayload(form, {
+        isEdit,
+        allWorkshopIds: workshops.map((w) => w.id),
+      });
 
       if (isEdit) {
         await marketingUpdatePromoCode(id, payload);

@@ -868,7 +868,7 @@ export default function WorkshopApprovals({
         setActionLoadingId(`reject-${id}`);
         try {
             if (isTopUpRequest(rejectDialog) || isExpenseRequest(rejectDialog)) {
-                await rejectExpenseRequest(id, { rejectionReason: rejectReason.trim() }, expenseScope);
+                await rejectExpenseRequest(id, { reason: rejectReason.trim() }, expenseScope);
             } else {
             await apiFetch(`/workshop-staff/petty-cash/${id}/reject`, {
                 method: 'POST',
