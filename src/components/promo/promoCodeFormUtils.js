@@ -23,6 +23,7 @@ export const catalogItemName = (row) =>
 
 export const emptyPromoForm = () => ({
   code: '',
+  workshopMode: 'all',
   workshopId: '',
   discountType: 'fixed',
   discountValue: '',
@@ -105,6 +106,11 @@ export const promoToForm = (promo) => {
 
   return {
     code: promo.code || '',
+    workshopMode:
+      promo.appliesToAllWorkshops === true
+      || promo.applies_to_all_workshops === true
+        ? 'all'
+        : 'selected',
     workshopId: String(promo.workshopId ?? promo.workshop_id ?? ''),
     discountType:
       discountRaw.includes('percent') || discountRaw === 'percent'
@@ -158,7 +164,8 @@ export const promoToForm = (promo) => {
 export function buildPromoPayload(form, { includeIsActive = false } = {}) {
   const payload = {
     code: strTrim(form.code).toUpperCase(),
-    workshopId: strTrim(form.workshopId) || null,
+    workshopMode: form.workshopMode === 'selected' ? 'selected' : 'all',
+    workshopId: form.workshopMode === 'selected' ? strTrim(form.workshopId) || null : null,
     discountType: form.discountType,
     discountValue: toNumber(form.discountValue),
     validFrom: dateOnly(form.validFrom),
@@ -191,8 +198,14 @@ export function buildMarketingPromoPayload(form, { isEdit = false } = {}) {
 
   return {
     code: base.code,
-    workshopId: base.workshopId,
-    workshop_id: base.workshopId,
+    workshopId: base.workshopMode === 'selected' ? base.workshopId : null,
+    workshop_id: base.workshopMode === 'selected' ? base.workshopId : null,
+    allWorkshops: base.workshopMode === 'all',
+    all_workshops: base.workshopMode === 'all',
+    appliesToAllWorkshops: base.workshopMode === 'all',
+    applies_to_all_workshops: base.workshopMode === 'all',
+    workshopScope: base.workshopMode === 'all' ? 'all_workshops' : 'selected',
+    workshop_scope: base.workshopMode === 'all' ? 'all_workshops' : 'selected',
     discountType: base.discountType === 'percent' ? 'percentage' : 'fixed_amount',
     discount_type: base.discountType === 'percent' ? 'percentage' : 'fixed_amount',
     discountValue: base.discountValue,
@@ -232,8 +245,8 @@ export function validatePromoForm(form, { catalogLoading = false, requireWorksho
   if (!strTrim(form.code) || !dateOnly(form.validFrom) || !dateOnly(form.validTo)) {
     return 'Code, valid from, and valid to are required.';
   }
-  if (requireWorkshop && !strTrim(form.workshopId)) {
-    return 'Select a workshop before saving.';
+  if (requireWorkshop && form.workshopMode === 'selected' && !strTrim(form.workshopId)) {
+    return 'Select a workshop or choose All workshops.';
   }
   if (form.branchMode === 'selected' && form.branchIds.length === 0) {
     return 'Select at least one branch, or choose All branches.';
