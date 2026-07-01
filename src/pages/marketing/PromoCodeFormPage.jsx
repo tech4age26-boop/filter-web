@@ -35,7 +35,16 @@ function normalizeBranches(payload) {
   return list.map((row) => ({
     id: String(row.id ?? row.value ?? ''),
     name: row.name ?? row.label ?? row.branchName ?? `Branch ${row.id}`,
+    workshopId: String(row.workshopId ?? row.workshop_id ?? ''),
     isActive: row.isActive !== false,
+  }));
+}
+
+function normalizeWorkshops(payload) {
+  const list = Array.isArray(payload?.workshops) ? payload.workshops : [];
+  return list.map((row) => ({
+    id: String(row.id ?? row.value ?? ''),
+    name: row.name ?? row.label ?? `Workshop ${row.id}`,
   }));
 }
 
@@ -62,6 +71,7 @@ export default function PromoCodeFormPage() {
   const listPath = marketingSectionPath(location.pathname, 'promo-codes');
 
   const [form, setForm] = useState(emptyPromoForm);
+  const [workshops, setWorkshops] = useState([]);
   const [branches, setBranches] = useState([]);
   const [catalogProducts, setCatalogProducts] = useState([]);
   const [catalogServices, setCatalogServices] = useState([]);
@@ -77,11 +87,15 @@ export default function PromoCodeFormPage() {
   const goBack = () => navigate(listPath);
 
   const branchIdsForCatalog = useMemo(() => {
+    if (!form.workshopId) return [];
     if (form.branchMode === 'all') {
-      return branches.map((b) => String(b.id)).filter(Boolean);
+      return branches
+        .filter((b) => String(b.workshopId) === String(form.workshopId))
+        .map((b) => String(b.id))
+        .filter(Boolean);
     }
     return form.branchIds;
-  }, [form.branchMode, form.branchIds, branches]);
+  }, [form.branchMode, form.branchIds, form.workshopId, branches]);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,8 +108,19 @@ export default function PromoCodeFormPage() {
         if (cancelled) return;
 
         setBranches(normalizeBranches(data));
+        setWorkshops(normalizeWorkshops(data));
         setCatalogProducts(normalizeCatalogRows(data.products, 'products'));
         setCatalogServices(normalizeCatalogRows(data.services, 'services'));
+
+        if (!isEdit) {
+          const workshopList = normalizeWorkshops(data);
+          if (workshopList.length === 1) {
+            setForm((prev) => ({
+              ...prev,
+              workshopId: prev.workshopId || workshopList[0].id,
+            }));
+          }
+        }
       } catch (error) {
         if (!cancelled) {
           setOptionsError(error?.message || 'Failed to load form options.');
@@ -193,11 +218,52 @@ export default function PromoCodeFormPage() {
     };
   }, [branchIdsForCatalog.join('|')]);
 
+  useEffect(() => {
+    if (catalogLoading) return undefined;
+    if (
+      branchIdsForCatalog.length > 0
+      && catalogProducts.length === 0
+      && catalogServices.length === 0
+    ) {
+      return undefined;
+    }
+    setForm((prev) => {
+      if (prev.productScope !== 'selected' && prev.serviceScope !== 'selected') {
+        return prev;
+      }
+      const validProductIds = new Set(
+        catalogProducts.map((p) => catalogItemId(p, 'products')).filter(Boolean),
+      );
+      const validServiceIds = new Set(
+        catalogServices.map((s) => catalogItemId(s, 'services')).filter(Boolean),
+      );
+      const productIds =
+        prev.productScope === 'selected'
+          ? prev.productIds.filter((id) => validProductIds.has(id))
+          : [];
+      const serviceIds =
+        prev.serviceScope === 'selected'
+          ? prev.serviceIds.filter((id) => validServiceIds.has(id))
+          : [];
+      if (
+        productIds.length === prev.productIds.length
+        && serviceIds.length === prev.serviceIds.length
+      ) {
+        return prev;
+      }
+      return { ...prev, productIds, serviceIds };
+    });
+    return undefined;
+  }, [catalogLoading, catalogProducts, catalogServices, branchIdsForCatalog.join('|')]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setFormError('');
 
-    const validationMsg = validatePromoForm(form, { catalogLoading });
+    const validationMsg = validatePromoForm(form, {
+      catalogLoading,
+      requireWorkshop: true,
+    });
     if (validationMsg) {
       setFormError(validationMsg);
       return;
@@ -261,6 +327,7 @@ export default function PromoCodeFormPage() {
             <PromoCodeFormFields
               form={form}
               setForm={setForm}
+              workshops={workshops}
               branches={branches}
               catalogProducts={catalogProducts}
               catalogServices={catalogServices}
@@ -269,6 +336,7 @@ export default function PromoCodeFormPage() {
               usageCount={usageCount}
               formError={formError}
               showStatus={isEdit}
+              requireWorkshop
               onAutoGenerate={
                 isEdit ? undefined : () => setForm((prev) => ({ ...prev, code: generatePromoCode() }))
               }

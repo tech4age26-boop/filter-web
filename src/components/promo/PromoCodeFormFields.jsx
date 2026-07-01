@@ -2,6 +2,10 @@ import React, { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { catalogItemId, catalogItemName } from './promoCodeFormUtils';
 
+function strTrim(value) {
+  return String(value ?? '').trim();
+}
+
 export const PROMO_APPLICATION_RULES = [
   {
     value: 'all_required',
@@ -157,6 +161,7 @@ function ScopeSection({
 export default function PromoCodeFormFields({
   form,
   setForm,
+  workshops = [],
   branches = [],
   catalogProducts = [],
   catalogServices = [],
@@ -165,12 +170,24 @@ export default function PromoCodeFormFields({
   usageCount,
   formError = '',
   showStatus = true,
+  requireWorkshop = false,
   onAutoGenerate,
 }) {
-  const branchOptions = useMemo(
-    () => branches.filter((b) => b.isActive !== false),
-    [branches],
-  );
+  const branchOptions = useMemo(() => {
+    const active = branches.filter((b) => b.isActive !== false);
+    if (!requireWorkshop || !strTrim(form.workshopId)) return active;
+    return active.filter(
+      (b) => String(b.workshopId ?? '') === String(form.workshopId),
+    );
+  }, [branches, form.workshopId, requireWorkshop]);
+
+  const workflowStatus = String(form.workflowStatus || 'pending_approval')
+    .trim()
+    .toLowerCase();
+  const statusLocked =
+    workflowStatus === 'pending_approval'
+    || workflowStatus === 'pending'
+    || workflowStatus === 'rejected';
 
   const toggleBranch = (branchId) => {
     const id = String(branchId);
@@ -197,7 +214,9 @@ export default function PromoCodeFormFields({
     setForm((prev) => ({ ...prev, [field]: ids.map(String) }));
   };
 
-  const catalogDisabled = form.branchMode === 'selected' && form.branchIds.length === 0;
+  const catalogDisabled =
+    (requireWorkshop && !strTrim(form.workshopId))
+    || (form.branchMode === 'selected' && form.branchIds.length === 0);
   const hasSpecificSelection =
     form.productScope === 'selected' || form.serviceScope === 'selected';
   const activeRule =
@@ -251,15 +270,27 @@ export default function PromoCodeFormFields({
           {showStatus ? (
             <div className="ws-field">
               <label>Status</label>
-              <select
-                value={form.isActive ? 'active' : 'inactive'}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, isActive: e.target.value === 'active' }))
-                }
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
+              {statusLocked ? (
+                <input
+                  readOnly
+                  value={
+                    workflowStatus === 'rejected'
+                      ? 'Rejected'
+                      : 'Pending Super Admin approval'
+                  }
+                  style={{ background: '#f8fafc', color: '#64748b', cursor: 'not-allowed' }}
+                />
+              ) : (
+                <select
+                  value={form.isActive ? 'active' : 'inactive'}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, isActive: e.target.value === 'active' }))
+                  }
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              )}
             </div>
           ) : (
             <div className="ws-field">
@@ -375,6 +406,37 @@ export default function PromoCodeFormFields({
           Set branches, then choose separately for products and services: all, specific items, or not applicable.
         </p>
         <div className="ws-form-grid">
+          {requireWorkshop ? (
+            <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+              <label>Workshop *</label>
+              <select
+                value={form.workshopId}
+                required={requireWorkshop}
+                onChange={(e) => {
+                  const workshopId = e.target.value;
+                  setForm((prev) => ({
+                    ...prev,
+                    workshopId,
+                    branchMode: 'all',
+                    branchIds: [],
+                    productIds: [],
+                    serviceIds: [],
+                  }));
+                }}
+              >
+                <option value="">Select workshop…</option>
+                {workshops.map((workshop) => (
+                  <option key={workshop.id} value={String(workshop.id)}>
+                    {workshop.name}
+                  </option>
+                ))}
+              </select>
+              <p className="form-help-text" style={{ margin: '6px 0 0' }}>
+                Each promo belongs to one workshop. &ldquo;All branches&rdquo; applies to every
+                branch in that workshop.
+              </p>
+            </div>
+          ) : null}
           <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
             <label>Branches *</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginBottom: 10 }}>
@@ -423,8 +485,13 @@ export default function PromoCodeFormFields({
             </div>
             {form.branchMode === 'selected' ? (
               <div className="ws-promo-branch-list">
-                {branchOptions.length === 0 ? (
-                  <p className="ws-promo-picker-empty">No branches available.</p>
+                {!requireWorkshop || strTrim(form.workshopId) ? null : (
+                  <p className="ws-promo-picker-empty">Select a workshop first.</p>
+                )}
+                {(requireWorkshop && !strTrim(form.workshopId)) ? null : branchOptions.length === 0 ? (
+                  <p className="ws-promo-picker-empty">
+                    {requireWorkshop ? 'No branches available for this workshop.' : 'No branches available.'}
+                  </p>
                 ) : (
                   branchOptions.map((b) => {
                     const id = String(b.id);
@@ -443,7 +510,9 @@ export default function PromoCodeFormFields({
               </div>
             ) : (
               <p className="form-help-text" style={{ margin: 0 }}>
-                Promo applies to all active branches ({branchOptions.length}).
+                {requireWorkshop && !strTrim(form.workshopId)
+                  ? 'Select a workshop to scope branches.'
+                  : `Promo applies to all active branches${requireWorkshop ? ' in this workshop' : ''} (${branchOptions.length}).`}
               </p>
             )}
           </div>

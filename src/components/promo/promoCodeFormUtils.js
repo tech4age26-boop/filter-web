@@ -23,6 +23,7 @@ export const catalogItemName = (row) =>
 
 export const emptyPromoForm = () => ({
   code: '',
+  workshopId: '',
   discountType: 'fixed',
   discountValue: '',
   validFrom: '',
@@ -31,6 +32,7 @@ export const emptyPromoForm = () => ({
   minOrderAmount: '',
   description: '',
   isActive: true,
+  workflowStatus: 'pending_approval',
   branchMode: 'all',
   branchIds: [],
   productScope: 'all',
@@ -39,6 +41,18 @@ export const emptyPromoForm = () => ({
   serviceIds: [],
   selectedItemMatchMode: 'all_required',
 });
+
+export const normalizeWorkflowStatus = (promo) => {
+  const raw = String(promo?.status ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  if (raw === 'pending' || raw === 'pending_approval') return 'pending_approval';
+  if (raw === 'rejected') return 'rejected';
+  if (raw === 'inactive' || raw === 'disabled') return 'inactive';
+  if (raw === 'active') return 'active';
+  return promo?.isActive === true ? 'active' : 'pending_approval';
+};
 
 export const inferScope = (explicit, ids) => {
   const s = String(explicit ?? '').trim().toLowerCase();
@@ -91,6 +105,7 @@ export const promoToForm = (promo) => {
 
   return {
     code: promo.code || '',
+    workshopId: String(promo.workshopId ?? promo.workshop_id ?? ''),
     discountType:
       discountRaw.includes('percent') || discountRaw === 'percent'
         ? 'percent'
@@ -120,7 +135,8 @@ export const promoToForm = (promo) => {
             ? String(promo.minPurchaseAmount)
             : '',
     description: promo.description || promo.notes || '',
-    isActive: promo.isActive !== false,
+    workflowStatus: normalizeWorkflowStatus(promo),
+    isActive: promo.isActive === true,
     branchMode: branchIds.length === 0 ? 'all' : 'selected',
     branchIds,
     productScope: inferScope(promo.productScope, productIds),
@@ -142,6 +158,7 @@ export const promoToForm = (promo) => {
 export function buildPromoPayload(form, { includeIsActive = false } = {}) {
   const payload = {
     code: strTrim(form.code).toUpperCase(),
+    workshopId: strTrim(form.workshopId) || null,
     discountType: form.discountType,
     discountValue: toNumber(form.discountValue),
     validFrom: dateOnly(form.validFrom),
@@ -169,9 +186,13 @@ export function buildPromoPayload(form, { includeIsActive = false } = {}) {
 
 export function buildMarketingPromoPayload(form, { isEdit = false } = {}) {
   const base = buildPromoPayload(form, { includeIsActive: isEdit });
+  const workflow = String(form.workflowStatus || '').toLowerCase();
+  const blockedWorkflow = ['pending_approval', 'pending', 'rejected'];
 
   return {
     code: base.code,
+    workshopId: base.workshopId,
+    workshop_id: base.workshopId,
     discountType: base.discountType === 'percent' ? 'percentage' : 'fixed_amount',
     discount_type: base.discountType === 'percent' ? 'percentage' : 'fixed_amount',
     discountValue: base.discountValue,
@@ -197,14 +218,22 @@ export function buildMarketingPromoPayload(form, { isEdit = false } = {}) {
     selectedItemMatchMode: base.selectedItemMatchMode,
     selected_item_match_mode: base.selectedItemMatchMode,
     ...(isEdit
-      ? { isActive: base.isActive, status: base.isActive ? 'active' : 'inactive' }
+      ? blockedWorkflow.includes(workflow)
+        ? {}
+        : {
+            isActive: base.isActive,
+            status: base.isActive ? 'active' : 'inactive',
+          }
       : { status: 'pending_approval', isActive: false }),
   };
 }
 
-export function validatePromoForm(form, { catalogLoading = false } = {}) {
+export function validatePromoForm(form, { catalogLoading = false, requireWorkshop = false } = {}) {
   if (!strTrim(form.code) || !dateOnly(form.validFrom) || !dateOnly(form.validTo)) {
     return 'Code, valid from, and valid to are required.';
+  }
+  if (requireWorkshop && !strTrim(form.workshopId)) {
+    return 'Select a workshop before saving.';
   }
   if (form.branchMode === 'selected' && form.branchIds.length === 0) {
     return 'Select at least one branch, or choose All branches.';
