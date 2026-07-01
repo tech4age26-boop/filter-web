@@ -35,6 +35,7 @@ function humanizeSource(source) {
     if (s === 'supplier_purchase_invoice') return 'Supplier purchase (approved)';
     if (s === 'local_supplier_purchase_invoice') return 'Non-affiliated supplier purchase';
     if (s === 'supplier_purchase_return') return 'Supplier purchase return';
+    if (s === 'local_supplier_purchase_return') return 'Non-affiliated purchase return';
     if (s === 'super_admin_starting_stock') return 'Super admin (opening stock)';
     if (s === 'pos') return 'POS';
     if (s === 'purchase_receipt') return 'Purchase receipt';
@@ -45,6 +46,7 @@ function humanizeReferenceType(type) {
     const t = String(type || '').toLowerCase();
     if (t === 'workshop_supplier_purchase_invoice') return 'Workshop purchase invoice';
     if (t === 'workshop_local_supplier_purchase_invoice') return 'Workshop local purchase invoice';
+    if (t === 'workshop_local_supplier_purchase_return') return 'Workshop local debit note';
     return t.replace(/_/g, ' ');
 }
 
