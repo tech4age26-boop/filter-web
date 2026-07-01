@@ -320,6 +320,7 @@ export default function ProductsScreen() {
                 body: JSON.stringify({
                     code,
                     orderAmount: afterGlobalDisc,
+                    orderAmountInclVat: r2(afterGlobalDisc + r2(afterGlobalDisc * VAT_RATE)),
                     productIds,
                     serviceIds,
                     lineItems: cartLines.map((l) => ({
