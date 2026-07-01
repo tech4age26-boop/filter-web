@@ -87,15 +87,18 @@ export default function PromoCodeFormPage() {
   const goBack = () => navigate(listPath);
 
   const branchIdsForCatalog = useMemo(() => {
-    if (!form.workshopId) return [];
+    if (form.workshopMode === 'selected' && !form.workshopId) return [];
     if (form.branchMode === 'all') {
+      if (form.workshopMode === 'all') {
+        return branches.map((b) => String(b.id)).filter(Boolean);
+      }
       return branches
         .filter((b) => String(b.workshopId) === String(form.workshopId))
         .map((b) => String(b.id))
         .filter(Boolean);
     }
     return form.branchIds;
-  }, [form.branchMode, form.branchIds, form.workshopId, branches]);
+  }, [form.branchMode, form.branchIds, form.workshopId, form.workshopMode, branches]);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,16 +114,6 @@ export default function PromoCodeFormPage() {
         setWorkshops(normalizeWorkshops(data));
         setCatalogProducts(normalizeCatalogRows(data.products, 'products'));
         setCatalogServices(normalizeCatalogRows(data.services, 'services'));
-
-        if (!isEdit) {
-          const workshopList = normalizeWorkshops(data);
-          if (workshopList.length === 1) {
-            setForm((prev) => ({
-              ...prev,
-              workshopId: prev.workshopId || workshopList[0].id,
-            }));
-          }
-        }
       } catch (error) {
         if (!cancelled) {
           setOptionsError(error?.message || 'Failed to load form options.');

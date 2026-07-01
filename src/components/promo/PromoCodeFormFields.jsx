@@ -175,11 +175,11 @@ export default function PromoCodeFormFields({
 }) {
   const branchOptions = useMemo(() => {
     const active = branches.filter((b) => b.isActive !== false);
-    if (!requireWorkshop || !strTrim(form.workshopId)) return active;
+    if (!requireWorkshop || form.workshopMode === 'all') return active;
     return active.filter(
       (b) => String(b.workshopId ?? '') === String(form.workshopId),
     );
-  }, [branches, form.workshopId, requireWorkshop]);
+  }, [branches, form.workshopId, form.workshopMode, requireWorkshop]);
 
   const workflowStatus = String(form.workflowStatus || 'pending_approval')
     .trim()
@@ -215,7 +215,9 @@ export default function PromoCodeFormFields({
   };
 
   const catalogDisabled =
-    (requireWorkshop && !strTrim(form.workshopId))
+    (requireWorkshop
+      && form.workshopMode === 'selected'
+      && !strTrim(form.workshopId))
     || (form.branchMode === 'selected' && form.branchIds.length === 0);
   const hasSpecificSelection =
     form.productScope === 'selected' || form.serviceScope === 'selected';
@@ -409,32 +411,92 @@ export default function PromoCodeFormFields({
           {requireWorkshop ? (
             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
               <label>Workshop *</label>
-              <select
-                value={form.workshopId}
-                required={requireWorkshop}
-                onChange={(e) => {
-                  const workshopId = e.target.value;
-                  setForm((prev) => ({
-                    ...prev,
-                    workshopId,
-                    branchMode: 'all',
-                    branchIds: [],
-                    productIds: [],
-                    serviceIds: [],
-                  }));
-                }}
-              >
-                <option value="">Select workshop…</option>
-                {workshops.map((workshop) => (
-                  <option key={workshop.id} value={String(workshop.id)}>
-                    {workshop.name}
-                  </option>
-                ))}
-              </select>
-              <p className="form-help-text" style={{ margin: '6px 0 0' }}>
-                Each promo belongs to one workshop. &ldquo;All branches&rdquo; applies to every
-                branch in that workshop.
-              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginBottom: 10 }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: '0.8125rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="promoWorkshopMode"
+                    checked={form.workshopMode === 'all'}
+                    onChange={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        workshopMode: 'all',
+                        workshopId: '',
+                        branchMode: 'all',
+                        branchIds: [],
+                        productIds: [],
+                        serviceIds: [],
+                      }))
+                    }
+                  />
+                  All workshops
+                </label>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: '0.8125rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="promoWorkshopMode"
+                    checked={form.workshopMode === 'selected'}
+                    onChange={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        workshopMode: 'selected',
+                        branchMode: 'all',
+                        branchIds: [],
+                        productIds: [],
+                        serviceIds: [],
+                      }))
+                    }
+                  />
+                  Selected workshop
+                </label>
+              </div>
+              {form.workshopMode === 'selected' ? (
+                <select
+                  value={form.workshopId}
+                  required={requireWorkshop}
+                  onChange={(e) => {
+                    const workshopId = e.target.value;
+                    setForm((prev) => ({
+                      ...prev,
+                      workshopId,
+                      branchMode: 'all',
+                      branchIds: [],
+                      productIds: [],
+                      serviceIds: [],
+                    }));
+                  }}
+                >
+                  <option value="">Select workshop…</option>
+                  {workshops.map((workshop) => (
+                    <option key={workshop.id} value={String(workshop.id)}>
+                      {workshop.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="form-help-text" style={{ margin: 0 }}>
+                  Promo will be created for every workshop ({workshops.length}).
+                  Each workshop gets its own copy of this code.
+                </p>
+              )}
             </div>
           ) : null}
           <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
@@ -485,10 +547,11 @@ export default function PromoCodeFormFields({
             </div>
             {form.branchMode === 'selected' ? (
               <div className="ws-promo-branch-list">
-                {!requireWorkshop || strTrim(form.workshopId) ? null : (
+                {(requireWorkshop
+                  && form.workshopMode === 'selected'
+                  && !strTrim(form.workshopId)) ? (
                   <p className="ws-promo-picker-empty">Select a workshop first.</p>
-                )}
-                {(requireWorkshop && !strTrim(form.workshopId)) ? null : branchOptions.length === 0 ? (
+                ) : branchOptions.length === 0 ? (
                   <p className="ws-promo-picker-empty">
                     {requireWorkshop ? 'No branches available for this workshop.' : 'No branches available.'}
                   </p>
@@ -510,9 +573,11 @@ export default function PromoCodeFormFields({
               </div>
             ) : (
               <p className="form-help-text" style={{ margin: 0 }}>
-                {requireWorkshop && !strTrim(form.workshopId)
+                {requireWorkshop && form.workshopMode === 'selected' && !strTrim(form.workshopId)
                   ? 'Select a workshop to scope branches.'
-                  : `Promo applies to all active branches${requireWorkshop ? ' in this workshop' : ''} (${branchOptions.length}).`}
+                  : form.workshopMode === 'all'
+                    ? `Promo applies to all active branches across all workshops (${branchOptions.length}).`
+                    : `Promo applies to all active branches in this workshop (${branchOptions.length}).`}
               </p>
             )}
           </div>
