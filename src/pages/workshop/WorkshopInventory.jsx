@@ -269,6 +269,7 @@ function humanizeInventoryLogSource(source) {
     if (s === 'supplier_purchase_invoice') return 'Supplier purchase (approved)';
     if (s === 'local_supplier_purchase_invoice') return 'Non-affiliated supplier purchase';
     if (s === 'supplier_purchase_return') return 'Supplier purchase return';
+    if (s === 'local_supplier_purchase_return') return 'Non-affiliated purchase return';
     if (s === 'super_admin_starting_stock') return 'Super admin (opening stock)';
     if (s === 'pos') return 'POS';
     if (s === 'purchase_receipt') return 'Purchase receipt';
@@ -279,6 +280,7 @@ function humanizeInventoryLogReferenceType(type) {
     const t = String(type || '').toLowerCase();
     if (t === 'workshop_supplier_purchase_invoice') return 'Workshop purchase invoice';
     if (t === 'workshop_local_supplier_purchase_invoice') return 'Workshop local purchase invoice';
+    if (t === 'workshop_local_supplier_purchase_return') return 'Workshop local debit note';
     return t.replace(/_/g, ' ');
 }
 
@@ -292,12 +294,17 @@ function normalizeAdjustmentEntry(raw) {
         (source === 'manual' || source === '') &&
         (movementType === 'workshop_supplier_purchase_received' ||
             movementType === 'workshop_local_supplier_purchase_received' ||
+            movementType === 'workshop_local_supplier_purchase_return' ||
             movementType.includes('supplier_purchase'))
     ) {
         source =
             movementType === 'workshop_local_supplier_purchase_received'
                 ? 'local_supplier_purchase_invoice'
-                : 'supplier_purchase_invoice';
+                : movementType === 'workshop_local_supplier_purchase_return'
+                  ? 'local_supplier_purchase_return'
+                  : movementType === 'workshop_supplier_purchase_return'
+                    ? 'supplier_purchase_return'
+                    : 'supplier_purchase_invoice';
     }
     const id = String(
         raw.id ?? raw.logId ?? raw.movementId ?? raw.movement_id ?? `${at}-${raw.previousQty}-${raw.newQty}`,
@@ -332,6 +339,8 @@ function normalizeAdjustmentEntry(raw) {
         raw.reason ||
         (source === 'supplier_purchase_invoice' ? 'Supplier purchase (approved)' : null) ||
         (source === 'local_supplier_purchase_invoice' ? 'Non-affiliated supplier purchase' : null) ||
+        (source === 'local_supplier_purchase_return' ? 'Non-affiliated purchase return' : null) ||
+        (source === 'supplier_purchase_return' ? 'Supplier purchase return' : null) ||
         '—';
     return {
         id,
@@ -339,6 +348,7 @@ function normalizeAdjustmentEntry(raw) {
         previousQty,
         newQty,
         delta,
+        uom: raw.uom ?? raw.unit ?? null,
         reason,
         note: raw.note ?? raw.notes ?? null,
         adjustedBy: raw.adjustedBy ?? raw.adjusted_by ?? raw.user ?? null,
@@ -426,10 +436,27 @@ function isLowStockRow(p) {
     return crit > 0 && qty <= crit;
 }
 
-function formatTimelineQty(entry, which) {
+function formatTimelineQty(entry, which, fallbackUom) {
     if (isInfiniteQtyAdjustmentEntry(entry) && which === 'new') return '∞';
     const val = which === 'new' ? entry.newQty : entry.previousQty;
-    return val == null ? '—' : val;
+    if (val == null) return '—';
+    const uom = entry?.uom || fallbackUom;
+    if (uom && String(uom).trim()) {
+        const n = Number(val);
+        const shown = Number.isFinite(n) ? n : val;
+        return `${shown} ${String(uom).trim()}`;
+    }
+    return val;
+}
+
+function formatTimelineDelta(entry, fallbackUom) {
+    if (isInfiniteQtyAdjustmentEntry(entry)) return '—';
+    const d = Number(entry?.delta);
+    if (!Number.isFinite(d)) return '—';
+    const uom = entry?.uom || fallbackUom;
+    const prefix = d > 0 ? '+' : '';
+    const core = `${prefix}${d}`;
+    return uom && String(uom).trim() ? `${core} ${String(uom).trim()}` : core;
 }
 
 function pickDisplayName(master, row) {
@@ -2096,6 +2123,11 @@ export default function WorkshopInventory({
                                                 )}
                                                 {(() => {
                                                     const merged = logMergedEntries;
+                                                    const timelineUom = String(
+                                                        logProduct?.workshopUnit ||
+                                                            logProduct?.unit ||
+                                                            '',
+                                                    ).trim();
 
                                                     if (logLoading && !isAllBranches) {
                                                         return (
@@ -2182,10 +2214,10 @@ export default function WorkshopInventory({
                                                                                     </span>
                                                                                 ) : null}
                                                                             </td>
-                                                                            <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>{formatTimelineQty(e, 'previous')}</td>
-                                                                            <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>{formatTimelineQty(e, 'new')}</td>
+                                                                            <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>{formatTimelineQty(e, 'previous', timelineUom)}</td>
+                                                                            <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700 }}>{formatTimelineQty(e, 'new', timelineUom)}</td>
                                                                             <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: infiniteRow ? '#6D28D9' : e.delta >= 0 ? '#047857' : '#B91C1C' }}>
-                                                                                {infiniteRow ? '—' : e.delta > 0 ? `+${e.delta}` : e.delta}
+                                                                                {formatTimelineDelta(e, timelineUom)}
                                                                             </td>
                                                                             <td style={{ padding: '12px 14px' }}>{e.reason}</td>
                                                                             {showRefCol ? (
