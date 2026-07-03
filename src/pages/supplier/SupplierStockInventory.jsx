@@ -23,7 +23,6 @@ import {
     updateSupplierProduct,
 } from '../../services/supplierApi';
 import SupplierProductHistoryDrawer from './accounting/SupplierProductHistoryDrawer';
-import StockProductUomEditModal from './StockProductUomEditModal';
 import StockProductPurchasePriceEditModal from './StockProductPurchasePriceEditModal';
 import StockProductSalesPriceEditModal from './StockProductSalesPriceEditModal';
 import StockProductCriticalLevelEditModal from './StockProductCriticalLevelEditModal';
@@ -128,7 +127,6 @@ export default function SupplierStockInventory() {
     const [timelineLoading, setTimelineLoading] = useState(false);
     const [timelineError, setTimelineError] = useState('');
     const [accountingHistoryProduct, setAccountingHistoryProduct] = useState(null);
-    const [uomEditProduct, setUomEditProduct] = useState(null);
     const [purchasePriceEditProduct, setPurchasePriceEditProduct] = useState(null);
     const [salesPriceEditProduct, setSalesPriceEditProduct] = useState(null);
     const [criticalLevelEditProduct, setCriticalLevelEditProduct] = useState(null);
@@ -1204,10 +1202,6 @@ export default function SupplierStockInventory() {
                                                                     onClick: () => setCriticalLevelEditProduct(s),
                                                                 },
                                                                 {
-                                                                    label: 'Edit UOM',
-                                                                    onClick: () => setUomEditProduct(s),
-                                                                },
-                                                                {
                                                                     label: 'Adjust stock',
                                                                     onClick: () => openAdjust(s),
                                                                 },
@@ -1986,13 +1980,6 @@ export default function SupplierStockInventory() {
                 )}
             </AnimatePresence>
 
-            {uomEditProduct ? (
-                <StockProductUomEditModal
-                    product={uomEditProduct}
-                    onClose={() => setUomEditProduct(null)}
-                    onSaved={() => loadStock({ silent: true })}
-                />
-            ) : null}
 
             {purchasePriceEditProduct ? (
                 <StockProductPurchasePriceEditModal
