@@ -357,7 +357,7 @@ export const importProductsFromCsv = (file) => {
 /** Download full master catalog product export (all DB columns). */
 export async function downloadProductsCsv() {
     const token = getAuthToken();
-    const response = await fetch(`${BASE_URL}/super-admin/products/export`, {
+    const response = await fetch(`${BASE_URL}/super-admin/export/products`, {
         method: 'GET',
         headers: {
             ...(token ? { Authorization: `Bearer ${token.trim()}` } : {}),
