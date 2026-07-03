@@ -1,4 +1,4 @@
-import { apiFetch } from './api';
+import { apiFetch, BASE_URL, getAuthToken } from './api';
 
 // Build query string — skips undefined/null/empty values
 function qs(params) {
@@ -353,6 +353,43 @@ export const importProductsFromCsv = (file) => {
         body: formData,
     });
 };
+
+/** Download full master catalog product export (all DB columns). */
+export async function downloadProductsCsv() {
+    const token = getAuthToken();
+    const response = await fetch(`${BASE_URL}/super-admin/products/export`, {
+        method: 'GET',
+        headers: {
+            ...(token ? { Authorization: `Bearer ${token.trim()}` } : {}),
+        },
+    });
+
+    if (!response.ok) {
+        const contentType = response.headers.get('content-type') || '';
+        const body = contentType.includes('application/json')
+            ? await response.json().catch(() => null)
+            : await response.text().catch(() => '');
+        const message =
+            (body && typeof body === 'object' && body.message) ||
+            (typeof body === 'string' && body.trim()) ||
+            `Export failed (${response.status})`;
+        throw new Error(Array.isArray(message) ? message.join(' ') : String(message));
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = /filename="?([^";\n]+)"?/i.exec(disposition);
+    const filename =
+        match?.[1]?.trim() ||
+        `master-catalog-products-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(objectUrl);
+}
 
 /** Same response shape as product import: created, skippedDuplicate, failed, vatWarningsCount, rowDetails, vatWarnings. Header must match Services.csv / SERVICE_CSV_CANONICAL_HEADERS. */
 export const importServicesFromCsv = (file) => {

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Search, Package, AlertCircle, Wallet, RefreshCw, History, X, ArrowRightLeft, FileSpreadsheet, FileText } from 'lucide-react';
+import { Search, Package, AlertCircle, Wallet, RefreshCw, History, X, FileSpreadsheet, FileText } from 'lucide-react';
 import './Workshop.css';
 
 import { AnimatePresence } from 'framer-motion';
@@ -20,12 +20,7 @@ import {
     getBranchProductInventoryAdjustments,
 } from '../../services/workshopInventoryApi';
 import { useAuth } from '../../context/AuthContext';
-import WorkshopProductUomEditModal, {
-    WorkshopBulkUomModal,
-    formatWorkshopConversionRule,
-} from './WorkshopProductUomEditModal';
-import WorkshopUomProfilesTab from './WorkshopUomProfilesTab';
-import { formatStockOnHandDisplay, productEffectiveUom } from './workshopUomUtils';
+import { formatStockOnHandDisplay, formatUomRule, productEffectiveUom } from './workshopUomUtils';
 import {
     exportWorkshopTimelineExcel,
     exportWorkshopTimelinePdf,
@@ -702,7 +697,7 @@ function mapApiRowToInventory(row) {
         merged.conversionRule ??
         row?.conversionRule ??
         master?.conversionRule ??
-        formatWorkshopConversionRule(warehouseUnit, workshopUnit, conversionFactor);
+        formatUomRule(warehouseUnit, workshopUnit, conversionFactor);
 
     return {
         id: String(id),
@@ -1145,51 +1140,6 @@ export default function WorkshopInventory({
     const [criticalSaving, setCriticalSaving] = useState(false);
     const [isInvValueProofOpen, setIsInvValueProofOpen] = useState(false);
     const [isLowStockProofOpen, setIsLowStockProofOpen] = useState(false);
-
-    const [uomEditProduct, setUomEditProduct] = useState(null);
-    const [isBulkUomModalOpen, setIsBulkUomModalOpen] = useState(false);
-    const [inventoryView, setInventoryView] = useState('stock');
-
-    const handleUomSaved = (saved) => {
-        if (!uomEditProduct) return;
-        const pid = String(uomEditProduct.id);
-        setProductRows((prev) =>
-            prev.map((row) =>
-                String(row.id) === pid
-                    ? {
-                          ...row,
-                          warehouseUnit: saved.warehouseUnit,
-                          workshopUnit: saved.workshopUnit,
-                          conversionFactor: saved.conversionFactor,
-                          conversionRule: saved.conversionRule,
-                      }
-                    : row,
-            ),
-        );
-        setUomEditProduct(null);
-    };
-
-    const handleBulkUomSaved = ({ warehouseUnit, workshopUnit, conversionFactor, conversionRule, failures = [] }) => {
-        const failedIds = new Set(failures.map((f) => String(f.productId)));
-        const selectedSet = new Set(selectedProductIds.map(String));
-        setProductRows((prev) =>
-            prev.map((row) => {
-                const id = String(row.id);
-                if (!selectedSet.has(id) || failedIds.has(id)) return row;
-                return {
-                    ...row,
-                    warehouseUnit,
-                    workshopUnit,
-                    conversionFactor,
-                    conversionRule,
-                };
-            }),
-        );
-        setIsBulkUomModalOpen(false);
-        if (failures.length > 0) {
-            window.alert(`${failures.length} product(s) could not be updated. Others were saved.`);
-        }
-    };
 
     const inventoryValueBreakdown = useMemo(() => {
         const lines = productRows
@@ -1890,30 +1840,6 @@ export default function WorkshopInventory({
         if (productRows.length === 0) return 'No products in this scope yet — adopt items under Dept & Products or Catalog.';
         return 'No products match your search.';
     };
-
-    if (uomEditProduct && !isAllBranches) {
-        return (
-            <WorkshopProductUomEditModal
-                product={uomEditProduct}
-                branchId={String(selectedBranchId)}
-                workshopId={workshopIdQuery}
-                onClose={() => setUomEditProduct(null)}
-                onSaved={handleUomSaved}
-            />
-        );
-    }
-
-    if (isBulkUomModalOpen && !isAllBranches) {
-        return (
-            <WorkshopBulkUomModal
-                products={selectedProductsForBulk}
-                branchId={String(selectedBranchId)}
-                workshopId={workshopIdQuery}
-                onClose={() => setIsBulkUomModalOpen(false)}
-                onSaved={handleBulkUomSaved}
-            />
-        );
-    }
 
     if (isCriticalModalOpen && criticalItem) {
         return (
@@ -2761,32 +2687,6 @@ export default function WorkshopInventory({
                 })}
             </div>
 
-            <div className="ws-inv-view-tabs">
-                <button
-                    type="button"
-                    className={`ws-inv-view-tab${inventoryView === 'stock' ? ' is-active' : ''}`}
-                    onClick={() => setInventoryView('stock')}
-                >
-                    Stock
-                </button>
-                <button
-                    type="button"
-                    className={`ws-inv-view-tab${inventoryView === 'profiles' ? ' is-active' : ''}`}
-                    onClick={() => setInventoryView('profiles')}
-                >
-                    UOM profiles
-                </button>
-            </div>
-
-            {inventoryView === 'profiles' ? (
-                <WorkshopUomProfilesTab
-                    workshopId={workshopIdQuery}
-                    branchId={isAllBranches ? null : String(selectedBranchId)}
-                    products={productRows}
-                    onReloadProducts={loadInventory}
-                    isAllBranches={isAllBranches}
-                />
-            ) : (
             <div className="mc-selection-layout">
                 <div className="mc-selection-main" style={{ gridColumn: 'span 2' }}>
                     <div
@@ -2951,16 +2851,6 @@ export default function WorkshopInventory({
                                         </span>
                                         <button
                                             type="button"
-                                            className="mc-btn-ghost"
-                                            style={{ padding: '8px 14px', fontSize: '0.8125rem', border: '1px solid var(--color-border)', borderRadius: 10 }}
-                                            onClick={() => setIsBulkUomModalOpen(true)}
-                                            disabled={isAllBranches}
-                                            title={isAllBranches ? 'Select a single branch to set UOM rules' : undefined}
-                                        >
-                                            Set UOM
-                                        </button>
-                                        <button
-                                            type="button"
                                             className="mc-btn-primary"
                                             style={{ padding: '8px 14px', fontSize: '0.8125rem' }}
                                             onClick={openBulkAdjustModal}
@@ -2984,7 +2874,7 @@ export default function WorkshopInventory({
                                 ) : null}
                             </div>
                             <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                Use checkboxes to select products for <strong>bulk adjust</strong> or <strong>bulk UOM</strong>, or{' '}
+                                Use checkboxes to select products for <strong>bulk adjust</strong>, or{' '}
                                 <strong>Select all on page</strong>.
                                 Click a <strong>row</strong> for adjustment history. Use <strong>↑</strong> <strong>↓</strong> and{' '}
                                 <strong>Enter</strong> to pick a search suggestion.
@@ -3322,32 +3212,17 @@ export default function WorkshopInventory({
                                                         {(() => {
                                                             const uom = inventoryUomDisplay(item);
                                                             return (
-                                                                <button
-                                                                    type="button"
-                                                                    className="ws-inv-uom-pill"
-                                                                    title={
-                                                                        isAllBranches
-                                                                            ? 'Select a single branch to edit UOM'
-                                                                            : 'Edit warehouse / workshop conversion'
-                                                                    }
-                                                                    disabled={isAllBranches}
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setUomEditProduct(item);
-                                                                    }}
+                                                                <span
+                                                                    className="ws-inv-uom-pill ws-inv-uom-pill-readonly"
+                                                                    title="Unit conversion from master catalog"
                                                                 >
-                                                                    <ArrowRightLeft
-                                                                        size={14}
-                                                                        className="ws-inv-uom-pill-icon"
-                                                                        aria-hidden
-                                                                    />
                                                                     <span className="ws-inv-uom-pill-text">
                                                                         {uom.primary}
                                                                         {uom.secondary ? (
                                                                             <span className="ws-inv-uom-pill-sub">{uom.secondary}</span>
                                                                         ) : null}
                                                                     </span>
-                                                                </button>
+                                                                </span>
                                                             );
                                                         })()}
                                                     </td>
@@ -3429,7 +3304,6 @@ export default function WorkshopInventory({
                     </div>
                 </div>
             </div>
-            )}
 
             <AnimatePresence>
                 {isRequestModalOpen && (

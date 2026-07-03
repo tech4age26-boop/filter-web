@@ -8,6 +8,11 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Modal from '../Modal';
+import CatalogUomFields, {
+    catalogUomFromProduct,
+    emptyCatalogUom,
+} from './CatalogUomFields';
+import { formatUomRule } from '../../pages/workshop/workshopUomUtils';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/MasterCatalog.css';
 import productsCsvTemplate from '../../../Products.csv?url';
@@ -33,6 +38,7 @@ import {
     updateService,
     importProductsFromCsv,
     importServicesFromCsv,
+    downloadProductsCsv,
     getMasterCatalogKpis,
     getDuplicates,
     ignoreDuplicate,
@@ -403,6 +409,7 @@ export default function MasterCatalog() {
     const [selectedBulkServiceFile, setSelectedBulkServiceFile] = useState(null);
     const [bulkServiceImporting, setBulkServiceImporting] = useState(false);
     const [bulkServiceImportResult, setBulkServiceImportResult] = useState(null);
+    const [productsExporting, setProductsExporting] = useState(false);
     const [serviceToggleBusyKey, setServiceToggleBusyKey] = useState('');
     const [productToggleBusyKey, setProductToggleBusyKey] = useState('');
 
@@ -453,7 +460,7 @@ export default function MasterCatalog() {
         departmentId: '',
         categoryId: '',
         brand: '',
-        unit: 'piece',
+        ...emptyCatalogUom(),
         type: 'Product',
         salePrice: '',
         purchasePrice: '',
@@ -877,6 +884,7 @@ export default function MasterCatalog() {
                 product.max_price_corporate ??
                 '',
             allowDecimalQty: toBoolAllowDecimal(product),
+            ...catalogUomFromProduct(product),
             conversionRules: [],
             kmTypeValue:
                 product.kmTypeValue != null && product.kmTypeValue !== ''
@@ -920,7 +928,12 @@ export default function MasterCatalog() {
                 sku: newProduct.sku || undefined,
                 brandName: newProduct.brand || undefined,
                 description: newProduct.description || undefined,
-                unit: newProduct.unit || 'pcs',
+                warehouseUnit: newProduct.warehouseUnit || 'pcs',
+                workshopUnit: newProduct.workshopUnit || 'pcs',
+                conversionFactor: Math.max(
+                    0.0001,
+                    Number(newProduct.conversionFactor) || 1,
+                ),
                 purchasePrice: parseNumberOr(newProduct.purchasePrice, 0),
                 salePrice: parseNumberOr(newProduct.salePrice, 0),
                 allowDecimalQty: false,
@@ -941,7 +954,7 @@ export default function MasterCatalog() {
                 departmentId: '',
                 categoryId: '',
                 brand: '',
-                unit: 'piece',
+                ...emptyCatalogUom(),
                 type: 'Product',
                 salePrice: '',
                 purchasePrice: '',
@@ -995,7 +1008,16 @@ export default function MasterCatalog() {
                 brandName: editingProduct.brand?.trim() || undefined,
                 categoryId: String(editingProduct.categoryId).trim(),
                 description: editingProduct.description?.trim() || undefined,
-                unit: editingProduct.unit || undefined,
+                warehouseUnit: editingProduct.warehouseUnit || undefined,
+                workshopUnit: editingProduct.workshopUnit || undefined,
+                conversionFactor:
+                    editingProduct.conversionFactor != null &&
+                    String(editingProduct.conversionFactor).trim() !== ''
+                        ? Math.max(
+                              0.0001,
+                              Number(editingProduct.conversionFactor) || 1,
+                          )
+                        : undefined,
                 purchasePrice:
                     editingProduct.purchasePrice === '' || editingProduct.purchasePrice == null
                         ? undefined
@@ -1472,6 +1494,19 @@ export default function MasterCatalog() {
         }
     };
 
+    const handleExportProductsCsv = async () => {
+        if (productsExporting) return;
+        setProductsExporting(true);
+        try {
+            await downloadProductsCsv();
+            showToast('Product catalog exported as CSV', 'success');
+        } catch (e) {
+            alert(e?.message || 'Failed to export products CSV');
+        } finally {
+            setProductsExporting(false);
+        }
+    };
+
     const renderMasterCatalog = () => (
         <div className="mc-content-area">
             <div className="mc-filter-bar">
@@ -1513,6 +1548,18 @@ export default function MasterCatalog() {
                     <span className="mc-items-count">
                         {searchQuery ? `${displayedProducts.length} of ${products.length}` : `${displayedProducts.length} items`}
                     </span>
+                    {hasPermission('inventory.master-catalog.products.view') && (
+                        <button
+                            type="button"
+                            className="mc-btn-ghost"
+                            onClick={handleExportProductsCsv}
+                            disabled={productsExporting || loading}
+                            title="Export all products in the database as CSV"
+                        >
+                            <Download size={16} />
+                            {productsExporting ? 'Exporting…' : 'Export CSV'}
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -1558,7 +1605,13 @@ export default function MasterCatalog() {
                                     ) : null}
                                     <div className="mc-pc-tags">
                                         <span className="mc-pc-tag">Product</span>
-                                        <span className="mc-pc-tag">{p.unit || 'pcs'}</span>
+                                        <span className="mc-pc-tag">
+                                            {formatUomRule(
+                                                p.warehouseUnit,
+                                                p.workshopUnit ?? p.unit,
+                                                p.conversionFactor ?? 1,
+                                            )}
+                                        </span>
                                         <span className="mc-pc-tag">{p.categoryName || '—'}</span>
                                         {p.kmTypeValue != null && String(p.kmTypeValue).trim() !== '' && (
                                             <span className="mc-pc-tag" title="KM type value">
@@ -2112,7 +2165,7 @@ export default function MasterCatalog() {
                         <tr>
                             <th>PRODUCT</th>
                             <th>CATEGORY</th>
-                            <th>UNIT</th>
+                            <th>UNIT CONVERSION</th>
                             <th>KM TYPE</th>
                             <th>SUPPLIERS</th>
                             <th>AVAILABILITY</th>
@@ -2128,7 +2181,13 @@ export default function MasterCatalog() {
                                     </div>
                                 </td>
                                 <td>{p.categoryName || '—'}</td>
-                                <td>{p.unit || 'pcs'}</td>
+                                <td>
+                                    {formatUomRule(
+                                        p.warehouseUnit,
+                                        p.workshopUnit ?? p.unit,
+                                        p.conversionFactor ?? 1,
+                                    )}
+                                </td>
                                 <td className="mono">
                                     {p.kmTypeValue != null && String(p.kmTypeValue).trim() !== ''
                                         ? p.kmTypeValue
@@ -2357,6 +2416,17 @@ export default function MasterCatalog() {
                 </div>
                 <div className="mc-header-actions">
                     <button type="button" className="mc-btn-ghost"><RefreshCw size={16} /> Sync Depts</button>
+                    {hasPermission('inventory.master-catalog.products.view') && (
+                        <button
+                            type="button"
+                            className="mc-btn-ghost"
+                            onClick={handleExportProductsCsv}
+                            disabled={productsExporting}
+                            title="Export all catalog products as CSV"
+                        >
+                            <Download size={16} /> {productsExporting ? 'Exporting…' : 'Export CSV'}
+                        </button>
+                    )}
                     {hasPermission('inventory.master-catalog.products.create') && (
                         <button type="button" className="mc-btn-ghost" onClick={() => setIsBulkProductModalOpen(true)}>
                             <Upload size={16} /> Bulk upload Product
@@ -3116,26 +3186,19 @@ export default function MasterCatalog() {
                                 )}
                             </div>
 
+                            <CatalogUomFields
+                                idPrefix="mc-edit-uom"
+                                value={{
+                                    warehouseUnit: editingProduct.warehouseUnit,
+                                    workshopUnit: editingProduct.workshopUnit,
+                                    conversionFactor: editingProduct.conversionFactor,
+                                }}
+                                onChange={(uom) =>
+                                    setEditingProduct({ ...editingProduct, ...uom })
+                                }
+                            />
+
                             <div className="mc-form-row">
-                                <div className="mc-form-group">
-                                    <label>Unit</label>
-                                    <div className="mc-select-wrapper">
-                                        <select 
-                                            value={editingProduct.unit} 
-                                            onChange={(e) => setEditingProduct({...editingProduct, unit: e.target.value})}
-                                        >
-                                            <option value="piece">piece</option>
-                                            <option value="Each (ea)">Each (ea)</option>
-                                            <option value="liter">Liter</option>
-                                            <option value="kg">Kg</option>
-                                            <option value="box">Box</option>
-                                            <option value="carton">Carton</option>
-                                            <option value="drum">Drum</option>
-                                            <option value="service">Service</option>
-                                        </select>
-                                        <ChevronDown size={14} />
-                                    </div>
-                                </div>
                                 <div className="mc-form-group">
                                     <label>Type</label>
                                     <div className="mc-select-wrapper">
@@ -3420,25 +3483,17 @@ export default function MasterCatalog() {
                                 )}
                             </div>
 
+                            <CatalogUomFields
+                                idPrefix="mc-new-uom"
+                                value={{
+                                    warehouseUnit: newProduct.warehouseUnit,
+                                    workshopUnit: newProduct.workshopUnit,
+                                    conversionFactor: newProduct.conversionFactor,
+                                }}
+                                onChange={(uom) => setNewProduct({ ...newProduct, ...uom })}
+                            />
+
                             <div className="mc-form-row">
-                                <div className="mc-form-group">
-                                    <label>Unit</label>
-                                    <div className="mc-select-wrapper">
-                                        <select
-                                            value={newProduct.unit}
-                                            onChange={(e) => setNewProduct({...newProduct, unit: e.target.value})}
-                                        >
-                                            <option value="piece">piece</option>
-                                            <option value="liter">Liter</option>
-                                            <option value="kg">Kg</option>
-                                            <option value="box">Box</option>
-                                            <option value="carton">Carton</option>
-                                            <option value="drum">Drum</option>
-                                            <option value="service">Service</option>
-                                        </select>
-                                        <ChevronDown size={14} />
-                                    </div>
-                                </div>
                                 <div className="mc-form-group">
                                     <label>Type</label>
                                     <div className="mc-select-wrapper">
