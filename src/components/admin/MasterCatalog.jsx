@@ -471,6 +471,7 @@ export default function MasterCatalog() {
         kmTypeValue: '',
         isPriceEditable: false,
         minPriceEditable: '',
+        allowDecimalQty: false,
     });
 
     const [newDept, setNewDept] = useState({ name: '' });
@@ -936,7 +937,7 @@ export default function MasterCatalog() {
                 ),
                 purchasePrice: parseNumberOr(newProduct.purchasePrice, 0),
                 salePrice: parseNumberOr(newProduct.salePrice, 0),
-                allowDecimalQty: false,
+                allowDecimalQty: !!newProduct.allowDecimalQty,
                 minPriceCorporate: parseNumberOr(newProduct.minCorpPrice, 0),
                 maxPriceCorporate: parseNumberOr(newProduct.maxCorpPrice, 0),
                 isPriceEditable: !!newProduct.isPriceEditable,
@@ -965,6 +966,7 @@ export default function MasterCatalog() {
                 kmTypeValue: '',
                 isPriceEditable: false,
                 minPriceEditable: '',
+                allowDecimalQty: false,
             });
             await refreshCatalog();
         } catch (e) {
@@ -3194,7 +3196,7 @@ export default function MasterCatalog() {
                                     conversionFactor: editingProduct.conversionFactor,
                                 }}
                                 onChange={(uom) =>
-                                    setEditingProduct({ ...editingProduct, ...uom })
+                                    setEditingProduct((prev) => ({ ...prev, ...uom }))
                                 }
                             />
 
@@ -3490,7 +3492,9 @@ export default function MasterCatalog() {
                                     workshopUnit: newProduct.workshopUnit,
                                     conversionFactor: newProduct.conversionFactor,
                                 }}
-                                onChange={(uom) => setNewProduct({ ...newProduct, ...uom })}
+                                onChange={(uom) =>
+                                    setNewProduct((prev) => ({ ...prev, ...uom }))
+                                }
                             />
 
                             <div className="mc-form-row">
@@ -3605,12 +3609,34 @@ export default function MasterCatalog() {
                                 </div>
                             )}
 
-                            <div className="mc-toggle-box blue-toggle">
+                            <div
+                                className="mc-toggle-box blue-toggle"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() =>
+                                    setNewProduct((prev) => ({
+                                        ...prev,
+                                        allowDecimalQty: !prev.allowDecimalQty,
+                                    }))
+                                }
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        setNewProduct((prev) => ({
+                                            ...prev,
+                                            allowDecimalQty: !prev.allowDecimalQty,
+                                        }));
+                                    }
+                                }}
+                            >
                                 <div className="mc-toggle-info">
                                     <strong>Allowed Decimal Quantity</strong>
                                     <span>Enable fractional quantities (e.g. 1.5 liters)</span>
                                 </div>
-                                <div className="mc-toggle-switch small"></div>
+                                <div
+                                    className={`mc-toggle-switch small${newProduct.allowDecimalQty ? ' active' : ''}`}
+                                    aria-hidden
+                                />
                             </div>
 
                             <div className="mc-modal-footer">
