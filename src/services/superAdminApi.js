@@ -354,7 +354,7 @@ export const importProductsFromCsv = (file) => {
     });
 };
 
-/** Download full master catalog product export (all DB columns). */
+/** Download master catalog product export (catalog columns only). */
 export async function downloadProductsCsv() {
     const token = getAuthToken();
     const response = await fetch(`${BASE_URL}/super-admin/export/products`, {

@@ -64,9 +64,7 @@ function normalizeCatalogRowForStock(row) {
     const master = row?.product || row;
     const openingBaseline = pickNumber(
         row?.openingQty,
-        master?.openingQty,
         row?.opening_qty,
-        master?.opening_qty,
     );
     const onHand = firstFiniteNumber([
         row?.currentQty,
@@ -85,9 +83,7 @@ function normalizeCatalogRowForStock(row) {
     const stock_qty = onHand !== null ? onHand : openingBaseline;
     const critical_level = pickNumber(
         row?.criticalStockPoint,
-        master?.criticalStockPoint,
         row?.critical_stock_point,
-        master?.critical_stock_point,
     );
     return {
         id: master?.id ?? row?.id,
