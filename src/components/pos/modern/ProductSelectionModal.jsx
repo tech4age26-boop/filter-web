@@ -159,8 +159,10 @@ export default function ProductSelectionModal({
                                 <div className="products-grid-modern">
                                     {filteredProducts.map(p => {
                                         const selItem = selectedProducts.find(sp => String(sp.id) === String(p.id));
+                                        const allowsMinus = p.allowMinusQty === true || p.allow_minus_qty === true
+                                            || String(p.allowMinusQty ?? '').toLowerCase() === 'true';
                                         const stock = p.qtyOnHand ?? 0;
-                                        const inStock = p.isService || stock > 0;
+                                        const inStock = p.isService || allowsMinus || stock > 0;
                                         return (
                                             <div 
                                                 key={p.uniqueKey} 

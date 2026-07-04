@@ -254,6 +254,18 @@ const toBoolAllowDecimal = (obj) => {
     return false;
 };
 
+const toBoolAllowMinus = (obj) => {
+    if (!obj || typeof obj !== 'object') return false;
+    const raw = obj.allowMinusQty ?? obj.allow_minus_qty;
+    if (raw === true || raw === 1) return true;
+    if (raw === false || raw === 0) return false;
+    if (typeof raw === 'string') {
+        const s = raw.trim().toLowerCase();
+        return s === 'true' || s === '1' || s === 'yes';
+    }
+    return false;
+};
+
 /** ISO-8601 from catalog APIs → short local display; empty string if missing/invalid. */
 const formatCatalogCreatedAt = (iso) => {
     if (iso == null || iso === '') return '';
@@ -295,6 +307,7 @@ const PRODUCT_CSV_COLUMNS = [
     'sale_price_before_vat',
     'km_type_value',
     'allow_decimal_qty',
+    'allow_minus_qty',
     'is_active',
     'min_price_corporate',
     'max_price_corporate',
@@ -480,6 +493,7 @@ export default function MasterCatalog() {
         isPriceEditable: false,
         minPriceEditable: '',
         allowDecimalQty: false,
+        allowMinusQty: false,
     });
 
     const [newDept, setNewDept] = useState({ name: '' });
@@ -893,6 +907,7 @@ export default function MasterCatalog() {
                 product.max_price_corporate ??
                 '',
             allowDecimalQty: toBoolAllowDecimal(product),
+            allowMinusQty: toBoolAllowMinus(product),
             ...catalogUomFromProduct(product),
             conversionRules: [],
             kmTypeValue:
@@ -946,6 +961,7 @@ export default function MasterCatalog() {
                 purchasePrice: parseNumberOr(newProduct.purchasePrice, 0),
                 salePrice: parseNumberOr(newProduct.salePrice, 0),
                 allowDecimalQty: !!newProduct.allowDecimalQty,
+                allowMinusQty: !!newProduct.allowMinusQty,
                 minPriceCorporate: parseNumberOr(newProduct.minCorpPrice, 0),
                 maxPriceCorporate: parseNumberOr(newProduct.maxCorpPrice, 0),
                 isPriceEditable: !!newProduct.isPriceEditable,
@@ -975,6 +991,7 @@ export default function MasterCatalog() {
                 isPriceEditable: false,
                 minPriceEditable: '',
                 allowDecimalQty: false,
+                allowMinusQty: false,
             });
             await refreshCatalog();
         } catch (e) {
@@ -1043,6 +1060,7 @@ export default function MasterCatalog() {
                         : parseNumberOr(editingProduct.maxCorpPrice, 0),
                 isActive: toBoolActive(editingProduct),
                 allowDecimalQty: !!editingProduct.allowDecimalQty,
+                allowMinusQty: !!editingProduct.allowMinusQty,
                 isPriceEditable: !!editingProduct.isPriceEditable,
                 minPriceEditable:
                     editingProduct.isPriceEditable &&
@@ -1628,6 +1646,11 @@ export default function MasterCatalog() {
                                                 KM {p.kmTypeValue}
                                             </span>
                                         )}
+                                        {toBoolAllowMinus(p) ? (
+                                            <span className="mc-pc-tag" title="May go below zero at workshop/POS">
+                                                Minus Qty
+                                            </span>
+                                        ) : null}
                                     </div>
                                     <div className="mc-pc-footer">
                                         <span className="mc-pc-price">SAR {p.salePrice ?? 0}</span>
@@ -3375,6 +3398,36 @@ export default function MasterCatalog() {
                                 />
                             </div>
 
+                            <div
+                                className="mc-toggle-box blue-toggle"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() =>
+                                    setEditingProduct((prev) => ({
+                                        ...prev,
+                                        allowMinusQty: !prev.allowMinusQty,
+                                    }))
+                                }
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        setEditingProduct((prev) => ({
+                                            ...prev,
+                                            allowMinusQty: !prev.allowMinusQty,
+                                        }));
+                                    }
+                                }}
+                            >
+                                <div className="mc-toggle-info">
+                                    <strong>Minus Qty</strong>
+                                    <span>Allow workshop/POS stock to go below zero (emergency sales)</span>
+                                </div>
+                                <div
+                                    className={`mc-toggle-switch small${editingProduct.allowMinusQty ? ' active' : ''}`}
+                                    aria-hidden
+                                />
+                            </div>
+
                             <div className="mc-modal-footer">
                                 <button className="mc-btn-ghost mc-btn-large" onClick={handleDeleteCatalogProduct} disabled={saving}>
                                     Delete
@@ -3632,6 +3685,36 @@ export default function MasterCatalog() {
                                 </div>
                                 <div
                                     className={`mc-toggle-switch small${newProduct.allowDecimalQty ? ' active' : ''}`}
+                                    aria-hidden
+                                />
+                            </div>
+
+                            <div
+                                className="mc-toggle-box blue-toggle"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() =>
+                                    setNewProduct((prev) => ({
+                                        ...prev,
+                                        allowMinusQty: !prev.allowMinusQty,
+                                    }))
+                                }
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        setNewProduct((prev) => ({
+                                            ...prev,
+                                            allowMinusQty: !prev.allowMinusQty,
+                                        }));
+                                    }
+                                }}
+                            >
+                                <div className="mc-toggle-info">
+                                    <strong>Minus Qty</strong>
+                                    <span>Allow workshop/POS stock to go below zero (emergency sales)</span>
+                                </div>
+                                <div
+                                    className={`mc-toggle-switch small${newProduct.allowMinusQty ? ' active' : ''}`}
                                     aria-hidden
                                 />
                             </div>

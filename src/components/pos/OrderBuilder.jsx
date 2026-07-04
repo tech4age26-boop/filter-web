@@ -57,7 +57,8 @@ export default function OrderBuilder({ orderInfo, department, createdOrderId, de
                     unit: p.unit || 'pcs',
                     stock: p.qty_on_hand ?? p.qtyOnHand ?? 0,
                     category: p._catName || p.category || 'Uncategorized',
-                    allowDecimalQty: !!p.allowDecimalQty
+                    allowDecimalQty: !!p.allowDecimalQty,
+                    allowMinusQty: !!(p.allowMinusQty ?? p.allow_minus_qty),
                 })));
             })
             .catch(() => setProducts([]))
@@ -268,7 +269,7 @@ export default function OrderBuilder({ orderInfo, department, createdOrderId, de
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                             {filtered.map(p => {
                                 const inCart = cart.find(i => i.id === p.id);
-                                const outOfStock = p.stock <= 0;
+                                const outOfStock = !p.allowMinusQty && p.stock <= 0;
                                 return (
                                     <div key={p.id} style={{
                                         background: '#fff', borderRadius: 20, padding: '16px 20px', border: `2px solid ${inCart ? '#FCC247' : '#f1f5f9'}`,
@@ -297,7 +298,7 @@ export default function OrderBuilder({ orderInfo, department, createdOrderId, de
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#23262D', borderRadius: 14, padding: '6px 14px', color: '#FCC247' }}>
                                                     <button onClick={() => updateQty(p.id, inCart.qty - (p.allowDecimalQty ? 0.5 : 1))} style={qtyBtnDark}><Minus size={14} /></button>
                                                     <span style={{ fontWeight: 900, minWidth: 24, textAlign: 'center' }}>{inCart.qty}</span>
-                                                    <button onClick={() => updateQty(p.id, inCart.qty + (p.allowDecimalQty ? 0.5 : 1))} style={qtyBtnDark} disabled={inCart.qty >= p.stock}><Plus size={14} /></button>
+                                                    <button onClick={() => updateQty(p.id, inCart.qty + (p.allowDecimalQty ? 0.5 : 1))} style={qtyBtnDark} disabled={!p.allowMinusQty && inCart.qty >= p.stock}><Plus size={14} /></button>
                                                 </div>
                                             ) : (
                                                 <button onClick={() => toggleCart(p)} disabled={outOfStock}
