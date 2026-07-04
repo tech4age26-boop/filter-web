@@ -29,6 +29,11 @@ const WALLET_IMPLICIT_PERMISSIONS = new Set([
     'chat.create',
 ]);
 
+const MARKETING_WALLET_IMPLICIT_PERMISSIONS = new Set([
+    'marketing.platform-chat.view',
+    'marketing.platform-chat.create',
+]);
+
 function userHas(user, permissionSet, code) {
     if (!code) return true;
     if (!user) return false;
@@ -43,6 +48,14 @@ function userHas(user, permissionSet, code) {
     if (!user.role) return true;
     // 4. Wallet-enabled workshop users — My Wallet + Platform Chat
     if (user.walletEnabled && WALLET_IMPLICIT_PERMISSIONS.has(code)) {
+        return true;
+    }
+    // 4b. Wallet-enabled marketing portal users — chat fund/expense actions
+    if (
+        user.walletEnabled
+        && user.sessionPortal === 'marketing'
+        && MARKETING_WALLET_IMPLICIT_PERMISSIONS.has(code)
+    ) {
         return true;
     }
     // 5. Role assigned → strict check (empty role.permissions blocks everything)

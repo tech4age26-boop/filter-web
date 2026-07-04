@@ -54,15 +54,20 @@ import InfluencerReferrers from './pages/marketing/InfluencerReferrers';
 import ReferrerManagement from './pages/marketing/ReferrerManagement';
 import MarketingPromotions from './pages/marketing/MarketingPromotions';
 import MarketingPromotionFormPage from './pages/marketing/MarketingPromotionFormPage';
+import MarketingPromotionConfigurationViewPage from './pages/marketing/MarketingPromotionConfigurationViewPage';
 import MarketingCampaigns from './pages/marketing/MarketingCampaigns';
 import MarketingCampaignFormPage from './pages/marketing/MarketingCampaignFormPage';
 import LegacyPromotionEditRedirect from './pages/marketing/LegacyPromotionEditRedirect';
 import MarketingPromotionReportPage from './pages/marketing/MarketingPromotionReportPage';
 import MarketingPromotionAutoReportPage from './pages/marketing/MarketingPromotionAutoReportPage';
 import PromoCodeFormPage from './pages/marketing/PromoCodeFormPage';
+import PromoCodeConfigurationViewPage from './pages/marketing/PromoCodeConfigurationViewPage';
 import MarketingPromoCodeReportPage from './pages/marketing/MarketingPromoCodeReportPage';
 import MarketingPromoCodeAutoReportPage from './pages/marketing/MarketingPromoCodeAutoReportPage';
 import MarketingWalletBudgetRequestPage from './pages/marketing/MarketingWalletBudgetRequestPage';
+import MarketingPlatformChatPage from './pages/marketing/MarketingPlatformChatPage';
+import MarketingSalesReports from './pages/marketing/MarketingSalesReports';
+import MarketingSalesOrders from './pages/marketing/MarketingSalesOrders';
 import ExpenseFormPage from './pages/marketing/ExpenseFormPage';
 import InfluencerReferrerFormPage from './pages/marketing/InfluencerReferrerFormPage';
 import AdPlatformConfigurePage from './pages/marketing/AdPlatformConfigurePage';
@@ -176,11 +181,13 @@ function App() {
                 <Route path="promotions/:id/edit" element={<LegacyPromotionEditRedirect />} />
                 <Route path="promotions" element={<Navigate to="/admin/marketing/marketing-promotions" replace />} />
                 <Route path="marketing-promotions/new" element={<MarketingPromotionFormPage />} />
+                <Route path="marketing-promotions/:id/details" element={<MarketingPromotionConfigurationViewPage />} />
                 <Route path="marketing-promotions/:id/view" element={<MarketingPromotionReportPage />} />
                 <Route path="marketing-promotions/:id/auto-report" element={<MarketingPromotionAutoReportPage />} />
                 <Route path="marketing-promotions/:id/edit" element={<MarketingPromotionFormPage />} />
                 <Route path="marketing-promotions" element={<MarketingPromotions />} />
                 <Route path="promo-codes/new" element={<PromoCodeFormPage />} />
+                <Route path="promo-codes/:id/details" element={<PromoCodeConfigurationViewPage />} />
                 <Route path="promo-codes/:id/view" element={<MarketingPromoCodeReportPage />} />
                 <Route path="promo-codes/:id/auto-report" element={<MarketingPromoCodeAutoReportPage />} />
                 <Route path="promo-codes/:id/edit" element={<PromoCodeFormPage />} />
@@ -212,6 +219,7 @@ function App() {
                 <Route path="referrer-management/rules/new" element={<ReferrerCommissionRuleFormPage />} />
                 <Route path="referrer-management/payouts/new" element={<ReferrerPayoutFormPage />} />
                 <Route path="referrer-management" element={<ReferrerManagement />} />
+                <Route path="my-wallet" element={<MyWalletPage />} />
               </Route>
 
               <Route path="tax-codes" element={<TaxCodePage />} />
@@ -298,11 +306,13 @@ function App() {
               <Route path="promotions/:id/edit" element={<LegacyPromotionEditRedirect />} />
               <Route path="promotions" element={<Navigate to="/marketing/marketing-promotions" replace />} />
               <Route path="marketing-promotions/new" element={<MarketingPromotionFormPage />} />
+              <Route path="marketing-promotions/:id/details" element={<MarketingPromotionConfigurationViewPage />} />
               <Route path="marketing-promotions/:id/view" element={<MarketingPromotionReportPage />} />
               <Route path="marketing-promotions/:id/auto-report" element={<MarketingPromotionAutoReportPage />} />
               <Route path="marketing-promotions/:id/edit" element={<MarketingPromotionFormPage />} />
               <Route path="marketing-promotions" element={<MarketingPromotions />} />
               <Route path="promo-codes/new" element={<PromoCodeFormPage />} />
+              <Route path="promo-codes/:id/details" element={<PromoCodeConfigurationViewPage />} />
               <Route path="promo-codes/:id/view" element={<MarketingPromoCodeReportPage />} />
               <Route path="promo-codes/:id/auto-report" element={<MarketingPromoCodeAutoReportPage />} />
               <Route path="promo-codes/:id/edit" element={<PromoCodeFormPage />} />
@@ -334,6 +344,10 @@ function App() {
               <Route path="referrer-management/rules/new" element={<ReferrerCommissionRuleFormPage />} />
               <Route path="referrer-management/payouts/new" element={<ReferrerPayoutFormPage />} />
               <Route path="referrer-management" element={<ReferrerManagement />} />
+              <Route path="my-wallet" element={<MyWalletPage />} />
+              <Route path="chat" element={<MarketingPlatformChatPage />} />
+              <Route path="sales-reports" element={<MarketingSalesReports />} />
+              <Route path="sales-orders" element={<MarketingSalesOrders />} />
               <Route path="*" element={<Navigate to="dashboard" replace />} />
             </Route>
 

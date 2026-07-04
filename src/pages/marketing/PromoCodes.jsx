@@ -98,6 +98,7 @@ export const PromoCodes = () => {
   const openNewPage = () => navigate(`${listPath}/new`);
   const openEditPage = (id) => navigate(`${listPath}/${id}/edit`);
   const openViewPage = (id) => navigate(`${listPath}/${id}/view`);
+  const openDetailsPage = (id) => navigate(`${listPath}/${id}/details`);
   const openAutoReportPage = (id) => navigate(`${listPath}/${id}/auto-report`);
 
   const handleCopy = async (value) => {
@@ -215,13 +216,13 @@ export const PromoCodes = () => {
               >
                 <div
                   className="mkp-card-top mkp-card-clickable"
-                  onClick={() => openViewPage(item.id)}
+                  onClick={() => openDetailsPage(item.id)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      openViewPage(item.id);
+                      openDetailsPage(item.id);
                     }
                   }}
                 >
@@ -317,9 +318,14 @@ export const PromoCodes = () => {
                 </div>
 
                 <div className="mkp-card-footer">
-                  <button type="button" onClick={() => openViewPage(item.id)}>
+                  <button type="button" onClick={() => openDetailsPage(item.id)}>
                     <Eye size={14} />
-                    View Report
+                    View
+                  </button>
+
+                  <button type="button" onClick={() => openViewPage(item.id)}>
+                    <FileBarChart size={14} />
+                    Report
                   </button>
 
                   <button type="button" onClick={() => openEditPage(item.id)}>

@@ -1,4 +1,5 @@
 import { apiFetch } from './api';
+import { marketingMyWalletApi } from './marketingMyWalletApi';
 
 function buildQs(params = {}) {
     const qs = new URLSearchParams();
@@ -87,8 +88,9 @@ export function createMyWalletApi(basePath) {
 export const adminMyWalletApi = createMyWalletApi('/super-admin/my-wallet');
 export const workshopMyWalletApi = createMyWalletApi('/workshop-staff/my-wallet');
 
-/** Pick admin vs workshop-staff my-wallet endpoints from session userType. */
+/** Pick my-wallet API from session portal / user type. */
 export function myWalletApiForUser(user) {
+    if (user?.sessionPortal === 'marketing') return marketingMyWalletApi;
     return user?.userType === 'platform_admin' ? adminMyWalletApi : workshopMyWalletApi;
 }
 

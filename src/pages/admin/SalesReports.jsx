@@ -5,27 +5,15 @@ import Modal from '../../components/Modal';
 import { ShimmerTextBlock, ShimmerTable } from '../../components/supplier/Shimmer';
 import {
     adminSalesReportsParams,
-    getAdminSalesAnalytics,
-    getAdminSalesByBranch,
-    getAdminSalesByBranchDetails,
-    getAdminSalesByCashier,
-    getAdminSalesByCashierDetails,
-    getAdminSalesByCustomer,
-    getAdminSalesByCustomerDetails,
-    getAdminSalesByCategory,
-    getAdminSalesByCategoryDetails,
-    getAdminSalesByDepartment,
-    getAdminSalesByDepartmentDetails,
-    getAdminSalesByProduct,
-    getAdminSalesByProductDetails,
-    getAdminSalesByTechnician,
-    getAdminSalesByTechnicianDetails,
-    getAdminSalesDailyDetails,
-    getAdminSalesRecentOpenOrderDetails,
-    getAdminSalesRecentOrderDetails,
-    getAdminSalesRecentOrders,
 } from '../../services/adminSalesReportsApi';
-import { getBranches, getTechnicians, getWorkshopOptions } from '../../services/superAdminApi';
+import * as adminReportsApi from '../../services/adminSalesReportsApi';
+import * as marketingReportsApi from '../../services/marketingSalesReportsApi';
+import {
+    getBranches as adminGetBranches,
+    getTechnicians as adminGetTechnicians,
+    getWorkshopOptions as adminGetWorkshopOptions,
+} from '../../services/superAdminApi';
+import * as marketingLookupApi from '../../services/marketingSalesLookupApi';
 import { ExportMenu } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
 import '../workshop/Workshop.css';
@@ -304,7 +292,40 @@ function TabSortSelect({ value, onChange, ariaLabel = 'Sort by amount' }) {
 
 const ORDERS_PAGE_SIZE = 25;
 
-export default function SalesReports() {
+export default function SalesReports({ portal = 'admin' }) {
+    const reportsApi = portal === 'marketing' ? marketingReportsApi : adminReportsApi;
+    const getWorkshopOptions = portal === 'marketing'
+        ? marketingLookupApi.getWorkshopOptions
+        : adminGetWorkshopOptions;
+    const getBranches = portal === 'marketing'
+        ? marketingLookupApi.getBranches
+        : adminGetBranches;
+    const getTechnicians = portal === 'marketing'
+        ? marketingLookupApi.getTechnicians
+        : adminGetTechnicians;
+
+    const {
+        getAdminSalesAnalytics,
+        getAdminSalesByBranch,
+        getAdminSalesByBranchDetails,
+        getAdminSalesByCashier,
+        getAdminSalesByCashierDetails,
+        getAdminSalesByCustomer,
+        getAdminSalesByCustomerDetails,
+        getAdminSalesByCategory,
+        getAdminSalesByCategoryDetails,
+        getAdminSalesByDepartment,
+        getAdminSalesByDepartmentDetails,
+        getAdminSalesByProduct,
+        getAdminSalesByProductDetails,
+        getAdminSalesByTechnician,
+        getAdminSalesByTechnicianDetails,
+        getAdminSalesDailyDetails,
+        getAdminSalesRecentOpenOrderDetails,
+        getAdminSalesRecentOrderDetails,
+        getAdminSalesRecentOrders,
+    } = reportsApi;
+
     const initialRange = useMemo(() => defaultLocalRangeLatest(), []);
     const [rangeFromLocal, setRangeFromLocal] = useState(initialRange.start);
     const [rangeToLocal, setRangeToLocal] = useState(initialRange.end);

@@ -25,6 +25,8 @@ export default function PlatformChatWalletPlusMenu({
     onMessageSent,
     onError,
     walletApi: walletApiProp,
+    skipWorkshopFields = false,
+    expenseCategoryOptions: expenseCategoryOptionsProp,
 }) {
     const { user } = useAuth();
     const walletApi = walletApiProp ?? myWalletApiForUser(user);
@@ -55,10 +57,15 @@ export default function PlatformChatWalletPlusMenu({
     const [fundBranchesLoading, setFundBranchesLoading] = useState(false);
     const [expenseBranchesLoading, setExpenseBranchesLoading] = useState(false);
 
-    const expenseCategoryOptions = useMemo(() => adminWalletExpenseComboboxOptions(), []);
+    const expenseCategoryOptions = useMemo(
+        () => expenseCategoryOptionsProp ?? adminWalletExpenseComboboxOptions(),
+        [expenseCategoryOptionsProp],
+    );
 
     const [historyRows, setHistoryRows] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyDateFrom, setHistoryDateFrom] = useState('');
+    const [historyDateTo, setHistoryDateTo] = useState('');
 
     const [fundModalError, setFundModalError] = useState('');
     const [expenseModalError, setExpenseModalError] = useState('');
@@ -145,10 +152,15 @@ export default function PlatformChatWalletPlusMenu({
             .finally(() => setExpenseBranchesLoading(false));
     }, [expenseWorkshopId, walletApi, workshopOptions]);
 
-    const loadHistory = async () => {
+    const loadHistory = async (range = {}) => {
         setHistoryLoading(true);
         try {
-            const res = await api.getWalletHistory(conversationId);
+            const params = {};
+            const from = range.from ?? historyDateFrom;
+            const to = range.to ?? historyDateTo;
+            if (from) params.from = from;
+            if (to) params.to = to;
+            const res = await api.getWalletHistory(conversationId, params);
             setHistoryRows(Array.isArray(res?.rows) ? res.rows : []);
         } catch (err) {
             onError?.(err?.message || 'Failed to load wallet history');
@@ -156,6 +168,19 @@ export default function PlatformChatWalletPlusMenu({
         } finally {
             setHistoryLoading(false);
         }
+    };
+
+    const formatHistoryDate = (value) => {
+        if (!value) return '—';
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return '—';
+        return d.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
     };
 
     const openHistory = () => {
@@ -172,11 +197,11 @@ export default function PlatformChatWalletPlusMenu({
         const amount = Number(fundAmount);
         const purpose = fundPurpose.trim();
         if (!Number.isFinite(amount) || amount <= 0 || !purpose) return;
-        if (!fundWorkshopId) {
+        if (!skipWorkshopFields && !fundWorkshopId) {
             setFundModalError('Select a workshop.');
             return;
         }
-        if (!fundIsHq && !fundBranchId) {
+        if (!skipWorkshopFields && !fundIsHq && !fundBranchId) {
             setFundModalError('Select a branch.');
             return;
         }
@@ -186,9 +211,9 @@ export default function PlatformChatWalletPlusMenu({
             const payload = {
                 amount,
                 purpose,
-                workshopId: fundWorkshopId,
+                workshopId: skipWorkshopFields ? '' : fundWorkshopId,
             };
-            if (!fundIsHq) payload.branchId = fundBranchId;
+            if (!skipWorkshopFields && !fundIsHq) payload.branchId = fundBranchId;
             const res = await api.sendWalletFundRequest(conversationId, payload);
             const msg = res?.message ?? res?.data?.message;
             if (msg) onMessageSent?.(msg);
@@ -220,11 +245,11 @@ export default function PlatformChatWalletPlusMenu({
             setExpenseModalError('Expense proof image is required.');
             return;
         }
-        if (!expenseWorkshopId) {
+        if (!skipWorkshopFields && !expenseWorkshopId) {
             setExpenseModalError('Select a workshop.');
             return;
         }
-        if (!expenseIsHq && !expenseBranchId) {
+        if (!skipWorkshopFields && !expenseIsHq && !expenseBranchId) {
             setExpenseModalError('Select a branch.');
             return;
         }
@@ -237,9 +262,9 @@ export default function PlatformChatWalletPlusMenu({
                 vendorName: expenseVendor.trim() || undefined,
                 expenseCategory,
                 proofUrl: expenseProofPreview,
-                workshopId: expenseWorkshopId,
+                workshopId: skipWorkshopFields ? '' : expenseWorkshopId,
             };
-            if (!expenseIsHq) payload.branchId = expenseBranchId;
+            if (!skipWorkshopFields && !expenseIsHq) payload.branchId = expenseBranchId;
             const res = await api.recordWalletExpense(conversationId, payload);
             const msg = res?.message ?? res?.data?.message;
             if (msg) onMessageSent?.(msg);
@@ -405,23 +430,24 @@ export default function PlatformChatWalletPlusMenu({
                         {fundModalError && (
                             <p className="pc-wallet-modal-error" role="alert">{fundModalError}</p>
                         )}
-                        {workshopSelect(
+                        {!skipWorkshopFields && workshopSelect(
                             'fund',
                             fundWorkshopId,
                             setFundWorkshopId,
                             setFundBranchId,
                         )}
-                        {!fundIsHq ? branchSelect(
+                        {!skipWorkshopFields && !fundIsHq ? branchSelect(
                             fundWorkshopId,
                             fundBranchId,
                             setFundBranchId,
                             fundBranches,
                             fundBranchesLoading,
-                        ) : (
+                        ) : null}
+                        {!skipWorkshopFields && fundIsHq ? (
                             <p className="pc-wallet-modal-hint" style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: '#64748b' }}>
                                 Platform HQ — posts to HQ My Books. Super Admin approval only.
                             </p>
-                        )}
+                        ) : null}
                         <label className="pc-wallet-field-label">Amount (SAR) *</label>
                         <input
                             type="number"
@@ -467,23 +493,24 @@ export default function PlatformChatWalletPlusMenu({
                         {expenseModalError && (
                             <p className="pc-wallet-modal-error" role="alert">{expenseModalError}</p>
                         )}
-                        {workshopSelect(
+                        {!skipWorkshopFields && workshopSelect(
                             'expense',
                             expenseWorkshopId,
                             setExpenseWorkshopId,
                             setExpenseBranchId,
                         )}
-                        {!expenseIsHq ? branchSelect(
+                        {!skipWorkshopFields && !expenseIsHq ? branchSelect(
                             expenseWorkshopId,
                             expenseBranchId,
                             setExpenseBranchId,
                             expenseBranches,
                             expenseBranchesLoading,
-                        ) : (
+                        ) : null}
+                        {!skipWorkshopFields && expenseIsHq ? (
                             <p className="pc-wallet-modal-hint" style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: '#64748b' }}>
                                 Platform HQ — posts to HQ My Books. Super Admin approval only.
                             </p>
-                        )}
+                        ) : null}
                         <label className="pc-wallet-field-label">Amount (SAR) *</label>
                         <input
                             type="number"
@@ -554,6 +581,30 @@ export default function PlatformChatWalletPlusMenu({
                         </button>
                     )}
                 >
+                    <div className="pc-wallet-history-filters">
+                        <label className="pc-wallet-field-label">From</label>
+                        <input
+                            type="datetime-local"
+                            className="pc-wallet-field"
+                            value={historyDateFrom}
+                            onChange={(e) => setHistoryDateFrom(e.target.value)}
+                        />
+                        <label className="pc-wallet-field-label">To</label>
+                        <input
+                            type="datetime-local"
+                            className="pc-wallet-field"
+                            value={historyDateTo}
+                            onChange={(e) => setHistoryDateTo(e.target.value)}
+                        />
+                        <button
+                            type="button"
+                            className="pc-wallet-modal-primary"
+                            disabled={historyLoading}
+                            onClick={() => loadHistory()}
+                        >
+                            {historyLoading ? <Loader2 size={14} className="spin" /> : 'Apply filter'}
+                        </button>
+                    </div>
                     {historyLoading ? (
                         <div className="pc-wallet-loading"><Loader2 className="spin" size={24} /></div>
                     ) : historyRows.length === 0 ? (
@@ -578,6 +629,7 @@ export default function PlatformChatWalletPlusMenu({
                                         </div>
                                         <div className="pc-wallet-history-meta">
                                             <strong>SAR {formatSar(row.amount)}</strong>
+                                            <span className="pc-wallet-history-date">{formatHistoryDate(row.date)}</span>
                                             <span className={`pc-wallet-status ${row.status === 'approved' || row.status === 'completed' ? 'pc-wallet-status--approved' : row.status === 'rejected' ? 'pc-wallet-status--rejected' : 'pc-wallet-status--pending'}`}>
                                                 {row.status || '—'}
                                             </span>

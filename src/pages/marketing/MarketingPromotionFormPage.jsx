@@ -47,7 +47,7 @@ import "./MarketingUniversal.css";
 const BUY_GET_STRATEGIES = [
   "Buy X Get Y Free",
   "Free Service",
-  "Free Service At Another Branch",
+  "Free Service at another workshop / branch",
 ];
 
 function isBuyGetPromotionType(promotionType) {
@@ -60,7 +60,10 @@ function validatePromotionForm(form) {
     return false;
   }
 
-  if (!form.discountValue && form.promotionType !== "Free Service") {
+  const isVoucherType =
+    form.promotionType === "Free Service at another workshop / branch";
+
+  if (!form.discountValue && form.promotionType !== "Free Service" && !isVoucherType) {
     alert("Discount value is required.");
     return false;
   }
@@ -86,13 +89,21 @@ function validatePromotionForm(form) {
     return false;
   }
 
-  if (form.productScope === "selected" && !(form.productTriggerIds || []).length) {
-    alert('Select at least one product when Products is set to "Specific only".');
+  if (
+    form.productScope === "selected" &&
+    !(form.productTriggerIds || []).length &&
+    !(form.productCategoryTriggerIds || []).length
+  ) {
+    alert('Select at least one product/category when Products is set to "Specific only".');
     return false;
   }
 
-  if (form.serviceScope === "selected" && !(form.serviceTriggerIds || []).length) {
-    alert('Select at least one service when Services is set to "Specific only".');
+  if (
+    form.serviceScope === "selected" &&
+    !(form.serviceTriggerIds || []).length &&
+    !(form.serviceCategoryTriggerIds || []).length
+  ) {
+    alert('Select at least one service/category when Services is set to "Specific only".');
     return false;
   }
 
@@ -102,8 +113,12 @@ function validatePromotionForm(form) {
   }
 
   if (form.rewardBenefitType && form.rewardBenefitType !== "none") {
-    if (!(form.rewardProductIds || []).length) {
-      alert("Select at least one reward product/service the customer will get.");
+    if (
+      !(form.rewardProductIds || []).length &&
+      !(form.rewardProductCategoryIds || []).length &&
+      !(form.rewardServiceCategoryIds || []).length
+    ) {
+      alert("Select at least one reward product/service/category the customer will get.");
       return false;
     }
     if (form.rewardBenefitType !== "free" && !Number(form.rewardDiscountValue)) {
@@ -115,11 +130,11 @@ function validatePromotionForm(form) {
   return true;
 }
 
-export default function MarketingPromotionFormPage() {
+export default function MarketingPromotionFormPage({ readOnly = false }) {
   const { id } = useParams();
-  const isEdit = Boolean(id);
   const navigate = useNavigate();
   const location = useLocation();
+  const isEdit = Boolean(id) && !readOnly && /\/edit$/.test(location.pathname);
   const basePath = resolvePromotionBasePath(location.pathname);
   const outletCtx = useOutletContext() || {};
   const embeddedInPortal = Boolean(outletCtx.setShowAddModal);
@@ -147,6 +162,8 @@ export default function MarketingPromotionFormPage() {
         id: String(item.realId ?? item.id).replace(/^product-/, ""),
         label: item.label,
         name: item.label,
+        categoryId: item.categoryId ?? null,
+        categoryName: item.categoryName ?? null,
       })),
     [productTriggerOptions],
   );
@@ -156,6 +173,8 @@ export default function MarketingPromotionFormPage() {
         id: String(item.realId ?? item.id).replace(/^service-/, ""),
         label: item.label,
         name: item.label,
+        categoryId: item.categoryId ?? null,
+        categoryName: item.categoryName ?? null,
       })),
     [serviceTriggerOptions],
   );
@@ -163,7 +182,7 @@ export default function MarketingPromotionFormPage() {
   const rewardActive =
     Boolean(form.rewardBenefitType) && form.rewardBenefitType !== "none";
 
-  const [loadingPage, setLoadingPage] = useState(isEdit);
+  const [loadingPage, setLoadingPage] = useState(isEdit || readOnly);
   const [loadingDropdowns, setLoadingDropdowns] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [dropdownError, setDropdownError] = useState("");
@@ -263,7 +282,7 @@ export default function MarketingPromotionFormPage() {
   }, [triggerItems, rewardItems, productTriggerOptions, serviceTriggerOptions]);
 
   useEffect(() => {
-    if (!isEdit) return;
+    if (!isEdit && !readOnly) return;
 
     let cancelled = false;
 
@@ -361,7 +380,7 @@ export default function MarketingPromotionFormPage() {
       </button>
 
       <header className="mkp-form-page-header">
-        <h1>{isEdit ? "Edit Promotion" : "New Promotion"}</h1>
+        <h1>{readOnly ? 'View Promotion' : isEdit ? 'Edit Promotion' : 'New Promotion'}</h1>
         <p>
           Save as draft, submit for approval, then activate on POS after
           approval.
@@ -385,6 +404,7 @@ export default function MarketingPromotionFormPage() {
         <form
           className="mkp-form-page-body"
           onSubmit={(event) => {
+            if (readOnly) return;
             event.preventDefault();
             if (canSubmitForApproval) {
               runAction("submit");
@@ -393,6 +413,7 @@ export default function MarketingPromotionFormPage() {
             }
           }}
         >
+          <fieldset disabled={readOnly} style={{ border: 'none', margin: 0, padding: 0, minWidth: 0 }}>
           <div className="mkp-section">
             <div className="mkp-section-title">Basic Information</div>
 
@@ -718,7 +739,17 @@ export default function MarketingPromotionFormPage() {
               Cancel
             </button>
 
-            {canSaveDraft ? (
+            {readOnly ? (
+              <button
+                type="button"
+                className="mkp-cancel-btn"
+                onClick={() => navigate(`${basePath}/marketing-promotions`)}
+              >
+                Close
+              </button>
+            ) : null}
+
+            {!readOnly && canSaveDraft ? (
               <button
                 type="button"
                 className="mkp-cancel-btn"
@@ -729,7 +760,7 @@ export default function MarketingPromotionFormPage() {
               </button>
             ) : null}
 
-            {canSubmitForApproval ? (
+            {!readOnly && canSubmitForApproval ? (
               <button
                 type="submit"
                 className="mkp-submit-btn"
@@ -746,7 +777,7 @@ export default function MarketingPromotionFormPage() {
               </button>
             ) : null}
 
-            {canUpdateFields ? (
+            {!readOnly && canUpdateFields ? (
               <button
                 type="submit"
                 className="mkp-submit-btn"
@@ -763,6 +794,7 @@ export default function MarketingPromotionFormPage() {
               </button>
             ) : null}
           </div>
+          </fieldset>
         </form>
       )}
         </div>

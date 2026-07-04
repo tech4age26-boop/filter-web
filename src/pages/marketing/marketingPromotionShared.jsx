@@ -14,11 +14,9 @@ import {
 import { marketingGetPromotionOptions } from '../../services/superAdminMarketingApi';
 const strategyOptions = [
   "Standard Promotion",
-  "Cross-Platform Promotion",
-  "Zone-Wise Offer",
-  "Loyalty Reward",
+  "Cross-Platform Promotions",
   "Seasonal Campaign",
-  "Cross-Branch Free Service",
+  "Cross Workshop and Branch Free Service",
 ];
 
 const promotionTypeOptions = [
@@ -26,8 +24,7 @@ const promotionTypeOptions = [
   "Fixed Amount Discount",
   "Buy X Get Y Free",
   "Free Service",
-  "Free Service At Another Branch",
-  "Zone-Wide Offer",
+  "Free Service at another workshop / branch",
 ];
 
 const discountTypeOptions = ["Percentage (%)", "Fixed Amount (SAR)"];
@@ -133,6 +130,8 @@ const PROMOTION_TYPE_UI_MAP = {
   fixed_amount_discount: "Fixed Amount Discount",
   buy_x_get_y: "Buy X Get Y Free",
   free_service: "Free Service",
+  free_service_cross_branch: "Free Service at another workshop / branch",
+  free_service_at_another_branch: "Free Service at another workshop / branch",
   zone_offer: "Zone-Wide Offer",
 };
 
@@ -214,6 +213,8 @@ const normalizePromotion = (item) => {
     fixed_amount_discount: "Fixed Amount Discount",
     buy_x_get_y: "Buy X Get Y Free",
     free_service: "Free Service",
+    free_service_cross_branch: "Free Service at another workshop / branch",
+    free_service_at_another_branch: "Free Service at another workshop / branch",
     zone_offer: "Zone-Wide Offer",
   };
 
@@ -271,11 +272,15 @@ const normalizePromotion = (item) => {
     targetZones: item?.targetZones || item?.targetZoneIds || [],
     triggerProductIds: item?.triggerProductIds || [],
     triggerServiceIds: item?.triggerServiceIds || [],
+    triggerProductCategoryIds: item?.triggerProductCategoryIds || [],
+    triggerServiceCategoryIds: item?.triggerServiceCategoryIds || [],
     productScope: item?.productScope || 'all',
     serviceScope: item?.serviceScope || 'all',
     selectedItemMatchMode: item?.selectedItemMatchMode || 'all_required',
     rewardProductIds: item?.rewardProductIds || item?.rewardItemIds || [],
     rewardItemIds: item?.rewardItemIds || item?.rewardProductIds || [],
+    rewardProductCategoryIds: item?.rewardProductCategoryIds || [],
+    rewardServiceCategoryIds: item?.rewardServiceCategoryIds || [],
     invoiceBannerText: item?.invoiceBannerText || "",
     termsConditions: item?.termsConditions || "",
     autoCloseOnEndDate: item?.autoCloseOnEndDate,
@@ -306,6 +311,9 @@ const mapPromotionTypeToBackendType = (promotionType) => {
   if (value.includes("percentage")) return "percentage_discount";
   if (value.includes("fixed")) return "fixed_discount";
   if (value.includes("buy")) return "buy_x_get_y";
+  if (value.includes("another") || value.includes("workshop") || value.includes("branch")) {
+    return "free_service_cross_branch";
+  }
   if (value.includes("free")) return "free_service";
   if (value.includes("zone")) return "zone_offer";
 
@@ -871,6 +879,17 @@ const MultiSelectApiField = ({
   const wrapRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+
+  const categoryOptions = useMemo(() => {
+    const map = new Map();
+    options.forEach((item) => {
+      const id = String(item.categoryId ?? "").trim();
+      const name = item.categoryName;
+      if (id && name) map.set(id, name);
+    });
+    return [...map.entries()].map(([id, name]) => ({ id, name }));
+  }, [options]);
 
   useEffect(() => {
     const closeOnOutside = (event) => {
@@ -889,12 +908,16 @@ const MultiSelectApiField = ({
   const filteredOptions = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    if (!q) return options;
-
-    return options.filter((item) =>
-      String(item.label || "").toLowerCase().includes(q)
-    );
-  }, [options, search]);
+    return options.filter((item) => {
+      if (categoryId && String(item.categoryId ?? "") !== String(categoryId)) {
+        return false;
+      }
+      if (!q) return true;
+      const labelText = String(item.label || "").toLowerCase();
+      const cat = String(item.categoryName || "").toLowerCase();
+      return labelText.includes(q) || cat.includes(q);
+    });
+  }, [options, search, categoryId]);
 
   const selectedLabels = useMemo(() => {
     return options
@@ -971,6 +994,20 @@ const MultiSelectApiField = ({
 
       {open ? (
         <div className="mkp-dd-menu">
+          {categoryOptions.length > 0 ? (
+            <div className="mkp-dd-search" style={{ marginBottom: 6 }}>
+              <select
+                className="form-input-field"
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+              >
+                <option value="">All categories</option>
+                {categoryOptions.map((cat) => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div className="mkp-dd-search">
             <Search size={14} />
             <input
@@ -1056,10 +1093,15 @@ export const EMPTY_PROMOTION_FORM = {
   triggerProductIds: [],
   productScope: 'all',
   productTriggerIds: [],
+  productCategoryTriggerIds: [],
   serviceScope: 'all',
   serviceTriggerIds: [],
+  serviceCategoryTriggerIds: [],
   selectedItemMatchMode: 'all_required',
+  selectedServiceRequired: true,
   rewardProductIds: [],
+  rewardProductCategoryIds: [],
+  rewardServiceCategoryIds: [],
   rewardBenefitType: 'none',
   rewardDiscountValue: '',
   rewardMaxQuantity: '',
@@ -1137,8 +1179,16 @@ export function promotionFormFromItem(item) {
           .filter((id) => id.startsWith('service-'))
           .map((id) => id.replace(/^service-/, ''));
 
-  const productScope = inferPromotionScope(item.productScope, productTriggerIds);
-  const serviceScope = inferPromotionScope(item.serviceScope, serviceTriggerIds);
+  const productCategoryTriggerIds = (
+    item.triggerProductCategoryIds ||
+    item.productCategoryTriggerIds ||
+    []
+  ).map(String);
+  const serviceCategoryTriggerIds = (
+    item.triggerServiceCategoryIds ||
+    item.serviceCategoryTriggerIds ||
+    []
+  ).map(String);
 
   return {
     ...EMPTY_PROMOTION_FORM,
@@ -1159,12 +1209,23 @@ export function promotionFormFromItem(item) {
     targetBranchIds: item.targetBranchIds || [],
     targetZoneIds: item.targetZoneIds || item.targetZones || [],
     triggerProductIds: legacyTriggerIds,
-    productScope,
+    productScope: inferPromotionScope(item.productScope, [
+      ...productTriggerIds,
+      ...productCategoryTriggerIds,
+    ]),
     productTriggerIds,
-    serviceScope,
+    productCategoryTriggerIds,
+    serviceScope: inferPromotionScope(item.serviceScope, [
+      ...serviceTriggerIds,
+      ...serviceCategoryTriggerIds,
+    ]),
     serviceTriggerIds,
+    serviceCategoryTriggerIds,
     selectedItemMatchMode: item.selectedItemMatchMode || 'all_required',
+    selectedServiceRequired: item.selectedServiceRequired ?? true,
     rewardProductIds: item.rewardProductIds || item.rewardItemIds || [],
+    rewardProductCategoryIds: (item.rewardProductCategoryIds || []).map(String),
+    rewardServiceCategoryIds: (item.rewardServiceCategoryIds || []).map(String),
     rewardBenefitType: item.rewardBenefitType || 'none',
     rewardDiscountValue:
       item.rewardDiscountValue != null && item.rewardDiscountValue !== ''
@@ -1201,11 +1262,19 @@ export function buildPromotionPayload(
           String(id).replace(/^product-/, ''),
         )
       : [];
+  const selectedProductCategoryTriggerIds =
+    form.productScope === 'selected'
+      ? (form.productCategoryTriggerIds || []).map(String)
+      : [];
   const selectedServiceTriggerIds =
     form.serviceScope === 'selected'
       ? (form.serviceTriggerIds || []).map((id) =>
           String(id).replace(/^service-/, ''),
         )
+      : [];
+  const selectedServiceCategoryTriggerIds =
+    form.serviceScope === 'selected'
+      ? (form.serviceCategoryTriggerIds || []).map(String)
       : [];
   const selectedTriggerIds = [...selectedProductTriggerIds, ...selectedServiceTriggerIds];
   const selectedSourceBranch = branches.find((item) => item.id === form.sourceBranchIds[0]);
@@ -1248,10 +1317,20 @@ export function buildPromotionPayload(
     targetZones: form.targetZoneIds,
     triggerProductIds: selectedProductTriggerIds,
     triggerServiceIds: selectedServiceTriggerIds,
+    triggerProductCategoryIds: selectedProductCategoryTriggerIds,
+    trigger_product_category_ids: selectedProductCategoryTriggerIds,
+    triggerServiceCategoryIds: selectedServiceCategoryTriggerIds,
+    trigger_service_category_ids: selectedServiceCategoryTriggerIds,
     productScope: form.productScope || 'all',
     serviceScope: form.serviceScope || 'all',
     selectedItemMatchMode: form.selectedItemMatchMode || 'all_required',
+    selectedServiceRequired: form.selectedServiceRequired !== false,
+    selected_service_required: form.selectedServiceRequired !== false,
     rewardProductIds: selectedRewardIds,
+    rewardProductCategoryIds: (form.rewardProductCategoryIds || []).map(String),
+    reward_product_category_ids: (form.rewardProductCategoryIds || []).map(String),
+    rewardServiceCategoryIds: (form.rewardServiceCategoryIds || []).map(String),
+    reward_service_category_ids: (form.rewardServiceCategoryIds || []).map(String),
     rewardBenefitType: form.rewardBenefitType || 'none',
     rewardDiscountValue:
       form.rewardDiscountValue === '' || form.rewardDiscountValue == null
@@ -1346,6 +1425,8 @@ function buildCatalogItemOptions(data) {
       ...normalized,
       type: isService ? 'service' : 'product',
       realId,
+      categoryId: item?.categoryId ?? item?.category_id ?? null,
+      categoryName: item?.categoryName ?? item?.category_name ?? null,
     });
   }
 

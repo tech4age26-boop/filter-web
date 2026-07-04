@@ -5,6 +5,7 @@ import {
     corporatePlatformChatApi,
     technicianPlatformChatApi,
     cashierPlatformChatApi,
+    marketingPlatformChatApi,
 } from '../../services/platformChatApi';
 
 export const NEW_CHAT_MODES = {
@@ -54,6 +55,25 @@ export const WORKSHOP_CHAT_CONFIG = {
     ],
     showWorkshopRoleTabs: true,
     allowGroups: true,
+};
+
+export const MARKETING_CHAT_CONFIG = {
+    id: 'marketing',
+    api: marketingPlatformChatApi,
+    viewPermission: 'marketing.platform-chat.view',
+    createPermission: 'marketing.platform-chat.create',
+    useLegacyContacts: true,
+    menuItems: ['admin', 'supplier', 'workshop', 'corporate', 'group'],
+    adminContactLabel: 'Filter Admin',
+    groupCategories: [
+        { id: 'all', label: 'All' },
+        { id: 'supplier', label: 'Suppliers' },
+        { id: 'workshop', label: 'Workshops' },
+        { id: 'corporate', label: 'Corporate' },
+    ],
+    showWorkshopRoleTabs: true,
+    allowGroups: true,
+    skipWorkshopWalletFields: true,
 };
 
 export const SUPPLIER_WORKSHOP_ROLE_TABS = [
