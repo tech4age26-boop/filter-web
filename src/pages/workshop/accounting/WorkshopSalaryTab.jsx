@@ -53,6 +53,7 @@ const emptyRow = () => ({
     userId: '',
     employeeName: '',
     basicSalary: '',
+    rewardBonus: '0',
     advanceDue: 0,
     commissionPayable: 0,
     commissionLineIds: [],
@@ -66,10 +67,11 @@ const emptyRow = () => ({
 
 function netPayable(row) {
     const basic = Number(row.basicSalary) || 0;
+    const reward = Number(row.rewardBonus) || 0;
     const comm = Number(row.commissionPayable) || 0;
     const adv = Number(row.advanceDeduction) || 0;
     const pen = Number(row.penalties) || 0;
-    return Math.max(basic + comm - adv - pen, 0);
+    return Math.max(basic + reward + comm - adv - pen, 0);
 }
 
 export default function WorkshopSalaryTab({ branchFilter = '' }) {
@@ -180,6 +182,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
             employeeName: emp?.name || '',
             previewLoaded: false,
             basicSalary: listBasicSalary(emp),
+            rewardBonus: '0',
             advanceDue: 0,
             commissionPayable: 0,
             commissionLineIds: [],
@@ -207,18 +210,20 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
 
     const totals = useMemo(() => {
         let basic = 0;
+        let rewardBonus = 0;
         let commission = 0;
         let advance = 0;
         let penalties = 0;
         let net = 0;
         for (const r of rows) {
             basic += Number(r.basicSalary) || 0;
+            rewardBonus += Number(r.rewardBonus) || 0;
             commission += Number(r.commissionPayable) || 0;
             advance += Number(r.advanceDeduction) || 0;
             penalties += Number(r.penalties) || 0;
             net += netPayable(r);
         }
-        return { basic, commission, advance, penalties, net };
+        return { basic, rewardBonus, commission, advance, penalties, net };
     }, [rows]);
 
     const submit = async () => {
@@ -230,10 +235,14 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                 const { employeeRecordId, recordType } = resolveRowEmployee(r);
                 return { ...r, employeeRecordId, recordType };
             })
-            .filter((r) => r.employeeRecordId && (Number(r.basicSalary) > 0 || Number(r.commissionPayable) > 0));
+            .filter((r) => r.employeeRecordId && (
+                Number(r.basicSalary) > 0
+                || Number(r.rewardBonus) > 0
+                || Number(r.commissionPayable) > 0
+            ));
 
         if (prepared.length === 0) {
-            setError('Add at least one employee with salary or commission payable.');
+            setError('Add at least one employee with salary, reward/bonus, or commission payable.');
             return;
         }
 
@@ -268,6 +277,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
             userId: r.userId ? String(r.userId) : undefined,
             employeeName: r.employeeName,
             basicSalary: Number(r.basicSalary || 0),
+            rewardBonus: Number(r.rewardBonus || 0),
             commissionAmount: Number(r.commissionPayable || 0),
             commissionLineIds: [...(r.commissionLineIds ?? [])],
             advanceDeduction: Number(r.advanceDeduction || 0),
@@ -343,7 +353,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
 
             <p className="form-help-text" style={{ marginBottom: 12, fontSize: 13 }}>
                 Select an employee to auto-load <strong>advance due</strong> and <strong>accrued commissions</strong> for the period.
-                Posting creates journal entries: Dr Salary Expense · Dr Commission Payable · Cr Advances · Cr Cash/Bank.
+                Posting creates journal entries: Dr Salary Expense · Dr Reward/Bonus Expense · Dr Commission Payable · Cr Advances · Cr Cash/Bank.
             </p>
 
             {rows.map((r, idx) => (
@@ -388,6 +398,18 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                                         value={r.basicSalary}
                                         disabled={r.previewLoading}
                                         onChange={(e) => setRow(idx, { basicSalary: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="form-label">Reward/Bonus (SAR)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        className="form-input-field"
+                                        value={r.rewardBonus}
+                                        onChange={(e) => setRow(idx, { rewardBonus: e.target.value })}
+                                        placeholder="0.00"
                                     />
                                 </div>
                                 <div>
@@ -477,6 +499,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                 </button>
                 <div style={{ marginLeft: 'auto', color: '#0F172A', fontSize: 13 }}>
                     <strong>Salary:</strong> SAR {fmt(totals.basic)}
+                    {' · '}<strong>Reward/Bonus:</strong> SAR {fmt(totals.rewardBonus)}
                     {' · '}<strong>Commission:</strong> SAR {fmt(totals.commission)}
                     {' · '}<strong>Deductions:</strong> SAR {fmt(totals.advance + totals.penalties)}
                     {' · '}<strong>Net cash:</strong> SAR {fmt(totals.net)}
@@ -499,6 +522,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                             <th className="table-th">Employee</th>
                             <th className="table-th">Period</th>
                             <th className="table-th">Salary</th>
+                            <th className="table-th">Reward/Bonus</th>
                             <th className="table-th">Commission</th>
                             <th className="table-th">Deductions</th>
                             <th className="table-th">Net paid</th>
@@ -507,13 +531,14 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                     </thead>
                     <tbody>
                         {recent.length === 0 ? (
-                            <tr><td colSpan={8} className="table-cell table-empty">No salary payments yet.</td></tr>
+                            <tr><td colSpan={9} className="table-cell table-empty">No salary payments yet.</td></tr>
                         ) : recent.map((s) => (
                             <tr key={s.id}>
                                 <td className="table-cell">{s.paymentDate ? new Date(s.paymentDate).toLocaleDateString() : '—'}</td>
                                 <td className="table-cell">{s.employeeName}</td>
                                 <td className="table-cell">{s.period}</td>
                                 <td className="table-cell">SAR {fmt(s.basicSalary ?? s.grossSalary)}</td>
+                                <td className="table-cell">SAR {fmt(s.rewardBonus)}</td>
                                 <td className="table-cell">SAR {fmt(s.commissionAmount)}</td>
                                 <td className="table-cell">SAR {fmt(s.totalDeductions ?? (Number(s.advanceDeduction || 0) + Number(s.penalties || 0)))}</td>
                                 <td className="table-cell" style={{ fontWeight: 700 }}>SAR {fmt(s.netSalary)}</td>
