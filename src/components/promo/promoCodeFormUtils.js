@@ -39,9 +39,12 @@ export const emptyPromoForm = () => ({
   branchIds: [],
   productScope: 'all',
   productIds: [],
+  productCategoryIds: [],
   serviceScope: 'all',
   serviceIds: [],
+  serviceCategoryIds: [],
   selectedItemMatchMode: 'all_required',
+  selectedServiceRequired: true,
 });
 
 export const normalizeWorkflowStatus = (promo) => {
@@ -162,6 +165,16 @@ export const promoToForm = (promo) => {
           )
         : [];
 
+  const productCategoryIds = Array.isArray(promo.productCategoryIds)
+    ? promo.productCategoryIds.map(String)
+    : Array.isArray(promo.product_category_ids)
+      ? promo.product_category_ids.map(String)
+      : Array.isArray(promo.applicableProductCategories)
+        ? promo.applicableProductCategories.map((item) =>
+            typeof item === 'object' ? String(item.id) : String(item),
+          )
+        : [];
+
   const serviceIds = Array.isArray(promo.serviceIds)
     ? promo.serviceIds.map(String)
     : Array.isArray(promo.applicable_services)
@@ -170,6 +183,16 @@ export const promoToForm = (promo) => {
         )
       : Array.isArray(promo.applicableServices)
         ? promo.applicableServices.map((item) =>
+            typeof item === 'object' ? String(item.id) : String(item),
+          )
+        : [];
+
+  const serviceCategoryIds = Array.isArray(promo.serviceCategoryIds)
+    ? promo.serviceCategoryIds.map(String)
+    : Array.isArray(promo.service_category_ids)
+      ? promo.service_category_ids.map(String)
+      : Array.isArray(promo.applicableServiceCategories)
+        ? promo.applicableServiceCategories.map((item) =>
             typeof item === 'object' ? String(item.id) : String(item),
           )
         : [];
@@ -223,10 +246,12 @@ export const promoToForm = (promo) => {
     isActive: promo.isActive === true,
     branchMode: branchIds.length === 0 ? 'all' : 'selected',
     branchIds,
-    productScope: inferScope(promo.productScope, productIds),
+    productScope: inferScope(promo.productScope, [...productIds, ...productCategoryIds]),
     productIds,
-    serviceScope: inferScope(promo.serviceScope, serviceIds),
+    productCategoryIds,
+    serviceScope: inferScope(promo.serviceScope, [...serviceIds, ...serviceCategoryIds]),
     serviceIds,
+    serviceCategoryIds,
     selectedItemMatchMode:
       (() => {
         const mode = String(
@@ -236,6 +261,7 @@ export const promoToForm = (promo) => {
         if (mode === 'entire_order' || mode === 'full_order') return 'entire_order';
         return 'all_required';
       })(),
+    selectedServiceRequired: promo.selectedServiceRequired ?? promo.selected_service_required ?? true,
   };
 };
 
@@ -266,10 +292,15 @@ export function buildPromoPayload(form, { includeIsActive = false, allWorkshopId
     productScope: form.productScope,
     productIds:
       form.productScope === 'selected' ? form.productIds.map(String) : [],
+    productCategoryIds:
+      form.productScope === 'selected' ? (form.productCategoryIds || []).map(String) : [],
     serviceScope: form.serviceScope,
     serviceIds:
       form.serviceScope === 'selected' ? form.serviceIds.map(String) : [],
+    serviceCategoryIds:
+      form.serviceScope === 'selected' ? (form.serviceCategoryIds || []).map(String) : [],
     selectedItemMatchMode: form.selectedItemMatchMode || 'all_required',
+    selectedServiceRequired: form.selectedServiceRequired !== false,
   };
 
   if (includeIsActive) {
@@ -308,12 +339,22 @@ export function buildMarketingPromoPayload(form, { isEdit = false, allWorkshopId
     applicableBranches: base.branchIds,
     applicable_products: base.productIds,
     applicableProducts: base.productIds,
+    productCategoryIds: base.productCategoryIds,
+    product_category_ids: base.productCategoryIds,
+    applicableProductCategories: base.productCategoryIds,
+    applicable_product_categories: base.productCategoryIds,
     applicable_services: base.serviceIds,
     applicableServices: base.serviceIds,
+    serviceCategoryIds: base.serviceCategoryIds,
+    service_category_ids: base.serviceCategoryIds,
+    applicableServiceCategories: base.serviceCategoryIds,
+    applicable_service_categories: base.serviceCategoryIds,
     productScope: base.productScope,
     serviceScope: base.serviceScope,
     selectedItemMatchMode: base.selectedItemMatchMode,
     selected_item_match_mode: base.selectedItemMatchMode,
+    selectedServiceRequired: base.selectedServiceRequired,
+    selected_service_required: base.selectedServiceRequired,
     ...(isEdit
       ? blockedWorkflow.includes(workflow)
         ? {}
@@ -338,11 +379,19 @@ export function validatePromoForm(form, { catalogLoading = false, requireWorksho
   if (catalogLoading && form.branchMode === 'selected' && form.branchIds.length > 0) {
     return 'Catalog is still loading for the selected branch(es). Please wait a moment.';
   }
-  if (form.productScope === 'selected' && form.productIds.length === 0) {
-    return 'Select at least one product, or change products to All / Does not apply.';
+  if (
+    form.productScope === 'selected' &&
+    form.productIds.length === 0 &&
+    (form.productCategoryIds || []).length === 0
+  ) {
+    return 'Select at least one product/category, or change products to All / Does not apply.';
   }
-  if (form.serviceScope === 'selected' && form.serviceIds.length === 0) {
-    return 'Select at least one service, or change services to All / Does not apply.';
+  if (
+    form.serviceScope === 'selected' &&
+    form.serviceIds.length === 0 &&
+    (form.serviceCategoryIds || []).length === 0
+  ) {
+    return 'Select at least one service/category, or change services to All / Does not apply.';
   }
   if (form.productScope === 'none' && form.serviceScope === 'none') {
     return 'Promo must apply to products and/or services.';

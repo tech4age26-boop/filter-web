@@ -78,20 +78,36 @@ function useMobileWalletLayout() {
 export default function MyWalletPage() {
     const navigate = useNavigate();
     const { user, hasPermission } = useAuth();
-    const isWorkshopPortal = user?.userType !== 'platform_admin';
-    const walletApi = useMemo(() => myWalletApiForUser(user), [user?.id, user?.userType]);
+    const isMarketingPortal = user?.sessionPortal === 'marketing';
+    const isWorkshopPortal = user?.userType !== 'platform_admin' && !isMarketingPortal;
+    const skipWorkshopFields = isMarketingPortal;
+    const walletApi = useMemo(() => myWalletApiForUser(user), [user?.id, user?.userType, user?.sessionPortal]);
     const isMobile = useMobileWalletLayout();
     const walletEnabled = Boolean(user?.walletEnabled);
     const canViewChat = hasPermission(
-        isWorkshopPortal ? 'workshop.platform-chat.view' : 'chat.view',
+        isMarketingPortal
+            ? 'marketing.platform-chat.view'
+            : isWorkshopPortal
+                ? 'workshop.platform-chat.view'
+                : 'chat.view',
     );
     const canPostToChat = hasPermission(
-        isWorkshopPortal ? 'workshop.platform-chat.create' : 'chat.create',
+        isMarketingPortal
+            ? 'marketing.platform-chat.create'
+            : isWorkshopPortal
+                ? 'workshop.platform-chat.create'
+                : 'chat.create',
     );
-    const chatPath = isWorkshopPortal ? '/workshop/platform-chat' : '/admin/chat';
-    const fallbackPath = isWorkshopPortal
-        ? (firstVisibleWorkshopPath(user) ?? '/workshop')
-        : firstVisibleAdminPath(user);
+    const chatPath = isMarketingPortal
+        ? '/marketing/chat'
+        : isWorkshopPortal
+            ? '/workshop/platform-chat'
+            : '/admin/chat';
+    const fallbackPath = isMarketingPortal
+        ? '/marketing/dashboard'
+        : isWorkshopPortal
+            ? (firstVisibleWorkshopPath(user) ?? '/workshop')
+            : firstVisibleAdminPath(user);
 
     const [activeTab, setActiveTab] = useState('wallet');
     const [wallet, setWallet] = useState(null);
@@ -284,12 +300,12 @@ export default function MyWalletPage() {
             alert('Purpose is required.');
             return;
         }
-        if (!fundWorkshopId) {
+        if (!skipWorkshopFields && !fundWorkshopId) {
             alert('Select a workshop.');
             return;
         }
         const fundIsHq = workshopIsPlatformHq(walletWorkshops, fundWorkshopId);
-        if (!fundIsHq && !fundBranchId) {
+        if (!skipWorkshopFields && !fundIsHq && !fundBranchId) {
             alert('Select a branch.');
             return;
         }
@@ -299,9 +315,9 @@ export default function MyWalletPage() {
             const payload = {
                 amount,
                 purpose: fundPurpose.trim(),
-                workshopId: fundWorkshopId,
+                workshopId: skipWorkshopFields ? '' : fundWorkshopId,
             };
-            if (!fundIsHq) payload.branchId = fundBranchId;
+            if (!skipWorkshopFields && !fundIsHq) payload.branchId = fundBranchId;
             const res = await walletApi.createMyFundRequest(payload);
             setFundOpen(false);
             setFundAmount('');
@@ -343,12 +359,12 @@ export default function MyWalletPage() {
             alert('Expense proof image is required.');
             return;
         }
-        if (!expenseWorkshopId) {
+        if (!skipWorkshopFields && !expenseWorkshopId) {
             alert('Select a workshop.');
             return;
         }
         const expenseIsHq = workshopIsPlatformHq(walletWorkshops, expenseWorkshopId);
-        if (!expenseIsHq && !expenseBranchId) {
+        if (!skipWorkshopFields && !expenseIsHq && !expenseBranchId) {
             alert('Select a branch.');
             return;
         }
@@ -361,9 +377,9 @@ export default function MyWalletPage() {
                 vendorName: expenseVendor.trim() || undefined,
                 expenseCategory,
                 proofUrl: expenseProofPreview,
-                workshopId: expenseWorkshopId,
+                workshopId: skipWorkshopFields ? '' : expenseWorkshopId,
             };
-            if (!expenseIsHq) payload.branchId = expenseBranchId;
+            if (!skipWorkshopFields && !expenseIsHq) payload.branchId = expenseBranchId;
             const res = await walletApi.recordMyWalletExpense(payload);
             setExpenseAmount('');
             setExpenseCategory('');
@@ -493,6 +509,7 @@ export default function MyWalletPage() {
                         ? 'Your request is sent for super-admin approval and posted to your support chat.'
                         : 'Your request is sent for super-admin approval.'}
                 </p>
+                {!skipWorkshopFields ? (
                 <div className="ws-field">
                     <label>Workshop *</label>
                     <select
@@ -512,7 +529,8 @@ export default function MyWalletPage() {
                         ))}
                     </select>
                 </div>
-                {!fundIsHq ? (
+                ) : null}
+                {!skipWorkshopFields && !fundIsHq ? (
                     <div className="ws-field">
                         <label>Branch *</label>
                         <select
@@ -527,11 +545,12 @@ export default function MyWalletPage() {
                             ))}
                         </select>
                     </div>
-                ) : (
+                ) : null}
+                {!skipWorkshopFields && fundIsHq ? (
                     <p className="my-wallet-form-hint" style={{ marginBottom: 12 }}>
                         Platform HQ — posts to HQ My Books. Super Admin approval only (no workshop admin).
                     </p>
-                )}
+                ) : null}
                 <div className="ws-field">
                     <label>Amount (SAR) *</label>
                     <input type="number" min="0.01" step="0.01" value={fundAmount} onChange={(e) => setFundAmount(e.target.value)} placeholder="e.g. 5000" />
@@ -574,6 +593,7 @@ export default function MyWalletPage() {
                         ? 'Amount is deducted immediately and a summary is posted to your support chat.'
                         : 'Amount is deducted from your wallet immediately.'}
                 </p>
+                {!skipWorkshopFields ? (
                 <div className="ws-field">
                     <label>Workshop *</label>
                     <select
@@ -593,7 +613,8 @@ export default function MyWalletPage() {
                         ))}
                     </select>
                 </div>
-                {!expenseIsHq ? (
+                ) : null}
+                {!skipWorkshopFields && !expenseIsHq ? (
                     <div className="ws-field">
                         <label>Branch *</label>
                         <select
@@ -608,11 +629,12 @@ export default function MyWalletPage() {
                             ))}
                         </select>
                     </div>
-                ) : (
+                ) : null}
+                {!skipWorkshopFields && expenseIsHq ? (
                     <p className="my-wallet-form-hint" style={{ marginBottom: 12 }}>
                         Platform HQ — posts to HQ My Books. Super Admin approval only (no workshop admin).
                     </p>
-                )}
+                ) : null}
                 <div className="ws-field">
                     <label>Amount (SAR) *</label>
                     <input type="number" min="0.01" step="0.01" value={expenseAmount} onChange={(e) => setExpenseAmount(e.target.value)} />

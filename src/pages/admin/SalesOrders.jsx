@@ -5,11 +5,12 @@ import '../workshop/Workshop.css';
 import Modal from '../../components/Modal';
 import { ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import {
-    getBranches,
-    getSalesOrder,
-    getSalesOrders,
-    getWorkshopOptions,
+    getBranches as adminGetBranches,
+    getSalesOrder as adminGetSalesOrder,
+    getSalesOrders as adminGetSalesOrders,
+    getWorkshopOptions as adminGetWorkshopOptions,
 } from '../../services/superAdminApi';
+import * as marketingLookupApi from '../../services/marketingSalesLookupApi';
 import { ExportMenu } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
 
@@ -116,7 +117,19 @@ const STATUS_OPTIONS = [
     { value: 'cancelled', label: 'Cancelled' },
 ];
 
-export default function SalesOrders() {
+export default function SalesOrders({ portal = 'admin' }) {
+    const getWorkshopOptions = portal === 'marketing'
+        ? marketingLookupApi.getWorkshopOptions
+        : adminGetWorkshopOptions;
+    const getBranches = portal === 'marketing'
+        ? marketingLookupApi.getBranches
+        : adminGetBranches;
+    const getSalesOrders = portal === 'marketing'
+        ? marketingLookupApi.getSalesOrders
+        : adminGetSalesOrders;
+    const getSalesOrder = portal === 'marketing'
+        ? marketingLookupApi.getSalesOrder
+        : adminGetSalesOrder;
     const [workshopOptions, setWorkshopOptions] = useState([]);
     const [workshopOptionsLoading, setWorkshopOptionsLoading] = useState(true);
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');

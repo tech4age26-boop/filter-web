@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Search } from 'lucide-react';
 import { catalogItemId, catalogItemName } from './promoCodeFormUtils';
 
 function strTrim(value) {
@@ -9,21 +9,21 @@ function strTrim(value) {
 export const PROMO_APPLICATION_RULES = [
   {
     value: 'all_required',
-    title: 'Rule 1 — All selected items required',
+    title: 'Rule 1 — Selected product/category trigger',
     summary:
-      'Invoice must contain every selected product/service. Discount applies only on those selected lines.',
+      'Invoice must contain the selected product/category. Selected services can be mandatory or optional using the toggle below.',
   },
   {
     value: 'any_present',
-    title: 'Rule 2 — Any selected item',
+    title: 'Rule 2 — Any selected product/service/category',
     summary:
-      'Invoice needs at least one selected product/service. Discount applies only on the matching lines.',
+      'Invoice needs at least one selected product/service/category. Discount applies only on matching eligible lines.',
   },
   {
     value: 'entire_order',
-    title: 'Rule 3 — Any selected item, entire invoice discount',
+    title: 'Rule 3 — Eligible trigger, entire invoice discount',
     summary:
-      'Invoice needs at least one selected product/service. Discount applies on the full invoice total.',
+      'Invoice needs an eligible selected product/service/category. Discount applies on the full invoice total.',
   },
 ];
 
@@ -33,19 +33,197 @@ const SCOPE_CHOICES = [
   { value: 'none', label: 'Does not apply' },
 ];
 
+function CategoryMultiCombobox({
+  options,
+  selectedIds,
+  onChange,
+  disabled,
+  loading,
+}) {
+  const wrapRef = useRef(null);
+  const listRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [highlightIndex, setHighlightIndex] = useState(0);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((item) => item.name.toLowerCase().includes(q));
+  }, [options, search]);
+
+  const selectedNames = useMemo(
+    () => options.filter((item) => selectedIds.includes(item.id)).map((item) => item.name),
+    [options, selectedIds],
+  );
+
+  useEffect(() => {
+    const onDoc = (event) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    setHighlightIndex(0);
+  }, [open, search]);
+
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    const el = listRef.current.querySelector(`[data-category-index="${highlightIndex}"]`);
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [open, highlightIndex]);
+
+  const toggleId = (id) => {
+    if (selectedIds.includes(id)) {
+      onChange(selectedIds.filter((item) => item !== id));
+      return;
+    }
+    onChange([...selectedIds, id]);
+  };
+
+  const handleKeyDown = (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setOpen(true);
+      setHighlightIndex((index) => Math.min(index + 1, Math.max(filtered.length - 1, 0)));
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setOpen(true);
+      setHighlightIndex((index) => Math.max(index - 1, 0));
+      return;
+    }
+    if (event.key === 'Enter') {
+      if (!open) {
+        event.preventDefault();
+        setOpen(true);
+        return;
+      }
+      const item = filtered[highlightIndex];
+      if (item) {
+        event.preventDefault();
+        toggleId(item.id);
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setOpen(false);
+      setSearch('');
+    }
+  };
+
+  if (options.length === 0) return null;
+
+  return (
+    <div className="ws-promo-category-combo" ref={wrapRef}>
+      <button
+        type="button"
+        className={`ws-promo-category-trigger${open ? ' is-open' : ''}`}
+        disabled={disabled || loading}
+        onClick={() => setOpen((prev) => !prev)}
+        onKeyDown={handleKeyDown}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span>
+          {selectedNames.length === 0
+            ? 'All categories'
+            : selectedNames.length <= 2
+              ? selectedNames.join(', ')
+              : `${selectedNames.length} categories selected`}
+        </span>
+        <ChevronDown size={14} />
+      </button>
+
+      {selectedNames.length > 0 ? (
+        <div className="ws-promo-category-chips">
+          {selectedNames.slice(0, 3).map((name) => (
+            <span key={name}>{name}</span>
+          ))}
+          {selectedNames.length > 3 ? <span>+{selectedNames.length - 3} more</span> : null}
+          <button type="button" onClick={() => onChange([])} disabled={disabled || loading}>
+            Clear
+          </button>
+        </div>
+      ) : null}
+
+      {open ? (
+        <div className="ws-promo-category-menu">
+          <div className="ws-promo-picker-search-wrap">
+            <Search size={15} />
+            <input
+              type="text"
+              className="ws-promo-picker-search"
+              placeholder="Type category name..."
+              value={search}
+              disabled={disabled || loading}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={handleKeyDown}
+              autoFocus
+            />
+          </div>
+          <div className="ws-promo-category-list" role="listbox" ref={listRef}>
+            {filtered.length === 0 ? (
+              <p className="ws-promo-picker-empty">No categories found.</p>
+            ) : (
+              filtered.map((item, index) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  data-category-index={index}
+                  className={`ws-promo-category-option${selectedIds.includes(item.id) ? ' selected' : ''}${index === highlightIndex ? ' active' : ''}`}
+                  onClick={() => toggleId(item.id)}
+                  onMouseEnter={() => setHighlightIndex(index)}
+                  role="option"
+                  aria-selected={selectedIds.includes(item.id)}
+                >
+                  <span>{item.name}</span>
+                  {selectedIds.includes(item.id) ? <b>Selected</b> : null}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ScopeSection({
   title,
   scope,
   onScopeChange,
   items,
   selectedIds,
+  selectedCategoryIds = [],
   onToggle,
   onSelectMany,
+  onCategoryChange,
   kind,
   loading,
   disabled,
 }) {
   const [search, setSearch] = useState('');
+
+  const categoryOptions = useMemo(() => {
+    const map = new Map();
+    items.forEach((row) => {
+      const id = String(row.categoryId ?? row.category_id ?? '').trim();
+      const name = row.categoryName ?? row.category_name ?? row.category?.name;
+      if (id && name) map.set(id, name);
+    });
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [items]);
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => catalogItemName(a).localeCompare(catalogItemName(b))),
@@ -54,9 +232,20 @@ function ScopeSection({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return sorted;
-    return sorted.filter((row) => catalogItemName(row).toLowerCase().includes(q));
-  }, [sorted, search]);
+    return sorted.filter((row) => {
+      if (
+        selectedCategoryIds.length > 0
+        && !selectedCategoryIds.includes(String(row.categoryId ?? row.category_id ?? ''))
+      ) {
+        return false;
+      }
+      if (!q) return true;
+      const name = catalogItemName(row).toLowerCase();
+      const sku = String(row.sku ?? '').toLowerCase();
+      const cat = String(row.categoryName ?? row.category_name ?? '').toLowerCase();
+      return name.includes(q) || sku.includes(q) || cat.includes(q);
+    });
+  }, [sorted, search, selectedCategoryIds]);
 
   const visibleIds = useMemo(
     () => filtered.map((row) => catalogItemId(row, kind)).filter(Boolean),
@@ -89,6 +278,13 @@ function ScopeSection({
       </div>
       {scope === 'selected' ? (
         <>
+          <CategoryMultiCombobox
+            options={categoryOptions}
+            selectedIds={selectedCategoryIds}
+            onChange={onCategoryChange}
+            disabled={disabled}
+            loading={loading}
+          />
           <div className="ws-promo-picker-search-wrap">
             <Search size={15} />
             <input
@@ -205,7 +401,9 @@ export default function PromoCodeFormFields({
         branchMode: 'all',
         branchIds: [],
         productIds: [],
+        productCategoryIds: [],
         serviceIds: [],
+        serviceCategoryIds: [],
       };
     });
   };
@@ -251,6 +449,12 @@ export default function PromoCodeFormFields({
     || (form.branchMode === 'selected' && form.branchIds.length === 0);
   const hasSpecificSelection =
     form.productScope === 'selected' || form.serviceScope === 'selected';
+  const hasSelectedProducts =
+    form.productScope === 'selected' &&
+    ((form.productIds || []).length > 0 || (form.productCategoryIds || []).length > 0);
+  const hasSelectedServices =
+    form.serviceScope === 'selected' &&
+    ((form.serviceIds || []).length > 0 || (form.serviceCategoryIds || []).length > 0);
   const activeRule =
     PROMO_APPLICATION_RULES.find(
       (rule) => rule.value === (form.selectedItemMatchMode || 'all_required'),
@@ -652,14 +856,36 @@ export default function PromoCodeFormFields({
             </div>
             {!hasSpecificSelection ? (
               <p className="ws-promo-rules-panel-warning">
-                Select &ldquo;Specific only&rdquo; for products and/or services to enable these
-                rules.
+                Select &ldquo;Specific only&rdquo; for products, services, or categories to enable these rules.
               </p>
             ) : (
               <p className="ws-promo-rules-panel-active">
                 Active rule: <b>{activeRule.title}</b>
               </p>
             )}
+            {hasSelectedProducts && hasSelectedServices ? (
+              <div className="ws-promo-service-toggle">
+                <div>
+                  <strong>Selected service required with selected product?</strong>
+                  <p>
+                    ON: invoice must include selected product/category plus selected service/category.
+                    OFF: selected service is optional; promo can apply on selected products/categories.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={`ws-promo-toggle-btn${form.selectedServiceRequired !== false ? ' is-on' : ''}`}
+                  onClick={() =>
+                    setForm((prev) => ({
+                      ...prev,
+                      selectedServiceRequired: prev.selectedServiceRequired === false,
+                    }))
+                  }
+                >
+                  {form.selectedServiceRequired !== false ? 'ON' : 'OFF'}
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="ws-promo-applicability-grid">
@@ -671,12 +897,16 @@ export default function PromoCodeFormFields({
                   ...prev,
                   productScope: scope,
                   productIds: scope === 'selected' ? prev.productIds : [],
+                  productCategoryIds:
+                    scope === 'selected' ? (prev.productCategoryIds || []) : [],
                 }))
               }
               items={catalogProducts}
               selectedIds={form.productIds}
+              selectedCategoryIds={form.productCategoryIds || []}
               onToggle={(id) => toggleId('productIds', id)}
               onSelectMany={(ids) => setIds('productIds', ids)}
+              onCategoryChange={(ids) => setIds('productCategoryIds', ids)}
               kind="products"
               loading={catalogLoading}
               disabled={catalogDisabled}
@@ -690,12 +920,16 @@ export default function PromoCodeFormFields({
                   ...prev,
                   serviceScope: scope,
                   serviceIds: scope === 'selected' ? prev.serviceIds : [],
+                  serviceCategoryIds:
+                    scope === 'selected' ? (prev.serviceCategoryIds || []) : [],
                 }))
               }
               items={catalogServices}
               selectedIds={form.serviceIds}
+              selectedCategoryIds={form.serviceCategoryIds || []}
               onToggle={(id) => toggleId('serviceIds', id)}
               onSelectMany={(ids) => setIds('serviceIds', ids)}
+              onCategoryChange={(ids) => setIds('serviceCategoryIds', ids)}
               kind="services"
               loading={catalogLoading}
               disabled={catalogDisabled}

@@ -9,6 +9,7 @@ export default function PromoApplicationRulesPanel({
   hint = 'Choose exactly one rule. Set Products or Services to "Specific only" and select items below.',
   disabledHint = 'Select "Specific only" for products and/or services to enable these rules.',
   rules = PROMO_APPLICATION_RULES,
+  children,
 }) {
   const activeRule =
     rules.find(
@@ -49,6 +50,7 @@ export default function PromoApplicationRulesPanel({
           Active rule: <b>{activeRule.title}</b>
         </p>
       )}
+      {children}
     </div>
   );
 }

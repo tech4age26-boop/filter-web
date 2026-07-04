@@ -141,10 +141,15 @@ export function createPlatformChatApi(basePath) {
                 { method: 'POST', body: JSON.stringify(body) },
             ),
 
-        getWalletHistory: (conversationId) =>
-            apiFetch(
-                `${base}/conversations/${encodeURIComponent(String(conversationId))}/wallet/history`,
-            ),
+        getWalletHistory: (conversationId, params = {}) => {
+            const qs = new URLSearchParams();
+            if (params.from) qs.set('from', params.from);
+            if (params.to) qs.set('to', params.to);
+            const query = qs.toString();
+            return apiFetch(
+                `${base}/conversations/${encodeURIComponent(String(conversationId))}/wallet/history${query ? `?${query}` : ''}`,
+            );
+        },
 
         sendWalletTxReference: (conversationId, body) =>
             apiFetch(
@@ -203,3 +208,4 @@ export const supplierPlatformChatApi = createPlatformChatApi('/supplier/platform
 export const corporatePlatformChatApi = createPlatformChatApi('/corporate/platform-chat');
 export const technicianPlatformChatApi = createPlatformChatApi('/technician/platform-chat');
 export const cashierPlatformChatApi = createPlatformChatApi('/cashier/platform-chat');
+export const marketingPlatformChatApi = createPlatformChatApi('/marketing/platform-chat');

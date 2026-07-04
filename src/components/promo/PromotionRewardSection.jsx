@@ -9,6 +9,26 @@ const BENEFIT_CHOICES = [
   { value: 'fixed', label: 'Fixed amount off reward items' },
 ];
 
+function isServiceOption(item) {
+  return String(item?.itemKind || item?.type || '')
+    .toLowerCase()
+    .includes('service');
+}
+
+function categoryOptionsFromItems(items = [], serviceOnly = false) {
+  const map = new Map();
+  items.forEach((item) => {
+    const isService = isServiceOption(item);
+    if (serviceOnly !== isService) return;
+    const id = String(item.categoryId ?? item.category_id ?? '').trim();
+    const label = item.categoryName ?? item.category_name ?? item.category?.name;
+    if (id && label) map.set(id, label);
+  });
+  return [...map.entries()]
+    .map(([id, label]) => ({ id, label, name: label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 /**
  * "What the customer gets" — the reward leg of a Buy X → Get Y promotion.
  * Always visible. Leave the reward type as "No reward" for a plain discount,
@@ -24,6 +44,8 @@ export default function PromotionRewardSection({
 }) {
   const benefit = form.rewardBenefitType || 'none';
   const isActive = benefit !== 'none';
+  const rewardProductCategoryOptions = categoryOptionsFromItems(rewardOptions, false);
+  const rewardServiceCategoryOptions = categoryOptionsFromItems(rewardOptions, true);
 
   return (
     <div className="mkp-section">
@@ -96,7 +118,29 @@ export default function PromotionRewardSection({
       ) : null}
 
       <MultiSelectApiField
-        label="Reward Products / Services — Customer Gets Free or Discounted"
+        label="Complete Product Categories To Reward"
+        icon={Gift}
+        options={rewardProductCategoryOptions}
+        selectedIds={(form.rewardProductCategoryIds || []).map(String)}
+        onChange={(ids) => onChange('rewardProductCategoryIds', ids)}
+        loading={loading}
+        error={error}
+        placeholder="Type to search product categories…"
+      />
+
+      <MultiSelectApiField
+        label="Complete Service Categories To Reward"
+        icon={Gift}
+        options={rewardServiceCategoryOptions}
+        selectedIds={(form.rewardServiceCategoryIds || []).map(String)}
+        onChange={(ids) => onChange('rewardServiceCategoryIds', ids)}
+        loading={loading}
+        error={error}
+        placeholder="Type to search service categories…"
+      />
+
+      <MultiSelectApiField
+        label="Specific Reward Products / Services"
         icon={Gift}
         options={rewardOptions}
         selectedIds={(form.rewardProductIds || []).map(String)}

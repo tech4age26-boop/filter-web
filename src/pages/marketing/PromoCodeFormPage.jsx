@@ -16,7 +16,6 @@ import {
   marketingCreatePromoCode,
   marketingGetPromoCode,
   marketingGetPromoCodeOptions,
-  marketingListTargetProducts,
   marketingUpdatePromoCode,
 } from '../../services/superAdminMarketingApi';
 import { MarketingFormShell } from './MarketingFormShell';
@@ -60,16 +59,18 @@ function normalizeCatalogRows(rows, kind) {
         ...row,
         id,
         name: row.name ?? row.label ?? row.product?.name ?? row.service?.name,
+        categoryId: row.categoryId ?? row.category_id ?? row.category?.id ?? null,
+        categoryName: row.categoryName ?? row.category_name ?? row.category?.name ?? null,
       };
     })
     .filter(Boolean);
 }
 
-export default function PromoCodeFormPage() {
+export default function PromoCodeFormPage({ readOnly = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
-  const isEdit = Boolean(id);
+  const isEdit = Boolean(id) && !readOnly && /\/edit$/.test(location.pathname);
   const listPath = marketingSectionPath(location.pathname, 'promo-codes');
 
   const [form, setForm] = useState(emptyPromoForm);
@@ -79,7 +80,7 @@ export default function PromoCodeFormPage() {
   const [catalogServices, setCatalogServices] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState(true);
-  const [loadingRecord, setLoadingRecord] = useState(isEdit);
+  const [loadingRecord, setLoadingRecord] = useState(isEdit || readOnly);
   const [optionsError, setOptionsError] = useState('');
   const [recordError, setRecordError] = useState('');
   const [formError, setFormError] = useState('');
@@ -146,7 +147,7 @@ export default function PromoCodeFormPage() {
   }, []);
 
   useEffect(() => {
-    if (!isEdit || loadingOptions) return undefined;
+    if (!isEdit && !readOnly) return undefined;
 
     let cancelled = false;
 
@@ -175,98 +176,10 @@ export default function PromoCodeFormPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, isEdit, loadingOptions, workshops]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadCatalog = async () => {
-      if (branchIdsForCatalog.length === 0) {
-        return;
-      }
-
-      setCatalogLoading(true);
-      try {
-        const [productRes, optionsRes] = await Promise.all([
-          marketingListTargetProducts({
-            branchIds: branchIdsForCatalog.join(','),
-            limit: 200,
-            offset: 0,
-          }).catch(() => null),
-          marketingGetPromoCodeOptions().catch(() => null),
-        ]);
-
-        if (cancelled) return;
-
-        const scopedProducts = normalizeCatalogRows(
-          productRes?.products ?? productRes?.items ?? productRes?.data,
-          'products',
-        );
-
-        const allProducts = normalizeCatalogRows(
-          optionsRes?.products,
-          'products',
-        );
-        const allServices = normalizeCatalogRows(
-          optionsRes?.services,
-          'services',
-        );
-
-        setCatalogProducts(
-          scopedProducts.length > 0 ? scopedProducts : allProducts,
-        );
-        setCatalogServices(allServices);
-      } finally {
-        if (!cancelled) setCatalogLoading(false);
-      }
-    };
-
-    loadCatalog();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [branchIdsForCatalog.join('|')]);
-
-  useEffect(() => {
-    if (catalogLoading) return undefined;
-    if (
-      branchIdsForCatalog.length > 0
-      && catalogProducts.length === 0
-      && catalogServices.length === 0
-    ) {
-      return undefined;
-    }
-    setForm((prev) => {
-      if (prev.productScope !== 'selected' && prev.serviceScope !== 'selected') {
-        return prev;
-      }
-      const validProductIds = new Set(
-        catalogProducts.map((p) => catalogItemId(p, 'products')).filter(Boolean),
-      );
-      const validServiceIds = new Set(
-        catalogServices.map((s) => catalogItemId(s, 'services')).filter(Boolean),
-      );
-      const productIds =
-        prev.productScope === 'selected'
-          ? prev.productIds.filter((id) => validProductIds.has(id))
-          : [];
-      const serviceIds =
-        prev.serviceScope === 'selected'
-          ? prev.serviceIds.filter((id) => validServiceIds.has(id))
-          : [];
-      if (
-        productIds.length === prev.productIds.length
-        && serviceIds.length === prev.serviceIds.length
-      ) {
-        return prev;
-      }
-      return { ...prev, productIds, serviceIds };
-    });
-    return undefined;
-  }, [catalogLoading, catalogProducts, catalogServices, branchIdsForCatalog.join('|')]);
+  }, [id, isEdit, readOnly, loadingOptions, workshops]);
 
   const handleSubmit = async (e) => {
+    if (readOnly) return;
     e.preventDefault();
     setFormError('');
 
@@ -315,11 +228,13 @@ export default function PromoCodeFormPage() {
 
   return (
     <MarketingFormShell
-      title={isEdit ? 'Edit Promo Code' : 'Create Promo Code'}
+      title={readOnly ? 'View Promo Code' : isEdit ? 'Edit Promo Code' : 'Create Promo Code'}
       subtitle={
-        isEdit
-          ? 'Discount rules, branch scope, and catalog eligibility.'
-          : 'Requires cashier to enter this code at POS. Does not auto-apply on invoices.'
+        readOnly
+          ? 'Full promo code configuration (read-only).'
+          : isEdit
+            ? 'Discount rules, branch scope, and catalog eligibility.'
+            : 'Requires cashier to enter this code at POS. Does not auto-apply on invoices.'
       }
       backLabel="Back to Promo Codes"
       onBack={goBack}
@@ -336,6 +251,7 @@ export default function PromoCodeFormPage() {
         <div className="mk-code-error-banner">{optionsError}</div>
       ) : (
         <form onSubmit={handleSubmit} className="mkp-form-page-body ws-promo-form-body" noValidate>
+          <fieldset disabled={readOnly} style={{ border: 'none', margin: 0, padding: 0, minWidth: 0 }}>
           <div className="ws-section" style={{ padding: 20, background: '#fff', borderRadius: 12 }}>
             <PromoCodeFormFields
               form={form}
@@ -372,8 +288,9 @@ export default function PromoCodeFormPage() {
                 className="btn-secondary"
                 disabled={submitting}
               >
-                Cancel
+                {readOnly ? 'Close' : 'Cancel'}
               </button>
+              {!readOnly ? (
               <button
                 type="submit"
                 className="btn-submit"
@@ -392,8 +309,10 @@ export default function PromoCodeFormPage() {
                   'Create Promo'
                 )}
               </button>
+              ) : null}
             </div>
           </div>
+          </fieldset>
         </form>
       )}
     </MarketingFormShell>

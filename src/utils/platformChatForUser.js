@@ -5,6 +5,7 @@ import {
     corporatePlatformChatApi,
     technicianPlatformChatApi,
     cashierPlatformChatApi,
+    marketingPlatformChatApi,
 } from '../services/platformChatApi';
 
 const CHAT_USER_TYPES = new Set([
@@ -15,6 +16,7 @@ const CHAT_USER_TYPES = new Set([
     'corporate_user',
     'technician_user',
     'cashier_user',
+    'marketing_user',
 ]);
 
 export function isPlatformChatUser(user) {
@@ -37,6 +39,8 @@ export function resolvePlatformChatApi(user) {
             return technicianPlatformChatApi;
         case 'cashier_user':
             return cashierPlatformChatApi;
+        case 'marketing_user':
+            return marketingPlatformChatApi;
         default:
             return null;
     }

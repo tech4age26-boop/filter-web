@@ -31,6 +31,7 @@ import PlatformChatVoicePlayer from './PlatformChatVoicePlayer';
 import PlatformChatMessageStatus from './PlatformChatMessageStatus';
 import PlatformChatWalletPlusMenu from '../../components/platform-chat/PlatformChatWalletPlusMenu';
 import PlatformChatWalletActionModals from '../../components/platform-chat/PlatformChatWalletActionModals';
+import { marketingMyWalletApi } from '../../services/marketingMyWalletApi';
 import {
     PlatformChatWalletMessage,
     isWalletChatMessage,
@@ -524,6 +525,10 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
         }
         if (chatConfig.id === 'workshop' && onExit) {
             onExit();
+            return;
+        }
+        if (chatConfig.id === 'marketing' && onExit) {
+            onExit();
         }
     }, [canViewChat, chatConfig.id, navigate, onExit, user]);
 
@@ -598,7 +603,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
 
     useEffect(() => {
         if (loading || openChatHandledRef.current) return;
-        if (chatConfig.id !== 'admin' && chatConfig.id !== 'workshop') return;
+        if (chatConfig.id !== 'admin' && chatConfig.id !== 'workshop' && chatConfig.id !== 'marketing') return;
         const state = location.state;
         if (!state?.openConversationId && !state?.openUserId) return;
 
@@ -958,6 +963,33 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
         if (mode === NEW_CHAT_MODES.GROUP_WORKSHOP) loadWorkshopList('');
     };
 
+    useEffect(() => {
+        if (!newChatOpen) return undefined;
+        const searchableModes = [
+            NEW_CHAT_MODES.ADMIN,
+            NEW_CHAT_MODES.SUPPLIER,
+            NEW_CHAT_MODES.CORPORATE,
+            NEW_CHAT_MODES.STAFF,
+            NEW_CHAT_MODES.WORKSHOP_TEAM,
+        ];
+        if (!searchableModes.includes(newChatMode)) return undefined;
+
+        const timer = setTimeout(() => {
+            const q = contactSearch.trim();
+            if (newChatMode === NEW_CHAT_MODES.ADMIN) loadAdminContacts(q);
+            else if (newChatMode === NEW_CHAT_MODES.SUPPLIER) loadSupplierContacts(q);
+            else if (newChatMode === NEW_CHAT_MODES.CORPORATE) loadCorporateContacts(q);
+            else if (newChatMode === NEW_CHAT_MODES.STAFF) loadStaffContacts(q);
+            else if (newChatMode === NEW_CHAT_MODES.WORKSHOP_TEAM) {
+                loadWorkshopTeamContacts(q, workshopRole);
+            }
+        }, 300);
+
+        return () => clearTimeout(timer);
+        // load* helpers are stable enough for contact picker debounce
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [contactSearch, newChatMode, newChatOpen, workshopRole]);
+
     const mergeGroupMembers = (items) => {
         setGroupMembers((prev) => {
             const map = new Map(prev.map((m) => [String(m.userId), m]));
@@ -1052,11 +1084,19 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
         const createPerm = chatConfig.createPermission ?? 'chat.create';
         const canWalletCreate = hasPermission(createPerm);
 
-        // Wallet-enabled user ↔ Super Admin support chat (admin or workshop portal)
+        const isMarketingWalletChat =
+            chatConfig.id === 'marketing'
+            && Boolean(user?.walletEnabled)
+            && other.userType === 'platform_admin';
+
+        // Wallet-enabled user ↔ Super Admin support chat (admin, workshop, or marketing portal)
         const isWalletUserSupportChat =
-            Boolean(user?.walletEnabled)
-            && other.userType === 'platform_admin'
-            && (chatConfig.id === 'admin' || chatConfig.id === 'workshop');
+            (
+                Boolean(user?.walletEnabled)
+                && other.userType === 'platform_admin'
+                && (chatConfig.id === 'admin' || chatConfig.id === 'workshop')
+            )
+            || isMarketingWalletChat;
 
         if (isWalletUserSupportChat) {
             return {
@@ -1081,7 +1121,12 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             canApproveExpense: hasPermission('approvals.admin-wallet-expense-request.approve'),
             canRejectExpense: hasPermission('approvals.admin-wallet-expense-request.reject'),
         };
-    }, [chatConfig.id, chatConfig.createPermission, activeConversation, user?.walletEnabled, hasPermission]);
+    }, [chatConfig.id, chatConfig.createPermission, activeConversation, user?.walletEnabled, user?.sessionPortal, hasPermission]);
+
+    const walletPlusMenuProps = useMemo(() => ({
+        skipWorkshopFields: Boolean(chatConfig.skipWorkshopWalletFields),
+        walletApi: chatConfig.id === 'marketing' ? marketingMyWalletApi : undefined,
+    }), [chatConfig.id, chatConfig.skipWorkshopWalletFields]);
 
     const renderNewChatModal = () => {
         if (!newChatOpen) return null;
@@ -1337,17 +1382,9 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 </div>
                                 <input
                                     className="platform-chat-search"
-                                    placeholder="Search…"
+                                    placeholder="Type to search…"
                                     value={contactSearch}
                                     onChange={(e) => setContactSearch(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            if (newChatMode === NEW_CHAT_MODES.SUPPLIER) loadSupplierContacts(contactSearch);
-                                            else if (newChatMode === NEW_CHAT_MODES.CORPORATE) loadCorporateContacts(contactSearch);
-                                            else if (newChatMode === NEW_CHAT_MODES.ADMIN) loadAdminContacts(contactSearch);
-                                            else loadStaffContacts(contactSearch);
-                                        }
-                                    }}
                                 />
                                 <div className="platform-chat-contact-list">
                                     {contactsLoading ? (
@@ -1976,6 +2013,9 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                             disabled={sending}
                                             onMessageSent={appendWalletChatMessage}
                                             onError={(msg) => setError(msg)}
+                                            skipWorkshopFields={walletPlusMenuProps.skipWorkshopFields}
+                                            walletApi={walletPlusMenuProps.walletApi}
+                                            expenseCategoryOptions={walletPlusMenuProps.expenseCategoryOptions}
                                         />
                                     )}
                                     <div

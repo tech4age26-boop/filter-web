@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import UserProfileMenu from '../components/UserProfileMenu';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,14 +20,22 @@ import {
     Tags,
     Award,
     Plug,
+    MessageCircle,
+    BadgeDollarSign,
+    ChevronDown,
 } from 'lucide-react';
 
 import '../styles/AdminLayout.css';
+import '../styles/admin/PlatformChat.css';
 import './marketing/Marketing.css';
 import { useMarketingState } from './marketing/MarketingUtils';
 import { getWorkshops } from '../services/superAdminApi';
 import { marketingGetWallet } from '../services/superAdminMarketingApi';
 import { useAuth } from '../context/AuthContext';
+import MarketingPlatformChatPage from './marketing/MarketingPlatformChatPage';
+import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
+import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import { isPlatformChatNavId } from '../utils/platformChatForUser';
 
 function resolveSessionUserLabel(user) {
     if (!user) {
@@ -117,6 +125,9 @@ const PAGE_TITLES = {
     'marketing-promotions': 'Promotions',
     'promo-codes': 'Promo Codes',
     'tier-management': 'Tier Management',
+    chat: 'Chat',
+    'sales-reports': 'Sales Reports',
+    'sales-orders': 'Sales Orders',
 };
 
 function getPageTitle(pathname) {
@@ -154,6 +165,8 @@ const NAV_CONFIG = [
         section: null,
         items: [
             { label: 'Dashboard', path: 'dashboard', icon: LayoutDashboard },
+            { label: 'My Wallet', path: 'my-wallet', icon: Wallet, walletRequired: true },
+            { label: 'Chat', path: 'chat', icon: MessageCircle, navId: 'chat' },
         ],
     },
     {
@@ -168,6 +181,15 @@ const NAV_CONFIG = [
         items: [
             { label: 'Marketing Wallet', path: 'referral-management', icon: Wallet },
             { label: 'Expenses', path: 'expenses', icon: FileText },
+            {
+                label: 'Sales',
+                path: 'sales',
+                icon: BadgeDollarSign,
+                subItems: [
+                    { label: 'Sales Reports', path: 'sales-reports' },
+                    { label: 'Sales Orders', path: 'sales-orders' },
+                ],
+            },
         ],
     },
     {
@@ -199,6 +221,50 @@ const NAV_CONFIG = [
 ];
 
 const SidebarNavItem = ({ item, basePath }) => {
+    const location = useLocation();
+    const [open, setOpen] = useState(false);
+    const hasSub = Array.isArray(item.subItems) && item.subItems.length > 0;
+    const parentPrefix = `${basePath}/${item.path}`;
+    const isParentActive = hasSub
+        ? item.subItems.some((sub) => location.pathname.startsWith(`${basePath}/${sub.path}`))
+        : false;
+
+    useEffect(() => {
+        if (isParentActive) setOpen(true);
+    }, [isParentActive]);
+
+    if (hasSub) {
+        return (
+            <div className="mk-sidebar-nav-item mk-sidebar-nav-item--parent">
+                <button
+                    type="button"
+                    className={`mk-sidebar-link mk-sidebar-link--parent ${isParentActive ? 'active' : ''}`}
+                    onClick={() => setOpen((v) => !v)}
+                >
+                    <item.icon size={12} strokeWidth={2} />
+                    <span>{item.label}</span>
+                    <ChevronDown size={12} className={`mk-sidebar-chevron ${open ? 'open' : ''}`} />
+                </button>
+                {open && (
+                    <div className="mk-sidebar-subnav">
+                        {item.subItems.map((sub) => (
+                            <NavLink
+                                key={sub.path}
+                                to={`${basePath}/${sub.path}`}
+                                className={({ isActive }) =>
+                                    `mk-sidebar-sublink ${isActive ? 'active' : ''}`
+                                }
+                            >
+                                <span className="mk-sidebar-subdot" />
+                                <span>{sub.label}</span>
+                            </NavLink>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     return (
         <div className="mk-sidebar-nav-item">
             <NavLink
@@ -209,6 +275,7 @@ const SidebarNavItem = ({ item, basePath }) => {
             >
                 <item.icon size={12} strokeWidth={2} />
                 <span>{item.label}</span>
+                {isPlatformChatNavId(item.navId || item.path) && <PlatformChatNavBadge />}
             </NavLink>
         </div>
     );
@@ -310,6 +377,26 @@ export default function MarketingLayout() {
         ? '/admin/marketing'
         : '/marketing';
 
+    const visibleNavConfig = useMemo(
+        () => NAV_CONFIG.map((sec) => ({
+            ...sec,
+            items: sec.items.filter((item) => {
+                if (item.walletRequired) return Boolean(user?.walletEnabled);
+                return true;
+            }),
+        })).filter((sec) => sec.items.length > 0),
+        [user?.walletEnabled],
+    );
+    const isChatRoute = location.pathname.includes('/chat');
+
+    if (isChatRoute) {
+        return (
+            <div className="portal-layout--chat-fullscreen">
+                <MarketingPlatformChatPage />
+            </div>
+        );
+    }
+
     return (
         <div
             className={`marketing-layout-root ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}
@@ -352,7 +439,7 @@ export default function MarketingLayout() {
                 </div>
 
                 <nav className="marketing-sidebar-nav">
-                    {NAV_CONFIG.map((sec, index) => (
+                    {visibleNavConfig.map((sec, index) => (
                         <div key={sec.section || `main-${index}`} className="marketing-nav-section">
                             {sec.section ? (
                                 <div className="marketing-section-label">{sec.section}</div>
@@ -647,6 +734,59 @@ export default function MarketingLayout() {
                         text-overflow: ellipsis;
                     }
 
+                    .mk-sidebar-link--parent {
+                        width: 100%;
+                        border: none;
+                        background: transparent;
+                        cursor: pointer;
+                        text-align: left;
+                    }
+
+                    .mk-sidebar-chevron {
+                        margin-left: auto;
+                        transition: transform 0.2s ease;
+                    }
+
+                    .mk-sidebar-chevron.open {
+                        transform: rotate(180deg);
+                    }
+
+                    .mk-sidebar-subnav {
+                        padding: 2px 0 4px 18px;
+                    }
+
+                    .mk-sidebar-sublink {
+                        height: 28px;
+                        border-radius: 3px;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        padding: 0 8px;
+                        color: #111827;
+                        text-decoration: none;
+                        font-size: 11.5px;
+                        font-weight: 500;
+                    }
+
+                    .mk-sidebar-sublink:hover {
+                        background: rgba(0, 0, 0, 0.08);
+                    }
+
+                    .mk-sidebar-sublink.active {
+                        background: var(--sidebar-active-bg);
+                        color: var(--sidebar-text-active);
+                        font-weight: 600;
+                    }
+
+                    .mk-sidebar-subdot {
+                        width: 4px;
+                        height: 4px;
+                        border-radius: 50%;
+                        background: currentColor;
+                        opacity: 0.55;
+                        flex-shrink: 0;
+                    }
+
                     .marketing-user-row {
                         height: 50px;
                         border-top: 1px solid rgba(17, 24, 39, 0.08);
@@ -851,6 +991,11 @@ export default function MarketingLayout() {
                     }
                 `}
             </style>
+
+            <PlatformChatFab
+                hidden={isChatRoute}
+                onClick={() => navigate(`${marketingBasePath}/chat`)}
+            />
         </div>
     );
 }
