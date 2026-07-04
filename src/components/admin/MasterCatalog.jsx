@@ -276,22 +276,30 @@ const catalogCreatedAtSortMs = (iso) => {
 };
 
 const PRODUCT_CSV_COLUMNS = [
-    'Product',
-    'Arabic Name',
-    'Brand',
-    'SKU',
-    'Description',
-    'Allow Decimal Qty',
-    'Department',
-    'Category',
-    'UOM',
-    'Supply Price Inclusive VAT 15%',
-    'Sale Price Inclusive VAT 15%',
-    'Min Corporate Price',
-    'Max Corporate price',
-    'Department ID',
-    'Category ID',
-    'Sale Price Enclusive VAT 15%',
+    'id',
+    'department_id',
+    'department_name',
+    'category_id',
+    'category_name',
+    'name',
+    'arabic_name',
+    'sku',
+    'brand_name',
+    'description',
+    'unit',
+    'warehouse_unit',
+    'workshop_unit',
+    'conversion_factor',
+    'purchase_price',
+    'sale_price',
+    'sale_price_before_vat',
+    'km_type_value',
+    'allow_decimal_qty',
+    'is_active',
+    'min_price_corporate',
+    'max_price_corporate',
+    'is_price_editable',
+    'min_price_editable',
 ];
 
 /** Must match `Services.csv` header and backend `SERVICE_CSV_CANONICAL_HEADERS` (order + spelling). */
@@ -2418,17 +2426,6 @@ export default function MasterCatalog() {
                 </div>
                 <div className="mc-header-actions">
                     <button type="button" className="mc-btn-ghost"><RefreshCw size={16} /> Sync Depts</button>
-                    {hasPermission('inventory.master-catalog.products.view') && (
-                        <button
-                            type="button"
-                            className="mc-btn-ghost"
-                            onClick={handleExportProductsCsv}
-                            disabled={productsExporting}
-                            title="Export all catalog products as CSV"
-                        >
-                            <Download size={16} /> {productsExporting ? 'Exporting…' : 'Export CSV'}
-                        </button>
-                    )}
                     {hasPermission('inventory.master-catalog.products.create') && (
                         <button type="button" className="mc-btn-ghost" onClick={() => setIsBulkProductModalOpen(true)}>
                             <Upload size={16} /> Bulk upload Product
@@ -3668,16 +3665,15 @@ export default function MasterCatalog() {
                                 <Box size={18} />
                                 <strong>Upload Format</strong>
                             </div>
-                            <p>Upload a CSV file with columns: <strong>{PRODUCT_CSV_COLUMNS.join(', ')}</strong></p>
+                            <p>Upload a CSV with the same columns as catalog export, except <strong>created_at</strong> and <strong>updated_at</strong>. Leave <strong>id</strong> blank for new products.</p>
                             <div className="mc-bulk-bullets">
-                                <span>• Use the same column names and order as the downloaded template</span>
-                                <span>• Column names are case-sensitive and must match exactly</span>
-                                <span>• Keep the header row unchanged when preparing your upload file</span>
-                                <span>• Import runs row-by-row; successful rows are kept if others fail or skip (no whole-file rollback)</span>
+                                <span>• Column names: <strong>{PRODUCT_CSV_COLUMNS.join(', ')}</strong></span>
+                                <span>• Use department_id / category_id; names must match if provided</span>
+                                <span>• Duplicate SKUs are skipped; import runs row-by-row</span>
                             </div>
                         </div>
 
-                        <a className="mc-template-btn dashed" href={productsCsvTemplate} download="Products.csv">
+                        <a className="mc-template-btn dashed" href={productsCsvTemplate} download="master-catalog-products-template.csv">
                             <Download size={18} /> Download CSV Template (with sample data)
                         </a>
 
