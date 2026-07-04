@@ -304,6 +304,22 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-shrink: 0;
+}
+
+.mc-filter-selects .mc-select-wrapper {
+    width: auto;
+    min-width: 160px;
+}
+
+.mc-filter-selects .mc-items-count {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.mc-filter-selects .mc-btn-ghost {
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .mc-select-wrapper {
