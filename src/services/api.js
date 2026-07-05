@@ -1,8 +1,6 @@
 // Dev: `.env.development` → VITE_API_BASE_URL=http://localhost:3000
 // Prod build: falls back to Railway when env is unset.
-export const BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  'https://filterbackend-production.up.railway.app';
+export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
