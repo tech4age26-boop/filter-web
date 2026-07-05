@@ -1,13 +1,8 @@
-// staging url
-//export const BASE_URL = 'https://filterbackend-production.up.railway.app';
-// staging url (production default when VITE_API_BASE_URL is unset)
-export const BASE_URL  = 'https://filterbackend-production.up.railway.app';
-
-// production url
-//export const BASE_URL  = 'https://api.filtercarservices.com';
-
-// development url
-//export const BASE_URL = 'http://localhost:3000';
+// Dev: `.env.development` → VITE_API_BASE_URL=http://localhost:3000
+// Prod build: falls back to Railway when env is unset.
+export const BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://filterbackend-production.up.railway.app';
 
 const API_LOADING_EVENT = 'filter-api-loading';
 

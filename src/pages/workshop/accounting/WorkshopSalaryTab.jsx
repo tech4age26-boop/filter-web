@@ -20,6 +20,27 @@ const fmt = (n) => {
     return x.toLocaleString('en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+const ackBadge = (status, ackAt) => {
+    const s = String(status || 'pending').toLowerCase();
+    if (s === 'accepted') {
+        const when = ackAt ? new Date(ackAt).toLocaleString() : '';
+        return (
+            <span className="status-badge approved" title={when || undefined}>
+                Accepted{when ? ` · ${when}` : ''}
+            </span>
+        );
+    }
+    if (s === 'rejected') {
+        const when = ackAt ? new Date(ackAt).toLocaleString() : '';
+        return (
+            <span className="status-badge pending" style={{ background: '#FEE2E2', color: '#B91C1C' }} title={when || undefined}>
+                Rejected{when ? ` · ${when}` : ''}
+            </span>
+        );
+    }
+    return <span className="status-badge pending">Awaiting technician</span>;
+};
+
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const listBasicSalary = (emp) => {
@@ -82,6 +103,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
     const [employees, setEmployees] = useState([]);
     const [accounts, setAccounts] = useState([]);
     const [recent, setRecent] = useState([]);
+    const [recentLoading, setRecentLoading] = useState(false);
     const [loadingLookups, setLoadingLookups] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [msg, setMsg] = useState('');
@@ -103,6 +125,18 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
         [employees],
     );
 
+    const loadRecentPayments = useCallback(async () => {
+        setRecentLoading(true);
+        try {
+            const salRes = await getRecentWorkshopSalaryPayroll({ limit: 50 });
+            setRecent(salRes?.list ?? []);
+        } catch (e) {
+            setError(e?.message || 'Could not refresh recent salary payments.');
+        } finally {
+            setRecentLoading(false);
+        }
+    }, []);
+
     const loadLookups = useCallback(async () => {
         setLoadingLookups(true);
         try {
@@ -122,6 +156,20 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
     }, [branchParams]);
 
     useEffect(() => { loadLookups(); }, [loadLookups]);
+
+    useEffect(() => {
+        const refreshOnFocus = () => {
+            if (document.visibilityState === 'visible') {
+                loadRecentPayments();
+            }
+        };
+        document.addEventListener('visibilitychange', refreshOnFocus);
+        window.addEventListener('focus', refreshOnFocus);
+        return () => {
+            document.removeEventListener('visibilitychange', refreshOnFocus);
+            window.removeEventListener('focus', refreshOnFocus);
+        };
+    }, [loadRecentPayments]);
 
     const loadPreview = async (idx, { id, recordType }) => {
         if (!id || !period) return;
@@ -304,6 +352,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                 setMsg(`Posted ${saved} salary payment(s). Total net SAR ${fmt(res?.totalNet ?? totals.net)}. Journal entries created.`);
                 setRows([emptyRow()]);
                 await loadLookups();
+                await loadRecentPayments();
             }
         } catch (e) {
             setError(e?.message || 'Could not post salary payroll.');
@@ -514,6 +563,16 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                 <header style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Banknote size={16} />
                     <strong>Recent Salary Payments</strong>
+                    <button
+                        type="button"
+                        className="btn-portal-outline"
+                        disabled={recentLoading}
+                        onClick={loadRecentPayments}
+                        style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 12 }}
+                    >
+                        <RefreshCw size={14} style={{ marginRight: 6 }} />
+                        {recentLoading ? 'Refreshing…' : 'Refresh status'}
+                    </button>
                 </header>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
@@ -527,6 +586,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                             <th className="table-th">Deductions</th>
                             <th className="table-th">Net paid</th>
                             <th className="table-th">Pay from</th>
+                            <th className="table-th">Technician</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -543,6 +603,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                                 <td className="table-cell">SAR {fmt(s.totalDeductions ?? (Number(s.advanceDeduction || 0) + Number(s.penalties || 0)))}</td>
                                 <td className="table-cell" style={{ fontWeight: 700 }}>SAR {fmt(s.netSalary)}</td>
                                 <td className="table-cell">{s.payFromAccountName ?? '—'}</td>
+                                <td className="table-cell">{ackBadge(s.technicianAckStatus, s.technicianAckAt)}</td>
                             </tr>
                         ))}
                     </tbody>

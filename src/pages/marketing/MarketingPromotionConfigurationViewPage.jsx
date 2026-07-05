@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { CalendarDays, CheckCircle2, Gift, Layers3, Loader2, Megaphone, ReceiptText } from 'lucide-react';
 import { marketingGetPromotion } from '../../services/superAdminMarketingApi';
 import { PROMO_APPLICATION_RULES } from '../../components/promo/PromoCodeFormFields';
+import { buildPromoApplicationRequirements } from '../../components/promo/promoApplicationRequirements';
 import { MarketingFormShell } from './MarketingFormShell';
 import {
   alignStoredIdsWithOptions,
@@ -216,6 +217,18 @@ export default function MarketingPromotionConfigurationViewPage() {
     ...labelsFromIds(form.rewardProductCategoryIds, rewardProductCategoryMap),
     ...labelsFromIds(form.rewardServiceCategoryIds, rewardServiceCategoryMap),
   ];
+  const requirementLines = buildPromoApplicationRequirements({
+    selectedItemMatchMode: form.selectedItemMatchMode,
+    selectedServiceRequired: form.selectedServiceRequired !== false,
+    productScope: form.productScope,
+    serviceScope: form.serviceScope,
+    productIds: form.productTriggerIds,
+    serviceIds: form.serviceTriggerIds,
+    productCategoryIds: form.productCategoryTriggerIds,
+    serviceCategoryIds: form.serviceCategoryTriggerIds,
+    products: lookups.triggerItems?.filter((item) => item.itemKind !== 'service') ?? [],
+    services: lookups.triggerItems?.filter((item) => item.itemKind === 'service') ?? [],
+  });
 
   return (
     <MarketingFormShell
@@ -265,6 +278,28 @@ export default function MarketingPromotionConfigurationViewPage() {
               ) : null}
             </div>
           </div>
+          {requirementLines.length > 0 ? (
+            <div className="mk-config-requirements">
+              <strong>Requirements to apply this promo</strong>
+              <ul className="mk-config-requirements-list">
+                {requirementLines.map((line, index) => {
+                  if (line.type === 'heading') {
+                    return <li key={index} className="mk-config-req-heading">{line.text}</li>;
+                  }
+                  if (line.type === 'subheading') {
+                    return <li key={index} className="mk-config-req-subheading">{line.text}</li>;
+                  }
+                  if (line.type === 'note') {
+                    return <li key={index} className="mk-config-req-note">{line.text}</li>;
+                  }
+                  if (line.type === 'bullet') {
+                    return <li key={index} className="mk-config-req-bullet">{line.text}</li>;
+                  }
+                  return <li key={index}>{line.text}</li>;
+                })}
+              </ul>
+            </div>
+          ) : null}
         </ConfigCard>
 
         <ConfigCard icon={CalendarDays} title="Schedule & Limits">

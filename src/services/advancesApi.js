@@ -29,6 +29,21 @@ function withQuery(path, params = {}) {
     return qs ? `${path}?${qs}` : path;
 }
 
+export function normalizeSalaryAckFields(row) {
+    if (!row || typeof row !== 'object') return row;
+    return {
+        ...row,
+        technicianAckStatus:
+            row.technicianAckStatus ??
+            row.technician_ack_status ??
+            'pending',
+        technicianAckAt:
+            row.technicianAckAt ??
+            row.technician_ack_at ??
+            null,
+    };
+}
+
 export const getStats = () => apiFetch(withQuery('/advances-global/stats', {}));
 export const getAdvances = (params = {}) =>
     apiFetch(withQuery('/advances-global', params)).then(parseArr);
@@ -37,7 +52,9 @@ export const createAdvance = (body) =>
 export const bulkCreateAdvances = (body) =>
     apiFetch('/advances-global/bulk', { method: 'POST', body: JSON.stringify(mergeAccountingScopeBody(body)) });
 export const getSalaryPayments = (params = {}) =>
-    apiFetch(withQuery('/advances-global/salary-payments', params)).then(parseArr);
+    apiFetch(withQuery('/advances-global/salary-payments', params))
+        .then(parseArr)
+        .then((rows) => rows.map(normalizeSalaryAckFields));
 export const createSalaryPayment = (body) =>
     apiFetch('/advances-global/salary-payments', {
         method: 'POST',
@@ -78,8 +95,13 @@ export const postWorkshopSalaryPayroll = (body) =>
         body: JSON.stringify(mergeAccountingScopeBody(body)),
     });
 
-export const getRecentWorkshopSalaryPayroll = (params = {}) =>
-    apiFetch(withQuery('/workshop-staff/salary-payroll/recent', params));
+export const getRecentWorkshopSalaryPayroll = async (params = {}) => {
+    const res = await apiFetch(withQuery('/workshop-staff/salary-payroll/recent', params));
+    const list = Array.isArray(res?.list)
+        ? res.list.map(normalizeSalaryAckFields)
+        : [];
+    return { ...res, list };
+};
 
 export const getWorkshopEmployeeLedger = (employeeRecordId, params = {}) =>
     apiFetch(withQuery(`/workshop-staff/employee-ledger/${encodeURIComponent(String(employeeRecordId))}`, params));

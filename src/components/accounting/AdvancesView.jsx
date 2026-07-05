@@ -294,7 +294,7 @@ export default function AdvancesView({ readOnly = false }) {
                                     </>
                                 ) : (
                                     <>
-                                        <th className="table-th">DATE</th><th className="table-th">EMPLOYEE</th><th className="table-th">PERIOD</th><th className="table-th">GROSS SALARY</th><th className="table-th">ADVANCE DEDUCTED</th><th className="table-th">NET PAID</th><th className="table-th">METHOD</th><th className="table-th">STATUS</th>
+                                        <th className="table-th">DATE</th><th className="table-th">EMPLOYEE</th><th className="table-th">PERIOD</th><th className="table-th">GROSS SALARY</th><th className="table-th">ADVANCE DEDUCTED</th><th className="table-th">NET PAID</th><th className="table-th">METHOD</th><th className="table-th">STATUS</th><th className="table-th">TECHNICIAN</th>
                                     </>
                                 )}
                             </tr>
@@ -314,7 +314,7 @@ export default function AdvancesView({ readOnly = false }) {
                                     </tr>
                                 ))
                             ) : (
-                                filteredSalary.length === 0 ? <tr><td colSpan={8} className="table-cell table-empty">No salary payments found</td></tr> : filteredSalary.map((p) => (
+                                filteredSalary.length === 0 ? <tr><td colSpan={9} className="table-cell table-empty">No salary payments found</td></tr> : filteredSalary.map((p) => (
                                     <tr key={p.id} className="table-row">
                                         <td className="table-cell">{new Date(p.paymentDate).toLocaleDateString()}</td>
                                         <td className="table-cell" style={{ fontWeight: 700 }}>{p.employeeName}</td>
@@ -324,6 +324,14 @@ export default function AdvancesView({ readOnly = false }) {
                                         <td className="table-cell" style={{ color: '#10B981', fontWeight: 700 }}>SAR {Number(p.netSalary).toFixed(2)}</td>
                                         <td className="table-cell">{p.method}</td>
                                         <td className="table-cell"><span className="status-badge approved">{p.status}</span></td>
+                                        <td className="table-cell">
+                                            {(() => {
+                                                const s = String(p.technicianAckStatus || 'pending').toLowerCase();
+                                                if (s === 'accepted') return <span className="status-badge approved">Accepted</span>;
+                                                if (s === 'rejected') return <span className="status-badge pending" style={{ background: '#FEE2E2', color: '#B91C1C' }}>Rejected</span>;
+                                                return <span className="status-badge pending">Awaiting</span>;
+                                            })()}
+                                        </td>
                                     </tr>
                                 ))
                             )}
