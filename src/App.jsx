@@ -1,4 +1,5 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense } from 'react';
+import { lazyWithRetry } from './utils/lazyWithRetry';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import SignInPage from './pages/SignInPage';
 import AdminLayout from './pages/AdminLayout';
@@ -75,8 +76,8 @@ import ReferrerFormPage from './pages/marketing/ReferrerFormPage';
 import ReferrerCommissionRuleFormPage from './pages/marketing/ReferrerCommissionRuleFormPage';
 import ReferrerPayoutFormPage from './pages/marketing/ReferrerPayoutFormPage';
 
-const WorkshopLayout = lazy(() => import('./pages/WorkshopLayout'));
-const SupplierLayout = lazy(() => import('./pages/SupplierLayout'));
+const WorkshopLayout = lazyWithRetry(() => import('./pages/WorkshopLayout'));
+const SupplierLayout = lazyWithRetry(() => import('./pages/SupplierLayout'));
 import CorporateLayout from './pages/CorporateLayout';
 import ReferralLayout from './pages/ReferralLayout';
 import TechnicianLayout from './pages/TechnicianLayout';
