@@ -1,4 +1,5 @@
 import React from 'react';
+import { isChunkLoadError } from '../utils/lazyWithRetry';
 
 export default class AppErrorBoundary extends React.Component {
     constructor(props) {
@@ -16,6 +17,8 @@ export default class AppErrorBoundary extends React.Component {
 
     render() {
         if (this.state.error) {
+            const staleChunk = isChunkLoadError(this.state.error);
+            const isDev = import.meta.env.DEV;
             return (
                 <div style={{
                     minHeight: '100vh',
@@ -37,11 +40,14 @@ export default class AppErrorBoundary extends React.Component {
                     }}
                     >
                         <h1 style={{ margin: '0 0 8px', fontSize: 20, color: '#0f172a' }}>
-                            Something went wrong
+                            {staleChunk ? 'App update available' : 'Something went wrong'}
                         </h1>
                         <p style={{ margin: '0 0 16px', color: '#64748b', lineHeight: 1.5 }}>
-                            The page crashed while loading. Try a hard refresh (Ctrl+Shift+R).
-                            If it keeps happening, restart the frontend dev server on port 3002.
+                            {staleChunk
+                                ? 'A new version was deployed while this tab was open. Reload to load the latest files.'
+                                : isDev
+                                    ? 'The page crashed while loading. Try a hard refresh (Ctrl+Shift+R). If it keeps happening, restart the frontend dev server.'
+                                    : 'The page crashed while loading. Try a hard refresh (Ctrl+Shift+R or Cmd+Shift+R).'}
                         </p>
                         <pre style={{
                             margin: 0,
@@ -58,7 +64,10 @@ export default class AppErrorBoundary extends React.Component {
                         </pre>
                         <button
                             type="button"
-                            onClick={() => window.location.reload()}
+                            onClick={() => {
+                                sessionStorage.removeItem('filter_chunk_reload');
+                                window.location.reload();
+                            }}
                             style={{
                                 marginTop: 16,
                                 padding: '10px 16px',
