@@ -12,6 +12,70 @@ import QRCode from 'qrcode';
 import { buildZatcaPhase2QrPayloadFromInvoice } from '../../utils/zatcaQr';
 import './WorkshopPurchaseInvoiceView.css';
 
+/** Capture width tuned to A4 portrait (595.28pt page at 96dpi). */
+export const WPI_PDF_CAPTURE_WIDTH = 750;
+
+const WPI_PDF_MARGIN_PT = 8;
+
+async function waitForCaptureImages(root) {
+    if (!root) return;
+    const imgs = root.querySelectorAll('img');
+    await Promise.all(
+        [...imgs].map((img) =>
+            img.complete
+                ? Promise.resolve()
+                : new Promise((resolve) => {
+                      img.addEventListener('load', resolve, { once: true });
+                      img.addEventListener('error', resolve, { once: true });
+                  }),
+        ),
+    );
+    if (document.fonts?.ready) {
+        await document.fonts.ready.catch(() => {});
+    }
+    await new Promise((r) => setTimeout(r, 80));
+}
+
+/** Shrink-wrap height — avoids inflated scrollHeight from watermark / fixed mounts. */
+function measureCaptureHeight(el) {
+    if (!el) return 1;
+    const prevHeight = el.style.height;
+    const prevMinHeight = el.style.minHeight;
+    el.style.height = 'auto';
+    el.style.minHeight = '0';
+    void el.offsetHeight;
+    const h = Math.ceil(el.getBoundingClientRect().height);
+    el.style.height = prevHeight;
+    el.style.minHeight = prevMinHeight;
+    return Math.max(h, 1);
+}
+
+/** Fit invoice raster on one A4 page — max size, footer anchored to page bottom. */
+async function buildA4PdfFromPng(imgData, dims) {
+    const { jsPDF } = await import('jspdf');
+    const pageWidth = 595.28;
+    const pageHeight = 841.89;
+    const margin = WPI_PDF_MARGIN_PT;
+    const usableW = pageWidth - margin * 2;
+    const usableH = pageHeight - margin * 2;
+    const aspect = dims.h / dims.w;
+
+    let displayW = usableW;
+    let displayH = displayW * aspect;
+
+    if (displayH > usableH) {
+        displayH = usableH;
+        displayW = displayH / aspect;
+    }
+
+    const offsetX = margin + (usableW - displayW) / 2;
+    const offsetY = margin + usableH - displayH;
+
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait', compress: true });
+    pdf.addImage(imgData, 'PNG', offsetX, offsetY, displayW, displayH, undefined, 'FAST');
+    return pdf;
+}
+
 function money(n, currency = 'SAR') {
     const v = Number(n);
     if (!Number.isFinite(v)) return `—`;
@@ -596,56 +660,44 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
         paid,
     ]);
 
-    /** Same raster → jsPDF pipeline as toolbar "Download PDF" (throws on failure). */
+    /** Raster invoice sheet → A4 PDF (throws on failure). */
     const captureInvoicePdf = useCallback(async () => {
         const el = printRootRef.current;
         if (!el) throw new Error('Invoice preview is not ready.');
-        const hadCompact = el.classList.contains('wpi-view--compact');
-        if (hadCompact) el.classList.remove('wpi-view--compact');
         el.classList.add('wpi-view--pdf-capture');
         try {
-            const [{ toPng }, { jsPDF }] = await Promise.all([
-                import('html-to-image'),
-                import('jspdf'),
-            ]);
-            const imgData = await toPng(el, {
-                backgroundColor: '#eceff1',
-                pixelRatio: Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 2 : 2),
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+            const captureEl = el.querySelector('.wpi-view__sheet') || el;
+            await waitForCaptureImages(captureEl);
+
+            const { toPng } = await import('html-to-image');
+            const captureWidth = WPI_PDF_CAPTURE_WIDTH;
+            const captureHeight = measureCaptureHeight(captureEl);
+
+            const imgData = await toPng(captureEl, {
+                backgroundColor: '#ffffff',
+                pixelRatio: 2,
                 cacheBust: true,
-                filter: (node) => {
-                    if (!(node instanceof HTMLElement)) return true;
-                    if (node.classList.contains('wpi-view__toolbar')) return false;
-                    if (node.classList.contains('wpi-view__btn-download')) return false;
-                    return true;
+                width: captureWidth,
+                height: captureHeight,
+                style: {
+                    overflow: 'hidden',
+                    width: `${captureWidth}px`,
+                    maxWidth: `${captureWidth}px`,
+                    height: `${captureHeight}px`,
+                    minHeight: '0',
+                    backgroundColor: '#ffffff',
                 },
             });
+
             const dims = await new Promise((resolve, reject) => {
                 const img = new Image();
                 img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
                 img.onerror = () => reject(new Error('Invalid PNG from capture'));
                 img.src = imgData;
             });
-            const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
-            const pageWidth = pdf.internal.pageSize.getWidth();
-            const pageHeight = pdf.internal.pageSize.getHeight();
-            const margin = 28;
-            const usableW = pageWidth - margin * 2;
-            const usableH = pageHeight - margin * 2;
-            const imgDisplayHeight = (dims.h * usableW) / dims.w;
 
-            if (imgDisplayHeight <= usableH) {
-                pdf.addImage(imgData, 'PNG', margin, margin, usableW, imgDisplayHeight);
-            } else {
-                let heightLeft = imgDisplayHeight;
-                let position = 0;
-                while (heightLeft > 0) {
-                    pdf.addImage(imgData, 'PNG', margin, margin + position, usableW, imgDisplayHeight);
-                    heightLeft -= usableH;
-                    position -= usableH;
-                    if (heightLeft > 0) pdf.addPage();
-                }
-            }
-
+            const pdf = await buildA4PdfFromPng(imgData, dims);
             const safe = String(invoiceNo).replace(/[^\w.-]+/g, '_').replace(/^_|_$/g, '').slice(0, 96) || 'invoice';
             pdf.save(
                 `${isSuperSupplier ? 'Filter-SSP' : isSupplierSales ? 'Filter-SINV' : isWorkshopReceive ? 'Filter-WPI-Recv' : 'Filter-WPI'}-${safe}.pdf`,
@@ -655,7 +707,6 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
             throw err;
         } finally {
             el.classList.remove('wpi-view--pdf-capture');
-            if (hadCompact) el.classList.add('wpi-view--compact');
         }
     }, [invoiceNo, isSuperSupplier, isSupplierSales, isWorkshopReceive]);
 
@@ -1120,22 +1171,23 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                         </div>
                     )}
 
-                    <div className="wpi-view__signatures">
-                        <div className="wpi-view__sig">
-                            <div className="wpi-view__sig-line">Salesman: _________________________________</div>
-                            <div className="wpi-view__sig-ar" dir="rtl">
-                                اسم مندوب المبيعات
+                    <div className="wpi-view__closing-row">
+                        <div className="wpi-view__signatures">
+                            <div className="wpi-view__sig">
+                                <div className="wpi-view__sig-line">Salesman: _________________________________</div>
+                                <div className="wpi-view__sig-ar" dir="rtl">
+                                    اسم مندوب المبيعات
+                                </div>
+                            </div>
+                            <div className="wpi-view__sig">
+                                <div className="wpi-view__sig-line">Received by: _________________________________</div>
+                                <div className="wpi-view__sig-ar" dir="rtl">
+                                    المستلم
+                                </div>
                             </div>
                         </div>
-                        <div className="wpi-view__sig">
-                            <div className="wpi-view__sig-line">Received by: _________________________________</div>
-                            <div className="wpi-view__sig-ar" dir="rtl">
-                                المستلم
-                            </div>
-                        </div>
-                    </div>
 
-                    <div className="wpi-view__zatca-qr">
+                        <div className="wpi-view__zatca-qr">
                         <div className="wpi-view__zatca-qr-title">
                             ZATCA Phase 2 e-invoice QR · رمز هيئة الزكاة والضريبة والجمارك — المرحلة الثانية
                         </div>
@@ -1166,6 +1218,7 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                 </p>
                             </div>
                         )}
+                        </div>
                     </div>
                 </div>
 

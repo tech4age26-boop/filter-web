@@ -5196,19 +5196,7 @@ export default function SupplierSalesInvoices() {
                     </InlineFormScreen>
                 ) : null}
             {salesInvoicePdfExport ? (
-                <div
-                    aria-hidden
-                    className="sales-invoice-pdf-export-mount"
-                    style={{
-                        position: 'fixed',
-                        left: '-12000px',
-                        top: 0,
-                        width: 'min(980px, 99vw)',
-                        pointerEvents: 'none',
-                        zIndex: -1,
-                        overflow: 'hidden',
-                    }}
-                >
+                <div aria-hidden className="sales-invoice-pdf-export-mount">
                     <WorkshopPurchaseInvoiceView
                         ref={salesInvoicePdfRef}
                         compact
