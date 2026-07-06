@@ -194,8 +194,10 @@ export default function TakeawayScreen() {
                                 const inCart = cart[p.id]?.qty || 0;
                                 const originalPrice = parseFloat(p.salePrice ?? p.price ?? 0);
                                 const priceIncVat = (originalPrice * (1 + VAT_RATE));
+                                const allowsMinus = p.allowMinusQty === true || p.allow_minus_qty === true
+                                    || String(p.allowMinusQty ?? '').toLowerCase() === 'true';
                                 const qty = p.qtyOnHand ?? p.stock ?? 0;
-                                const outOfStock = qty <= 0;
+                                const outOfStock = !allowsMinus && qty <= 0;
                                 
                                 return (
                                     <div key={p.id} style={{ 

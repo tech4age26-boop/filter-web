@@ -8,6 +8,7 @@ import {
   reconcilePromoFormWithWorkshops,
 } from '../../components/promo/promoCodeFormUtils';
 import { PROMO_APPLICATION_RULES } from '../../components/promo/PromoCodeFormFields';
+import { buildPromoApplicationRequirements } from '../../components/promo/promoApplicationRequirements';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
 import { mapDiscountTypeToUi, normalizePromoCode } from './promoCodeShared';
@@ -183,6 +184,20 @@ export default function PromoCodeConfigurationViewPage() {
   const workshopMap = useMemo(() => createLabelMap(lookups.workshops), [lookups.workshops]);
   const branchMap = useMemo(() => createLabelMap(lookups.branches), [lookups.branches]);
   const rule = PROMO_APPLICATION_RULES.find((item) => item.value === form?.selectedItemMatchMode);
+  const requirementLines = form
+    ? buildPromoApplicationRequirements({
+        selectedItemMatchMode: form.selectedItemMatchMode,
+        selectedServiceRequired: form.selectedServiceRequired !== false,
+        productScope: form.productScope,
+        serviceScope: form.serviceScope,
+        productIds: form.productIds,
+        serviceIds: form.serviceIds,
+        productCategoryIds: form.productCategoryIds,
+        serviceCategoryIds: form.serviceCategoryIds,
+        products: lookups.products,
+        services: lookups.services,
+      })
+    : [];
 
   const selectedWorkshops = form?.workshopMode === 'selected'
     ? form.workshopIds.map((wsId) => workshopMap.get(String(wsId)) || `Workshop ${wsId}`)
@@ -255,6 +270,28 @@ export default function PromoCodeConfigurationViewPage() {
             ) : null}
             </div>
           </div>
+          {requirementLines.length > 0 ? (
+            <div className="mk-config-requirements">
+              <strong>Requirements to apply this promo</strong>
+              <ul className="mk-config-requirements-list">
+                {requirementLines.map((line, index) => {
+                  if (line.type === 'heading') {
+                    return <li key={index} className="mk-config-req-heading">{line.text}</li>;
+                  }
+                  if (line.type === 'subheading') {
+                    return <li key={index} className="mk-config-req-subheading">{line.text}</li>;
+                  }
+                  if (line.type === 'note') {
+                    return <li key={index} className="mk-config-req-note">{line.text}</li>;
+                  }
+                  if (line.type === 'bullet') {
+                    return <li key={index} className="mk-config-req-bullet">{line.text}</li>;
+                  }
+                  return <li key={index}>{line.text}</li>;
+                })}
+              </ul>
+            </div>
+          ) : null}
         </ConfigCard>
 
         <ConfigCard icon={CalendarDays} title="Validity">

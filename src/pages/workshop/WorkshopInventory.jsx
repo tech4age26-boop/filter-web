@@ -25,6 +25,11 @@ import {
     exportWorkshopTimelineExcel,
     exportWorkshopTimelinePdf,
 } from './workshopInventoryTimelineExport';
+import {
+    exportWorkshopInventoryExcel,
+    exportWorkshopInventoryPdf,
+    workshopInventoryHasStock,
+} from './workshopInventoryExport';
 
 const timelineExportBtnStyle = {
     display: 'inline-flex',
@@ -38,6 +43,20 @@ const timelineExportBtnStyle = {
     fontWeight: 700,
     color: 'var(--color-text-dark)',
     cursor: 'pointer',
+};
+
+const exportToolbarBtnStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '8px 14px',
+    borderRadius: 8,
+    border: '1px solid var(--color-border)',
+    background: '#fff',
+    fontSize: '0.8125rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    color: 'var(--color-text-dark)',
 };
 
 /** Match WorkshopDashboard / WorkshopDepartments response shapes. */
@@ -197,7 +216,8 @@ function computeBulkAdjustmentRow(item, amount, reasonKind) {
         };
     }
     const isOpeningReason = reasonKind === 'opening';
-    const amt = Math.max(0, Math.round(Number(amount) || 0));
+    const rawAmt = Math.round(Number(amount) || 0);
+    const amt = item.allowMinusQty && !isOpeningReason ? rawAmt : Math.max(0, rawAmt);
     if (isOpeningReason) {
         const prevOpening =
             item.openingQty != null && item.openingQty !== ''
@@ -555,6 +575,23 @@ function matchesProductNameSearch(row, query) {
         .every((term) => hay.includes(term));
 }
 
+function matchesInventoryDepartmentFilter(row, departmentFilter) {
+    if (!departmentFilter || departmentFilter === 'all') return true;
+    const id = String(row?.departmentId ?? row?.department_id ?? '').trim();
+    return id !== '' && id === String(departmentFilter);
+}
+
+function matchesInventoryCategoryFilter(row, categoryFilter) {
+    if (!categoryFilter || categoryFilter === 'all') return true;
+    if (categoryFilter === '__none__') {
+        const id = String(row?.categoryId ?? row?.category_id ?? '').trim();
+        const name = String(row?.categoryName ?? '').trim();
+        return !id || !name || name === '—';
+    }
+    const id = String(row?.categoryId ?? row?.category_id ?? '').trim();
+    return id !== '' && id === String(categoryFilter);
+}
+
 /** Value written into the search field when a suggestion is chosen (matches token search). */
 function inventorySearchValueFromRow(row) {
     const name = String(row?.name ?? '').trim();
@@ -586,8 +623,8 @@ function mergeBranchProductRowForInventory(row) {
         qty_on_hand: row?.qty_on_hand ?? master?.qty_on_hand,
         stockQty: row?.stockQty ?? master?.stockQty,
         stock_qty: row?.stock_qty ?? master?.stock_qty,
-        criticalStockPoint: row?.criticalStockPoint ?? master?.criticalStockPoint,
-        critical_stock_point: row?.critical_stock_point ?? master?.critical_stock_point,
+        criticalStockPoint: row?.criticalStockPoint ?? row?.critical_stock_point,
+        critical_stock_point: row?.critical_stock_point ?? row?.criticalStockPoint,
         salePriceOverride: row?.salePriceOverride ?? master?.salePriceOverride,
         salePriceBeforeVat: row?.salePriceBeforeVat ?? master?.salePriceBeforeVat,
         sellingPriceBeforeVat: row?.sellingPriceBeforeVat ?? master?.sellingPriceBeforeVat,
@@ -712,15 +749,46 @@ function mapApiRowToInventory(row) {
             row?.department_name ||
             row?.department?.name ||
             '—',
+        departmentId: (() => {
+            const raw =
+                row?.departmentId ??
+                row?.department_id ??
+                merged?.departmentId ??
+                merged?.department_id ??
+                master?.departmentId ??
+                master?.department_id ??
+                master?.department?.id ??
+                row?.department?.id;
+            return raw != null && String(raw).trim() !== '' ? String(raw) : null;
+        })(),
         categoryName:
             master?.categoryName ||
             master?.category_name ||
             master?.category?.name ||
             row?.categoryName ||
             '—',
+        categoryId: (() => {
+            const raw =
+                row?.categoryId ??
+                row?.category_id ??
+                merged?.categoryId ??
+                merged?.category_id ??
+                master?.categoryId ??
+                master?.category_id ??
+                master?.category?.id ??
+                row?.category?.id;
+            return raw != null && String(raw).trim() !== '' ? String(raw) : null;
+        })(),
         purchasePrice,
         openingQty,
         isInfiniteQty,
+        allowMinusQty: Boolean(
+            merged.allowMinusQty ??
+            row?.allowMinusQty ??
+            master?.allowMinusQty ??
+            nested?.allowMinusQty ??
+            false,
+        ),
         lastPhysicalQty: isInfiniteQty ? lastPhysicalQty : null,
         qty,
         critical_level,
@@ -832,6 +900,8 @@ export default function WorkshopInventory({
     const workshopIdQuery = useMemo(() => workshopIdFromSession(workshop), [workshop]);
 
     const [searchQuery, setSearchQuery] = useState('');
+    const [departmentFilter, setDepartmentFilter] = useState('all');
+    const [categoryFilter, setCategoryFilter] = useState('all');
     const [invSuggestOpen, setInvSuggestOpen] = useState(false);
     const [invSuggestIndex, setInvSuggestIndex] = useState(-1);
     const invSearchBlurTimerRef = useRef(null);
@@ -1097,6 +1167,8 @@ export default function WorkshopInventory({
 
     useEffect(() => {
         setSelectedProductIds([]);
+        setDepartmentFilter('all');
+        setCategoryFilter('all');
     }, [selectedBranchId]);
 
     /**
@@ -1374,7 +1446,8 @@ export default function WorkshopInventory({
         let qtyNum = prevQty;
         if (!infiniteQtyAdjust) {
             const parsed = Number.parseFloat(String(newQty).trim().replace(/,/g, ''));
-            if (!Number.isFinite(parsed) || parsed < 0) return;
+            const allowNegative = Boolean(adjustItem.allowMinusQty) && !openingQtyAdjust;
+            if (!Number.isFinite(parsed) || (parsed < 0 && !allowNegative)) return;
             qtyNum = Math.round(parsed);
             if (!openingQtyAdjust && !infiniteQtyAdjust && !adjustItem.isInfiniteQty && qtyNum === prevQty) return;
         }
@@ -1524,10 +1597,61 @@ export default function WorkshopInventory({
         closeAdjustModal();
     };
 
+    const rowsMatchingFilters = useMemo(
+        () =>
+            productRows.filter(
+                (p) =>
+                    matchesInventoryDepartmentFilter(p, departmentFilter) &&
+                    matchesInventoryCategoryFilter(p, categoryFilter),
+            ),
+        [productRows, departmentFilter, categoryFilter],
+    );
+
     const filteredProducts = useMemo(() => {
-        if (!normalizeInventorySearchValue(searchQuery)) return productRows;
-        return productRows.filter((p) => matchesProductNameSearch(p, searchQuery));
-    }, [productRows, searchQuery]);
+        if (!normalizeInventorySearchValue(searchQuery)) return rowsMatchingFilters;
+        return rowsMatchingFilters.filter((p) => matchesProductNameSearch(p, searchQuery));
+    }, [rowsMatchingFilters, searchQuery]);
+
+    const departmentOptions = useMemo(() => {
+        const map = new Map();
+        for (const p of productRows) {
+            const id = String(p.departmentId ?? '').trim();
+            const name = String(p.departmentName ?? '').trim();
+            if (!id || !name || name === '—') continue;
+            if (!map.has(id)) map.set(id, { id, name });
+        }
+        return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+    }, [productRows]);
+
+    const categoryOptions = useMemo(() => {
+        const map = new Map();
+        for (const p of productRows) {
+            if (!matchesInventoryDepartmentFilter(p, departmentFilter)) continue;
+            const id = String(p.categoryId ?? '').trim();
+            const name = String(p.categoryName ?? '').trim();
+            if (!id || !name || name === '—') {
+                map.set('__none__', { id: '__none__', name: 'Uncategorized' });
+                continue;
+            }
+            if (!map.has(id)) map.set(id, { id, name });
+        }
+        return [...map.values()].sort((a, b) => {
+            if (a.id === '__none__') return 1;
+            if (b.id === '__none__') return -1;
+            return a.name.localeCompare(b.name);
+        });
+    }, [productRows, departmentFilter]);
+
+    useEffect(() => {
+        if (categoryFilter === 'all') return;
+        if (!categoryOptions.some((c) => c.id === categoryFilter)) {
+            setCategoryFilter('all');
+        }
+    }, [departmentFilter, categoryOptions, categoryFilter]);
+
+    const hasActiveListFilters =
+        (departmentFilter && departmentFilter !== 'all') ||
+        (categoryFilter && categoryFilter !== 'all');
 
     const selectedIdSet = useMemo(() => new Set(selectedProductIds), [selectedProductIds]);
 
@@ -1545,6 +1669,27 @@ export default function WorkshopInventory({
         () => productRows.filter((p) => selectedIdSet.has(String(p.id))),
         [productRows, selectedIdSet],
     );
+
+    const productsWithStockCount = useMemo(
+        () => rowsMatchingFilters.filter(workshopInventoryHasStock).length,
+        [rowsMatchingFilters],
+    );
+
+    const exportMeta = useMemo(
+        () => ({
+            branchName: selectedBranchName,
+            subtitle: `Branch: ${selectedBranchName} · ${selectedProductsForBulk.length} selected product(s)`,
+        }),
+        [selectedBranchName, selectedProductsForBulk.length],
+    );
+
+    const exportFilenameBase = useMemo(() => {
+        const slug = String(selectedBranchName || 'inventory')
+            .replace(/[^\w.-]+/g, '_')
+            .replace(/^_|_$/g, '')
+            .slice(0, 60) || 'inventory';
+        return `workshop-inventory-${slug}`;
+    }, [selectedBranchName]);
 
     const isBulkOpeningQty =
         bulkAdjustReason.trim() === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY;
@@ -1589,6 +1734,32 @@ export default function WorkshopInventory({
     const clearProductSelection = useCallback(() => {
         setSelectedProductIds([]);
     }, []);
+
+    const selectProductsWithStock = useCallback(() => {
+        const ids = rowsMatchingFilters
+            .filter(workshopInventoryHasStock)
+            .map((p) => String(p.id))
+            .filter(Boolean);
+        setSelectedProductIds(ids);
+    }, [rowsMatchingFilters]);
+
+    const handleExportSelectedExcel = useCallback(() => {
+        if (selectedProductsForBulk.length === 0) return;
+        exportWorkshopInventoryExcel(
+            selectedProductsForBulk,
+            exportMeta,
+            exportFilenameBase,
+        );
+    }, [selectedProductsForBulk, exportMeta, exportFilenameBase]);
+
+    const handleExportSelectedPdf = useCallback(() => {
+        if (selectedProductsForBulk.length === 0) return;
+        exportWorkshopInventoryPdf(
+            selectedProductsForBulk,
+            exportMeta,
+            exportFilenameBase,
+        );
+    }, [selectedProductsForBulk, exportMeta, exportFilenameBase]);
 
     const openBulkAdjustModal = () => {
         setBulkAdjustAmount('');
@@ -1767,8 +1938,10 @@ export default function WorkshopInventory({
     const invSearchSuggestions = useMemo(() => {
         const q = normalizeInventorySearchValue(searchQuery);
         if (!q) return [];
-        return productRows.filter((p) => matchesProductNameSearch(p, searchQuery)).slice(0, INV_SEARCH_SUGGEST_LIMIT);
-    }, [productRows, searchQuery]);
+        return rowsMatchingFilters
+            .filter((p) => matchesProductNameSearch(p, searchQuery))
+            .slice(0, INV_SEARCH_SUGGEST_LIMIT);
+    }, [rowsMatchingFilters, searchQuery]);
 
     const applyInventorySearchSuggestion = useCallback((row) => {
         setSearchQuery(inventorySearchValueFromRow(row));
@@ -1838,7 +2011,11 @@ export default function WorkshopInventory({
         if (isLoading) return 'Loading inventory…';
         if (loadError) return loadError;
         if (productRows.length === 0) return 'No products in this scope yet — adopt items under Dept & Products or Catalog.';
-        return 'No products match your search.';
+        if (hasActiveListFilters && rowsMatchingFilters.length === 0) {
+            return 'No products match the selected department or category.';
+        }
+        if (searchQuery && filteredProducts.length === 0) return 'No products match your search.';
+        return 'No products match your filters.';
     };
 
     if (isCriticalModalOpen && criticalItem) {
@@ -2237,7 +2414,10 @@ export default function WorkshopInventory({
                                                         </>
                                                     ) : (
                                                         <>
-                                                            Sets <strong>current stock</strong> (effective on-hand per branch; not adoption opening). Enter a new total — higher to increase, lower to decrease. Must be ≥ 0.
+                                                            Sets <strong>current stock</strong> (effective on-hand per branch; not adoption opening). Enter a new total — higher to increase, lower to decrease.
+                                                            {adjustItem?.allowMinusQty
+                                                                ? ' Negative values are allowed for this product.'
+                                                                : ' Must be ≥ 0.'}
                                                         </>
                                                     )}
                                                     {isAllBranches
@@ -2707,6 +2887,80 @@ export default function WorkshopInventory({
                                 gap: 8,
                             }}
                         >
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                    gap: 12,
+                                    alignItems: 'end',
+                                }}
+                            >
+                                <div>
+                                    <label
+                                        className="form-label"
+                                        style={{ display: 'block', marginBottom: 6, fontSize: '0.75rem' }}
+                                    >
+                                        Department
+                                    </label>
+                                    <select
+                                        className="mc-filter-select"
+                                        style={{ width: '100%', minHeight: 46 }}
+                                        value={departmentFilter}
+                                        onChange={(e) => setDepartmentFilter(e.target.value)}
+                                        disabled={isLoading || departmentOptions.length === 0}
+                                    >
+                                        <option value="all">All departments</option>
+                                        {departmentOptions.map((d) => (
+                                            <option key={d.id} value={d.id}>
+                                                {d.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label
+                                        className="form-label"
+                                        style={{ display: 'block', marginBottom: 6, fontSize: '0.75rem' }}
+                                    >
+                                        Category
+                                    </label>
+                                    <select
+                                        className="mc-filter-select"
+                                        style={{ width: '100%', minHeight: 46 }}
+                                        value={categoryFilter}
+                                        onChange={(e) => setCategoryFilter(e.target.value)}
+                                        disabled={isLoading || categoryOptions.length === 0}
+                                    >
+                                        <option value="all">All categories</option>
+                                        {categoryOptions.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                {hasActiveListFilters ? (
+                                    <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                                        <button
+                                            type="button"
+                                            className="mc-btn-ghost"
+                                            style={{
+                                                padding: '8px 14px',
+                                                fontSize: '0.8125rem',
+                                                border: '1px solid var(--color-border)',
+                                                borderRadius: 10,
+                                                minHeight: 46,
+                                            }}
+                                            onClick={() => {
+                                                setDepartmentFilter('all');
+                                                setCategoryFilter('all');
+                                            }}
+                                        >
+                                            Clear filters
+                                        </button>
+                                    </div>
+                                ) : null}
+                            </div>
                             <div className="mc-header-filter" style={{ width: '100%', maxWidth: 'none' }}>
                                 <div
                                     className="mc-filter-select-wrapper mc-inv-search-combo"
@@ -2830,7 +3084,8 @@ export default function WorkshopInventory({
                             <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
                                 Showing <strong>{filteredProducts.length}</strong> of{' '}
                                 <strong>{productRows.length}</strong> products
-                                {searchQuery ? ` for "${searchQuery}"` : ''}.
+                                {hasActiveListFilters ? ' (department/category filtered)' : ''}
+                                {searchQuery ? ` · search "${searchQuery}"` : ''}.
                             </p>
                             <div className="ws-inv-bulk-toolbar">
                                 <button
@@ -2843,6 +3098,21 @@ export default function WorkshopInventory({
                                     {allVisibleSelected && visibleProductIds.length > 0
                                         ? 'Deselect all on page'
                                         : 'Select all on page'}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="mc-btn-ghost"
+                                    style={{ padding: '8px 14px', fontSize: '0.8125rem', border: '1px solid var(--color-border)', borderRadius: 10 }}
+                                    onClick={selectProductsWithStock}
+                                    disabled={isLoading || productsWithStockCount === 0}
+                                    title={
+                                        productsWithStockCount === 0
+                                            ? 'No products with stock greater than zero'
+                                            : `Select all ${productsWithStockCount} product(s) with stock > 0`
+                                    }
+                                >
+                                    Select Products with Stock
+                                    {productsWithStockCount > 0 ? ` (${productsWithStockCount})` : ''}
                                 </button>
                                 {selectedProductIds.length > 0 ? (
                                     <>
@@ -2867,6 +3137,52 @@ export default function WorkshopInventory({
                                         </button>
                                     </>
                                 ) : null}
+                                <span
+                                    style={{
+                                        fontSize: '0.75rem',
+                                        fontWeight: 700,
+                                        color: 'var(--color-text-muted)',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.04em',
+                                        marginLeft: selectedProductIds.length > 0 ? 4 : 0,
+                                    }}
+                                >
+                                    Export selected
+                                </span>
+                                <button
+                                    type="button"
+                                    disabled={selectedProductsForBulk.length === 0}
+                                    title={
+                                        selectedProductsForBulk.length === 0
+                                            ? 'Select one or more products to export'
+                                            : `Download ${selectedProductsForBulk.length} selected product(s) as Excel`
+                                    }
+                                    onClick={handleExportSelectedExcel}
+                                    style={{
+                                        ...exportToolbarBtnStyle,
+                                        opacity: selectedProductsForBulk.length === 0 ? 0.5 : 1,
+                                        cursor: selectedProductsForBulk.length === 0 ? 'not-allowed' : 'pointer',
+                                    }}
+                                >
+                                    <FileSpreadsheet size={14} aria-hidden /> Excel
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={selectedProductsForBulk.length === 0}
+                                    title={
+                                        selectedProductsForBulk.length === 0
+                                            ? 'Select one or more products to export'
+                                            : `Download ${selectedProductsForBulk.length} selected product(s) as PDF`
+                                    }
+                                    onClick={handleExportSelectedPdf}
+                                    style={{
+                                        ...exportToolbarBtnStyle,
+                                        opacity: selectedProductsForBulk.length === 0 ? 0.5 : 1,
+                                        cursor: selectedProductsForBulk.length === 0 ? 'not-allowed' : 'pointer',
+                                    }}
+                                >
+                                    <FileText size={14} aria-hidden /> PDF
+                                </button>
                                 {isAllBranches && selectedProductIds.length > 0 ? (
                                     <span style={{ fontSize: '0.75rem', color: '#B45309' }}>
                                         Select a single branch to save bulk changes on the server.
@@ -2874,10 +3190,10 @@ export default function WorkshopInventory({
                                 ) : null}
                             </div>
                             <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                Use checkboxes to select products for <strong>bulk adjust</strong>, or{' '}
-                                <strong>Select all on page</strong>.
-                                Click a <strong>row</strong> for adjustment history. Use <strong>↑</strong> <strong>↓</strong> and{' '}
-                                <strong>Enter</strong> to pick a search suggestion.
+                                Use checkboxes to select products for <strong>bulk adjust</strong> or{' '}
+                                <strong>export</strong>, or use <strong>Select Products with Stock</strong> to select all
+                                in-stock SKUs (qty &gt; 0). Click a <strong>row</strong> for adjustment history. Use{' '}
+                                <strong>↑</strong> <strong>↓</strong> and <strong>Enter</strong> to pick a search suggestion.
                                 {isAllBranches
                                     ? ' With all branches selected, history is only what this browser saved (no server log).'
                                     : ' History is loaded from the server for this branch.'}
