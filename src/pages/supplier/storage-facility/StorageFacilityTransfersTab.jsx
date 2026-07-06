@@ -2,13 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeftRight, Pencil, Plus, Trash2 } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
-import {
-    createStorageTransfer,
-    getStorageTransfer,
-    listStorageLocations,
-    listStorageTransfers,
-    updateStorageTransfer,
-} from '../../../services/storageFacilityApi';
+import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 import ProductLineCombobox from './ProductLineCombobox';
 import {
     defaultEntryUnitForProduct,
@@ -59,6 +53,7 @@ export default function StorageFacilityTransfersTab({
     products,
     onReload,
 }) {
+    const sfApi = useStorageFacilityApi();
     const [transfers, setTransfers] = useState([]);
     const [locations, setLocations] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -83,8 +78,8 @@ export default function StorageFacilityTransfersTab({
         setErr('');
         try {
             const [trRes, locRes] = await Promise.all([
-                listStorageTransfers(brandId),
-                listStorageLocations(brandId),
+                sfApi.listStorageTransfers(brandId),
+                sfApi.listStorageLocations(brandId),
             ]);
             setTransfers(trRes?.transfers ?? []);
             setLocations(locRes?.locations ?? []);
@@ -94,7 +89,7 @@ export default function StorageFacilityTransfersTab({
         } finally {
             setLoading(false);
         }
-    }, [brandId]);
+    }, [brandId, sfApi]);
 
     useEffect(() => {
         load();
@@ -196,7 +191,7 @@ export default function StorageFacilityTransfersTab({
     const openEdit = async (transfer) => {
         setBusy(true);
         try {
-            const res = await getStorageTransfer(brandId, transfer.id);
+            const res = await sfApi.getStorageTransfer(brandId, transfer.id);
             const t = res?.transfer ?? transfer;
             setEditingTransferId(t.id);
             setForm({
@@ -282,9 +277,9 @@ export default function StorageFacilityTransfersTab({
                 }),
             };
             if (editingTransferId) {
-                await updateStorageTransfer(brandId, editingTransferId, payload);
+                await sfApi.updateStorageTransfer(brandId, editingTransferId, payload);
             } else {
-                await createStorageTransfer(brandId, payload);
+                await sfApi.createStorageTransfer(brandId, payload);
             }
             closeModal();
             await load();

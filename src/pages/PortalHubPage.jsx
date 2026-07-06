@@ -14,7 +14,7 @@ import {
 } from '../services/authApi';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../services/api';
-import { firstVisibleAdminPath, workshopLandingPath } from '../utils/permissions';
+import { firstVisibleAdminPath, isLockerOnlyPortalUser, workshopLandingPath } from '../utils/permissions';
 
 /**
  * Unified sign-in hub.
@@ -151,6 +151,12 @@ export default function PortalHubPage() {
                         'This account does not have locker portal access. Ask your workshop admin to create a locker user.',
                     );
                 }
+            }
+
+            if (portalId === 'workshop' && isLockerOnlyPortalUser({ ...userData, userType: effectiveUserType })) {
+                throw new Error(
+                    'This account is for the locker portal only. Sign in at Locker Portal instead of Workshop.',
+                );
             }
 
             const workshopMeta = data.workshop || userData.workshop || null;

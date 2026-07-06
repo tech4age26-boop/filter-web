@@ -236,10 +236,7 @@ b {
 .admin-layout .sidebar .nav-link.active,
 .admin-layout .sidebar .nav-sub-link.active,
 .rm-nav-btn.active,
-.rf-nav-item.active,
-.mk-sidebar-link.active,
-.mk-nav-link.active,
-.marketing-layout-root .nav-sub-link.active {
+.rf-nav-item.active {
   background-color: #FCC245 !important;
   color: #111111 !important;
   font-weight: 600 !important;

@@ -292,6 +292,70 @@ export function workshopLandingPath(user) {
     return firstVisibleWorkshopPath(user) ?? '/workshop';
 }
 
+const ADMIN_PORTAL_USER_TYPES = new Set([
+    'platform_admin',
+    'admin',
+    'super_admin',
+    'admin_user',
+]);
+
+export function isLockerPortalRole(user) {
+    const role = String(user?.lockerPortalRole || '').trim().toLowerCase();
+    return role === 'supervisor' || role === 'collector';
+}
+
+/**
+ * Locker-only account: workshop_user with lockerPortalRole and no workshopStaffRole.
+ * These users sign in at /locker/login only (see backend createWorkshopPortalStaff).
+ */
+export function isLockerOnlyPortalUser(user) {
+    const t = String(user?.userType || user?.type || '').trim().toLowerCase();
+    if (t === 'workshop_owner') return false;
+    if (t !== 'workshop_user') return false;
+    if (!isLockerPortalRole(user)) return false;
+    const staffRole = String(user?.workshopStaffRole || '').trim();
+    return !staffRole;
+}
+
+/** May use the main workshop admin portal (/workshop/*). */
+export function isWorkshopPortalUser(user) {
+    const t = String(user?.userType || user?.type || '').trim().toLowerCase();
+    if (t === 'workshop_owner') return true;
+    if (t !== 'workshop_user') return false;
+    return !isLockerOnlyPortalUser(user);
+}
+
+/** True when the session belongs on the super-admin `/admin/*` shell. */
+export function isAdminPortalUser(user) {
+    const t = String(user?.userType || user?.type || '').trim().toLowerCase();
+    return ADMIN_PORTAL_USER_TYPES.has(t);
+}
+
+/**
+ * Default landing route for an authenticated user (used when blocking cross-portal URL access).
+ */
+export function defaultHomePathForUser(user) {
+    if (!user) return '/';
+    const t = String(user?.userType || user?.type || '').trim().toLowerCase();
+
+    if (isAdminPortalUser(user)) {
+        return firstVisibleAdminPath(user);
+    }
+    if (isLockerOnlyPortalUser(user)) {
+        return '/locker';
+    }
+    if (t === 'workshop_user' || t === 'workshop_owner') {
+        return workshopLandingPath(user);
+    }
+    if (t === 'supplier_user' || t === 'supplier') return '/supplier';
+    if (t === 'corporate_user') return '/corporate';
+    if (t === 'technician_user') return '/technician';
+    if (t === 'cashier_user') return '/pos';
+    if (t === 'marketing_user') return '/marketing/dashboard';
+    if (t === 'referrer_user' || t === 'referral_user') return '/referrer-portal';
+    return '/';
+}
+
 /** Portal-aware userType inference, mirrors backend `createUserWithRole`. */
 export function userTypeForPortal(portal) {
     switch (portal) {

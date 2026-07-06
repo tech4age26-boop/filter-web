@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
     Plus, Search, Download, Upload, Filter, 
     CheckCircle2, AlertCircle, Copy, XCircle,
@@ -7,7 +8,7 @@ import {
     ArrowUp, Settings, LayoutGrid, Tags
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Modal from '../Modal';
+import MasterCatalogShell from './MasterCatalogShell';
 import CatalogUomFields, {
     catalogUomFromProduct,
     emptyCatalogUom,
@@ -29,6 +30,7 @@ import {
     getCategories,
     getDepartments,
     getProducts,
+    getProduct,
     getServices,
     getDepartmentProducts,
     getDepartmentServices,
@@ -44,6 +46,7 @@ import {
     ignoreDuplicate,
     deleteDuplicateItem,
     getProductRequests,
+    getProductRequest,
     getProductRequestKpis,
     approveProductRequest,
     rejectProductRequest,
@@ -54,6 +57,12 @@ import {
     parseNonNegativeNumberOr,
     sanitizeNonNegativeMoneyInput,
 } from '../../utils/nonNegativeMoney';
+import {
+    parseMasterCatalogRoute,
+    masterCatalogListUrl,
+    mcRoutes,
+    tabForMasterCatalogScreen,
+} from '../../utils/masterCatalogRoutes';
 
 const KPI_CARD_DEFS = [
     {
@@ -382,8 +391,25 @@ function formatVatWarningItem(w) {
 
 export default function MasterCatalog() {
     const { hasPermission } = useAuth();
+    const navigate = useNavigate();
+    const location = useLocation();
+    const [searchParams] = useSearchParams();
+    const route = parseMasterCatalogRoute(location.pathname);
+    const pageMode = Boolean(route);
+
+    const goBack = useCallback(() => {
+        const tab = tabForMasterCatalogScreen(route?.screen);
+        navigate(masterCatalogListUrl(tab));
+    }, [navigate, route?.screen]);
+
     const visibleMasterTabs = MASTER_TABS.filter((t) => hasPermission(t.permission));
-    const [activeTab, setActiveTab] = useState(() => visibleMasterTabs[0]?.id ?? 'master');
+    const [activeTab, setActiveTab] = useState(() => {
+        const tabParam = typeof window !== 'undefined'
+            ? new URLSearchParams(window.location.search).get('tab')
+            : null;
+        if (tabParam && MASTER_TABS.some((t) => t.id === tabParam)) return tabParam;
+        return visibleMasterTabs[0]?.id ?? 'master';
+    });
 
     // If the current activeTab is no longer visible (perms changed mid-session), snap to first allowed.
     useEffect(() => {
@@ -395,16 +421,6 @@ export default function MasterCatalog() {
 
     const [statusFilter, setStatusFilter] = useState('All');
     const [searchQuery, setSearchQuery] = useState('');
-    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-    const [isAddServiceModalOpen, setIsAddServiceModalOpen] = useState(false);
-    const [isEditServiceModalOpen, setIsEditServiceModalOpen] = useState(false);
-    const [isAddDeptModalOpen, setIsAddDeptModalOpen] = useState(false);
-    const [isAddCatModalOpen, setIsAddCatModalOpen] = useState(false);
-    const [isEditDeptModalOpen, setIsEditDeptModalOpen] = useState(false);
-    const [isEditCatModalOpen, setIsEditCatModalOpen] = useState(false);
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [isBulkProductModalOpen, setIsBulkProductModalOpen] = useState(false);
-    const [isBulkServiceModalOpen, setIsBulkServiceModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null);
     const [editingDept, setEditingDept] = useState(null);
     const [editingCat, setEditingCat] = useState(null);
@@ -797,7 +813,7 @@ export default function MasterCatalog() {
             };
             await approveProductRequest(prApproveTarget.id, payload);
             showToast('Request approved', 'success');
-            setPrApproveTarget(null);
+            goBack();
             setPrRemarks('');
             setPrApproveForm({
                 name: '',
@@ -830,7 +846,7 @@ export default function MasterCatalog() {
         try {
             await rejectProductRequest(prRejectTarget.id, reason);
             showToast('Request rejected', 'success');
-            setPrRejectTarget(null);
+            goBack();
             setPrRejectReason('');
             await loadProductRequests();
         } catch (e) {
@@ -855,8 +871,16 @@ export default function MasterCatalog() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, prTab]);
 
-    const handleEditClick = (product) => {
-        if (!product?.id) return;
+    useEffect(() => {
+        if (pageMode) return;
+        const tab = searchParams.get('tab');
+        if (tab && visibleMasterTabs.some((t) => t.id === tab) && tab !== activeTab) {
+            setActiveTab(tab);
+        }
+    }, [pageMode, searchParams, visibleMasterTabs, activeTab]);
+
+    const buildEditingProductState = (product) => {
+        if (!product?.id) return null;
         let departmentId =
             product.departmentId != null && product.departmentId !== ''
                 ? String(product.departmentId)
@@ -888,7 +912,7 @@ export default function MasterCatalog() {
                 }
             }
         }
-        setEditingProduct({
+        return {
             ...product,
             departmentId,
             categoryId,
@@ -920,8 +944,182 @@ export default function MasterCatalog() {
                 product.minPriceEditable == null && product.min_price_editable == null
                     ? ''
                     : String(product.minPriceEditable ?? product.min_price_editable),
+        };
+    };
+
+    const buildEditingServiceState = (service) => ({
+        id: service.id,
+        name: service.name || '',
+        arabicName: service.arabicName ?? service.arabic_name ?? '',
+        sku: service.sku || '',
+        description: service.description || '',
+        sellingPrice: service.sellingPrice == null ? '' : String(service.sellingPrice),
+        isPriceEditable: toBoolPriceEditable(service),
+        minPriceCorporate:
+            service.minPriceCorporate == null && service.min_price_corporate == null
+                ? ''
+                : String(service.minPriceCorporate ?? service.min_price_corporate),
+        maxPriceCorporate:
+            service.maxPriceCorporate == null && service.max_price_corporate == null
+                ? ''
+                : String(service.maxPriceCorporate ?? service.max_price_corporate),
+        isActive: service.isActive !== false,
+        categoryId: service.categoryId != null ? String(service.categoryId) : '',
+        categoryName: service.categoryName ?? service.category?.name ?? '',
+        vatMode: service.vatMode ?? service.vat_mode ?? '',
+        createdAt: service.createdAt ?? service.created_at ?? '',
+    });
+
+    const populatePrApproveForm = (r) => {
+        if (!r?.id) return;
+        setPrApproveTarget(r);
+        setPrRemarks('');
+        setPrApproveForm({
+            name: r?.name || '',
+            sku: r?.sku || '',
+            brandName: r?.brandName || '',
+            description: r?.description || '',
+            arabicName: r?.arabicName || '',
+            unit: r?.unit || 'pcs',
+            expectedPrice:
+                r?.expectedPrice === null || r?.expectedPrice === undefined
+                    ? ''
+                    : String(r.expectedPrice),
+            departmentId: r?.departmentId ? String(r.departmentId) : '',
+            categoryId: r?.categoryId ? String(r.categoryId) : '',
         });
-        setIsEditModalOpen(true);
+    };
+
+    const openPrApprove = (r) => {
+        populatePrApproveForm(r);
+        navigate(mcRoutes.requestApprove(r.id), { state: { request: r } });
+    };
+
+    const populatePrRejectForm = (r) => {
+        if (!r?.id) return;
+        setPrRejectTarget(r);
+        setPrRejectReason('');
+    };
+
+    const openPrReject = (r) => {
+        populatePrRejectForm(r);
+        navigate(mcRoutes.requestReject(r.id), { state: { request: r } });
+    };
+
+    useEffect(() => {
+        if (route?.screen !== 'product-edit' || !route.id) return;
+        if (editingProduct && String(editingProduct.id) === route.id) return;
+        const fromState = location.state?.product;
+        if (fromState) {
+            const next = buildEditingProductState(fromState);
+            if (next) setEditingProduct(next);
+            return;
+        }
+        const fromList = products.find((p) => String(p.id) === route.id);
+        if (fromList) {
+            setEditingProduct(buildEditingProductState(fromList));
+            return;
+        }
+        let cancelled = false;
+        getProduct(route.id)
+            .then((res) => {
+                const p = res?.data ?? res;
+                if (!cancelled && p?.id) setEditingProduct(buildEditingProductState(p));
+            })
+            .catch(() => showToast('Product not found', 'error'));
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [route?.screen, route?.id, location.state]);
+
+    useEffect(() => {
+        if (route?.screen !== 'service-edit' || !route.id) return;
+        if (editingService && String(editingService.id) === route.id) return;
+        const fromState = location.state?.service;
+        if (fromState) {
+            setEditingService(buildEditingServiceState(fromState));
+            return;
+        }
+        const fromList = services.find((s) => String(s.id) === route.id);
+        if (fromList) {
+            setEditingService(buildEditingServiceState(fromList));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [route?.screen, route?.id, location.state, services]);
+
+    useEffect(() => {
+        if (route?.screen !== 'dept-edit' || !route.id) return;
+        if (editingDept && String(editingDept.id) === route.id) return;
+        const fromState = location.state?.department;
+        if (fromState) {
+            setEditingDept(fromState);
+            return;
+        }
+        const fromList = departments.find((d) => String(d.id) === route.id);
+        if (fromList) setEditingDept(fromList);
+    }, [route?.screen, route?.id, location.state, departments, editingDept]);
+
+    useEffect(() => {
+        if (route?.screen !== 'cat-edit' || !route.id) return;
+        if (editingCat && String(editingCat.id) === route.id) return;
+        const fromState = location.state?.category;
+        if (fromState) {
+            setEditingCat({ ...fromState, departmentId: fromState.departmentId, type: fromState.type || 'product' });
+            return;
+        }
+        const fromList = categories.find((c) => String(c.id) === route.id);
+        if (fromList) {
+            setEditingCat({ ...fromList, departmentId: fromList.departmentId, type: fromList.type || 'product' });
+        }
+    }, [route?.screen, route?.id, location.state, categories, editingCat]);
+
+    useEffect(() => {
+        if (route?.screen !== 'request-approve' || !route.id) return;
+        if (prApproveTarget && String(prApproveTarget.id) === route.id) return;
+        const fromState = location.state?.request;
+        const fromList = productRequests.find((r) => String(r.id) === route.id);
+        const r = fromState || fromList;
+        if (r) {
+            populatePrApproveForm(r);
+            return;
+        }
+        let cancelled = false;
+        getProductRequest(route.id)
+            .then((res) => {
+                const req = res?.data ?? res;
+                if (!cancelled && req?.id) populatePrApproveForm(req);
+            })
+            .catch(() => showToast('Request not found', 'error'));
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [route?.screen, route?.id, location.state, productRequests]);
+
+    useEffect(() => {
+        if (route?.screen !== 'request-reject' || !route.id) return;
+        if (prRejectTarget && String(prRejectTarget.id) === route.id) return;
+        const fromState = location.state?.request;
+        const fromList = productRequests.find((r) => String(r.id) === route.id);
+        const r = fromState || fromList;
+        if (r) {
+            populatePrRejectForm(r);
+            return;
+        }
+        let cancelled = false;
+        getProductRequest(route.id)
+            .then((res) => {
+                const req = res?.data ?? res;
+                if (!cancelled && req?.id) populatePrRejectForm(req);
+            })
+            .catch(() => showToast('Request not found', 'error'));
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [route?.screen, route?.id, location.state, productRequests]);
+
+    const handleEditClick = (product) => {
+        if (!product?.id) return;
+        const next = buildEditingProductState(product);
+        if (!next) return;
+        setEditingProduct(next);
+        navigate(mcRoutes.productEdit(product.id), { state: { product } });
     };
 
     const handleCreateProduct = async () => {
@@ -971,7 +1169,7 @@ export default function MasterCatalog() {
                         : null,
                 ...kmPayload,
             });
-            setIsAddModalOpen(false);
+            goBack();
             setNewProduct({
                 name: '',
                 arabicName: '',
@@ -1070,7 +1268,7 @@ export default function MasterCatalog() {
                         : null,
                 kmTypeValue,
             });
-            setIsEditModalOpen(false);
+            goBack();
             setEditingProduct(null);
             await refreshCatalog();
         } catch (e) {
@@ -1101,7 +1299,7 @@ export default function MasterCatalog() {
                 minPriceCorporate: parseNumberOr(newService.minPriceCorporate, 0),
                 maxPriceCorporate: parseNumberOr(newService.maxPriceCorporate, 0),
             });
-            setIsAddServiceModalOpen(false);
+            goBack();
             setNewService({
                 name: '',
                 arabicName: '',
@@ -1124,29 +1322,8 @@ export default function MasterCatalog() {
     };
 
     const openEditService = (service) => {
-        setEditingService({
-            id: service.id,
-            name: service.name || '',
-            arabicName: service.arabicName ?? service.arabic_name ?? '',
-            sku: service.sku || '',
-            description: service.description || '',
-            sellingPrice: service.sellingPrice == null ? '' : String(service.sellingPrice),
-            isPriceEditable: toBoolPriceEditable(service),
-            minPriceCorporate:
-                service.minPriceCorporate == null && service.min_price_corporate == null
-                    ? ''
-                    : String(service.minPriceCorporate ?? service.min_price_corporate),
-            maxPriceCorporate:
-                service.maxPriceCorporate == null && service.max_price_corporate == null
-                    ? ''
-                    : String(service.maxPriceCorporate ?? service.max_price_corporate),
-            isActive: service.isActive !== false,
-            categoryId: service.categoryId != null ? String(service.categoryId) : '',
-            categoryName: service.categoryName ?? service.category?.name ?? '',
-            vatMode: service.vatMode ?? service.vat_mode ?? '',
-            createdAt: service.createdAt ?? service.created_at ?? '',
-        });
-        setIsEditServiceModalOpen(true);
+        setEditingService(buildEditingServiceState(service));
+        navigate(mcRoutes.serviceEdit(service.id), { state: { service } });
     };
 
     const handleUpdateCatalogService = async () => {
@@ -1187,7 +1364,7 @@ export default function MasterCatalog() {
                         : String(editingService.vatMode),
             };
             await updateService(editingService.id, payload);
-            setIsEditServiceModalOpen(false);
+            goBack();
             setEditingService(null);
             await refreshCatalog();
         } catch (e) {
@@ -1294,7 +1471,7 @@ export default function MasterCatalog() {
 
     const handleEditDeptClick = (dept) => {
         setEditingDept(dept);
-        setIsEditDeptModalOpen(true);
+        navigate(mcRoutes.deptEdit(dept.id), { state: { department: dept } });
     };
 
     const handleCreateDepartment = async () => {
@@ -1303,7 +1480,7 @@ export default function MasterCatalog() {
         try {
             await createDepartment({ name: newDept.name.trim() });
             setNewDept({ name: '' });
-            setIsAddDeptModalOpen(false);
+            goBack();
             await refreshCatalog();
         } catch (e) {
             alert(e.message || 'Failed to create department');
@@ -1322,7 +1499,7 @@ export default function MasterCatalog() {
                 departmentId: String(newCat.departmentId),
             });
             setNewCat({ type: 'product', name: '', departmentId: '' });
-            setIsAddCatModalOpen(false);
+            goBack();
             await refreshCatalog();
         } catch (e) {
             alert(e.message || 'Failed to create category');
@@ -1350,12 +1527,13 @@ export default function MasterCatalog() {
     };
 
     const handleEditCatClick = (cat) => {
-        setEditingCat({
+        const next = {
             ...cat,
             departmentId: cat.departmentId,
             type: cat.type || 'product',
-        });
-        setIsEditCatModalOpen(true);
+        };
+        setEditingCat(next);
+        navigate(mcRoutes.catEdit(cat.id), { state: { category: next } });
     };
 
     const handleDeleteCatClick = (id) => {
@@ -1379,7 +1557,7 @@ export default function MasterCatalog() {
                 name: editingDept.name.trim(),
                 isActive: editingDept.isActive ?? true,
             });
-            setIsEditDeptModalOpen(false);
+            goBack();
             setEditingDept(null);
             await refreshCatalog();
         } catch (e) {
@@ -1400,7 +1578,7 @@ export default function MasterCatalog() {
                 type: editingCat.type || 'product',
                 departmentId: String(editingCat.departmentId),
             });
-            setIsEditCatModalOpen(false);
+            goBack();
             setEditingCat(null);
             await refreshCatalog();
         } catch (e) {
@@ -1416,13 +1594,13 @@ export default function MasterCatalog() {
         setSaving(true);
         try {
             await deleteProduct(editingProduct.id);
-            setIsEditModalOpen(false);
+            goBack();
             setEditingProduct(null);
             await refreshCatalog();
         } catch (e) {
             if (window.confirm(`${e.message || 'Delete failed.'}\n\nIf this item is linked, disable it instead?`)) {
                 await updateProduct(editingProduct.id, { isActive: false });
-                setIsEditModalOpen(false);
+                goBack();
                 setEditingProduct(null);
                 await refreshCatalog();
             } else {
@@ -1439,13 +1617,13 @@ export default function MasterCatalog() {
         setSaving(true);
         try {
             await deleteService(editingService.id);
-            setIsEditServiceModalOpen(false);
+            goBack();
             setEditingService(null);
             await refreshCatalog();
         } catch (e) {
             if (window.confirm(`${e.message || 'Delete failed.'}\n\nIf this item is linked, disable it instead?`)) {
                 await updateService(editingService.id, { isActive: false });
-                setIsEditServiceModalOpen(false);
+                goBack();
                 setEditingService(null);
                 await refreshCatalog();
             } else {
@@ -1463,7 +1641,7 @@ export default function MasterCatalog() {
     };
 
     const closeBulkProductModal = () => {
-        setIsBulkProductModalOpen(false);
+        goBack();
         setSelectedBulkFile(null);
         setBulkImportResult(null);
         setBulkImporting(false);
@@ -1472,7 +1650,7 @@ export default function MasterCatalog() {
     };
 
     const closeBulkServiceModal = () => {
-        setIsBulkServiceModalOpen(false);
+        goBack();
         setSelectedBulkServiceFile(null);
         setBulkServiceImportResult(null);
         setBulkServiceImporting(false);
@@ -1747,7 +1925,7 @@ export default function MasterCatalog() {
                         />
                     </div>
                     {hasPermission('inventory.master-catalog.departments.create') && (
-                        <button className="mc-btn-primary small" onClick={() => setIsAddDeptModalOpen(true)}><Plus size={14} /> Add Department</button>
+                        <button className="mc-btn-primary small" onClick={() => navigate(mcRoutes.deptNew())}><Plus size={14} /> Add Department</button>
                     )}
                 </div>
             </div>
@@ -1786,7 +1964,7 @@ export default function MasterCatalog() {
                         />
                     </div>
                     {hasPermission('inventory.master-catalog.categories.create') && (
-                        <button className="mc-btn-primary small" onClick={() => setIsAddCatModalOpen(true)}><Plus size={14} /> Add Category</button>
+                        <button className="mc-btn-primary small" onClick={() => navigate(mcRoutes.catNew())}><Plus size={14} /> Add Category</button>
                     )}
                 </div>
             </div>
@@ -1955,31 +2133,14 @@ export default function MasterCatalog() {
                                             <button
                                                 type="button"
                                                 className="mc-btn-ghost"
-                                                onClick={() => { setPrRejectTarget(r); setPrRejectReason(''); }}
+                                                onClick={() => openPrReject(r)}
                                             >
                                                 <XCircle size={14} /> Reject
                                             </button>
                                             <button
                                                 type="button"
                                                 className="mc-btn-primary"
-                                                onClick={() => {
-                                                    setPrApproveTarget(r);
-                                                    setPrRemarks('');
-                                                    setPrApproveForm({
-                                                        name: r?.name || '',
-                                                        sku: r?.sku || '',
-                                                        brandName: r?.brandName || '',
-                                                        description: r?.description || '',
-                                                        arabicName: r?.arabicName || '',
-                                                        unit: r?.unit || 'pcs',
-                                                        expectedPrice:
-                                                            r?.expectedPrice === null || r?.expectedPrice === undefined
-                                                                ? ''
-                                                                : String(r.expectedPrice),
-                                                        departmentId: r?.departmentId ? String(r.departmentId) : '',
-                                                        categoryId: r?.categoryId ? String(r.categoryId) : '',
-                                                    });
-                                                }}
+                                                onClick={() => openPrApprove(r)}
                                             >
                                                 <CheckCircle2 size={14} /> Approve
                                             </button>
@@ -2440,7 +2601,9 @@ export default function MasterCatalog() {
     );
 
     return (
-        <div className="master-catalog-container">
+        <div className={`master-catalog-container${pageMode ? ' master-catalog-route-view' : ''}`}>
+            {!pageMode && (
+            <>
             {/* Header Area */}
             <div className="mc-header">
                 <div className="mc-header-info">
@@ -2450,22 +2613,22 @@ export default function MasterCatalog() {
                 <div className="mc-header-actions">
                     <button type="button" className="mc-btn-ghost"><RefreshCw size={16} /> Sync Depts</button>
                     {hasPermission('inventory.master-catalog.products.create') && (
-                        <button type="button" className="mc-btn-ghost" onClick={() => setIsBulkProductModalOpen(true)}>
+                        <button type="button" className="mc-btn-ghost" onClick={() => navigate(mcRoutes.productImport())}>
                             <Upload size={16} /> Bulk upload Product
                         </button>
                     )}
                     {hasPermission('inventory.master-catalog.services.create') && (
-                        <button type="button" className="mc-btn-ghost" onClick={() => setIsBulkServiceModalOpen(true)}>
+                        <button type="button" className="mc-btn-ghost" onClick={() => navigate(mcRoutes.serviceImport())}>
                             <Upload size={16} /> Bulk upload Service
                         </button>
                     )}
                     {hasPermission('inventory.master-catalog.products.create') && (
-                        <button type="button" className="mc-btn-primary" onClick={() => setIsAddModalOpen(true)}>
+                        <button type="button" className="mc-btn-primary" onClick={() => navigate(mcRoutes.productNew())}>
                             <Plus size={16} /> Add product
                         </button>
                     )}
                     {hasPermission('inventory.master-catalog.services.create') && (
-                        <button type="button" className="mc-btn-primary purple-btn" onClick={() => setIsAddServiceModalOpen(true)}>
+                        <button type="button" className="mc-btn-primary purple-btn" onClick={() => navigate(mcRoutes.serviceNew())}>
                             <Plus size={16} /> Add service
                         </button>
                     )}
@@ -2508,7 +2671,11 @@ export default function MasterCatalog() {
                     <button
                         key={tab.id}
                         className={`mc-tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-                        onClick={() => { setActiveTab(tab.id); setSearchQuery(''); }}
+                        onClick={() => {
+                            setActiveTab(tab.id);
+                            setSearchQuery('');
+                            navigate(masterCatalogListUrl(tab.id), { replace: true });
+                        }}
                     >
                         <tab.icon size={16} />
                         {tab.label}
@@ -2539,12 +2706,15 @@ export default function MasterCatalog() {
             {activeTab === 'availability' && hasPermission('inventory.master-catalog.availability.view') && renderSupplierAvailability()}
             {activeTab === 'services'     && hasPermission('inventory.master-catalog.services.view')     && renderServices()}
 
-            {/* Add Department Modal */}
+            </>
+            )}
+
+            {/* Add Department MasterCatalogShell */}
             <AnimatePresence>
-                {isAddDeptModalOpen && (
-                    <Modal
+                {pageMode && route?.screen === 'dept-new' && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><LayoutGrid size={18} color="#D4A017" /> Add Master Department</div>}
-                        onClose={() => setIsAddDeptModalOpen(false)}
+                        onClose={goBack}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
@@ -2561,22 +2731,22 @@ export default function MasterCatalog() {
                                 <button className="mc-btn-primary mc-btn-large" onClick={handleCreateDepartment} disabled={saving || !isDepartmentFormValid}>
                                     {saving ? 'Saving...' : 'Add Department'}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={() => setIsAddDeptModalOpen(false)}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
                             </div>
                             {!isDepartmentFormValid && (
                                 <p style={{ marginTop: 8, color: '#B91C1C', fontSize: 12 }}>Department name is required.</p>
                             )}
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
-            {/* Edit Department Modal */}
+            {/* Edit Department MasterCatalogShell */}
             <AnimatePresence>
-                {isEditDeptModalOpen && editingDept && (
-                    <Modal
+                {pageMode && route?.screen === 'dept-edit' && editingDept && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><LayoutGrid size={18} color="#D4A017" /> Edit Master Department</div>}
-                        onClose={() => setIsEditDeptModalOpen(false)}
+                        onClose={goBack}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
@@ -2593,19 +2763,19 @@ export default function MasterCatalog() {
                                 <button className="mc-btn-primary mc-btn-large" onClick={handleUpdateDepartment} disabled={saving || !editingDept.name?.trim()}>
                                     {saving ? 'Saving...' : 'Update Department'}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={() => setIsEditDeptModalOpen(false)}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
                             </div>
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
-            {/* Add Category Modal */}
+            {/* Add Category */}
             <AnimatePresence>
-                {isAddCatModalOpen && (
-                    <Modal
+                {pageMode && route?.screen === 'cat-new' && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><Tags size={18} color="#D4A017" /> Add Master Category</div>}
-                        onClose={() => setIsAddCatModalOpen(false)}
+                        onClose={goBack}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
@@ -2647,7 +2817,7 @@ export default function MasterCatalog() {
                                 <button className="mc-btn-primary mc-btn-large" onClick={handleCreateCategory} disabled={saving || !isCategoryFormValid}>
                                     {saving ? 'Saving...' : 'Add Category'}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={() => setIsAddCatModalOpen(false)}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
                             </div>
                             {!isCategoryFormValid && (
                                 <p style={{ marginTop: 8, color: '#B91C1C', fontSize: 12 }}>
@@ -2655,16 +2825,16 @@ export default function MasterCatalog() {
                                 </p>
                             )}
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
-            {/* Edit Category Modal */}
+            {/* Edit Category MasterCatalogShell */}
             <AnimatePresence>
-                {isEditCatModalOpen && editingCat && (
-                    <Modal
+                {pageMode && route?.screen === 'cat-edit' && editingCat && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><Tags size={18} color="#D4A017" /> Edit Master Category</div>}
-                        onClose={() => setIsEditCatModalOpen(false)}
+                        onClose={goBack}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
@@ -2712,19 +2882,19 @@ export default function MasterCatalog() {
                                 >
                                     {saving ? 'Saving...' : 'Update Category'}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={() => setIsEditCatModalOpen(false)}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
                             </div>
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
-            {/* Add Service Modal */}
+            {/* Add Service */}
             <AnimatePresence>
-                {isAddServiceModalOpen && (
-                    <Modal
+                {pageMode && route?.screen === 'service-new' && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><Settings size={18} color="#9333EA" /> Add Service to Master Catalog</div>}
-                        onClose={() => setIsAddServiceModalOpen(false)}
+                        onClose={goBack}
                         className="sa-mc-modal"
                     >
                         <div className="mc-modal-form">
@@ -2906,7 +3076,7 @@ export default function MasterCatalog() {
                                 >
                                     {saving ? 'Saving...' : 'Add to Master Catalog'}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" style={{ flex: 1 }} onClick={() => setIsAddServiceModalOpen(false)}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" style={{ flex: 1 }} onClick={goBack}>Cancel</button>
                             </div>
                             {!isServiceFormValid && (
                                 <p style={{ marginTop: 8, color: '#B91C1C', fontSize: 12 }}>
@@ -2914,17 +3084,18 @@ export default function MasterCatalog() {
                                 </p>
                             )}
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
-            {/* Edit Service Modal */}
+            {/* Edit Service MasterCatalogShell */}
             <AnimatePresence>
-                {isEditServiceModalOpen && editingService && (
-                    <Modal
+                {pageMode && route?.screen === 'service-edit' && editingService && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><Settings size={18} color="#9333EA" /> Edit Service</div>}
                         onClose={() => {
-                            setIsEditServiceModalOpen(false);
+                            if (saving) return;
+                            goBack();
                             setEditingService(null);
                         }}
                         className="sa-mc-modal"
@@ -3099,7 +3270,7 @@ export default function MasterCatalog() {
                                 <button
                                     className="mc-btn-ghost mc-btn-large"
                                     onClick={() => {
-                                        setIsEditServiceModalOpen(false);
+                                        goBack();
                                         setEditingService(null);
                                     }}
                                 >
@@ -3110,16 +3281,16 @@ export default function MasterCatalog() {
                                 </button>
                             </div>
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
-            {/* Edit Product Modal */}
+            {/* Edit Product MasterCatalogShell */}
             <AnimatePresence>
-                {isEditModalOpen && editingProduct && (
-                    <Modal
+                {pageMode && route?.screen === 'product-edit' && editingProduct && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><ShieldCheck size={18} color="#D4A017" /> Edit Master Product</div>}
-                        onClose={() => setIsEditModalOpen(false)}
+                        onClose={goBack}
                         className="sa-mc-modal"
                     >
                         <div className="mc-modal-banner">
@@ -3435,19 +3606,19 @@ export default function MasterCatalog() {
                                 <button className="mc-btn-primary mc-btn-large" onClick={handleUpdateCatalogProduct} disabled={saving}>
                                     {saving ? 'Saving...' : 'Update Product'}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={() => setIsEditModalOpen(false)}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
                             </div>
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
-            {/* Add Product Modal */}
+            {/* Add Product */}
             <AnimatePresence>
-                {isAddModalOpen && (
-                    <Modal
+                {pageMode && route?.screen === 'product-new' && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><CheckCircle2 size={18} color="#D4A017" /> Add to Master Catalog</div>}
-                        onClose={() => setIsAddModalOpen(false)}
+                        onClose={goBack}
                         className="sa-mc-modal"
                     >
                         <div className="mc-modal-banner">
@@ -3723,7 +3894,7 @@ export default function MasterCatalog() {
                                 <button className="mc-btn-primary mc-btn-large" onClick={handleCreateProduct} disabled={saving || !isProductFormValid}>
                                     {saving ? 'Saving...' : 'Add to Master Catalog'}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={() => setIsAddModalOpen(false)}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
                             </div>
                             {!isProductFormValid && (
                                 <p style={{ marginTop: 8, color: '#B91C1C', fontSize: 12 }}>
@@ -3731,14 +3902,14 @@ export default function MasterCatalog() {
                                 </p>
                             )}
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
             {/* Bulk Upload Products */}
             <AnimatePresence>
-                {isBulkProductModalOpen && (
-                    <Modal
+                {pageMode && route?.screen === 'product-import' && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><Upload size={18} color="#2563EB" /> Bulk Upload Products</div>}
                         onClose={closeBulkProductModal}
                         className="sa-mc-modal"
@@ -3824,14 +3995,14 @@ export default function MasterCatalog() {
                                 {bulkImporting ? 'Importing…' : selectedBulkFile ? 'Import CSV' : 'Upload 0 Products'}
                             </button>
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
             {/* Bulk Upload Services */}
             <AnimatePresence>
-                {isBulkServiceModalOpen && (
-                    <Modal
+                {pageMode && route?.screen === 'service-import' && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><Upload size={18} color="#9333EA" /> Bulk Upload Services</div>}
                         onClose={closeBulkServiceModal}
                         className="sa-mc-modal"
@@ -3918,16 +4089,16 @@ export default function MasterCatalog() {
                                 {bulkServiceImporting ? 'Importing…' : selectedBulkServiceFile ? 'Import CSV' : 'Upload 0 Services'}
                             </button>
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
-            {/* Product Request — Approve Modal */}
+            {/* Product Request — Approve MasterCatalogShell */}
             <AnimatePresence>
-                {prApproveTarget && (
-                    <Modal
+                {pageMode && route?.screen === 'request-approve' && prApproveTarget && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><CheckCircle2 size={18} color="#15803D" /> Approve Request</div>}
-                        onClose={() => !prActionBusy && setPrApproveTarget(null)}
+                        onClose={() => !prActionBusy && goBack()}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
@@ -4065,23 +4236,23 @@ export default function MasterCatalog() {
                                 <button
                                     type="button"
                                     className="mc-btn-ghost mc-btn-large"
-                                    onClick={() => setPrApproveTarget(null)}
+                                    onClick={goBack}
                                     disabled={prActionBusy}
                                 >
                                     Cancel
                                 </button>
                             </div>
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 
-            {/* Product Request — Reject Modal */}
+            {/* Product Request — Reject */}
             <AnimatePresence>
-                {prRejectTarget && (
-                    <Modal
+                {pageMode && route?.screen === 'request-reject' && prRejectTarget && (
+                    <MasterCatalogShell
                         title={<div className="mc-modal-title"><XCircle size={18} color="#B91C1C" /> Reject Request</div>}
-                        onClose={() => !prActionBusy && setPrRejectTarget(null)}
+                        onClose={() => !prActionBusy && goBack()}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
@@ -4114,14 +4285,14 @@ export default function MasterCatalog() {
                                 <button
                                     type="button"
                                     className="mc-btn-ghost mc-btn-large"
-                                    onClick={() => setPrRejectTarget(null)}
+                                    onClick={goBack}
                                     disabled={prActionBusy}
                                 >
                                     Cancel
                                 </button>
                             </div>
                         </div>
-                    </Modal>
+                    </MasterCatalogShell>
                 )}
             </AnimatePresence>
 

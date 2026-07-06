@@ -14,7 +14,6 @@ import {
     X,
     Shield,
     Wallet,
-    LogOut,
     Star,
     Eye,
     Tags,
@@ -23,6 +22,8 @@ import {
     MessageCircle,
     BadgeDollarSign,
     ChevronDown,
+    ChevronRight,
+    Globe,
 } from 'lucide-react';
 
 import '../styles/AdminLayout.css';
@@ -224,10 +225,9 @@ const SidebarNavItem = ({ item, basePath }) => {
     const location = useLocation();
     const [open, setOpen] = useState(false);
     const hasSub = Array.isArray(item.subItems) && item.subItems.length > 0;
-    const parentPrefix = `${basePath}/${item.path}`;
     const isParentActive = hasSub
         ? item.subItems.some((sub) => location.pathname.startsWith(`${basePath}/${sub.path}`))
-        : false;
+        : location.pathname.startsWith(`${basePath}/${item.path}`);
 
     useEffect(() => {
         if (isParentActive) setOpen(true);
@@ -235,46 +235,59 @@ const SidebarNavItem = ({ item, basePath }) => {
 
     if (hasSub) {
         return (
-            <div className="mk-sidebar-nav-item mk-sidebar-nav-item--parent">
-                <button
-                    type="button"
-                    className={`mk-sidebar-link mk-sidebar-link--parent ${isParentActive ? 'active' : ''}`}
+            <div className="nav-group">
+                <div
+                    className={`nav-link ${isParentActive ? 'active' : ''}`}
                     onClick={() => setOpen((v) => !v)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setOpen((v) => !v);
+                        }
+                    }}
                 >
-                    <item.icon size={12} strokeWidth={2} />
-                    <span>{item.label}</span>
-                    <ChevronDown size={12} className={`mk-sidebar-chevron ${open ? 'open' : ''}`} />
-                </button>
-                {open && (
-                    <div className="mk-sidebar-subnav">
-                        {item.subItems.map((sub) => (
-                            <NavLink
-                                key={sub.path}
-                                to={`${basePath}/${sub.path}`}
-                                className={({ isActive }) =>
-                                    `mk-sidebar-sublink ${isActive ? 'active' : ''}`
-                                }
-                            >
-                                <span className="mk-sidebar-subdot" />
-                                <span>{sub.label}</span>
-                            </NavLink>
-                        ))}
+                    <div className="flex items-center gap-4">
+                        <item.icon size={20} />
+                        <span className="nav-label">{item.label}</span>
                     </div>
-                )}
+                    {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </div>
+                <AnimatePresence>
+                    {open && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="nav-submenu"
+                        >
+                            {item.subItems.map((sub) => (
+                                <NavLink
+                                    key={sub.path}
+                                    to={`${basePath}/${sub.path}`}
+                                    className={({ isActive }) =>
+                                        `nav-sub-link ${isActive ? 'active' : ''}`
+                                    }
+                                >
+                                    <span className="sub-nav-label">{sub.label}</span>
+                                </NavLink>
+                            ))}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
         );
     }
 
     return (
-        <div className="mk-sidebar-nav-item">
+        <div className="nav-group">
             <NavLink
                 to={`${basePath}/${item.path}`}
-                className={({ isActive }) =>
-                    `mk-sidebar-link ${isActive ? 'active' : ''}`
-                }
+                className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
             >
-                <item.icon size={12} strokeWidth={2} />
-                <span>{item.label}</span>
+                <item.icon size={20} />
+                <span className="nav-label">{item.label}</span>
                 {isPlatformChatNavId(item.navId || item.path) && <PlatformChatNavBadge />}
             </NavLink>
         </div>
@@ -391,7 +404,7 @@ export default function MarketingLayout() {
 
     if (isChatRoute) {
         return (
-            <div className="portal-layout--chat-fullscreen">
+            <div className="admin-layout admin-layout--chat-fullscreen" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
                 <MarketingPlatformChatPage />
             </div>
         );
@@ -399,7 +412,7 @@ export default function MarketingLayout() {
 
     return (
         <div
-            className={`marketing-layout-root ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}
+            className={`admin-layout marketing-layout ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}
             dir={locale === 'ar' ? 'rtl' : 'ltr'}
         >
             <AnimatePresence>
@@ -414,37 +427,32 @@ export default function MarketingLayout() {
                 )}
             </AnimatePresence>
 
-            <aside className={`marketing-yellow-sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
-                <div className="marketing-brand-row">
-                    <div className="marketing-brand-icon">
-                        <Megaphone size={15} strokeWidth={2.2} />
-                    </div>
-
-                    <div className="marketing-brand-text">
-                        <div className="marketing-brand-title">Marketing</div>
-                        <div className="marketing-brand-sub">&amp; Care Portal</div>
-                    </div>
+            <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
+                <div className="sidebar-logo">
+                    <h2 className="logo-main">
+                        FILTER <span className="logo-sub">ERP</span>
+                    </h2>
+                    <p className="logo-desc">Marketing &amp; Care Portal</p>
                 </div>
 
-                <div className="marketing-wallet-card">
-                    <div className="marketing-wallet-label">WALLET BALANCE</div>
-                    <div className="marketing-wallet-value">
-                        <Wallet size={12} strokeWidth={2} />
+                <div className="marketing-sidebar-wallet">
+                    <div className="marketing-sidebar-wallet-label">Wallet Balance</div>
+                    <div className="marketing-sidebar-wallet-value">
+                        <Wallet size={16} strokeWidth={2} />
                         <span>
                             {walletLoading
-                                ? 'Loading...'
+                                ? 'Loading…'
                                 : formatWalletBalance(walletBalance, walletCurrency)}
                         </span>
                     </div>
                 </div>
 
-                <nav className="marketing-sidebar-nav">
+                <nav className="sidebar-nav">
                     {visibleNavConfig.map((sec, index) => (
-                        <div key={sec.section || `main-${index}`} className="marketing-nav-section">
+                        <div key={sec.section || `main-${index}`}>
                             {sec.section ? (
-                                <div className="marketing-section-label">{sec.section}</div>
+                                <div className="sidebar-section-label">{sec.section}</div>
                             ) : null}
-
                             {sec.items.map((item) => (
                                 <SidebarNavItem
                                     key={`${sec.section || 'main'}-${item.path}-${item.label}`}
@@ -456,62 +464,62 @@ export default function MarketingLayout() {
                     ))}
                 </nav>
 
-                <div className="marketing-user-row">
-                    <div className="marketing-user-left">
-                        <div className="marketing-user-avatar">{sessionUser.initial}</div>
-
-                        <div className="marketing-user-meta">
-                            <div className="marketing-user-name">{sessionUser.name}</div>
-                            <div className="marketing-user-role">{sessionUser.role}</div>
-                        </div>
-                    </div>
-
-                    <button
-                        type="button"
-                        className="marketing-user-logout"
-                        onClick={handleLogout}
-                        title="Logout"
+                <div className="sidebar-footer">
+                    <div
+                        className={`user-pill ${isUserMenuOpen ? 'menu-open' : ''}`}
+                        onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                     >
-                        <LogOut size={12} strokeWidth={2} />
-                    </button>
-
-                    <UserProfileMenu
-                        isOpen={isUserMenuOpen}
-                        onClose={() => setIsUserMenuOpen(false)}
-                        onLogout={handleLogout}
-                        locale={locale}
-                    />
+                        <div className="user-avatar">{sessionUser.initial}</div>
+                        <div className="user-details">
+                            <p className="user-name">{sessionUser.name}</p>
+                            <p className="user-role">{sessionUser.role}</p>
+                        </div>
+                        <ChevronDown className="user-menu-chevron" size={14} />
+                        <UserProfileMenu
+                            isOpen={isUserMenuOpen}
+                            onClose={() => setIsUserMenuOpen(false)}
+                            onLogout={handleLogout}
+                            locale={locale}
+                        />
+                    </div>
                 </div>
             </aside>
 
-            <main className="marketing-main-content">
-                <header className="marketing-simple-header">
-                    <div className="marketing-header-left">
-                        <button
-                            type="button"
-                            className="marketing-mobile-toggle"
-                            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                        >
-                            {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
-                        </button>
-
-                        <span className="marketing-header-title">{pageTitle}</span>
-                        <span className="marketing-header-subtitle">
-                            Marketing &amp; Care Portal
-                        </span>
+            <main className="main-content">
+                <header className="top-bar">
+                    <div className="header-info">
+                        <div className="flex items-center gap-4">
+                            <button
+                                type="button"
+                                className="mobile-menu-toggle"
+                                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                            >
+                                {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+                            </button>
+                            <div>
+                                <h1 className="page-title">{pageTitle.toUpperCase()}</h1>
+                                <p className="page-subtitle">Marketing &amp; Care Portal</p>
+                            </div>
+                        </div>
                     </div>
-
-                    <div className="marketing-header-right">
-                        <span className="marketing-header-user">{sessionUser.name}</span>
-
-                        <button
-                            type="button"
-                            onClick={handleLogout}
-                            className="marketing-header-logout"
-                        >
-                            <LogOut size={14} strokeWidth={2} />
-                            Logout
-                        </button>
+                    <div className="flex items-center gap-8">
+                        <div className="header-lang-switcher">
+                            <span className="lang-label"><Globe size={16} /></span>
+                            <button
+                                type="button"
+                                className={`lang-btn ${locale === 'en' ? 'active' : ''}`}
+                                onClick={() => setLocale('en')}
+                            >
+                                EN
+                            </button>
+                            <button
+                                type="button"
+                                className={`lang-btn lang-btn-ar ${locale === 'ar' ? 'active' : ''}`}
+                                onClick={() => setLocale('ar')}
+                            >
+                                العربية
+                            </button>
+                        </div>
                     </div>
                 </header>
 
@@ -519,478 +527,28 @@ export default function MarketingLayout() {
                     context={{
                         showAddModal,
                         setShowAddModal,
-
                         promotions,
                         setPromotions,
-
                         promoCodes,
                         setPromoCodes,
-
                         referrers,
                         setReferrers,
-
                         referralCodes,
                         setReferralCodes,
-
                         loyaltyTiers,
                         setLoyaltyTiers,
-
                         loyaltyProgram,
                         setLoyaltyProgram,
-
                         marketingWorkshopId,
                         setMarketingWorkshopId,
-
                         workshops,
-
                         locale,
                         setLocale,
-
                         walletBalance,
                         walletCurrency,
                     }}
                 />
             </main>
-
-            <style>
-                {`
-                    .marketing-layout-root {
-                        width: 100%;
-                        min-height: 100vh;
-                        display: flex;
-                        background: #f3f4f6;
-                        overflow: hidden;
-                        font-family: 'Poppins', sans-serif;
-                    }
-
-                    .marketing-yellow-sidebar {
-                        width: 225px;
-                        flex: 0 0 225px;
-                        height: 100vh;
-                        background: #f7c600;
-                        color: #111827;
-                        display: flex;
-                        flex-direction: column;
-                        position: sticky;
-                        top: 0;
-                        left: 0;
-                        z-index: 20;
-                        overflow: hidden;
-                        box-sizing: border-box;
-                    }
-
-                    .marketing-brand-row {
-                        height: 52px;
-                        display: flex;
-                        align-items: center;
-                        gap: 9px;
-                        padding: 0 14px;
-                        box-sizing: border-box;
-                        flex-shrink: 0;
-                    }
-
-                    .marketing-brand-icon {
-                        width: 32px;
-                        height: 32px;
-                        border-radius: 7px;
-                        background: #111827;
-                        color: #f7c600;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        flex-shrink: 0;
-                    }
-
-                    .marketing-brand-title {
-                        font-size: 13px;
-                        font-weight: 800;
-                        color: #111827;
-                        line-height: 1.05;
-                    }
-
-                    .marketing-brand-sub {
-                        font-size: 9px;
-                        font-weight: 500;
-                        color: #1f2937;
-                        line-height: 1.05;
-                    }
-
-                    .marketing-wallet-card {
-                        margin: 6px 9px 12px;
-                        height: 61px;
-                        border-radius: 7px;
-                        background: rgba(185, 139, 0, 0.18);
-                        padding: 10px 12px;
-                        box-sizing: border-box;
-                        flex-shrink: 0;
-                    }
-
-                    .marketing-wallet-label {
-                        font-size: 8px;
-                        font-weight: 800;
-                        color: #5b4600;
-                        letter-spacing: 1.5px;
-                        line-height: 1;
-                        margin-bottom: 12px;
-                    }
-
-                    .marketing-wallet-value {
-                        display: flex;
-                        align-items: center;
-                        gap: 6px;
-                        color: #111827;
-                        font-size: 11px;
-                        font-weight: 800;
-                        line-height: 1;
-                    }
-
-                    .marketing-wallet-value span {
-                        font-size: 10px;
-                        font-weight: 500;
-                    }
-
-                    .marketing-sidebar-nav {
-                        flex: 1;
-                        min-height: 0;
-                        overflow-y: auto;
-                        overflow-x: hidden;
-                        padding-bottom: 10px;
-                        padding-right: 4px;
-                        box-sizing: border-box;
-                        scrollbar-width: thin;
-                        scrollbar-color: #9ca3af transparent;
-                    }
-
-                    .marketing-sidebar-nav::-webkit-scrollbar {
-                        width: 6px;
-                    }
-
-                    .marketing-sidebar-nav::-webkit-scrollbar-track {
-                        background: transparent;
-                    }
-
-                    .marketing-sidebar-nav::-webkit-scrollbar-thumb {
-                        background: #9ca3af;
-                        border-radius: 30px;
-                    }
-
-                    .marketing-sidebar-nav::-webkit-scrollbar-thumb:hover {
-                        background: #6b7280;
-                    }
-
-                    .marketing-nav-section {
-                        margin-bottom: 11px;
-                    }
-
-                    .marketing-section-label {
-                        padding: 0 14px;
-                        margin-bottom: 5px;
-                        font-size: 7.8px;
-                        font-weight: 900;
-                        letter-spacing: 1.7px;
-                        color: rgba(17, 24, 39, 0.45);
-                    }
-
-                    .mk-sidebar-nav-item {
-                        padding: 0 8px;
-                        box-sizing: border-box;
-                    }
-
-                    .mk-sidebar-link {
-                        height: 31px;
-                        border-radius: 3px;
-                        display: flex;
-                        align-items: center;
-                        gap: 9px;
-                        padding: 0 8px;
-                        color: #111827;
-                        text-decoration: none;
-                        font-size: 12px;
-                        font-weight: 500;
-                        box-sizing: border-box;
-                        white-space: nowrap;
-                    }
-
-                    .mk-sidebar-link:hover {
-                        background: rgba(0, 0, 0, 0.08);
-                        color: #111827;
-                    }
-
-                    .mk-sidebar-link.active {
-                        background: var(--sidebar-active-bg);
-                        color: var(--sidebar-text-active);
-                        font-weight: 600;
-                        box-shadow: inset 4px 0 0 var(--color-primary);
-                    }
-
-                    .mk-sidebar-link svg {
-                        width: 13px;
-                        height: 13px;
-                        flex-shrink: 0;
-                    }
-
-                    .mk-sidebar-link span {
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                    }
-
-                    .mk-sidebar-link--parent {
-                        width: 100%;
-                        border: none;
-                        background: transparent;
-                        cursor: pointer;
-                        text-align: left;
-                    }
-
-                    .mk-sidebar-chevron {
-                        margin-left: auto;
-                        transition: transform 0.2s ease;
-                    }
-
-                    .mk-sidebar-chevron.open {
-                        transform: rotate(180deg);
-                    }
-
-                    .mk-sidebar-subnav {
-                        padding: 2px 0 4px 18px;
-                    }
-
-                    .mk-sidebar-sublink {
-                        height: 28px;
-                        border-radius: 3px;
-                        display: flex;
-                        align-items: center;
-                        gap: 8px;
-                        padding: 0 8px;
-                        color: #111827;
-                        text-decoration: none;
-                        font-size: 11.5px;
-                        font-weight: 500;
-                    }
-
-                    .mk-sidebar-sublink:hover {
-                        background: rgba(0, 0, 0, 0.08);
-                    }
-
-                    .mk-sidebar-sublink.active {
-                        background: var(--sidebar-active-bg);
-                        color: var(--sidebar-text-active);
-                        font-weight: 600;
-                    }
-
-                    .mk-sidebar-subdot {
-                        width: 4px;
-                        height: 4px;
-                        border-radius: 50%;
-                        background: currentColor;
-                        opacity: 0.55;
-                        flex-shrink: 0;
-                    }
-
-                    .marketing-user-row {
-                        height: 50px;
-                        border-top: 1px solid rgba(17, 24, 39, 0.08);
-                        background: rgba(185, 139, 0, 0.10);
-                        display: flex;
-                        align-items: center;
-                        justify-content: space-between;
-                        padding: 0 12px;
-                        box-sizing: border-box;
-                        flex-shrink: 0;
-                    }
-
-                    .marketing-user-left {
-                        display: flex;
-                        align-items: center;
-                        gap: 8px;
-                        min-width: 0;
-                    }
-
-                    .marketing-user-avatar {
-                        width: 22px;
-                        height: 22px;
-                        border-radius: 50%;
-                        background: #111827;
-                        color: #f7c600;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        font-size: 10px;
-                        font-weight: 800;
-                        flex-shrink: 0;
-                    }
-
-                    .marketing-user-meta {
-                        min-width: 0;
-                    }
-
-                    .marketing-user-name {
-                        font-size: 10px;
-                        font-weight: 800;
-                        color: #111827;
-                        line-height: 1.05;
-                        white-space: nowrap;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                    }
-
-                    .marketing-user-role {
-                        font-size: 8px;
-                        color: rgba(17, 24, 39, 0.65);
-                        line-height: 1.05;
-                        margin-top: 2px;
-                    }
-
-                    .marketing-user-logout {
-                        border: none;
-                        background: transparent;
-                        color: #111827;
-                        cursor: pointer;
-                        padding: 4px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        flex-shrink: 0;
-                    }
-
-                    .marketing-user-logout:hover {
-                        background: rgba(0, 0, 0, 0.06);
-                        border-radius: 4px;
-                    }
-
-                    .marketing-main-content {
-                        flex: 1;
-                        min-width: 0;
-                        height: 100vh;
-                        overflow-y: auto;
-                        background: #f3f4f6;
-                        padding: 0 !important;
-                        margin: 0 !important;
-                    }
-
-                    .marketing-simple-header {
-                        height: 54px;
-                        background: #ffffff;
-                        border-bottom: 1px solid #e5e7eb;
-                        display: flex;
-                        align-items: center;
-                        justify-content: space-between;
-                        padding: 0 26px;
-                        box-sizing: border-box;
-                        position: sticky;
-                        top: 0;
-                        z-index: 10;
-                    }
-
-                    .marketing-header-left,
-                    .marketing-header-right {
-                        display: flex;
-                        align-items: center;
-                    }
-
-                    .marketing-header-left {
-                        gap: 8px;
-                    }
-
-                    .marketing-header-right {
-                        gap: 14px;
-                    }
-
-                    .marketing-header-title {
-                        font-size: 16px;
-                        font-weight: 800;
-                        color: #111827;
-                        line-height: 1;
-                    }
-
-                    .marketing-header-subtitle {
-                        font-size: 13px;
-                        font-weight: 400;
-                        color: #94a3b8;
-                        line-height: 1;
-                    }
-
-                    .marketing-header-user {
-                        font-size: 14px;
-                        font-weight: 800;
-                        color: #111827;
-                    }
-
-                    .marketing-header-logout {
-                        border: none;
-                        background: transparent;
-                        color: #6b7280;
-                        display: flex;
-                        align-items: center;
-                        gap: 5px;
-                        cursor: pointer;
-                        font-size: 12px;
-                        font-weight: 500;
-                        padding: 0;
-                    }
-
-                    .marketing-mobile-toggle {
-                        display: none;
-                        border: none;
-                        background: transparent;
-                        padding: 0;
-                        margin-right: 8px;
-                        color: #111827;
-                        cursor: pointer;
-                    }
-
-                    .sidebar-overlay {
-                        position: fixed;
-                        inset: 0;
-                        background: rgba(15, 23, 42, 0.35);
-                        z-index: 19;
-                    }
-
-                    .marketing-layout-root .top-bar {
-                        display: none !important;
-                    }
-
-                    .marketing-layout-root .main-content {
-                        padding: 0 !important;
-                        margin: 0 !important;
-                    }
-
-                    @media (max-width: 900px) {
-                        .marketing-layout-root {
-                            display: block;
-                        }
-
-                        .marketing-yellow-sidebar {
-                            position: fixed;
-                            transform: translateX(-100%);
-                            transition: transform 0.25s ease;
-                        }
-
-                        .marketing-yellow-sidebar.open {
-                            transform: translateX(0);
-                        }
-
-                        .marketing-main-content {
-                            width: 100%;
-                            height: 100vh;
-                        }
-
-                        .marketing-mobile-toggle {
-                            display: inline-flex;
-                            align-items: center;
-                            justify-content: center;
-                        }
-
-                        .marketing-simple-header {
-                            padding: 0 16px;
-                        }
-
-                        .marketing-header-subtitle {
-                            display: none;
-                        }
-                    }
-                `}
-            </style>
 
             <PlatformChatFab
                 hidden={isChatRoute}

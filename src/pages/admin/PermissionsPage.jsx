@@ -1,5 +1,6 @@
 /* eslint-disable react/prop-types */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate, useLocation, useMatch } from 'react-router-dom';
 import {
     Pencil, Trash2, Search,
     ShieldCheck, Users,
@@ -8,7 +9,7 @@ import {
     Loader2, RefreshCcw, AlertCircle, Wallet,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import Modal from '../../components/Modal';
+import PermissionsShell from '../../components/admin/PermissionsShell';
 import ApprovalsPage from './ApprovalsPage';
 import * as permissionsApi from '../../services/permissionsApi';
 import { getWorkshopOptions, getBranches } from '../../services/superAdminApi';
@@ -79,12 +80,27 @@ const COMING_SOON_TREE = [
     { section: 'COMING SOON', tabs: [{ key: '_placeholder', label: 'Permissions for this portal will be defined in the next step', actions: [] }] },
 ];
 
+const PERMISSIONS_LIST_PATH = '/admin/permissions';
+
 /* ────────────────────────────────────────────────────────────────────────── */
 /*  Main page                                                                */
 /* ────────────────────────────────────────────────────────────────────────── */
 
 export default function PermissionsPage() {
     const { hasPermission } = useAuth();
+    const navigate = useNavigate();
+    const location = useLocation();
+    const roleNewRoute = useMatch('/admin/permissions/roles/new');
+    const roleEditRoute = useMatch('/admin/permissions/roles/:roleId/edit');
+    const userNewRoute = useMatch('/admin/permissions/users/new');
+    const userRoleRoute = useMatch('/admin/permissions/users/:userId/role');
+    const userPermsRoute = useMatch('/admin/permissions/users/:userId/permissions');
+    const routeView = Boolean(roleNewRoute || roleEditRoute || userNewRoute || userRoleRoute || userPermsRoute);
+
+    const goToPermissionsList = useCallback(() => {
+        navigate(PERMISSIONS_LIST_PATH);
+    }, [navigate]);
+
     const canSeeApprovalSettings = hasPermission('approvals.settings.view');
     const [activeTab, setActiveTab] = useState('users');
 
@@ -97,12 +113,7 @@ export default function PermissionsPage() {
     const [users, setUsers] = useState([]);
     const [roles, setRoles] = useState([]);
     const [registryByPortal, setRegistryByPortal] = useState({});
-    const [roleModalOpen, setRoleModalOpen] = useState(false);
-    const [userModalOpen, setUserModalOpen] = useState(false);
-    const [editingRole, setEditingRole] = useState(null);
-    const [editingUser, setEditingUser] = useState(null);
-    /** User whose per-user permission override is being edited (separate from role-edit modal). */
-    const [permissionsUser, setPermissionsUser] = useState(null);
+    const [routeRoleDetail, setRouteRoleDetail] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [portalFilter, setPortalFilter] = useState('');
     const [loading, setLoading] = useState(true);
@@ -155,30 +166,30 @@ export default function PermissionsPage() {
     }, [users, searchQuery, portalFilter]);
 
     const handleCreateNewRole = () => {
-        setEditingRole(null);
-        setRoleModalOpen(true);
+        navigate(`${PERMISSIONS_LIST_PATH}/roles/new`);
     };
 
-    const handleCreateNewUser = () => setUserModalOpen(true);
+    const handleCreateNewUser = () => {
+        navigate(`${PERMISSIONS_LIST_PATH}/users/new`);
+    };
 
     const handleEditRole = (role) => {
-        setEditingRole(role);
-        setRoleModalOpen(true);
+        navigate(`${PERMISSIONS_LIST_PATH}/roles/${encodeURIComponent(role.id)}/edit`, { state: { role } });
     };
 
     const handleEditUserRole = (user) => {
-        setEditingUser(user);
+        navigate(`${PERMISSIONS_LIST_PATH}/users/${encodeURIComponent(user.id)}/role`, { state: { user } });
     };
 
     const handleEditUserPermissions = (user) => {
-        setPermissionsUser(user);
+        navigate(`${PERMISSIONS_LIST_PATH}/users/${encodeURIComponent(user.id)}/permissions`, { state: { user } });
     };
 
     const handleSaveUserRole = async (userId, roleId, opts = {}) => {
         setSaving(true);
         try {
             await permissionsApi.assignRoleToUser(userId, roleId, opts);
-            setEditingUser(null);
+            goToPermissionsList();
             await fetchUsers();
         } catch (e) {
             alert(e?.message || 'Could not update user');
@@ -198,11 +209,11 @@ export default function PermissionsPage() {
     };
 
     /** RoleModal returns `{ name, description, portal, permissions: string[] (flat codes) }`. */
-    const handleSaveRole = async (payload) => {
+    const handleSaveRole = async (payload, roleToEdit = null) => {
         setSaving(true);
         try {
-            if (editingRole) {
-                await permissionsApi.updateRole(editingRole.id, {
+            if (roleToEdit) {
+                await permissionsApi.updateRole(roleToEdit.id, {
                     name: payload.name,
                     description: payload.description,
                     permissions: payload.permissions,
@@ -216,8 +227,7 @@ export default function PermissionsPage() {
                     permissions: payload.permissions,
                 });
             }
-            setRoleModalOpen(false);
-            setEditingRole(null);
+            goToPermissionsList();
             await fetchRoles();
         } catch (e) {
             alert(e?.message || 'Could not save role');
@@ -231,7 +241,7 @@ export default function PermissionsPage() {
         setSaving(true);
         try {
             await permissionsApi.createUser(payload);
-            setUserModalOpen(false);
+            goToPermissionsList();
             await fetchUsers();
         } catch (e) {
             alert(e?.message || 'Could not create user');
@@ -239,6 +249,165 @@ export default function PermissionsPage() {
             setSaving(false);
         }
     };
+
+    const routeUser = useMemo(() => {
+        const userId = userRoleRoute?.params?.userId ?? userPermsRoute?.params?.userId;
+        if (!userId) return null;
+        const fromState = location.state?.user;
+        if (fromState && String(fromState.id) === String(userId)) return fromState;
+        return users.find((u) => String(u.id) === String(userId)) ?? null;
+    }, [userRoleRoute?.params?.userId, userPermsRoute?.params?.userId, location.state, users]);
+
+    const roleEditId = roleEditRoute?.params?.roleId ?? null;
+
+    useEffect(() => {
+        if (!roleEditId) {
+            setRouteRoleDetail(null);
+            return undefined;
+        }
+        const fromState = location.state?.role;
+        if (fromState && String(fromState.id) === String(roleEditId) && fromState.permissions) {
+            setRouteRoleDetail(fromState);
+            return undefined;
+        }
+        const fromList = roles.find((r) => String(r.id) === String(roleEditId));
+        if (fromList?.permissions) {
+            setRouteRoleDetail(fromList);
+            return undefined;
+        }
+        let cancelled = false;
+        permissionsApi.getRole(roleEditId)
+            .then((res) => {
+                if (!cancelled) setRouteRoleDetail(res?.role ?? res ?? null);
+            })
+            .catch(() => {
+                if (!cancelled) setRouteRoleDetail(null);
+            });
+        return () => { cancelled = true; };
+    }, [roleEditId, location.state, roles]);
+
+    const renderRouteView = () => {
+        if (roleNewRoute) {
+            return (
+                <RoleModal
+                    asPage
+                    onClose={goToPermissionsList}
+                    onSave={(payload) => handleSaveRole(payload, null)}
+                    editingRole={null}
+                    registryByPortal={registryByPortal}
+                    loadRegistry={fetchRegistry}
+                    saving={saving}
+                />
+            );
+        }
+        if (roleEditRoute) {
+            if (!routeRoleDetail && loading) {
+                return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 40, justifyContent: 'center', color: '#64748b' }}>
+                        <Loader2 size={20} className="spin" /> Loading role…
+                    </div>
+                );
+            }
+            if (!routeRoleDetail) {
+                return (
+                    <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                        <p>Role not found.</p>
+                        <button type="button" className="btn-portal create-role-btn" onClick={goToPermissionsList}>
+                            Back to Users & Permissions
+                        </button>
+                    </div>
+                );
+            }
+            return (
+                <RoleModal
+                    asPage
+                    onClose={goToPermissionsList}
+                    onSave={(payload) => handleSaveRole(payload, routeRoleDetail)}
+                    editingRole={routeRoleDetail}
+                    registryByPortal={registryByPortal}
+                    loadRegistry={fetchRegistry}
+                    saving={saving}
+                />
+            );
+        }
+        if (userNewRoute) {
+            return (
+                <UserModal
+                    asPage
+                    onClose={goToPermissionsList}
+                    onSave={handleSaveUser}
+                    roles={roles}
+                    saving={saving}
+                />
+            );
+        }
+        if (userRoleRoute) {
+            if (!routeUser && loading) {
+                return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 40, justifyContent: 'center', color: '#64748b' }}>
+                        <Loader2 size={20} className="spin" /> Loading user…
+                    </div>
+                );
+            }
+            if (!routeUser) {
+                return (
+                    <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                        <p>User not found.</p>
+                        <button type="button" className="btn-portal create-role-btn" onClick={goToPermissionsList}>
+                            Back to Users & Permissions
+                        </button>
+                    </div>
+                );
+            }
+            return (
+                <EditUserRoleModal
+                    asPage
+                    user={routeUser}
+                    roles={roles}
+                    onClose={goToPermissionsList}
+                    onSave={handleSaveUserRole}
+                    saving={saving}
+                />
+            );
+        }
+        if (userPermsRoute) {
+            if (!routeUser && loading) {
+                return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 40, justifyContent: 'center', color: '#64748b' }}>
+                        <Loader2 size={20} className="spin" /> Loading user…
+                    </div>
+                );
+            }
+            if (!routeUser) {
+                return (
+                    <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                        <p>User not found.</p>
+                        <button type="button" className="btn-portal create-role-btn" onClick={goToPermissionsList}>
+                            Back to Users & Permissions
+                        </button>
+                    </div>
+                );
+            }
+            return (
+                <UserPermissionsModal
+                    asPage
+                    user={routeUser}
+                    registryByPortal={registryByPortal}
+                    loadRegistry={fetchRegistry}
+                    onClose={goToPermissionsList}
+                    onSaved={() => {
+                        goToPermissionsList();
+                        fetchUsers();
+                    }}
+                />
+            );
+        }
+        return null;
+    };
+
+    if (routeView) {
+        return renderRouteView();
+    }
 
     return (
         <div className="permissions-page module-container">
@@ -313,45 +482,6 @@ export default function PermissionsPage() {
                     </AnimatePresence>
                 )}
             </main>
-
-            <AnimatePresence>
-                {roleModalOpen && (
-                    <RoleModal
-                        onClose={() => { setRoleModalOpen(false); setEditingRole(null); }}
-                        onSave={handleSaveRole}
-                        editingRole={editingRole}
-                        registryByPortal={registryByPortal}
-                        loadRegistry={fetchRegistry}
-                        saving={saving}
-                    />
-                )}
-                {userModalOpen && (
-                    <UserModal
-                        onClose={() => setUserModalOpen(false)}
-                        onSave={handleSaveUser}
-                        roles={roles}
-                        saving={saving}
-                    />
-                )}
-                {editingUser && (
-                    <EditUserRoleModal
-                        user={editingUser}
-                        roles={roles}
-                        onClose={() => setEditingUser(null)}
-                        onSave={handleSaveUserRole}
-                        saving={saving}
-                    />
-                )}
-                {permissionsUser && (
-                    <UserPermissionsModal
-                        user={permissionsUser}
-                        registryByPortal={registryByPortal}
-                        loadRegistry={fetchRegistry}
-                        onClose={() => setPermissionsUser(null)}
-                        onSaved={() => { setPermissionsUser(null); fetchUsers(); }}
-                    />
-                )}
-            </AnimatePresence>
         </div>
     );
 }
@@ -595,7 +725,7 @@ function RolesTab({ roles, onEdit, onDelete }) {
 /*  Create / Edit Role Modal                                                  */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistry, saving }) {
+function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistry, saving, asPage = false }) {
     const [step, setStep] = useState(editingRole ? 2 : 1);
     const [portal, setPortal] = useState(editingRole?.portal || '');
     const [name, setName] = useState(editingRole?.name || '');
@@ -688,9 +818,10 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
     };
 
     return (
-        <Modal
+        <PermissionsShell asPage={asPage}
             title={editingRole ? 'Edit Role' : 'Create New Role'}
             onClose={onClose}
+            backDisabled={saving}
             className="create-role-modal"
             footer={(
                 <div className="modal-footer-actions">
@@ -809,7 +940,7 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
                     )}
                 </div>
             )}
-        </Modal>
+        </PermissionsShell>
     );
 }
 
@@ -916,7 +1047,7 @@ function TabPermissionRow({ tab, perms, onToggleAction, onToggleTab }) {
 /*  Create User Modal                                                         */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function UserModal({ onClose, onSave, roles, saving }) {
+function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
     const [isSuperAdmin, setIsSuperAdmin] = useState(false);
     const [workshopId, setWorkshopId] = useState('');
     const [branchId, setBranchId] = useState('');
@@ -996,9 +1127,10 @@ function UserModal({ onClose, onSave, roles, saving }) {
     };
 
     return (
-        <Modal
+        <PermissionsShell asPage={asPage}
             title="Create New User"
             onClose={onClose}
+            backDisabled={saving}
             className="create-role-modal"
             footer={(
                 <div className="modal-footer-actions">
@@ -1192,7 +1324,7 @@ function UserModal({ onClose, onSave, roles, saving }) {
                     <div className="form-group flex-1" />
                 </div>
             </div>
-        </Modal>
+        </PermissionsShell>
     );
 }
 
@@ -1231,7 +1363,7 @@ function ToggleSwitch({ checked, onChange }) {
 /*  Edit User Role Modal                                                      */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
+function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = false }) {
     const [roleId, setRoleId] = useState(user.role?.id ?? '');
     const [resetPassword, setResetPassword] = useState('');
     const [assignWallet, setAssignWallet] = useState(Boolean(user.walletEnabled));
@@ -1332,9 +1464,10 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
     };
 
     return (
-        <Modal
+        <PermissionsShell asPage={asPage}
             title={`Edit user — ${user.name || user.email}`}
             onClose={onClose}
+            backDisabled={saving}
             className="create-role-modal"
             footer={(
                 <div className="modal-footer-actions">
@@ -1571,7 +1704,7 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
                     Changes take effect after the user logs out and back in.
                 </div>
             </div>
-        </Modal>
+        </PermissionsShell>
     );
 }
 
@@ -1588,7 +1721,7 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving }) {
  * Save → PUT /users/:id/permissions (stores override)
  * Reset to defaults → DELETE /users/:id/permissions (clears override)
  */
-function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, onSaved }) {
+function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, onSaved, asPage = false }) {
     const portal = user?.role?.portal || 'super_admin';
     const [perms, setPerms] = useState({}); // { [tabKey]: { [action]: true } }
     const [loading, setLoading] = useState(true);
@@ -1691,9 +1824,10 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
     };
 
     return (
-        <Modal
+        <PermissionsShell asPage={asPage}
             title={`Permissions — ${user.name || user.email}`}
             onClose={onClose}
+            backDisabled={saving}
             className="create-role-modal"
             footer={(
                 <div className="modal-footer-actions">
@@ -1793,6 +1927,6 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
                     unaffected. Changes take effect after the user logs out and back in.
                 </div>
             </div>
-        </Modal>
+        </PermissionsShell>
     );
 }

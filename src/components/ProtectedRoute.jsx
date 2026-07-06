@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { defaultHomePathForUser, isAdminPortalUser, isLockerOnlyPortalUser, isWorkshopPortalUser } from '../utils/permissions';
 
 const ProtectedRoute = ({ children, requiredType }) => {
     const { isAuthenticated, user, loading } = useAuth();
@@ -28,7 +29,11 @@ const ProtectedRoute = ({ children, requiredType }) => {
         const normalizedRequiredType = normalizeUserType(required);
 
         if (normalizedRequiredType === 'workshop_user' || normalizedRequiredType === 'workshop_owner') {
-            return normalizedUserType === 'workshop_user' || normalizedUserType === 'workshop_owner';
+            if (normalizedUserType === 'workshop_owner') return true;
+            if (normalizedUserType === 'workshop_user') {
+                return isWorkshopPortalUser(user);
+            }
+            return false;
         }
 
         if (normalizedRequiredType === 'technician_user') {
@@ -42,12 +47,7 @@ const ProtectedRoute = ({ children, requiredType }) => {
                 return true;
             }
             // Platform admins may open the supplier shell (sidebar "Back to Super Admin").
-            if (
-                normalizedUserType === 'admin' ||
-                normalizedUserType === 'super_admin' ||
-                normalizedUserType === 'admin_user' ||
-                normalizedUserType === 'platform_admin'
-            ) {
+            if (isAdminPortalUser({ userType: normalizedUserType, type: normalizedUserType })) {
                 return true;
             }
             return false;
@@ -72,26 +72,18 @@ const ProtectedRoute = ({ children, requiredType }) => {
         return normalizedUserType === normalizedRequiredType;
     };
 
-    // If a specific type is required (e.g., 'admin')
     if (requiredType) {
         const userType = normalizeUserType(user?.userType || user?.type);
         const normalizedRequiredType = normalizeUserType(requiredType);
-        
-        // RELAXED ADMIN CHECK:
-        // If we need an admin, and the user is NOT a known client role (like 'corporate_user')
-        // OR the user has an explicit 'admin' or 'super_admin' role, then allow access.
-        const isClient = userType === 'corporate_user' || userType === 'workshop_user' || userType === 'workshop_owner';
-        const isAdmin = userType === 'admin' || userType === 'super_admin' || userType === 'admin_user' || userType === 'platform_admin';
-        
+
         if (normalizedRequiredType === 'admin') {
-            if (isClient && !isAdmin) {
-                console.warn(`Admin access denied: User is a client (${userType})`);
-                return <Navigate to="/" replace />;
+            if (!isAdminPortalUser(user)) {
+                console.warn(`Admin access denied: user is ${userType}`);
+                return <Navigate to={defaultHomePathForUser(user)} replace />;
             }
-            // Otherwise, we allow it (trusting the authentication for Admin portal)
         } else if (!hasRequiredRole(userType, normalizedRequiredType)) {
             console.warn(`Portal access denied: Required ${normalizedRequiredType}, but user is ${userType}`);
-            return <Navigate to="/" replace />;
+            return <Navigate to={defaultHomePathForUser(user)} replace />;
         }
     }
 

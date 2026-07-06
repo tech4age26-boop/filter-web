@@ -420,6 +420,80 @@
     border-radius: 50%;
 }
 
+/* Full-page create / edit views (replaces modals) */
+.permissions-detail-page {
+    max-width: 960px;
+}
+
+.permissions-page-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 8px 14px;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    background: #fff;
+    color: #475569;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.permissions-page-back:hover:not(:disabled) {
+    background: #F8FAFC;
+    border-color: #CBD5E1;
+    color: #0F172A;
+}
+
+.permissions-page-back:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.permissions-page-panel {
+    background: #fff;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.permissions-page-header-bar {
+    padding: 20px 24px;
+    border-bottom: 1px solid #E2E8F0;
+}
+
+.permissions-page-panel-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #0F172A;
+}
+
+.permissions-page-body {
+    padding: 24px;
+}
+
+.permissions-page-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+    padding: 16px 24px;
+    border-top: 1px solid #E2E8F0;
+    background: #F8FAFC;
+}
+
+.permissions-detail-page.create-role-modal .permissions-page-panel {
+    max-width: 900px;
+    width: 100%;
+}
+
+.permissions-detail-page .permissions-groups-list {
+    max-height: none;
+}
+
 /* Modal and Form Refinement */
 .create-role-modal .modal-content {
     max-width: 900px !important;

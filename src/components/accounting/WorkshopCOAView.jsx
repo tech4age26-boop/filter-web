@@ -22,19 +22,22 @@ import {
     getBalanceSheet,
     getPLReport,
     getTrialBalance,
-    getAccountLedger,
     updateAccount,
 } from '../../services/accountsApi';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 import {
-    buildWorkshopPettyCashLedgerUrl,
+    buildWorkshopCoaNavigationUrl,
     filterWorkshopPettyCashCoaList,
+    isWorkshopCoaLedgerClickable,
     isWorkshopPettyCashCoaControlAccount,
-    isWorkshopPettyCashLedgerAccount,
     pruneWorkshopPettyCashCoaTree,
     WORKSHOP_COA_CONTROL_BADGES,
 } from '../../pages/workshop/workshopCoaAccountRouting';
-import { startOfMonthISO, todayISO } from '../../pages/admin/saAccountingDateRange';
+import {
+    loadSaAccountingDateRange,
+    startOfMonthISO,
+    todayISO,
+} from '../../pages/admin/saAccountingDateRange';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -166,14 +169,6 @@ function formatFinalBalance(acc) {
     return { text: '—', color: palette.textSecondary };
 }
 
-function formatRunningCell(isDebitNormal, running) {
-    if (Math.abs(Number(running || 0)) < 0.0005) return '—';
-    const mag = Math.abs(Number(running));
-    if (isDebitNormal) {
-        return `${fmtMoney(mag)}${Number(running) >= 0 ? ' Dr' : ' Cr'}`;
-    }
-    return `${fmtMoney(mag)}${Number(running) >= 0 ? ' Cr' : ' Dr'}`;
-}
 const fmtDateLabel = (d) => {
     if (!d) return '-';
     const x = new Date(d);
@@ -233,50 +228,20 @@ export default function WorkshopCOAView({ readOnly = false }) {
     const [bsData, setBsData] = useState(null);
     const [bsLoading, setBsLoading] = useState(false);
 
-    const [ledgerOpen, setLedgerOpen] = useState(false);
-    const [ledgerAccount, setLedgerAccount] = useState(null);
-    const [ledgerLoading, setLedgerLoading] = useState(false);
-    const [ledgerPayload, setLedgerPayload] = useState(null);
-    const [ledgerError, setLedgerError] = useState('');
-
     const openAccountLedger = useCallback(
-        async (acc) => {
-            if (!acc?.id) return;
-            if (isWorkshopPettyCashLedgerAccount(acc)) {
-                navigate(
-                    buildWorkshopPettyCashLedgerUrl(acc, {
-                        dateFrom: startOfMonthISO(),
-                        dateTo: todayISO(),
-                        branchId: selectedBranch || acc.branchId || '',
-                    }),
-                );
-                return;
-            }
-            setLedgerAccount(acc);
-            setLedgerOpen(true);
-            setLedgerLoading(true);
-            setLedgerError('');
-            setLedgerPayload(null);
-            try {
-                const params = {};
-                if (selectedBranch) params.branchId = selectedBranch;
-                const res = await getAccountLedger(acc.id, params);
-                setLedgerPayload(res && typeof res === 'object' ? res : null);
-            } catch (err) {
-                setLedgerError(getErrorMessage(err));
-            } finally {
-                setLedgerLoading(false);
-            }
+        (acc) => {
+            if (!isWorkshopCoaLedgerClickable(acc)) return;
+            const storedRange = loadSaAccountingDateRange();
+            navigate(
+                buildWorkshopCoaNavigationUrl(acc, {
+                    dateFrom: storedRange.dateFrom || startOfMonthISO(),
+                    dateTo: storedRange.dateTo || todayISO(),
+                    branchId: selectedBranch || acc.branchId || '',
+                }),
+            );
         },
         [navigate, selectedBranch],
     );
-
-    const closeLedgerModal = useCallback(() => {
-        setLedgerOpen(false);
-        setLedgerAccount(null);
-        setLedgerPayload(null);
-        setLedgerError('');
-    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -1111,8 +1076,11 @@ export default function WorkshopCOAView({ readOnly = false }) {
                             </button>
                         )}
                     </div>
-                    <p style={{ margin: '0 0 12px', fontSize: 13, color: palette.textSecondary }}>
-                        Final balance is from posted journals (all dates). Click any account row to open its ledger.
+                    <p className="sa-acc-coa-hint" style={{ margin: '0 0 12px' }}>
+                        Final balance is from posted journals (all dates). Click a detail account row to open its
+                        ledger statement — same layout as Platform HQ. Petty cash controls{' '}
+                        <strong>[1280]</strong> / <strong>[6100]</strong> and cash/bank detail accounts open
+                        filtered register views.
                     </p>
 
                     {loading ? (
@@ -1236,29 +1204,31 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                         const marker =
                                                             (treeFlat.find((x) => String(x.id) === String(acc.id)) || {})._marker || '';
                                                         const bal = formatFinalBalance(acc);
+                                                        const ledgerClickable = isWorkshopCoaLedgerClickable(acc);
                                                         return (
                                                             <tr
                                                                 key={acc.id}
-                                                                role="button"
-                                                                tabIndex={0}
-                                                                onClick={() => openAccountLedger(acc)}
-                                                                onKeyDown={(e) => {
+                                                                role={ledgerClickable ? 'button' : undefined}
+                                                                tabIndex={ledgerClickable ? 0 : undefined}
+                                                                onClick={ledgerClickable ? () => openAccountLedger(acc) : undefined}
+                                                                onKeyDown={ledgerClickable ? (e) => {
                                                                     if (e.key === 'Enter' || e.key === ' ') {
                                                                         e.preventDefault();
                                                                         openAccountLedger(acc);
                                                                     }
-                                                                }}
+                                                                } : undefined}
+                                                                className={ledgerClickable ? 'sa-acc-row-clickable' : undefined}
                                                                 style={{
                                                                     borderBottom: '1px solid #f3f4f6',
                                                                     background: '#fff',
-                                                                    cursor: 'pointer',
+                                                                    cursor: ledgerClickable ? 'pointer' : 'default',
                                                                 }}
-                                                                onMouseOver={(e) => {
+                                                                onMouseOver={ledgerClickable ? (e) => {
                                                                     e.currentTarget.style.background = '#f3f4f6';
-                                                                }}
-                                                                onMouseOut={(e) => {
+                                                                } : undefined}
+                                                                onMouseOut={ledgerClickable ? (e) => {
                                                                     e.currentTarget.style.background = '#fff';
-                                                                }}
+                                                                } : undefined}
                                                             >
                                                                 <td
                                                                     style={{
@@ -1685,189 +1655,6 @@ export default function WorkshopCOAView({ readOnly = false }) {
                 </div>
             )}
 
-            {ledgerOpen && (
-                <div
-                    style={{
-                        position: 'fixed',
-                        inset: 0,
-                        background: 'rgba(0,0,0,0.5)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 10000,
-                        padding: 16,
-                    }}
-                    onClick={closeLedgerModal}
-                    role="presentation"
-                >
-                    <div
-                        style={{
-                            width: '100%',
-                            maxWidth: 920,
-                            maxHeight: '85vh',
-                            background: '#fff',
-                            borderRadius: 12,
-                            padding: 24,
-                            boxSizing: 'border-box',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 12,
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
-                    >
-                        <div
-                            style={{
-                                display: 'flex',
-                                alignItems: 'flex-start',
-                                justifyContent: 'space-between',
-                                gap: 12,
-                            }}
-                        >
-                            <div>
-                                <h3
-                                    style={{
-                                        margin: 0,
-                                        fontSize: '1.15rem',
-                                        fontWeight: 700,
-                                        color: palette.textPrimary,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                    }}
-                                >
-                                    <BookOpen size={22} aria-hidden />
-                                    General ledger
-                                </h3>
-                                <p style={{ margin: '6px 0 0', fontSize: 14, color: palette.textSecondary }}>
-                                    {ledgerAccount
-                                        ? `${ledgerAccount.code} · ${ledgerAccount.name}`
-                                        : ''}
-                                    {selectedBranch
-                                        ? ` · Branch filter: ${branchById.get(String(selectedBranch)) || selectedBranch}`
-                                        : ''}
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={closeLedgerModal}
-                                style={{
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: palette.textSecondary,
-                                    cursor: 'pointer',
-                                    padding: 4,
-                                }}
-                                aria-label="Close ledger"
-                            >
-                                <X size={22} />
-                            </button>
-                        </div>
-
-                        {ledgerLoading ? (
-                            <div style={{ color: palette.textSecondary, padding: 24, textAlign: 'center' }}>
-                                <RefreshCw size={18} style={{ verticalAlign: 'middle', marginRight: 8 }} />
-                                Loading ledger…
-                            </div>
-                        ) : ledgerError ? (
-                            <div style={{ color: palette.delete, padding: 12 }}>{ledgerError}</div>
-                        ) : ledgerPayload?.lines?.length ? (
-                            <>
-                                <div
-                                    style={{
-                                        fontSize: 13,
-                                        color: palette.textSecondary,
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        flexWrap: 'wrap',
-                                        gap: 8,
-                                    }}
-                                >
-                                    <span>
-                                        {ledgerPayload.lines.length} line
-                                        {ledgerPayload.lines.length === 1 ? '' : 's'} (chronological)
-                                        {ledgerPayload.truncated
-                                            ? ` · Showing latest ${ledgerPayload.returnedLines} of ${ledgerPayload.totalLines}`
-                                            : ''}
-                                    </span>
-                                    <span style={{ fontWeight: 600, color: palette.textPrimary }}>
-                                        Closing:{' '}
-                                        {formatRunningCell(
-                                            ledgerPayload.account?.normalBalance === 'debit',
-                                            ledgerPayload.totals?.closingBalance ??
-                                                ledgerPayload.currentBalance ??
-                                                ledgerPayload.closingRunningBalance,
-                                        )}
-                                    </span>
-                                </div>
-                                <div style={{ overflow: 'auto', maxHeight: '58vh', border: `1px solid ${palette.border}`, borderRadius: 8 }}>
-                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                                        <thead>
-                                            <tr style={{ background: palette.sectionHeaderBg }}>
-                                                {['Date', 'Journal', 'Type', 'Description', 'Debit', 'Credit', 'Running'].map((h) => (
-                                                    <th
-                                                        key={h}
-                                                        style={{
-                                                            textAlign: h === 'Debit' || h === 'Credit' || h === 'Running' ? 'right' : 'left',
-                                                            padding: '10px 10px',
-                                                            borderBottom: `1px solid ${palette.border}`,
-                                                            color: palette.textSecondary,
-                                                            fontWeight: 600,
-                                                        }}
-                                                    >
-                                                        {h}
-                                                    </th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {ledgerPayload.lines.map((ln) => (
-                                                <tr key={ln.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                                                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{fmtDateLabel(ln.date)}</td>
-                                                    <td style={{ padding: '8px 10px', fontFamily: 'ui-monospace, monospace' }}>
-                                                        {ln.entryNumber}
-                                                    </td>
-                                                    <td style={{ padding: '8px 10px', color: palette.textSecondary }}>{ln.journalType}</td>
-                                                    <td style={{ padding: '8px 10px', maxWidth: 260 }}>
-                                                        <div>{ln.lineDescription || ln.journalDescription || '—'}</div>
-                                                        {ln.source ? (
-                                                            <div style={{ fontSize: 11, color: palette.textSecondary }}>{ln.source}</div>
-                                                        ) : null}
-                                                    </td>
-                                                    <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                                                        {Number(ln.debit) > 0 ? fmtMoney(ln.debit) : '—'}
-                                                    </td>
-                                                    <td style={{ padding: '8px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                                                        {Number(ln.credit) > 0 ? fmtMoney(ln.credit) : '—'}
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            padding: '8px 10px',
-                                                            textAlign: 'right',
-                                                            fontWeight: 600,
-                                                            fontVariantNumeric: 'tabular-nums',
-                                                        }}
-                                                    >
-                                                        {formatRunningCell(
-                                                            ledgerPayload.account?.normalBalance === 'debit',
-                                                            ln.runningBalance,
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </>
-                        ) : (
-                            <div style={{ color: palette.textSecondary, padding: 20, textAlign: 'center' }}>
-                                No journal lines for this account
-                                {selectedBranch ? ' in the selected branch' : ''}.
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

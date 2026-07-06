@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate, useParams, useLocation, useSearchParams, Navigate } from 'react-router-dom';
 import {
     Check, X, Tag, User, Calendar, DollarSign, Package, ShoppingCart,
     RefreshCcw, ArrowRightLeft, FileText, Eye, Users, Settings, CreditCard,
@@ -44,7 +45,7 @@ import {
     marketingPayExpense,
     marketingListWalletCashAccounts,
 } from '../../services/superAdminMarketingApi';
-import Modal from '../../components/Modal';
+import ApprovalShell from '../../components/admin/ApprovalShell';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import { useAuth } from '../../context/AuthContext';
@@ -174,6 +175,82 @@ function mapMarketingPromoCodeRow(r) {
         reference: r.code ?? '',
         raw: r,
     };
+}
+
+function formatPromoDiscountType(type) {
+    const t = String(type || '').toLowerCase();
+    if (t.includes('fixed') || t.includes('amount')) return 'Fixed Amount (SAR)';
+    if (t.includes('percent')) return 'Percentage (%)';
+    return type || '—';
+}
+
+function formatPromoScope(scope) {
+    const s = String(scope || '').toLowerCase();
+    if (s === 'all') return 'All';
+    if (s === 'selected') return 'Selected only';
+    if (s === 'none') return 'Does not apply';
+    return scope || '—';
+}
+
+function promoMatchModeLabel(mode) {
+    const key = String(mode || '').trim();
+    const labels = {
+        all_required: 'Selected product/category trigger',
+        any_present: 'Any selected product/service/category',
+        entire_order: 'Eligible trigger — entire invoice discount',
+    };
+    return labels[key] || key.replace(/_/g, ' ') || '—';
+}
+
+function ApprovalDetailField({ label, value, mono = false }) {
+    const empty = value == null || value === '';
+    return (
+        <div className="approval-field">
+            <span className="approval-field-label">{label}</span>
+            <span className={`approval-field-value${mono ? ' mono' : ''}${empty ? ' muted' : ''}`}>
+                {empty ? '—' : value}
+            </span>
+        </div>
+    );
+}
+
+function ApprovalDetailSection({ title, count, children, empty }) {
+    return (
+        <div className="approval-section">
+            <div className="approval-section-head">
+                <h4 className="approval-section-title">
+                    {title}
+                    {typeof count === 'number' ? (
+                        <span className="approval-section-count"> ({count})</span>
+                    ) : null}
+                </h4>
+            </div>
+            <div className="approval-section-body">
+                {empty ? <p className="approval-empty-line">{empty}</p> : children}
+            </div>
+        </div>
+    );
+}
+
+function PromoNamedChipList({ items, emptyLabel = 'None selected' }) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return <p className="approval-empty-line">{emptyLabel}</p>;
+    }
+    return (
+        <div className="approval-chip-list">
+            {items.map((item) => {
+                const id = String(item?.id ?? item);
+                const name = item?.name ?? item?.label ?? id;
+                const sub = item?.categoryName ?? item?.category_name ?? item?.type;
+                return (
+                    <span key={id} className="approval-chip">
+                        <span className="approval-chip-value">{name}</span>
+                        {sub ? <span className="approval-chip-label">{sub}</span> : null}
+                    </span>
+                );
+            })}
+        </div>
+    );
 }
 
 function unwrapMarketingPromotions(payload) {
@@ -345,6 +422,14 @@ function formatDate(dateStr) {
 // Keep IDs as strings — backend uses BigInt.
 function toStringId(v) {
     return v == null ? '' : String(v);
+}
+
+const APPROVALS_LIST_PATH = '/admin/approvals';
+
+function approvalDetailPath(entityType, id, action = null) {
+    const base = `${APPROVALS_LIST_PATH}/${encodeURIComponent(entityType)}/${encodeURIComponent(id)}`;
+    if (!action || action === 'details') return base;
+    return `${base}?action=${encodeURIComponent(action)}`;
 }
 
 function normalizeItem(raw) {
@@ -574,12 +659,13 @@ function buildMetaChips(item) {
 /*  Approve / Reject confirmation modals                              */
 /* ------------------------------------------------------------------ */
 
-function ApproveModal({ item, busy, onCancel, onConfirm }) {
+function ApproveModal({ item, busy, onCancel, onConfirm, asPage = false }) {
     const [remarks, setRemarks] = useState('');
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title="Approve Request"
-            onClose={busy ? undefined : onCancel}
+            onClose={onCancel}
+            backDisabled={busy}
             width={460}
             footer={(
                 <>
@@ -613,12 +699,12 @@ function ApproveModal({ item, busy, onCancel, onConfirm }) {
                 onChange={(e) => setRemarks(e.target.value)}
                 disabled={busy}
             />
-        </Modal>
+        </ApprovalShell>
     );
 }
 
 /** Approve admin wallet fund request — super admin picks source cash/bank account. */
-function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error }) {
+function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, asPage = false }) {
     const [remarks, setRemarks] = useState('');
     const [acct, setAcct] = useState({ blocked: true, loading: true });
     const workshopId = item?.meta?.workshopId ?? '';
@@ -628,9 +714,10 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error })
     const displayError = error || acct.blockReason;
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title="Approve Admin Wallet Fund Request"
-            onClose={busy ? undefined : onCancel}
+            onClose={onCancel}
+            backDisabled={busy}
             width={520}
             footer={(
                 <>
@@ -702,7 +789,7 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error })
                 onChange={(e) => setRemarks(e.target.value)}
                 disabled={busy}
             />
-        </Modal>
+        </ApprovalShell>
     );
 }
 
@@ -721,7 +808,7 @@ function normalizeApprovalCashAccounts(res) {
 }
 
 /** Super Admin: pick HQ cash/bank account for marketing wallet top-up or expense payment. */
-function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 'approve' }) {
+function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 'approve', asPage = false }) {
     const [remarks, setRemarks] = useState('');
     const [accounts, setAccounts] = useState([]);
     const [accountsLoading, setAccountsLoading] = useState(true);
@@ -786,9 +873,10 @@ function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 
         : 'Double-entry: Debit Marketing Expense (6600) · Credit selected payment account';
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title={title}
-            onClose={busy ? undefined : onCancel}
+            onClose={onCancel}
+            backDisabled={busy}
             width={520}
             footer={(
                 <>
@@ -869,12 +957,12 @@ function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 
                 onChange={(e) => setRemarks(e.target.value)}
                 disabled={busy}
             />
-        </Modal>
+        </ApprovalShell>
     );
 }
 
 /** Super-admin: approve corporate_registration with final branch/store list (any workshop). */
-function CorporateApproveModal({ item, busy, onCancel, onConfirm }) {
+function CorporateApproveModal({ item, busy, onCancel, onConfirm, asPage = false }) {
     const [remarks, setRemarks] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [branchSearch, setBranchSearch] = useState('');
@@ -936,9 +1024,10 @@ function CorporateApproveModal({ item, busy, onCancel, onConfirm }) {
     const canSubmit = selectedIds.length > 0 && !busy;
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title="Approve Corporate Registration"
-            onClose={busy ? undefined : onCancel}
+            onClose={onCancel}
+            backDisabled={busy}
             width={560}
             footer={(
                 <>
@@ -1047,7 +1136,7 @@ function CorporateApproveModal({ item, busy, onCancel, onConfirm }) {
                 onChange={(e) => setRemarks(e.target.value)}
                 disabled={busy}
             />
-        </Modal>
+        </ApprovalShell>
     );
 }
 
@@ -1075,7 +1164,7 @@ function normalizeInvoiceForModal(invoice) {
 }
 
 /** Marketing wallet top-up detail for Super Admin Approvals. */
-function MarketingBudgetRequestDetailsModal({ id, item, onClose, onApprove, onReject }) {
+function MarketingBudgetRequestDetailsModal({ id, item, onClose, onApprove, onReject, asPage = false }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -1110,7 +1199,7 @@ function MarketingBudgetRequestDetailsModal({ id, item, onClose, onApprove, onRe
         })}`;
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title={`Marketing wallet top-up · ${requestNumber}`}
             onClose={onClose}
             width={720}
@@ -1201,12 +1290,12 @@ function MarketingBudgetRequestDetailsModal({ id, item, onClose, onApprove, onRe
                     )}
                 </div>
             )}
-        </Modal>
+        </ApprovalShell>
     );
 }
 
 /** Admin personal wallet fund request detail for Super Admin Approvals. */
-function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onReject }) {
+function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onReject, asPage = false }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -1242,7 +1331,7 @@ function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onRe
         })}`;
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title={`Admin wallet fund · ${requestNumber}`}
             onClose={onClose}
             width={720}
@@ -1355,11 +1444,11 @@ function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onRe
                     )}
                 </div>
             )}
-        </Modal>
+        </ApprovalShell>
     );
 }
 
-function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error }) {
+function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error, asPage = false }) {
     const [remarks, setRemarks] = useState('');
     const [acct, setAcct] = useState({ blocked: true, loading: true });
     const proofUrl = item?.meta?.proofUrl ?? '';
@@ -1371,9 +1460,10 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
     const displayError = error || acct.blockReason;
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title="Approve Admin Wallet Expense"
-            onClose={busy ? undefined : onCancel}
+            onClose={onCancel}
+            backDisabled={busy}
             width={520}
             footer={(
                 <>
@@ -1450,11 +1540,11 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
                 onChange={(e) => setRemarks(e.target.value)}
                 disabled={busy}
             />
-        </Modal>
+        </ApprovalShell>
     );
 }
 
-function AdminWalletExpenseRequestDetailsModal({ id, item, onClose, onApprove, onReject }) {
+function AdminWalletExpenseRequestDetailsModal({ id, item, onClose, onApprove, onReject, asPage = false }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -1479,7 +1569,7 @@ function AdminWalletExpenseRequestDetailsModal({ id, item, onClose, onApprove, o
         `${currency} ${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title={`Admin wallet expense · ${requestNumber}`}
             onClose={onClose}
             width={720}
@@ -1538,12 +1628,12 @@ function AdminWalletExpenseRequestDetailsModal({ id, item, onClose, onApprove, o
                     )}
                 </div>
             )}
-        </Modal>
+        </ApprovalShell>
     );
 }
 
 /** Marketing expense detail — approve/reject + pay (posts HQ Chart of Accounts journal). */
-function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, onPay, payBusy }) {
+function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, onPay, payBusy, asPage = false }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -1582,7 +1672,7 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
     const showPay = status === 'approved';
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title={`Marketing expense · ${expenseNumber}`}
             onClose={onClose}
             width={720}
@@ -1685,12 +1775,12 @@ function MarketingExpenseDetailsModal({ id, item, onClose, onApprove, onReject, 
                     )}
                 </div>
             )}
-        </Modal>
+        </ApprovalShell>
     );
 }
 
 /** Marketing promotion detail for Super Admin Approvals. */
-function MarketingPromotionDetailsModal({ id, item, onClose, onApprove, onReject }) {
+function MarketingPromotionDetailsModal({ id, item, onClose, onApprove, onReject, asPage = false }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -1756,7 +1846,7 @@ function MarketingPromotionDetailsModal({ id, item, onClose, onApprove, onReject
         (promotion.discountValue != null ? String(promotion.discountValue) : '—');
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title={`Marketing promotion · ${name}`}
             onClose={onClose}
             width={760}
@@ -1837,12 +1927,250 @@ function MarketingPromotionDetailsModal({ id, item, onClose, onApprove, onReject
                     </div>
                 </div>
             )}
-        </Modal>
+        </ApprovalShell>
+    );
+}
+
+/** Marketing promo code detail for Super Admin Approvals. */
+function MarketingPromoCodeDetailsModal({ id, item, onClose, onApprove, onReject, asPage = false }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr('');
+        fetchApprovalDetails('marketing_promo_code', id)
+            .then((res) => {
+                if (!cancelled) setData(res);
+            })
+            .catch((e) => {
+                if (!cancelled) setErr(e?.message || 'Could not load promo code details');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [id]);
+
+    const row = data ?? {};
+    const promo = row.promoCode ?? item?.raw ?? item ?? {};
+    const code = row.code ?? promo.code ?? item?.meta?.code ?? `#${id}`;
+    const status = String(row.status ?? item?.status ?? 'pending').toLowerCase();
+    const discountLabel =
+        row.discountLabel
+        ?? item?.meta?.discountLabel
+        ?? (promo.discountValue != null
+            ? (String(promo.discountType ?? promo.discount_type ?? '').toLowerCase().includes('fixed')
+                ? `SAR ${Number(promo.discountValue ?? promo.discount_value ?? 0)}`
+                : `${Number(promo.discountValue ?? promo.discount_value ?? 0)}%`)
+            : '—');
+    const discountType = formatPromoDiscountType(row.discountType ?? promo.discountType ?? promo.discount_type);
+    const promotionName = row.promotionName ?? promo.promotionName ?? promo.promotion_name ?? promo.promotion;
+    const minPurchase = Number(promo.minPurchaseAmount ?? promo.min_purchase_amount ?? 0);
+    const maxUsage = promo.maxUsageCount ?? promo.max_usage_count;
+    const currentUsage = promo.currentUsageCount ?? promo.current_usage_count ?? 0;
+    const usagePerCustomer = promo.usagePerCustomer ?? promo.usage_per_customer;
+    const validFrom = row.validFrom ?? promo.validFrom ?? promo.valid_from;
+    const validTo = row.validTo ?? promo.validTo ?? promo.valid_to ?? promo.valid_until;
+    const notes = row.notes ?? row.description ?? promo.notes ?? promo.description;
+    const productScope = formatPromoScope(promo.productScope ?? (promo.applicable_products?.length ? 'selected' : 'all'));
+    const serviceScope = formatPromoScope(promo.serviceScope ?? (promo.applicable_services?.length ? 'selected' : 'all'));
+    const matchMode = promoMatchModeLabel(promo.selectedItemMatchMode);
+    const selectedServiceRequired = promo.selectedServiceRequired ?? promo.selected_service_required;
+    const showOnInvoice = promo.showOnInvoice ?? promo.show_on_invoice;
+    const appliesAllWorkshops = promo.appliesToAllWorkshops ?? promo.applies_to_all_workshops;
+    const appliesAllBranches = promo.appliesToAllBranches;
+    const workshops = promo.applicableWorkshops ?? [];
+    const branches = promo.applicableBranches ?? [];
+    const products = promo.applicableProducts ?? [];
+    const services = promo.applicableServices ?? [];
+    const productCategories = promo.applicableProductCategories ?? [];
+    const serviceCategories = promo.applicableServiceCategories ?? [];
+    const branchScope = promo.branchScope;
+
+    return (
+        <ApprovalShell asPage={asPage}
+            title={`Marketing promo code · ${code}`}
+            onClose={onClose}
+            width={820}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
+                    {status === 'pending' && (
+                        <>
+                            {onReject && (
+                                <button type="button" className="btn-reject" onClick={onReject}>
+                                    <X size={16} /> Reject
+                                </button>
+                            )}
+                            {onApprove && (
+                                <button type="button" className="btn-approve" onClick={onApprove}>
+                                    <Check size={16} /> Approve
+                                </button>
+                            )}
+                        </>
+                    )}
+                </>
+            )}
+        >
+            {loading ? (
+                <div style={{ padding: 24, textAlign: 'center' }}>
+                    <Loader size={20} className="spin" /> Loading…
+                </div>
+            ) : err ? (
+                <p style={{ color: '#b91c1c' }}>{err}</p>
+            ) : (
+                <div className="approval-promo-code-details">
+                    <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+                        <span className={`status-badge status-${status}`}>{status}</span>
+                        {(promo.promoCodeStatus ?? promo.status) && (
+                            <span className="reference-badge">
+                                Workflow: {String(promo.promoCodeStatus ?? promo.status).replace(/_/g, ' ')}
+                            </span>
+                        )}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
+                        <div style={{ padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Promo code</p>
+                            <p style={{ margin: '6px 0 0', fontWeight: 800, fontSize: '1.125rem', fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all' }}>
+                                {code}
+                            </p>
+                        </div>
+                        <div style={{ padding: 14, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Discount</p>
+                            <p style={{ margin: '6px 0 0', fontWeight: 800, fontSize: '1.125rem' }}>{discountLabel}</p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>{discountType}</p>
+                        </div>
+                    </div>
+
+                    <ApprovalDetailSection title="Discount & usage rules">
+                        <div className="approval-fields-grid">
+                            <ApprovalDetailField label="Linked promotion" value={promotionName || 'Standalone promo code'} />
+                            <ApprovalDetailField
+                                label="Minimum purchase"
+                                value={minPurchase > 0 ? `SAR ${minPurchase.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No minimum'}
+                            />
+                            <ApprovalDetailField
+                                label="Usage limit"
+                                value={maxUsage != null && maxUsage !== '' ? String(maxUsage) : 'Unlimited'}
+                            />
+                            <ApprovalDetailField label="Current usage" value={String(currentUsage)} />
+                            <ApprovalDetailField
+                                label="Per customer limit"
+                                value={usagePerCustomer != null && usagePerCustomer !== '' ? String(usagePerCustomer) : 'Unlimited'}
+                            />
+                            <ApprovalDetailField label="Show on invoice" value={showOnInvoice ? 'Yes' : 'No'} />
+                        </div>
+                    </ApprovalDetailSection>
+
+                    <ApprovalDetailSection title="Validity">
+                        <div className="approval-fields-grid">
+                            <ApprovalDetailField label="Valid from" value={formatDate(validFrom)} />
+                            <ApprovalDetailField label="Valid until" value={formatDate(validTo)} />
+                            <ApprovalDetailField label="Created" value={formatDate(row.createdAt ?? promo.createdAt ?? promo.created_date)} />
+                        </div>
+                    </ApprovalDetailSection>
+
+                    <ApprovalDetailSection title="Application rule">
+                        <div className="approval-fields-grid">
+                            <ApprovalDetailField label="Match mode" value={matchMode} />
+                            <ApprovalDetailField label="Product scope" value={productScope} />
+                            <ApprovalDetailField label="Service scope" value={serviceScope} />
+                            {(promo.productScope === 'selected' || products.length > 0) && (promo.serviceScope === 'selected' || services.length > 0) && (
+                                <ApprovalDetailField
+                                    label="Selected service"
+                                    value={selectedServiceRequired === false ? 'Optional' : 'Mandatory'}
+                                />
+                            )}
+                        </div>
+                    </ApprovalDetailSection>
+
+                    <ApprovalDetailSection
+                        title="Workshops & branches"
+                        count={(workshops.length || 0) + (branches.length || 0) || undefined}
+                    >
+                        <div className="approval-fields-grid" style={{ marginBottom: 12 }}>
+                            <ApprovalDetailField
+                                label="Workshops"
+                                value={appliesAllWorkshops ? 'All workshops' : `${workshops.length} selected`}
+                            />
+                            <ApprovalDetailField
+                                label="Branches"
+                                value={appliesAllBranches ? 'All branches' : (branchScope || `${branches.length} selected`)}
+                            />
+                        </div>
+                        {!appliesAllWorkshops && workshops.length > 0 && (
+                            <div style={{ marginBottom: 12 }}>
+                                <p className="approval-field-label" style={{ marginBottom: 8 }}>Selected workshops</p>
+                                <PromoNamedChipList items={workshops} />
+                            </div>
+                        )}
+                        {!appliesAllBranches && branches.length > 0 && (
+                            <div>
+                                <p className="approval-field-label" style={{ marginBottom: 8 }}>Selected branches</p>
+                                <PromoNamedChipList items={branches} />
+                            </div>
+                        )}
+                    </ApprovalDetailSection>
+
+                    <ApprovalDetailSection title="Products" count={products.length || productCategories.length || undefined}>
+                        {productScope === 'All' || (products.length === 0 && productCategories.length === 0) ? (
+                            <p className="approval-empty-line">All products in the master catalog are eligible.</p>
+                        ) : (
+                            <>
+                                {productCategories.length > 0 && (
+                                    <div style={{ marginBottom: 12 }}>
+                                        <p className="approval-field-label" style={{ marginBottom: 8 }}>Categories</p>
+                                        <PromoNamedChipList items={productCategories} />
+                                    </div>
+                                )}
+                                {products.length > 0 && (
+                                    <div>
+                                        <p className="approval-field-label" style={{ marginBottom: 8 }}>Products</p>
+                                        <PromoNamedChipList items={products} />
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </ApprovalDetailSection>
+
+                    <ApprovalDetailSection title="Services" count={services.length || serviceCategories.length || undefined}>
+                        {serviceScope === 'All' || (services.length === 0 && serviceCategories.length === 0) ? (
+                            <p className="approval-empty-line">All services in the master catalog are eligible.</p>
+                        ) : (
+                            <>
+                                {serviceCategories.length > 0 && (
+                                    <div style={{ marginBottom: 12 }}>
+                                        <p className="approval-field-label" style={{ marginBottom: 8 }}>Categories</p>
+                                        <PromoNamedChipList items={serviceCategories} />
+                                    </div>
+                                )}
+                                {services.length > 0 && (
+                                    <div>
+                                        <p className="approval-field-label" style={{ marginBottom: 8 }}>Services</p>
+                                        <PromoNamedChipList items={services} />
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </ApprovalDetailSection>
+
+                    {notes && (
+                        <ApprovalDetailSection title="Notes">
+                            <p style={{ margin: 0, fontSize: '0.9375rem', lineHeight: 1.55, color: '#334155' }}>{notes}</p>
+                        </ApprovalDetailSection>
+                    )}
+                </div>
+            )}
+        </ApprovalShell>
     );
 }
 
 /** Proof preview for a Corporate Payment Approval — fetches base64 image, shows full detail. */
-function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, onReject }) {
+function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, onReject, asPage = false }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -1894,7 +2222,7 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
         })}`;
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title={`Payment proof · ${data?.invoice?.invoiceNo ?? item?.meta?.invoiceNo ?? `#${id}`}`}
             onClose={onClose}
             width={760}
@@ -2056,12 +2384,12 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
                 footerVariant="corporate"
                 onClose={() => setInvoice(null)}
             />
-        </Modal>
+        </ApprovalShell>
     );
 }
 
 /** Sales return detail for Super Admin Approvals — uses dedicated sales-return API. */
-function SalesReturnApprovalDetailsModal({ id, item, onClose, onApprove, onReject }) {
+function SalesReturnApprovalDetailsModal({ id, item, onClose, onApprove, onReject, asPage = false }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -2110,7 +2438,7 @@ function SalesReturnApprovalDetailsModal({ id, item, onClose, onApprove, onRejec
     const title = data?.returnNo ?? data?.creditNoteNo ?? item?.meta?.returnNo ?? `#${id}`;
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title={`Sales return · ${title}`}
             onClose={onClose}
             width={760}
@@ -2251,11 +2579,11 @@ function SalesReturnApprovalDetailsModal({ id, item, onClose, onApprove, onRejec
                 footerVariant="corporate"
                 onClose={() => setInvoice(null)}
             />
-        </Modal>
+        </ApprovalShell>
     );
 }
 
-function RejectModal({ item, busy, onCancel, onConfirm }) {
+function RejectModal({ item, busy, onCancel, onConfirm, asPage = false }) {
     const [reason, setReason] = useState('');
     const [touched, setTouched] = useState(false);
     const trimmed = reason.trim();
@@ -2270,9 +2598,10 @@ function RejectModal({ item, busy, onCancel, onConfirm }) {
     };
 
     return (
-        <Modal
+        <ApprovalShell asPage={asPage}
             title="Reject Request"
-            onClose={busy ? undefined : onCancel}
+            onClose={onCancel}
+            backDisabled={busy}
             width={460}
             footer={(
                 <>
@@ -2311,7 +2640,7 @@ function RejectModal({ item, busy, onCancel, onConfirm }) {
             {touched && !valid && (
                 <p className="approval-modal-error">A reason is required to reject.</p>
             )}
-        </Modal>
+        </ApprovalShell>
     );
 }
 
@@ -2421,6 +2750,23 @@ function GlobalAutoApproveToggle({ value, busy, disabled, onChange }) {
 
 export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const { hasPermission } = useAuth();
+    const navigate = useNavigate();
+    const location = useLocation();
+    const { entityType: routeEntityType, requestId: routeRequestId } = useParams();
+    const [searchParams] = useSearchParams();
+    const routeAction = searchParams.get('action');
+
+    const goToApprovalsList = useCallback(() => {
+        navigate(APPROVALS_LIST_PATH);
+    }, [navigate]);
+
+    const openApprovalDetails = useCallback((item) => {
+        navigate(approvalDetailPath(item.entityType, item.id), { state: { item } });
+    }, [navigate]);
+
+    const openApprovalAction = useCallback((item, action) => {
+        navigate(approvalDetailPath(item.entityType, item.id, action), { state: { item } });
+    }, [navigate]);
 
     /**
      * Per-entity-type access helpers.
@@ -2464,12 +2810,6 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const [error, setError] = useState(null);
     const [actionLoading, setActionLoading] = useState(null);
     const [reloadTick, setReloadTick] = useState(0);
-
-    // dialogs
-    const [detailsTarget, setDetailsTarget] = useState(null); // { entityType, id }
-    const [approveTarget, setApproveTarget] = useState(null); // item
-    const [payTarget, setPayTarget] = useState(null); // marketing_expense awaiting pay
-    const [rejectTarget, setRejectTarget] = useState(null);   // item
     const [approveModalError, setApproveModalError] = useState('');
 
     // toast
@@ -2716,10 +3056,13 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const isMarketingExpense = (et) => et === 'marketing_expense';
 
     useEffect(() => {
-        if (approveTarget?.entityType === 'admin_wallet_fund_request' || approveTarget?.entityType === 'admin_wallet_expense_request') {
+        if (
+            routeEntityType === 'admin_wallet_fund_request'
+            || routeEntityType === 'admin_wallet_expense_request'
+        ) {
             setApproveModalError('');
         }
-    }, [approveTarget?.entityType, approveTarget?.id]);
+    }, [routeEntityType, routeRequestId, routeAction]);
 
     const handleApproveConfirm = async (item, remarksOrPayload) => {
         setActionLoading(approvalItemKey(item));
@@ -2759,17 +3102,16 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 const res = await approveApi(item.entityType, item.id, payload);
                 if (res?.awaitingWorkshopAdmin || res?.awaitingSuperAdmin) {
                     showToast(res.message || 'Approval recorded — awaiting the other approver.');
-                    setApproveTarget(null);
                     setApproveModalError('');
                     setReloadTick((t) => t + 1);
+                    goToApprovalsList();
                     return;
                 }
             }
             removeFromList(item);
-            setApproveTarget(null);
             setApproveModalError('');
-            setDetailsTarget(null);
             setReloadTick((t) => t + 1);
+            goToApprovalsList();
             const postedToCao =
                 isMarketingBudgetRequest(item.entityType) || isMarketingExpense(item.entityType);
             showToast(
@@ -2811,9 +3153,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 await rejectApi(item.entityType, item.id, reason);
             }
             removeFromList(item);
-            setRejectTarget(null);
-            setDetailsTarget(null);
             setReloadTick((t) => t + 1);
+            goToApprovalsList();
             showToast('Request rejected.');
         } catch (err) {
             showToast(`Reject failed: ${err.message}`, 'error');
@@ -2832,9 +3173,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 paymentAccountName: payload.paymentAccountName,
             });
             removeFromList(item);
-            setPayTarget(null);
-            setDetailsTarget(null);
             setReloadTick((t) => t + 1);
+            goToApprovalsList();
             showToast('Expense paid and posted to Chart of Accounts.');
         } catch (err) {
             showToast(`Pay failed: ${err.message}`, 'error');
@@ -2845,7 +3185,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
 
     const handlePayExpense = (item) => {
         if (!item || item.entityType !== 'marketing_expense') return;
-        setPayTarget(item);
+        openApprovalAction(item, 'pay');
     };
 
     const toggleModule = (module) => {
@@ -2917,6 +3257,278 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             setCurrentTab(tabs[0]?.key ?? 'Pending');
         }
     }, [tabs, currentTab]);
+
+    const routeItem = useMemo(() => {
+        if (!routeEntityType || !routeRequestId) return null;
+        const fromState = location.state?.item;
+        if (
+            fromState
+            && fromState.entityType === routeEntityType
+            && String(fromState.id) === String(routeRequestId)
+        ) {
+            return fromState;
+        }
+        return items.find(
+            (i) => i.entityType === routeEntityType && String(i.id) === String(routeRequestId),
+        ) ?? null;
+    }, [routeEntityType, routeRequestId, location.state, items]);
+
+    const renderApprovalRouteView = () => {
+        if (!routeEntityType || !routeRequestId) return null;
+
+        const action = routeAction || 'details';
+        const effectiveItem = routeItem ?? {
+            entityType: routeEntityType,
+            id: routeRequestId,
+            title: 'this request',
+        };
+        const busy = actionLoading === approvalItemKey(effectiveItem);
+        const detailApprove = canApproveType(routeEntityType)
+            ? () => openApprovalAction(effectiveItem, 'approve')
+            : undefined;
+        const detailReject = canRejectType(routeEntityType)
+            ? () => openApprovalAction(effectiveItem, 'reject')
+            : undefined;
+
+        if (action === 'reject') {
+            return (
+                <RejectModal
+                    asPage
+                    item={effectiveItem}
+                    busy={busy}
+                    onCancel={goToApprovalsList}
+                    onConfirm={(reason) => handleRejectConfirm(effectiveItem, reason)}
+                />
+            );
+        }
+
+        if (action === 'pay') {
+            if (routeEntityType !== 'marketing_expense') {
+                return <Navigate to={APPROVALS_LIST_PATH} replace />;
+            }
+            return (
+                <MarketingPaymentApproveModal
+                    asPage
+                    item={effectiveItem}
+                    mode="pay"
+                    busy={busy}
+                    onCancel={goToApprovalsList}
+                    onConfirm={(payload) => handlePayConfirm(effectiveItem, payload)}
+                />
+            );
+        }
+
+        if (action === 'approve') {
+            if (routeEntityType === 'corporate_registration') {
+                return (
+                    <CorporateApproveModal
+                        asPage
+                        item={effectiveItem}
+                        busy={busy}
+                        onCancel={goToApprovalsList}
+                        onConfirm={(payload) => handleApproveConfirm(effectiveItem, payload)}
+                    />
+                );
+            }
+            if (routeEntityType === 'admin_wallet_fund_request') {
+                return (
+                    <AdminWalletFundApproveModal
+                        asPage
+                        item={effectiveItem}
+                        busy={busy}
+                        error={approveModalError}
+                        onCancel={() => {
+                            goToApprovalsList();
+                            setApproveModalError('');
+                        }}
+                        onConfirm={(payload) => handleApproveConfirm(effectiveItem, payload)}
+                    />
+                );
+            }
+            if (routeEntityType === 'admin_wallet_expense_request') {
+                return (
+                    <AdminWalletExpenseApproveModal
+                        asPage
+                        item={effectiveItem}
+                        busy={busy}
+                        error={approveModalError}
+                        onCancel={() => {
+                            goToApprovalsList();
+                            setApproveModalError('');
+                        }}
+                        onConfirm={(payload) => handleApproveConfirm(effectiveItem, payload)}
+                    />
+                );
+            }
+            if (isMarketingBudgetRequest(routeEntityType) || isMarketingExpense(routeEntityType)) {
+                return (
+                    <MarketingPaymentApproveModal
+                        asPage
+                        item={effectiveItem}
+                        busy={busy}
+                        onCancel={goToApprovalsList}
+                        onConfirm={(payload) => handleApproveConfirm(effectiveItem, payload)}
+                    />
+                );
+            }
+            return (
+                <ApproveModal
+                    asPage
+                    item={effectiveItem}
+                    busy={busy}
+                    onCancel={goToApprovalsList}
+                    onConfirm={(remarks) => handleApproveConfirm(effectiveItem, remarks)}
+                />
+            );
+        }
+
+        if (routeEntityType === 'corporate_payment_approval') {
+            return (
+                <CorporatePaymentApprovalDetailsModal
+                    asPage
+                    id={routeRequestId}
+                    item={routeItem}
+                    onClose={goToApprovalsList}
+                    onApprove={detailApprove}
+                    onReject={detailReject}
+                />
+            );
+        }
+        if (routeEntityType === 'sales_return') {
+            return (
+                <SalesReturnApprovalDetailsModal
+                    asPage
+                    id={routeRequestId}
+                    item={routeItem}
+                    onClose={goToApprovalsList}
+                    onApprove={detailApprove}
+                    onReject={detailReject}
+                />
+            );
+        }
+        if (routeEntityType === 'marketing_budget_request') {
+            return (
+                <MarketingBudgetRequestDetailsModal
+                    asPage
+                    id={routeRequestId}
+                    item={routeItem}
+                    onClose={goToApprovalsList}
+                    onApprove={detailApprove}
+                    onReject={detailReject}
+                />
+            );
+        }
+        if (routeEntityType === 'admin_wallet_fund_request') {
+            return (
+                <AdminWalletFundRequestDetailsModal
+                    asPage
+                    id={routeRequestId}
+                    item={routeItem}
+                    onClose={goToApprovalsList}
+                    onApprove={detailApprove}
+                    onReject={detailReject}
+                />
+            );
+        }
+        if (routeEntityType === 'admin_wallet_expense_request') {
+            return (
+                <AdminWalletExpenseRequestDetailsModal
+                    asPage
+                    id={routeRequestId}
+                    item={routeItem}
+                    onClose={goToApprovalsList}
+                    onApprove={detailApprove}
+                    onReject={detailReject}
+                />
+            );
+        }
+        if (routeEntityType === 'marketing_expense') {
+            return (
+                <MarketingExpenseDetailsModal
+                    asPage
+                    id={routeRequestId}
+                    item={routeItem}
+                    onClose={goToApprovalsList}
+                    onApprove={detailApprove}
+                    onReject={detailReject}
+                    onPay={canApproveType(routeEntityType) ? () => handlePayExpense(effectiveItem) : undefined}
+                    payBusy={busy}
+                />
+            );
+        }
+        if (routeEntityType === 'marketing_promotion') {
+            return (
+                <MarketingPromotionDetailsModal
+                    asPage
+                    id={routeRequestId}
+                    item={routeItem}
+                    onClose={goToApprovalsList}
+                    onApprove={detailApprove}
+                    onReject={detailReject}
+                />
+            );
+        }
+        if (routeEntityType === 'marketing_promo_code') {
+            return (
+                <MarketingPromoCodeDetailsModal
+                    asPage
+                    id={routeRequestId}
+                    item={routeItem}
+                    onClose={goToApprovalsList}
+                    onApprove={detailApprove}
+                    onReject={detailReject}
+                />
+            );
+        }
+
+        return (
+            <ApprovalDetailsModal
+                asPage
+                entityType={routeEntityType}
+                id={routeRequestId}
+                onClose={goToApprovalsList}
+                actionDisabled={busy}
+                canApprove={canApproveType(routeEntityType)}
+                canReject={canRejectType(routeEntityType)}
+                onApprove={(data) => {
+                    const idStr = toStringId(data?.requestId ?? data?.id ?? routeRequestId);
+                    const existing = routeItem;
+                    const title =
+                        data?.corporateAccount?.companyName
+                        ?? data?.title
+                        ?? existing?.title
+                        ?? data?.meta?.companyName
+                        ?? 'this request';
+                    const branchesRaw =
+                        data?.corporateAccount?.selectedBranchIds
+                        ?? existing?.meta?.selectedBranchIds
+                        ?? data?.meta?.selectedBranchIds
+                        ?? [];
+                    const selectedBranchIds = Array.isArray(branchesRaw)
+                        ? branchesRaw.map((x) => String(x))
+                        : [];
+                    openApprovalAction({
+                        id: idStr,
+                        entityType: routeEntityType,
+                        title,
+                        meta: {
+                            ...(existing?.meta || {}),
+                            ...(data?.meta || {}),
+                            selectedBranchIds,
+                        },
+                    }, 'approve');
+                }}
+                onReject={(data) => {
+                    const target = routeItem ?? {
+                        id: toStringId(data?.requestId ?? data?.id ?? routeRequestId),
+                        entityType: routeEntityType,
+                        title: data?.title ?? data?.meta?.companyName ?? data?.meta?.name ?? 'this request',
+                    };
+                    openApprovalAction(target, 'reject');
+                }}
+            />
+        );
+    };
 
     const content = (
         <>
@@ -3080,7 +3692,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                                     type="button"
                                                     className="btn-approve"
                                                     disabled={actionLoading === approvalItemKey(item)}
-                                                    onClick={() => setApproveTarget(item)}
+                                                    onClick={() => openApprovalAction(item, 'approve')}
                                                 >
                                                     {actionLoading === approvalItemKey(item) ? <Loader size={14} className="spin" /> : <Check size={16} />} Approve
                                                 </button>
@@ -3090,7 +3702,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                                     type="button"
                                                     className="btn-reject"
                                                     disabled={actionLoading === approvalItemKey(item)}
-                                                    onClick={() => setRejectTarget(item)}
+                                                    onClick={() => openApprovalAction(item, 'reject')}
                                                 >
                                                     {actionLoading === approvalItemKey(item) ? <Loader size={14} className="spin" /> : <X size={16} />} Reject
                                                 </button>
@@ -3100,7 +3712,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                     <button
                                         type="button"
                                         className="btn-view-details"
-                                        onClick={() => setDetailsTarget({ entityType: item.entityType, id: item.id, item })}
+                                        onClick={() => openApprovalDetails(item)}
                                     >
                                         <Eye size={16} /> Details
                                     </button>
@@ -3122,201 +3734,17 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 </div>
             )}
 
-            {detailsTarget && detailsTarget.entityType === 'corporate_payment_approval' && (
-                <CorporatePaymentApprovalDetailsModal
-                    id={detailsTarget.id}
-                    item={detailsTarget.item}
-                    onClose={() => setDetailsTarget(null)}
-                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
-                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
-                />
-            )}
-
-            {detailsTarget && detailsTarget.entityType === 'sales_return' && (
-                <SalesReturnApprovalDetailsModal
-                    id={detailsTarget.id}
-                    item={detailsTarget.item}
-                    onClose={() => setDetailsTarget(null)}
-                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
-                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
-                />
-            )}
-
-            {detailsTarget && detailsTarget.entityType === 'marketing_budget_request' && (
-                <MarketingBudgetRequestDetailsModal
-                    id={detailsTarget.id}
-                    item={detailsTarget.item}
-                    onClose={() => setDetailsTarget(null)}
-                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
-                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
-                />
-            )}
-
-            {detailsTarget && detailsTarget.entityType === 'admin_wallet_fund_request' && (
-                <AdminWalletFundRequestDetailsModal
-                    id={detailsTarget.id}
-                    item={detailsTarget.item}
-                    onClose={() => setDetailsTarget(null)}
-                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
-                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
-                />
-            )}
-
-            {detailsTarget && detailsTarget.entityType === 'admin_wallet_expense_request' && (
-                <AdminWalletExpenseRequestDetailsModal
-                    id={detailsTarget.id}
-                    item={detailsTarget.item}
-                    onClose={() => setDetailsTarget(null)}
-                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
-                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
-                />
-            )}
-
-            {detailsTarget && detailsTarget.entityType === 'marketing_expense' && (
-                <MarketingExpenseDetailsModal
-                    id={detailsTarget.id}
-                    item={detailsTarget.item}
-                    onClose={() => setDetailsTarget(null)}
-                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
-                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
-                    onPay={canApproveType(detailsTarget.entityType) ? () => handlePayExpense(detailsTarget.item) : undefined}
-                    payBusy={actionLoading === approvalItemKey(detailsTarget.item ?? { entityType: detailsTarget.entityType, id: detailsTarget.id })}
-                />
-            )}
-
-            {detailsTarget && detailsTarget.entityType === 'marketing_promotion' && (
-                <MarketingPromotionDetailsModal
-                    id={detailsTarget.id}
-                    item={detailsTarget.item}
-                    onClose={() => setDetailsTarget(null)}
-                    onApprove={canApproveType(detailsTarget.entityType) ? () => setApproveTarget(detailsTarget.item) : undefined}
-                    onReject={canRejectType(detailsTarget.entityType) ? () => setRejectTarget(detailsTarget.item) : undefined}
-                />
-            )}
-
-            {detailsTarget
-                && detailsTarget.entityType !== 'corporate_payment_approval'
-                && detailsTarget.entityType !== 'sales_return'
-                && detailsTarget.entityType !== 'marketing_budget_request'
-                && detailsTarget.entityType !== 'admin_wallet_fund_request'
-                && detailsTarget.entityType !== 'admin_wallet_expense_request'
-                && detailsTarget.entityType !== 'marketing_expense'
-                && detailsTarget.entityType !== 'marketing_promotion' && (
-                <ApprovalDetailsModal
-                    entityType={detailsTarget.entityType}
-                    id={detailsTarget.id}
-                    onClose={() => setDetailsTarget(null)}
-                    actionDisabled={actionLoading === approvalItemKey(detailsTarget.item ?? { entityType: detailsTarget.entityType, id: detailsTarget.id })}
-                    canApprove={canApproveType(detailsTarget.entityType)}
-                    canReject={canRejectType(detailsTarget.entityType)}
-                    onApprove={(data) => {
-                        const idStr = toStringId(
-                            data?.requestId ?? data?.id ?? detailsTarget.id,
-                        );
-                        const existing = detailsTarget.item;
-                        const title =
-                            data?.corporateAccount?.companyName ??
-                            data?.title ??
-                            existing?.title ??
-                            data?.meta?.companyName ??
-                            'this request';
-                        const branchesRaw =
-                            data?.corporateAccount?.selectedBranchIds ??
-                            existing?.meta?.selectedBranchIds ??
-                            data?.meta?.selectedBranchIds ??
-                            [];
-                        const selectedBranchIds = Array.isArray(branchesRaw)
-                            ? branchesRaw.map((x) => String(x))
-                            : [];
-                        setApproveTarget({
-                            id: idStr,
-                            entityType: detailsTarget.entityType,
-                            title,
-                            meta: {
-                                ...(existing?.meta || {}),
-                                ...(data?.meta || {}),
-                                selectedBranchIds,
-                            },
-                        });
-                    }}
-                    onReject={(data) => {
-                        const target = detailsTarget.item ?? {
-                            id: toStringId(data?.requestId ?? data?.id),
-                            entityType: detailsTarget.entityType,
-                            title: data?.title ?? data?.meta?.companyName ?? data?.meta?.name ?? 'this request',
-                        };
-                        setRejectTarget(target);
-                    }}
-                />
-            )}
-
-            {approveTarget && approveTarget.entityType === 'corporate_registration' ? (
-                <CorporateApproveModal
-                    item={approveTarget}
-                    busy={actionLoading === approvalItemKey(approveTarget)}
-                    onCancel={() => setApproveTarget(null)}
-                    onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
-                />
-            ) : approveTarget && approveTarget.entityType === 'admin_wallet_fund_request' ? (
-                <AdminWalletFundApproveModal
-                    item={approveTarget}
-                    busy={actionLoading === approvalItemKey(approveTarget)}
-                    error={approveModalError}
-                    onCancel={() => {
-                        setApproveTarget(null);
-                        setApproveModalError('');
-                    }}
-                    onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
-                />
-            ) : approveTarget && approveTarget.entityType === 'admin_wallet_expense_request' ? (
-                <AdminWalletExpenseApproveModal
-                    item={approveTarget}
-                    busy={actionLoading === approvalItemKey(approveTarget)}
-                    error={approveModalError}
-                    onCancel={() => {
-                        setApproveTarget(null);
-                        setApproveModalError('');
-                    }}
-                    onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
-                />
-            ) : approveTarget
-                && (isMarketingBudgetRequest(approveTarget.entityType)
-                    || isMarketingExpense(approveTarget.entityType)) ? (
-                <MarketingPaymentApproveModal
-                    item={approveTarget}
-                    busy={actionLoading === approvalItemKey(approveTarget)}
-                    onCancel={() => setApproveTarget(null)}
-                    onConfirm={(payload) => handleApproveConfirm(approveTarget, payload)}
-                />
-            ) : approveTarget ? (
-                <ApproveModal
-                    item={approveTarget}
-                    busy={actionLoading === approvalItemKey(approveTarget)}
-                    onCancel={() => setApproveTarget(null)}
-                    onConfirm={(remarks) => handleApproveConfirm(approveTarget, remarks)}
-                />
-            ) : null}
-
-            {payTarget && payTarget.entityType === 'marketing_expense' && (
-                <MarketingPaymentApproveModal
-                    item={payTarget}
-                    mode="pay"
-                    busy={actionLoading === approvalItemKey(payTarget)}
-                    onCancel={() => setPayTarget(null)}
-                    onConfirm={(payload) => handlePayConfirm(payTarget, payload)}
-                />
-            )}
-
-            {rejectTarget && (
-                <RejectModal
-                    item={rejectTarget}
-                    busy={actionLoading === approvalItemKey(rejectTarget)}
-                    onCancel={() => setRejectTarget(null)}
-                    onConfirm={(reason) => handleRejectConfirm(rejectTarget, reason)}
-                />
-            )}
         </>
     );
+
+    if (!isTab && !onlySettings && routeEntityType && routeRequestId) {
+        return (
+            <>
+                <Toast toast={toast} />
+                {renderApprovalRouteView()}
+            </>
+        );
+    }
 
     if (isTab) return content;
 

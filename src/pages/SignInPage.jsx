@@ -5,7 +5,7 @@ import { Mail, Lock, ChevronRight, Loader, Eye, EyeOff } from 'lucide-react';
 import '../styles/SignInPage.css';
 import { adminLogin } from '../services/authApi';
 import { useAuth } from '../context/AuthContext';
-import { firstVisibleAdminPath } from '../utils/permissions';
+import { firstVisibleAdminPath, isAdminPortalUser } from '../utils/permissions';
 
 const MOCK_ROUTES = {
     'workshop@filtercars.com': '/workshop',
@@ -33,13 +33,8 @@ const SignInPage = () => {
         // PERMISSIVE CHECK on the Admin Login page:
         // If we are authenticated and on the admin login page, we should try to enter the dashboard.
         // We still check for 'admin' role if available, but we lean towards allowing the login.
-        if (isAuthenticated) {
-            // Check if the user is an admin - we now explicitly allow 'platform_admin'
-            const isAdmin = user?.userType === 'admin' || user?.userType === 'platform_admin' || !user?.userType;
-            
-            if (isAdmin) {
-                navigate(firstVisibleAdminPath(user), { replace: true });
-            }
+        if (isAuthenticated && isAdminPortalUser(user)) {
+            navigate(firstVisibleAdminPath(user), { replace: true });
         }
     }, [isAuthenticated, user, navigate, location]);
 

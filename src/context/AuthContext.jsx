@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { clearLastActivityTimestamp, touchLastActivityTimestamp } from '../utils/sessionIdle';
 
 const AuthContext = createContext(null);
 
@@ -113,6 +114,7 @@ export const AuthProvider = ({ children }) => {
         } else {
             localStorage.removeItem('filter_auth_workshop');
         }
+        touchLastActivityTimestamp();
     };
 
     const logout = () => {
@@ -122,6 +124,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('filter_auth_token');
         localStorage.removeItem('filter_auth_user');
         localStorage.removeItem('filter_auth_workshop');
+        clearLastActivityTimestamp();
     };
 
     const permissions = useMemo(() => {
