@@ -2,13 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
-import {
-    createStorageSupplier,
-    listStorageSuppliers,
-    updateStorageSupplier,
-} from '../../../services/storageFacilityApi';
+import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 
 export default function StorageFacilitySuppliersTab({ brandId }) {
+    const sfApi = useStorageFacilityApi();
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -26,7 +23,7 @@ export default function StorageFacilitySuppliersTab({ brandId }) {
         setLoading(true);
         setErr('');
         try {
-            const res = await listStorageSuppliers(brandId);
+            const res = await sfApi.listStorageSuppliers(brandId);
             setRows(Array.isArray(res?.suppliers) ? res.suppliers : []);
         } catch (e) {
             setErr(e?.message || 'Failed to load suppliers');
@@ -34,7 +31,7 @@ export default function StorageFacilitySuppliersTab({ brandId }) {
         } finally {
             setLoading(false);
         }
-    }, [brandId]);
+    }, [brandId, sfApi]);
 
     useEffect(() => {
         load();
@@ -45,7 +42,7 @@ export default function StorageFacilitySuppliersTab({ brandId }) {
         if (!form.name.trim()) return;
         setSaving(true);
         try {
-            await createStorageSupplier(brandId, form);
+            await sfApi.createStorageSupplier(brandId, form);
             setAddOpen(false);
             setForm({ name: '', code: '', contactPerson: '', email: '', mobile: '' });
             await load();
@@ -59,7 +56,7 @@ export default function StorageFacilitySuppliersTab({ brandId }) {
     const toggleActive = async (row) => {
         const next = row.isActive === false;
         try {
-            await updateStorageSupplier(brandId, row.id, { isActive: next });
+            await sfApi.updateStorageSupplier(brandId, row.id, { isActive: next });
             await load();
         } catch (ex) {
             window.alert(ex?.message || 'Update failed');

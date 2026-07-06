@@ -1,12 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, Plus, Trash2 } from 'lucide-react';
 import Modal from '../../../components/Modal';
-import {
-    listStorageCustomers,
-    listStorageLocations,
-    listStorageSalesReps,
-    postStorageBulkMovements,
-} from '../../../services/storageFacilityApi';
+import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 import ProductLineCombobox from './ProductLineCombobox';
 import SearchableEntityCombobox from './SearchableEntityCombobox';
 import StorageFacilityVatTotals, { fmtSar } from './StorageFacilityVatTotals';
@@ -83,6 +78,7 @@ export default function RecordBulkStockMovementModal({
     onClose,
     onSaved,
 }) {
+    const sfApi = useStorageFacilityApi();
     const [movementType, setMovementType] = useState('IN');
     const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [dueDateType, setDueDateType] = useState('Net');
@@ -142,9 +138,9 @@ export default function RecordBulkStockMovementModal({
             setMetaLoading(true);
             try {
                 const [locRes, custRes, repRes] = await Promise.all([
-                    listStorageLocations(brandId),
-                    listStorageCustomers(brandId),
-                    listStorageSalesReps(brandId),
+                    sfApi.listStorageLocations(brandId),
+                    sfApi.listStorageCustomers(brandId),
+                    sfApi.listStorageSalesReps(brandId),
                 ]);
                 if (cancelled) return;
                 const locs = locRes?.locations ?? [];
@@ -165,7 +161,7 @@ export default function RecordBulkStockMovementModal({
         return () => {
             cancelled = true;
         };
-    }, [brandId]);
+    }, [brandId, sfApi]);
 
     const locationOptions = useMemo(
         () =>
@@ -281,7 +277,7 @@ export default function RecordBulkStockMovementModal({
 
         setSaving(true);
         try {
-            const res = await postStorageBulkMovements(brandId, {
+            const res = await sfApi.postStorageBulkMovements(brandId, {
                 movementType,
                 issueDate,
                 fromLocationId:

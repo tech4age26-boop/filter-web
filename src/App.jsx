@@ -92,6 +92,7 @@ import ReferrerNotifications from './pages/referrer-portal/ReferrerNotifications
 import ReferrerSettings from './pages/referrer-portal/ReferrerSettings';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
+import IdleSessionWatcher from './components/IdleSessionWatcher';
 import { PlatformChatUnreadProvider } from './context/PlatformChatUnreadContext';
 import { firstVisibleAdminPath } from './utils/permissions';
 import AppErrorBoundary from './components/AppErrorBoundary';
@@ -139,6 +140,7 @@ function App() {
         <MarketingProvider>
           <PlatformChatUnreadProvider>
             <Router>
+              <IdleSessionWatcher />
               <Routes>
             <Route path="/" element={<PortalHubPage />} />
 
@@ -162,6 +164,7 @@ function App() {
               <Route index element={<AdminIndexRedirect />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="approvals" element={<ApprovalsPage />} />
+              <Route path="approvals/:entityType/:requestId" element={<ApprovalsPage />} />
               <Route path="zone-management" element={<ZoneManagementPage />} />
               <Route
                 path="tier-management"
@@ -224,9 +227,17 @@ function App() {
 
               <Route path="tax-codes" element={<TaxCodePage />} />
               <Route path="permissions" element={<PermissionsPage />} />
+              <Route path="permissions/roles/new" element={<PermissionsPage />} />
+              <Route path="permissions/roles/:roleId/edit" element={<PermissionsPage />} />
+              <Route path="permissions/users/new" element={<PermissionsPage />} />
+              <Route path="permissions/users/:userId/role" element={<PermissionsPage />} />
+              <Route path="permissions/users/:userId/permissions" element={<PermissionsPage />} />
               <Route path="admin-wallets" element={<AdminWalletsPage />} />
               <Route path="my-wallet" element={<MyWalletPage />} />
               <Route path="demo-invoices" element={<DemoInvoicesPage />} />
+              <Route path="demo-invoices/new" element={<DemoInvoicesPage />} />
+              <Route path="demo-invoices/:invoiceId/edit" element={<DemoInvoicesPage />} />
+              <Route path="demo-invoices/:invoiceId/view" element={<DemoInvoicesPage />} />
               <Route path="chat" element={<PlatformChatPage />} />
 
               <Route
@@ -241,20 +252,22 @@ function App() {
                 path="inventory/categories"
                 element={<Navigate to="/admin/inventory/master-catalog" replace />}
               />
+              <Route path="inventory/master-catalog/*" element={<InventoryPage />} />
               <Route path="inventory/:subTab" element={<InventoryPage />} />
 
               <Route
                 path="customers"
                 element={<Navigate to="/admin/customers/all-customers" replace />}
               />
+              <Route path="customers/all-customers/*" element={<CustomersPage />} />
               <Route path="customers/:subTab" element={<CustomersPage />} />
 
-              <Route path="suppliers" element={<SuppliersPage />} />
+              <Route path="suppliers/*" element={<SuppliersPage />} />
               <Route path="storage-facility" element={<AdminStorageFacilityPage />} />
               <Route path="storage-facility/:supplierId" element={<AdminStorageFacilityPage />} />
-              <Route path="employees" element={<EmployeesPage />} />
-              <Route path="branches" element={<BranchesPage />} />
-              <Route path="workshop" element={<WorkshopManagementPage />} />
+              <Route path="employees/*" element={<EmployeesPage />} />
+              <Route path="branches/*" element={<BranchesPage />} />
+              <Route path="workshop/*" element={<WorkshopManagementPage />} />
               <Route path="staff-app" element={<AdminStaffAppPage />} />
               <Route path="staff-app/users" element={<Navigate to="/admin/employees" replace />} />
               <Route path="staff-app/approvals" element={<Navigate to="/admin/approvals" replace />} />

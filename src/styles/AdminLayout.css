@@ -216,25 +216,25 @@
     gap: 12px;
 }
 
-/* Language switcher inside sidebar footer */
+/* Language switcher (top bar — light background) */
 .header-lang-switcher {
     display: flex;
     align-items: center;
     gap: 6px;
 }
 
-.lang-label {
-    color: rgba(0, 0, 0, 0.35);
+.header-lang-switcher .lang-label {
+    color: #64748b;
     display: flex;
     align-items: center;
 }
 
-.lang-btn {
+.header-lang-switcher .lang-btn {
     padding: 5px 10px;
     border-radius: 7px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: transparent;
-    color: rgba(255, 255, 255, 0.55);
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #111111;
     font-size: 0.6875rem;
     font-weight: 600;
     cursor: pointer;
@@ -242,25 +242,27 @@
     letter-spacing: 0.04em;
 }
 
-.lang-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
+.header-lang-switcher .lang-btn:hover {
+    background: #f8fafc;
+    color: #0f172a;
+    border-color: #cbd5e1;
 }
 
-.lang-btn.active {
+.header-lang-switcher .lang-btn.active {
     background: var(--color-primary);
     color: #111111 !important;
     border-color: var(--color-primary);
 }
 
-.lang-btn-ar {
-    border-color: var(--color-primary) !important;
-    color: var(--color-primary) !important;
+.header-lang-switcher .lang-btn-ar {
+    border-color: #e2e8f0 !important;
+    color: #111111 !important;
 }
 
-.lang-btn-ar.active {
+.header-lang-switcher .lang-btn-ar.active {
     background: var(--color-primary) !important;
     color: #111111 !important;
+    border-color: var(--color-primary) !important;
 }
 
 /* --- User pill (sidebar footer) --- */
@@ -901,7 +903,7 @@
         display: none;
     }
 
-    .lang-btn {
+    .header-lang-switcher .lang-btn {
         padding: 4px 8px;
         font-size: 0.65rem;
     }

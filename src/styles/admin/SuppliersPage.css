@@ -1,4 +1,94 @@
 /* Suppliers page – ref: filtercarservices.base44.app/Suppliers */
+.suppliers-form-page-wrap--full .approvals-detail-page {
+    max-width: none;
+    width: 100%;
+}
+
+.suppliers-form-page-wrap--full .approval-page-panel {
+    width: 100%;
+}
+
+.suppliers-route-panel {
+    width: 100%;
+    max-width: none;
+}
+
+.suppliers-form-lead {
+    margin: 0 0 28px;
+    color: #64748B;
+    font-size: 0.9375rem;
+    line-height: 1.55;
+}
+
+.suppliers-form-section {
+    margin-bottom: 32px;
+}
+
+.suppliers-form-section:last-child {
+    margin-bottom: 0;
+}
+
+.suppliers-form-section-title {
+    margin: 0 0 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #E2E8F0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #64748B;
+}
+
+.suppliers-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 20px;
+}
+
+.suppliers-form-grid--3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.suppliers-form-grid--4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.suppliers-form-grid .form-group {
+    margin-bottom: 0;
+}
+
+.suppliers-form-grid .form-group.span-2 {
+    grid-column: span 2;
+}
+
+.suppliers-form-grid .form-group.span-3 {
+    grid-column: span 3;
+}
+
+@media (max-width: 1200px) {
+    .suppliers-form-grid--4,
+    .suppliers-form-grid--3 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .suppliers-form-grid .form-group.span-3 {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 720px) {
+    .suppliers-form-grid,
+    .suppliers-form-grid--3,
+    .suppliers-form-grid--4 {
+        grid-template-columns: 1fr;
+    }
+
+    .suppliers-form-grid .form-group.span-2,
+    .suppliers-form-grid .form-group.span-3 {
+        grid-column: auto;
+    }
+}
+
 .suppliers-page {
     animation: fadeIn 0.4s ease-out;
 }

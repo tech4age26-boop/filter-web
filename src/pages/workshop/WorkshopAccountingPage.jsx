@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Shield, X, Wallet, Landmark, Banknote, Settings, Trash2, Calendar, FileText, ArrowLeftRight, Search, Filter, CreditCard, DollarSign, Book, CheckCircle, Eye, Printer, AlertTriangle, ChevronDown, ShoppingCart, Zap, Users, UserPlus, Clock, Activity, Coins, BookOpen, Save, Percent, Calculator, RefreshCw } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -41,6 +41,7 @@ import WorkshopExpensesLog from './accounting/WorkshopExpensesLog';
 import WorkshopPayroll from './accounting/WorkshopPayroll';
 import WorkshopAdvances from './accounting/WorkshopAdvances';
 import WorkshopLedgerView from './accounting/WorkshopLedgerView';
+import CashBankRegisterPanel from '../../components/accounting/CashBankRegisterPanel';
 import { useHqAdminBooksScope } from '../../hooks/useHqAdminBooksScope';
 import '../../styles/admin/AccountingPage.css';
 
@@ -1917,6 +1918,26 @@ function PurchasesView({ taxes }) {
 function CashBankView({ branches = [] }) {
     const { isAdminHqBooks } = useHqAdminBooksScope();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const registerTypeParam = String(searchParams.get('registerType') || '').toUpperCase();
+    const coaAccountIdParam = searchParams.get('coaAccountId') || '';
+    const registerDrill =
+        coaAccountIdParam && ['CASH', 'BANK', 'PETTY_CASH'].includes(registerTypeParam)
+            ? { registerType: registerTypeParam, coaAccountId: coaAccountIdParam }
+            : null;
+
+    const closeRegisterDrill = useCallback(() => {
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete('registerType');
+            next.delete('coaAccountId');
+            next.delete('dateFrom');
+            next.delete('dateTo');
+            next.delete('branchId');
+            return next;
+        }, { replace: true });
+    }, [setSearchParams]);
+
     const [accountTab, setAccountTab] = useState('All Accounts');
     const [accounts, setAccounts] = useState([]);
     const [accountsLoading, setAccountsLoading] = useState(false);
@@ -2185,6 +2206,13 @@ function CashBankView({ branches = [] }) {
     };
 
     return (
+        registerDrill ? (
+            <CashBankRegisterPanel
+                registerType={registerDrill.registerType}
+                initialCoaAccountId={registerDrill.coaAccountId}
+                onClose={closeRegisterDrill}
+            />
+        ) : (
         <div className="cash-bank-view">
             <header className="cash-bank-header">
                 <h2 className="cash-bank-title">Cash, Bank & Petty Cash</h2>
@@ -2722,6 +2750,7 @@ function CashBankView({ branches = [] }) {
             </AnimatePresence>
             ) : null}
         </div>
+        )
     );
 }
 

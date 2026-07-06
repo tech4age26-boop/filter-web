@@ -1,10 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
-import {
-    listStorageInvoices,
-    postStorageInvoice,
-    recordStorageInvoicePayment,
-} from '../../../services/storageFacilityApi';
+import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 
 import RowActionsMenu from '../../../components/RowActionsMenu';
 import StorageFacilityInvoicePrint from './StorageFacilityInvoicePrint';
@@ -21,6 +17,7 @@ export default function StorageFacilityInvoicesTab({
     uomProfiles = [],
     onReload,
 }) {
+    const sfApi = useStorageFacilityApi();
     const isPurchase = scope === 'purchase';
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -32,7 +29,7 @@ export default function StorageFacilityInvoicesTab({
         setLoading(true);
         setErr('');
         try {
-            const res = await listStorageInvoices(brandId, { scope });
+            const res = await sfApi.listStorageInvoices(brandId, { scope });
             setInvoices(res?.invoices ?? []);
         } catch (e) {
             setErr(e?.message || 'Failed to load invoices');
@@ -40,7 +37,7 @@ export default function StorageFacilityInvoicesTab({
         } finally {
             setLoading(false);
         }
-    }, [brandId, scope]);
+    }, [brandId, scope, sfApi]);
 
     useEffect(() => {
         load();

@@ -1,3 +1,5 @@
+import { notifyUserActivity } from '../utils/sessionIdle';
+
 // staging url
 //export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 // staging url (production default when VITE_API_BASE_URL is unset)
@@ -121,12 +123,63 @@ function isInvalidSession401(errorBody) {
     msg.includes("workshopid query param is required") ||
     msg.includes("workshopid is required") ||
     msg.includes("super admin access only") ||
-    msg.includes("missing permission:")
+    msg.includes("missing permission:") ||
+    msg.includes("supplier access only")
   ) {
     return false;
   }
 
   return true;
+}
+
+function readStoredAuthUser() {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("filter_auth_user");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function shouldRedirectWrongPortalFromAdmin(errorBody, status) {
+  if (typeof window === "undefined") return false;
+  if (!window.location.pathname.toLowerCase().startsWith("/admin")) return false;
+  if (status !== 401 && status !== 403) return false;
+
+  const msg = (
+    getErrorMessage(errorBody, status, "Forbidden", "GET", "") || ""
+  ).toLowerCase();
+  if (!msg.includes("super admin access only")) return false;
+
+  const user = readStoredAuthUser();
+  const t = String(user?.userType || user?.type || "").trim().toLowerCase();
+  const isAdmin =
+    t === "platform_admin" ||
+    t === "admin" ||
+    t === "super_admin" ||
+    t === "admin_user";
+  return !isAdmin;
+}
+
+function wrongPortalRedirectPath() {
+  const user = readStoredAuthUser();
+  const t = String(user?.userType || user?.type || "").trim().toLowerCase();
+  if (
+    t === "platform_admin" ||
+    t === "admin" ||
+    t === "super_admin" ||
+    t === "admin_user"
+  ) {
+    return "/admin/dashboard";
+  }
+  if (t === "workshop_user" || t === "workshop_owner") return "/workshop";
+  if (t === "supplier_user" || t === "supplier") return "/supplier";
+  if (t === "corporate_user") return "/corporate";
+  if (t === "technician_user") return "/technician";
+  if (t === "cashier_user") return "/pos";
+  if (t === "marketing_user") return "/marketing/dashboard";
+  return "/";
 }
 
 /**
@@ -168,7 +221,9 @@ export async function apiFetch(path, options = {}) {
       : await response.text().catch(() => "");
 
     if (!response.ok) {
-      if (response.status === 401 && isInvalidSession401(responseBody)) {
+      if (shouldRedirectWrongPortalFromAdmin(responseBody, response.status)) {
+        window.location.replace(wrongPortalRedirectPath());
+      } else if (response.status === 401 && isInvalidSession401(responseBody)) {
         clearAuthSession();
 
         if (shouldRedirectToLogin()) {
@@ -201,6 +256,10 @@ export async function apiFetch(path, options = {}) {
           path
         )
       );
+    }
+
+    if (token) {
+      notifyUserActivity();
     }
 
     return responseBody;

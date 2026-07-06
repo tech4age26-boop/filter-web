@@ -1,3 +1,32 @@
+.master-catalog-route-view {
+    width: 100%;
+}
+
+.master-catalog-route-panel {
+    width: 100%;
+}
+
+.master-catalog-route-panel.sa-mc-modal-narrow {
+    max-width: 560px;
+}
+
+.mc-page-route-title {
+    margin: 0 0 20px;
+    font-size: 1.125rem;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.mc-page-route-title .mc-modal-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.approvals-page.approvals-detail-page:has(.master-catalog-route-panel) {
+    max-width: 1120px;
+}
+
 .master-catalog-container {
     padding: 20px 0;
     font-family: 'Poppins', sans-serif;

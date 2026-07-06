@@ -1,39 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Boxes, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Plus, Boxes, ChevronRight } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
 import {
-    createStorageBrand,
-    listStorageBrands,
-} from '../../../services/storageFacilityApi';
+    useStorageFacilityApi,
+    useStorageFacilityPortal,
+} from './StorageFacilityPortalContext';
 import '../../../styles/admin/AccountingPage.css';
-
-function readPortalScope() {
-    try {
-        const u = JSON.parse(localStorage.getItem('filter_auth_user') || '{}');
-        return u?.supplier?.portalScope ?? 'owner';
-    } catch {
-        return 'owner';
-    }
-}
-
-function readSupplierName() {
-    try {
-        const u = JSON.parse(localStorage.getItem('filter_auth_user') || '{}');
-        return u?.supplier?.companyName || u?.supplier?.name || u?.name || '';
-    } catch {
-        return '';
-    }
-}
 
 export default function SupplierStorageFacilityBrands() {
     const navigate = useNavigate();
-    const isOwner = readPortalScope() !== 'storage_brand';
-    const supplierName = readSupplierName();
+    const { routeBase, parentRoute, supplierName, isOwner } = useStorageFacilityPortal();
+    const sfApi = useStorageFacilityApi();
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
+    const [q, setQ] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
     const [form, setForm] = useState({
         name: '',
@@ -48,7 +31,7 @@ export default function SupplierStorageFacilityBrands() {
         setLoading(true);
         setErr('');
         try {
-            const res = await listStorageBrands();
+            const res = await sfApi.listStorageBrands();
             setRows(Array.isArray(res?.brands) ? res.brands : []);
         } catch (e) {
             setErr(e?.message || 'Failed to load brands');
@@ -56,7 +39,7 @@ export default function SupplierStorageFacilityBrands() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [sfApi]);
 
     useEffect(() => {
         load();
@@ -64,12 +47,12 @@ export default function SupplierStorageFacilityBrands() {
 
     useEffect(() => {
         if (!isOwner && rows.length === 1) {
-            navigate(`/supplier/storage_facility?brand=${rows[0].id}`, { replace: true });
+            navigate(`${routeBase}?brand=${rows[0].id}`, { replace: true });
         }
-    }, [isOwner, rows, navigate]);
+    }, [isOwner, rows, navigate, routeBase]);
 
     const openBrand = (id) => {
-        navigate(`/supplier/storage_facility?brand=${encodeURIComponent(id)}`);
+        navigate(`${routeBase}?brand=${encodeURIComponent(id)}`);
     };
 
     const handleCreate = async (e) => {
@@ -77,7 +60,7 @@ export default function SupplierStorageFacilityBrands() {
         if (!form.name.trim()) return;
         setSaving(true);
         try {
-            await createStorageBrand(form);
+            await sfApi.createStorageBrand(form);
             setModalOpen(false);
             setForm({ name: '', code: '', contactPerson: '', email: '', mobile: '' });
             await load();
@@ -88,8 +71,27 @@ export default function SupplierStorageFacilityBrands() {
         }
     };
 
+    const filtered = rows.filter((b) => {
+        const needle = q.trim().toLowerCase();
+        if (!needle) return true;
+        return String(b.name || '')
+            .toLowerCase()
+            .includes(needle);
+    });
+
     return (
         <div className="mgr-si-page">
+            {parentRoute ? (
+                <button
+                    type="button"
+                    className="btn-portal-outline"
+                    style={{ marginBottom: 12 }}
+                    onClick={() => navigate(parentRoute)}
+                >
+                    <ArrowLeft size={14} /> All suppliers
+                </button>
+            ) : null}
+
             <header className="mgr-si-header">
                 <div className="mgr-si-header-top">
                     <h2 className="mgr-si-title" style={{ margin: 0 }}>
@@ -110,6 +112,16 @@ export default function SupplierStorageFacilityBrands() {
 
             {err ? <div className="mgr-si-error">{err}</div> : null}
 
+            <div style={{ marginBottom: 16 }}>
+                <input
+                    className="mgr-si-search-input"
+                    placeholder="Search brands…"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    style={{ maxWidth: 360 }}
+                />
+            </div>
+
             <div className="premium-table mgr-si-table-wrap">
                 {loading ? (
                     <div style={{ padding: 16 }}>
@@ -128,7 +140,7 @@ export default function SupplierStorageFacilityBrands() {
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.length === 0 ? (
+                            {filtered.length === 0 ? (
                                 <tr>
                                     <td colSpan={6} className="table-cell table-empty">
                                         <Boxes
@@ -143,7 +155,7 @@ export default function SupplierStorageFacilityBrands() {
                                     </td>
                                 </tr>
                             ) : (
-                                rows.map((b) => (
+                                filtered.map((b) => (
                                     <tr
                                         key={b.id}
                                         className="table-row"

@@ -1,13 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link2, Pencil, Plus, Trash2 } from 'lucide-react';
 import Modal from '../../../components/Modal';
-import {
-    applyStorageProductUom,
-    createStorageUomProfile,
-    deleteStorageUomProfile,
-    listStorageUomProfiles,
-    updateStorageUomProfile,
-} from '../../../services/storageFacilityApi';
 import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 import RowActionsMenu from '../../../components/RowActionsMenu';
 
@@ -111,6 +104,7 @@ function ProfileFormFields({ form, setForm, rulePreview }) {
 }
 
 export default function StorageFacilityUomTab({ brandId, products, onReload }) {
+    const sfApi = useStorageFacilityApi();
     const [profiles, setProfiles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -132,7 +126,7 @@ export default function StorageFacilityUomTab({ brandId, products, onReload }) {
         setLoading(true);
         setErr('');
         try {
-            const res = await listStorageUomProfiles(brandId);
+            const res = await sfApi.listStorageUomProfiles(brandId);
             setProfiles(res?.profiles ?? []);
         } catch (e) {
             setErr(e?.message || 'Failed to load UOM profiles');
@@ -140,7 +134,7 @@ export default function StorageFacilityUomTab({ brandId, products, onReload }) {
         } finally {
             setLoading(false);
         }
-    }, [brandId]);
+    }, [brandId, sfApi]);
 
     useEffect(() => {
         loadProfiles();
@@ -200,9 +194,9 @@ export default function StorageFacilityUomTab({ brandId, products, onReload }) {
         setBusy(true);
         try {
             if (profileModal?.mode === 'edit') {
-                await updateStorageUomProfile(brandId, profileModal.id, body);
+                await sfApi.updateStorageUomProfile(brandId, profileModal.id, body);
             } else {
-                await createStorageUomProfile(brandId, body);
+                await sfApi.createStorageUomProfile(brandId, body);
             }
             setProfileModal(null);
             await loadProfiles();
@@ -224,7 +218,7 @@ export default function StorageFacilityUomTab({ brandId, products, onReload }) {
         if (!window.confirm(`Delete UOM profile "${p.name}"?`)) return;
         setBusy(true);
         try {
-            await deleteStorageUomProfile(brandId, p.id);
+            await sfApi.deleteStorageUomProfile(brandId, p.id);
             await loadProfiles();
         } catch (ex) {
             window.alert(ex?.message || 'Delete failed');
@@ -251,7 +245,7 @@ export default function StorageFacilityUomTab({ brandId, products, onReload }) {
         setBusy(true);
         try {
             if (customUom) {
-                await applyStorageProductUom(brandId, linkProduct.id, {
+                await sfApi.applyStorageProductUom(brandId, linkProduct.id, {
                     warehouseUnit: customForm.warehouseUnit.trim(),
                     workshopUnit: customForm.workshopUnit.trim(),
                     conversionFactor: Math.max(
@@ -265,7 +259,7 @@ export default function StorageFacilityUomTab({ brandId, products, onReload }) {
                     setBusy(false);
                     return;
                 }
-                await applyStorageProductUom(brandId, linkProduct.id, {
+                await sfApi.applyStorageProductUom(brandId, linkProduct.id, {
                     uomProfileId: linkProfileId,
                 });
             }

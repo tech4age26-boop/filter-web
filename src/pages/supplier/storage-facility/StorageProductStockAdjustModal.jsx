@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 import Modal from '../../../components/Modal';
-import { postStorageMovement } from '../../../services/storageFacilityApi';
 import { formatUomRule, normUomKey, productEffectiveUom } from './storageFacilityUomUtils';
 
 function fmtQty(n) {
@@ -16,6 +16,7 @@ export default function StorageProductStockAdjustModal({
     onClose,
     onSaved,
 }) {
+    const sfApi = useStorageFacilityApi();
     const [adjustmentType, setAdjustmentType] = useState('remove');
     const [adjustQty, setAdjustQty] = useState('');
     const [adjustNotes, setAdjustNotes] = useState('');
@@ -92,7 +93,7 @@ export default function StorageProductStockAdjustModal({
 
         setBusy(true);
         try {
-            await postStorageMovement(brandId, {
+            await sfApi.postStorageMovement(brandId, {
                 storageProductId: String(product.id),
                 movementType,
                 qty: postQty,

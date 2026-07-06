@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useMatch } from 'react-router-dom';
 import {
-    Loader2, RefreshCw, Plus, Trash2, Edit2, Eye, X, FileText, Search,
+    Loader2, RefreshCw, Plus, Trash2, Edit2, Eye, X, FileText, Search, Printer,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import ApprovalPageShell from '../../components/admin/ApprovalPageShell';
+import CashierTaxInvoiceView from '../../components/pos/modern/CashierTaxInvoiceView';
+import '../../components/pos/modern/CashierTaxInvoiceView.css';
+import '../../styles/admin/ApprovalsPage.css';
+import '../../styles/admin/DemoInvoicesPage.css';
 import {
     listDemoInvoices,
     getDemoInvoice,
@@ -14,10 +20,10 @@ import {
     getDepartmentProducts,
     getDepartmentServices,
 } from '../../services/superAdminApi';
-import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import { CHECKLIST_ROWS } from '../../utils/thermalInvoiceTotals';
 
 const PAGE_SIZE = 50;
+const DEMO_INVOICES_LIST = '/admin/demo-invoices';
 
 const num = (v) =>
     `SAR ${Number(v ?? 0).toLocaleString(undefined, {
@@ -47,6 +53,16 @@ function toLocalDateTimeInput(raw) {
  */
 export default function DemoInvoicesPage() {
     const { hasPermission } = useAuth();
+    const navigate = useNavigate();
+    const newRoute = useMatch('/admin/demo-invoices/new');
+    const editRoute = useMatch('/admin/demo-invoices/:invoiceId/edit');
+    const viewRoute = useMatch('/admin/demo-invoices/:invoiceId/view');
+    const routeView = Boolean(newRoute || editRoute || viewRoute);
+
+    const goToList = useCallback(() => {
+        navigate(DEMO_INVOICES_LIST);
+    }, [navigate]);
+
     const canView = hasPermission('demo-invoices.view');
     const canCreate = hasPermission('demo-invoices.create');
     const canEdit = hasPermission('demo-invoices.edit');
@@ -60,12 +76,9 @@ export default function DemoInvoicesPage() {
     const [search, setSearch] = useState('');
     const [workshopOptions, setWorkshopOptions] = useState([]);
     const [filterWorkshopId, setFilterWorkshopId] = useState('');
-    const [modalOpen, setModalOpen] = useState(false);
-    const [editId, setEditId] = useState(null);   // null = create
-    const [viewRow, setViewRow] = useState(null);
 
     const load = useCallback(async () => {
-        if (!canView) return;
+        if (!canView || routeView) return;
         setLoading(true);
         setError('');
         try {
@@ -84,7 +97,7 @@ export default function DemoInvoicesPage() {
         } finally {
             setLoading(false);
         }
-    }, [canView, filterWorkshopId, search, page]);
+    }, [canView, routeView, filterWorkshopId, search, page]);
 
     useEffect(() => { void load(); }, [load]);
     useEffect(() => { setPage(1); }, [filterWorkshopId, search]);
@@ -124,14 +137,8 @@ export default function DemoInvoicesPage() {
         }
     };
 
-    const openView = async (row) => {
-        setViewRow({ id: row.id, loading: true });
-        try {
-            const res = await getDemoInvoice(row.id);
-            setViewRow(res?.invoice ?? res?.data ?? null);
-        } catch (e) {
-            setViewRow({ id: row.id, error: e?.message || 'Could not load invoice' });
-        }
+    const openView = (row) => {
+        navigate(`${DEMO_INVOICES_LIST}/${encodeURIComponent(row.id)}/view`);
     };
 
     const cellTh = {
@@ -144,14 +151,45 @@ export default function DemoInvoicesPage() {
 
     if (!canView) {
         return (
-            <div style={{ padding: 20 }}>
+            <div className="demo-invoices-page">
                 <p style={{ color: '#64748b' }}>You do not have permission to view Demo Invoices.</p>
             </div>
         );
     }
 
+    if (newRoute) {
+        return (
+            <DemoInvoiceForm
+                editId={null}
+                workshopOptions={workshopOptions}
+                onClose={goToList}
+                onSaved={goToList}
+            />
+        );
+    }
+
+    if (editRoute) {
+        return (
+            <DemoInvoiceForm
+                editId={editRoute.params.invoiceId}
+                workshopOptions={workshopOptions}
+                onClose={goToList}
+                onSaved={goToList}
+            />
+        );
+    }
+
+    if (viewRoute) {
+        return (
+            <DemoInvoiceViewPage
+                invoiceId={viewRoute.params.invoiceId}
+                onClose={goToList}
+            />
+        );
+    }
+
     return (
-        <div style={{ padding: 20 }}>
+        <div className="demo-invoices-page">
             <header style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                 <div>
                     <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>
@@ -173,7 +211,7 @@ export default function DemoInvoicesPage() {
                     {canCreate && (
                         <button
                             type="button"
-                            onClick={() => { setEditId(null); setModalOpen(true); }}
+                            onClick={() => navigate(`${DEMO_INVOICES_LIST}/new`)}
                             style={btnPrimary}
                         >
                             <Plus size={14} /> New Demo Invoice
@@ -260,7 +298,7 @@ export default function DemoInvoicesPage() {
                                             <Eye size={13} />
                                         </button>
                                         {canEdit && (
-                                            <button type="button" onClick={() => { setEditId(r.id); setModalOpen(true); }} style={iconBtn('#92400e', '#fef3c7', '#fde68a')} title="Edit">
+                                            <button type="button" onClick={() => navigate(`${DEMO_INVOICES_LIST}/${encodeURIComponent(r.id)}/edit`)} style={iconBtn('#92400e', '#fef3c7', '#fde68a')} title="Edit">
                                                 <Edit2 size={13} />
                                             </button>
                                         )}
@@ -294,61 +332,76 @@ export default function DemoInvoicesPage() {
                     </div>
                 )}
             </div>
-
-            {modalOpen && (
-                <DemoInvoiceModal
-                    editId={editId}
-                    workshopOptions={workshopOptions}
-                    onClose={() => { setModalOpen(false); setEditId(null); }}
-                    onSaved={async () => { setModalOpen(false); setEditId(null); await load(); }}
-                />
-            )}
-
-            {viewRow && (
-                viewRow.loading ? (
-                    <div style={modalBackdrop}>
-                        <div style={{ ...modalCard, padding: 0, width: 'min(420px, 100%)' }}>
-                            <div style={modalHeader}>
-                                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>Loading invoice</h3>
-                                <button type="button" onClick={() => setViewRow(null)} style={modalCloseBtn} aria-label="Close">
-                                    <X size={18} />
-                                </button>
-                            </div>
-                            <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
-                                <Loader2 size={20} className="spin" /> Loading…
-                            </div>
-                        </div>
-                    </div>
-                ) : viewRow.error ? (
-                    <div style={modalBackdrop}>
-                        <div style={{ ...modalCard, padding: 0, width: 'min(420px, 100%)' }}>
-                            <div style={modalHeader}>
-                                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>Invoice error</h3>
-                                <button type="button" onClick={() => setViewRow(null)} style={modalCloseBtn} aria-label="Close">
-                                    <X size={18} />
-                                </button>
-                            </div>
-                            <div style={{ padding: 22 }}>
-                                <p style={{ color: '#b91c1c', margin: 0 }}>{viewRow.error}</p>
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <InvoiceDetailsModal
-                        invoice={mapDemoToInvoice(viewRow)}
-                        isOpen={true}
-                        footerVariant="pos"
-                        onClose={() => setViewRow(null)}
-                    />
-                )
-            )}
         </div>
     );
 }
 
-/* ───────── Create / Edit modal ────────────────────────────────────────── */
+/* ───────── Full-page invoice view ─────────────────────────────────────── */
 
-function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
+function DemoInvoiceViewPage({ invoiceId, onClose }) {
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [invoice, setInvoice] = useState(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setError('');
+        getDemoInvoice(invoiceId)
+            .then((res) => {
+                if (!cancelled) setInvoice(res?.invoice ?? res?.data ?? null);
+            })
+            .catch((e) => {
+                if (!cancelled) setError(e?.message || 'Could not load invoice');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [invoiceId]);
+
+    const mapped = invoice ? mapDemoToInvoice(invoice) : null;
+
+    return (
+        <ApprovalPageShell
+            title={invoice?.invoiceNo ? `Demo Invoice · ${invoice.invoiceNo}` : 'Demo Invoice'}
+            onBack={onClose}
+            backLabel="Back to Demo Invoices"
+            footer={mapped && !loading && !error ? (
+                <>
+                    <button type="button" onClick={() => window.print()} style={btnSecondary}>
+                        <Printer size={14} /> Print
+                    </button>
+                    <button type="button" onClick={onClose} style={btnPrimary}>
+                        Done
+                    </button>
+                </>
+            ) : null}
+        >
+            {loading ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
+                    <Loader2 size={20} className="spin" /> Loading…
+                </div>
+            ) : error ? (
+                <div style={{ padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 10 }}>
+                    {error}
+                </div>
+            ) : mapped ? (
+                <div className="demo-invoice-view-body">
+                    <div className="demo-invoice-view-scroll">
+                        <CashierTaxInvoiceView invoice={mapped} />
+                    </div>
+                </div>
+            ) : (
+                <p style={{ color: '#64748b' }}>Invoice not found.</p>
+            )}
+        </ApprovalPageShell>
+    );
+}
+
+/* ───────── Create / Edit form (full page) ─────────────────────────────── */
+
+function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
     const isEdit = !!editId;
     const [loading, setLoading] = useState(isEdit);
     const [saving, setSaving] = useState(false);
@@ -587,20 +640,29 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
     };
 
     return (
-        <div role="dialog" aria-modal="true" style={modalBackdrop}>
-            <div onClick={(e) => e.stopPropagation()} style={{ ...modalCard, width: 'min(1000px, 100%)' }}>
-                <div style={modalHeader}>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>
-                        {isEdit ? 'Edit Demo Invoice' : 'New Demo Invoice'}
-                    </h3>
-                    <button type="button" onClick={onClose} style={modalCloseBtn}><X size={18} /></button>
-                </div>
+        <>
+            <ApprovalPageShell
+                title={isEdit ? 'Edit Demo Invoice' : 'New Demo Invoice'}
+                onBack={onClose}
+                backLabel="Back to Demo Invoices"
+                backDisabled={saving}
+                footer={!loading ? (
+                    <>
+                        <button type="button" onClick={onClose} disabled={saving} style={btnSecondary}>
+                            Cancel
+                        </button>
+                        <button type="button" onClick={handleSave} disabled={saving} style={btnPrimary}>
+                            {saving ? <><Loader2 size={14} className="spin" /> Saving…</> : <><FileText size={14} /> {isEdit ? 'Save Changes' : 'Create Demo Invoice'}</>}
+                        </button>
+                    </>
+                ) : null}
+            >
                 {loading ? (
                     <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
                         <Loader2 size={20} className="spin" /> Loading…
                     </div>
                 ) : (
-                    <div style={{ padding: 22, maxHeight: '80vh', overflow: 'auto' }}>
+                    <div className="demo-invoice-form-body">
                         {error && (
                             <div style={{ padding: 10, background: '#fef2f2', color: '#991b1b', borderRadius: 8, marginBottom: 12, fontSize: '0.875rem' }}>
                                 {error}
@@ -842,30 +904,20 @@ function DemoInvoiceModal({ editId, workshopOptions, onClose, onSaved }) {
                             <Row label="VAT" value={num(totals.vatAmount)} />
                             <Row label="Total amount due" value={num(totals.totalAmount)} bold />
                         </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                            <button type="button" onClick={onClose} disabled={saving} style={btnSecondary}>
-                                Cancel
-                            </button>
-                            <button type="button" onClick={handleSave} disabled={saving} style={btnPrimary}>
-                                {saving ? <><Loader2 size={14} className="spin" /> Saving…</> : <><FileText size={14} /> {isEdit ? 'Save Changes' : 'Create Demo Invoice'}</>}
-                            </button>
-                        </div>
                     </div>
                 )}
+            </ApprovalPageShell>
 
-                {/* Item picker — overlays modal */}
-                {pickerOpen && (
-                    <ItemPicker
-                        kind={pickerKind}
-                        items={pickerKind === 'product' ? catalogProducts : catalogServices}
-                        departments={departments}
-                        onAddItems={handlePickItems}
-                        onClose={() => setPickerOpen(false)}
-                    />
-                )}
-            </div>
-        </div>
+            {pickerOpen && (
+                <ItemPicker
+                    kind={pickerKind}
+                    items={pickerKind === 'product' ? catalogProducts : catalogServices}
+                    departments={departments}
+                    onAddItems={handlePickItems}
+                    onClose={() => setPickerOpen(false)}
+                />
+            )}
+        </>
     );
 }
 

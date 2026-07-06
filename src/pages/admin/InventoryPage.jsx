@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, NavLink, useNavigate } from 'react-router-dom';
+import { useParams, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Package, FileText, TrendingUp, TrendingDown, Minus, Search, Folder, Layers, ChevronDown, Loader } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -47,15 +47,27 @@ const MOCK_UOM = [
 export default function InventoryPage() {
     const { subTab } = useParams();
     const navigate = useNavigate();
+    const location = useLocation();
     const { hasPermission } = useAuth();
     const visibleSubTabs = SUB_TABS.filter((t) => hasPermission(t.permission));
     const normalizedSubTab =
         subTab && subTab.replace(/\s+/g, '-').toLowerCase() !== subTab
             ? subTab.replace(/\s+/g, '-').toLowerCase()
             : subTab;
-    const activeSub = VALID_INVENTORY_SUB_PATHS.includes(normalizedSubTab)
-        ? normalizedSubTab
-        : (subTab || 'master-catalog');
+    const isMasterCatalogPath = location.pathname.startsWith('/admin/inventory/master-catalog');
+    const activeSub = isMasterCatalogPath
+        ? 'master-catalog'
+        : (VALID_INVENTORY_SUB_PATHS.includes(normalizedSubTab)
+            ? normalizedSubTab
+            : (subTab || 'master-catalog'));
+
+    const isInventorySubTabActive = (path) => {
+        if (path === 'master-catalog') {
+            return location.pathname.startsWith('/admin/inventory/master-catalog');
+        }
+        const base = `/admin/inventory/${path}`;
+        return location.pathname === base || location.pathname.startsWith(`${base}/`);
+    };
 
     useEffect(() => {
         if (!subTab) return;
@@ -277,7 +289,11 @@ export default function InventoryPage() {
         <div className="inventory-page module-container">
             <div className="inventory-sub-nav">
                 {visibleSubTabs.map((t) => (
-                    <NavLink key={t.path} to={`/admin/inventory/${t.path}`} className={({ isActive }) => `inventory-sub-tab ${isActive ? 'active' : ''}`}>
+                    <NavLink
+                        key={t.path}
+                        to={`/admin/inventory/${t.path}`}
+                        className={() => `inventory-sub-tab ${isInventorySubTabActive(t.path) ? 'active' : ''}`}
+                    >
                         {t.label}
                     </NavLink>
                 ))}

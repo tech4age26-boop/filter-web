@@ -1,6 +1,7 @@
 .admin-wallets-page {
     animation: fadeIn 0.35s ease-out;
-    max-width: 1400px;
+    width: 100%;
+    max-width: none;
 }
 
 .admin-wallets-header {

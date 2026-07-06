@@ -2,6 +2,8 @@
  * Workshop Chart of Accounts — petty cash fund / expense ledger navigation.
  */
 
+import { isCashOrBankCoaAccount } from '../admin/hqCoaAccountRouting';
+
 /** Parent control accounts shown on COA; branch / employee GL lives underneath. */
 export function isWorkshopPettyCashCoaControlAccount(account) {
     const code = String(account?.code ?? '').trim();
@@ -42,6 +44,53 @@ export function buildWorkshopPettyCashLedgerUrl(account, { dateFrom, dateTo, bra
     if (branchId && branchId !== 'all') params.set('branchId', String(branchId));
     const qs = params.toString();
     return `/workshop/accounting/ledger/${encodeURIComponent(account.id)}${qs ? `?${qs}` : ''}`;
+}
+
+function inferWorkshopCashBankRegisterType(account) {
+    const code = String(account?.code ?? '').trim();
+    if (/^101\d/i.test(code)) return 'BANK';
+    if (/petty/i.test(String(account?.name ?? ''))) return 'PETTY_CASH';
+    return 'CASH';
+}
+
+/**
+ * Workshop COA row navigation — petty cash ledger, cash/bank register, or generic statement.
+ */
+export function buildWorkshopCoaNavigationUrl(account, { dateFrom, dateTo, branchId } = {}) {
+    if (isWorkshopPettyCashLedgerAccount(account)) {
+        return buildWorkshopPettyCashLedgerUrl(account, { dateFrom, dateTo, branchId });
+    }
+    if (isCashOrBankCoaAccount(account)) {
+        const params = new URLSearchParams();
+        params.set('registerType', inferWorkshopCashBankRegisterType(account));
+        params.set('coaAccountId', String(account.id));
+        if (dateFrom) params.set('dateFrom', dateFrom);
+        if (dateTo) params.set('dateTo', dateTo);
+        if (branchId && branchId !== 'all') params.set('branchId', String(branchId));
+        const qs = params.toString();
+        return `/workshop/accounting/cash-bank${qs ? `?${qs}` : ''}`;
+    }
+    const params = new URLSearchParams();
+    if (account?.code) params.set('code', account.code);
+    if (account?.name) params.set('name', account.name);
+    if (account?.type) params.set('type', account.type);
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
+    if (branchId && branchId !== 'all') params.set('branchId', String(branchId));
+    const qs = params.toString();
+    return `/workshop/accounting/ledger/${encodeURIComponent(account.id)}${qs ? `?${qs}` : ''}`;
+}
+
+/** True when a COA row should open a ledger / register (leaf or petty-cash control). */
+export function isWorkshopCoaLedgerClickable(account) {
+    if (!account?.id) return false;
+    if (isWorkshopPettyCashCoaControlAccount(account)) return true;
+    const hasChildren = Boolean(
+        account.hasChildren
+        || account.isHeading
+        || (Array.isArray(account.children) && account.children.length > 0),
+    );
+    return !hasChildren;
 }
 
 /** Workshop ledger is rendered inside WorkshopLayout (no :accountId route param). */

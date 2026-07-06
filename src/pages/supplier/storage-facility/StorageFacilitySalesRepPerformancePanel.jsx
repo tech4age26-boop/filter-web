@@ -9,13 +9,7 @@ import {
 } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { ShimmerStatStrip, ShimmerTable } from '../../../components/supplier/Shimmer';
-import {
-    createStorageSalesRepTarget,
-    deleteStorageSalesRepTarget,
-    getStorageSalesRepPerformance,
-    listStorageProducts,
-    listStorageSalesReps,
-} from '../../../services/storageFacilityApi';
+import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 
 
 function fmtSar(n) {
@@ -48,6 +42,7 @@ export default function StorageFacilitySalesRepPerformancePanel({
     initialSalesRepId = '',
     onSalesRepIdChange,
 }) {
+    const sfApi = useStorageFacilityApi();
     const [salesReps, setSalesReps] = useState([]);
     const [products, setProducts] = useState([]);
     const [data, setData] = useState(null);
@@ -83,8 +78,8 @@ export default function StorageFacilitySalesRepPerformancePanel({
         (async () => {
             try {
                 const [repRes, prodRes] = await Promise.all([
-                    listStorageSalesReps(brandId),
-                    listStorageProducts(brandId),
+                    sfApi.listStorageSalesReps(brandId),
+                    sfApi.listStorageProducts(brandId),
                 ]);
                 setSalesReps(repRes?.salesReps ?? []);
                 setProducts(prodRes?.products ?? []);
@@ -93,13 +88,13 @@ export default function StorageFacilitySalesRepPerformancePanel({
                 setProducts([]);
             }
         })();
-    }, [brandId]);
+    }, [brandId, sfApi]);
 
     const load = useCallback(async () => {
         setLoading(true);
         setErr('');
         try {
-            const res = await getStorageSalesRepPerformance(brandId, {
+            const res = await sfApi.getStorageSalesRepPerformance(brandId, {
                 salesRepId: salesRepId || undefined,
                 productId: productId || undefined,
                 from: from || undefined,
@@ -112,7 +107,7 @@ export default function StorageFacilitySalesRepPerformancePanel({
         } finally {
             setLoading(false);
         }
-    }, [brandId, salesRepId, productId, from, to]);
+    }, [brandId, salesRepId, productId, from, to, sfApi]);
 
     useEffect(() => {
         load();
@@ -139,7 +134,7 @@ export default function StorageFacilitySalesRepPerformancePanel({
         if (!targetForm.salesRepId || !targetForm.targetAmount) return;
         setTargetBusy(true);
         try {
-            await createStorageSalesRepTarget(brandId, {
+            await sfApi.createStorageSalesRepTarget(brandId, {
                 salesRepId: targetForm.salesRepId,
                 periodStart: targetForm.periodStart,
                 periodEnd: targetForm.periodEnd,
@@ -159,7 +154,7 @@ export default function StorageFacilitySalesRepPerformancePanel({
     const removeTarget = async (t) => {
         if (!window.confirm(`Remove target "${t.label || t.periodStart}"?`)) return;
         try {
-            await deleteStorageSalesRepTarget(brandId, t.id);
+            await sfApi.deleteStorageSalesRepTarget(brandId, t.id);
             await load();
         } catch (ex) {
             window.alert(ex?.message || 'Could not remove target');

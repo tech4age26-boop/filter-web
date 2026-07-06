@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
     Loader, AlertCircle, Check, X, FileText, Download, ExternalLink, MapPin,
 } from 'lucide-react';
-import Modal from '../../components/Modal';
+import ApprovalShell from '../../components/admin/ApprovalShell';
 import { details } from '../../services/approvalsApi';
 
 /* ---------------------------------------------------------------- */
@@ -1611,7 +1611,7 @@ function renderBody(entityType, data) {
 
 export default function ApprovalDetailsModal({
     entityType, id, onClose, onApprove, onReject, actionDisabled = false,
-    canApprove = true, canReject = true,
+    canApprove = true, canReject = true, asPage = false,
 }) {
     // Modal is mounted fresh per (entityType, id) — start in the loading
     // state and let the effect's promise callbacks transition out. This
@@ -1664,10 +1664,12 @@ export default function ApprovalDetailsModal({
         : '';
 
     return (
-        <Modal
+        <ApprovalShell
+            asPage={asPage}
             title={titleSuffix ? `Approval Details — ${titleSuffix}` : 'Approval Details'}
             onClose={onClose}
             width={920}
+            backDisabled={actionDisabled}
             footer={showApproveReject && (canApprove || canReject) ? (
                 <div className="approval-details-actions">
                     {canReject && (
@@ -1716,6 +1718,6 @@ export default function ApprovalDetailsModal({
                     {renderBody(entityType, data)}
                 </div>
             )}
-        </Modal>
+        </ApprovalShell>
     );
 }

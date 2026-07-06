@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { Mail, Lock, ChevronRight, Loader } from 'lucide-react';
 import '../styles/SignInPage.css';
 import { adminLogin, corporateLogin, workshopLogin, cashierLogin, supplierLogin, technicianLogin, marketingLogin } from '../services/authApi';
-import { workshopLandingPath } from '../utils/permissions';
+import { workshopLandingPath, isLockerOnlyPortalUser, isWorkshopPortalUser } from '../utils/permissions';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../services/api';
 
@@ -55,7 +55,7 @@ const PortalLoginPage = () => {
     const hasPortalRoleAccess = (portal, currentType, authUser = null) => {
         const normalizedType = normalizeUserType(currentType);
         if (portal === 'workshop') {
-            return normalizedType === 'workshop_owner' || normalizedType === 'workshop_user';
+            return isWorkshopPortalUser({ userType: normalizedType, type: normalizedType, ...authUser });
         }
         if (portal === 'technician') {
             if (normalizedType === normalizeUserType(PORTAL_USER_TYPES.technician)) return true;
@@ -171,6 +171,12 @@ const PortalLoginPage = () => {
                             'This account does not have locker portal access. Ask your workshop admin to create a locker user.',
                         );
                     }
+                }
+
+                if (portalId === 'workshop' && isLockerOnlyPortalUser({ ...userData, userType: effectiveUserType })) {
+                    throw new Error(
+                        'This account is for the locker portal only. Use the Locker Portal sign-in page.',
+                    );
                 }
 
                 const workshopMeta =

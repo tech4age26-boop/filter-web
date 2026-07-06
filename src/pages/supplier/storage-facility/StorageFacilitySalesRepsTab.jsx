@@ -4,15 +4,10 @@ import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 import Modal from '../../../components/Modal';
 import RowActionsMenu from '../../../components/RowActionsMenu';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
-import {
-    createStorageSalesRep,
-    deleteStorageSalesRep,
-    listStorageSalesReps,
-    updateStorageSalesRep,
-} from '../../../services/storageFacilityApi';
 import StorageFacilitySalesRepPerformancePanel from './StorageFacilitySalesRepPerformancePanel';
 
 export default function StorageFacilitySalesRepsTab({ brandId }) {
+    const sfApi = useStorageFacilityApi();
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -27,7 +22,7 @@ export default function StorageFacilitySalesRepsTab({ brandId }) {
         setLoading(true);
         setErr('');
         try {
-            const res = await listStorageSalesReps(brandId);
+            const res = await sfApi.listStorageSalesReps(brandId);
             setRows(res?.salesReps ?? []);
         } catch (e) {
             setErr(e?.message || 'Failed to load sales reps');
@@ -35,7 +30,7 @@ export default function StorageFacilitySalesRepsTab({ brandId }) {
         } finally {
             setLoading(false);
         }
-    }, [brandId]);
+    }, [brandId, sfApi]);
 
     useEffect(() => {
         load();
@@ -64,9 +59,9 @@ export default function StorageFacilitySalesRepsTab({ brandId }) {
         setBusy(true);
         try {
             if (editing) {
-                await updateStorageSalesRep(brandId, editing.id, form);
+                await sfApi.updateStorageSalesRep(brandId, editing.id, form);
             } else {
-                await createStorageSalesRep(brandId, form);
+                await sfApi.createStorageSalesRep(brandId, form);
             }
             setModalOpen(false);
             await load();
@@ -81,7 +76,7 @@ export default function StorageFacilitySalesRepsTab({ brandId }) {
     const remove = async (row) => {
         if (!window.confirm(`Remove sales rep "${row.name}"?`)) return;
         try {
-            await deleteStorageSalesRep(brandId, row.id);
+            await sfApi.deleteStorageSalesRep(brandId, row.id);
             if (filterRepId === row.id) setFilterRepId('');
             await load();
             setPerformanceKey((k) => k + 1);
