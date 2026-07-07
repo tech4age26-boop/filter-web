@@ -404,7 +404,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             {loading ? (
                 <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Loading...</div>
             ) : activeTab === 'Salary' ? (
-                <WorkshopSalaryTab branchFilter={branchFilter} />
+                <WorkshopSalaryTab branchFilter={branchFilter} branches={branches} />
             ) : activeTab === 'Employee Ledger' ? (
                 <WorkshopEmployeeLedgerTab
                     employees={employees}

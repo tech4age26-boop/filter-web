@@ -8,6 +8,7 @@ import Modal from '../../components/Modal';
 import { useAuth } from '../../context/AuthContext';
 import {
     getAdminWallet,
+    getRequesterWalletBalance,
     listAdminWalletTransactions,
     listAdminWallets,
 } from '../../services/adminWalletApi';
@@ -282,11 +283,76 @@ function FundRequestsTable({
     );
 }
 
-function ApproveFundModal({ request, busy, onCancel, onConfirm, error }) {
+function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, error }) {
     const [remarks, setRemarks] = useState('');
+    const [fundSourceType, setFundSourceType] = useState(
+        () => (request?.fundSourceType === 'wallet' ? 'wallet' : 'external'),
+    );
+    const [walletUsers, setWalletUsers] = useState([]);
+    const [walletUsersLoading, setWalletUsersLoading] = useState(false);
+    const [sourceUserId, setSourceUserId] = useState(request?.sourceUserId ?? '');
+    const [sourceUserBalance, setSourceUserBalance] = useState(null);
     const [acct, setAcct] = useState({ blocked: true, loading: true });
 
-    const displayError = error || acct.blockReason || '';
+    const requesterUserId = request?.userId ?? '';
+    const recipientName = requesterName || request?.requestedByName || 'Requester';
+    const lockedWalletPeer = request?.fundSourceType === 'wallet' && request?.sourceUserId;
+    const amt = Number(request?.amount ?? 0);
+
+    useEffect(() => {
+        if (fundSourceType !== 'wallet') return undefined;
+        let cancelled = false;
+        setWalletUsersLoading(true);
+        listAdminWallets({ walletOnly: true, limit: 100 })
+            .then((res) => {
+                if (cancelled) return;
+                const peers = (res?.items ?? [])
+                    .filter((u) => String(u.id) !== String(requesterUserId));
+                setWalletUsers(peers);
+            })
+            .catch(() => {
+                if (!cancelled) setWalletUsers([]);
+            })
+            .finally(() => {
+                if (!cancelled) setWalletUsersLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [fundSourceType, requesterUserId]);
+
+    useEffect(() => {
+        const userId = lockedWalletPeer ? request?.sourceUserId : sourceUserId;
+        if (fundSourceType !== 'wallet' || !userId) {
+            setSourceUserBalance(null);
+            return undefined;
+        }
+        let cancelled = false;
+        getRequesterWalletBalance(userId)
+            .then((res) => {
+                if (!cancelled) setSourceUserBalance(Number(res?.balance ?? 0));
+            })
+            .catch(() => {
+                if (!cancelled) setSourceUserBalance(null);
+            });
+        return () => { cancelled = true; };
+    }, [fundSourceType, sourceUserId, lockedWalletPeer, request?.sourceUserId]);
+
+    const walletBlocked = fundSourceType === 'wallet' && (
+        walletUsersLoading
+        || !(lockedWalletPeer ? request?.sourceUserId : sourceUserId)
+        || (sourceUserBalance != null && amt > 0 && sourceUserBalance < amt)
+    );
+    const walletBlockReason = fundSourceType === 'wallet'
+        ? (walletUsersLoading
+            ? 'Loading wallet users…'
+            : !(lockedWalletPeer ? request?.sourceUserId : sourceUserId)
+                ? 'Select a source wallet user.'
+                : (sourceUserBalance != null && amt > 0 && sourceUserBalance < amt)
+                    ? `Insufficient balance in source wallet (SAR ${formatSar(sourceUserBalance)}).`
+                    : '')
+        : '';
+
+    const displayError = error || walletBlockReason || (fundSourceType === 'wallet' ? '' : acct.blockReason) || '';
+    const confirmBlocked = busy || (fundSourceType === 'wallet' ? walletBlocked : acct.blocked);
 
     return (
         <Modal
@@ -302,13 +368,17 @@ function ApproveFundModal({ request, busy, onCancel, onConfirm, error }) {
                     <button
                         type="button"
                         className="admin-wallets-modal-btn-primary"
-                        disabled={busy || acct.blocked}
+                        disabled={confirmBlocked}
                         onClick={() => onConfirm({
                             remarks: remarks.trim() || undefined,
-                            sourceAccountId: acct.sourceAccountId,
-                            sourceAccountName: acct.sourceAccountName,
-                            budgetAccountId: acct.budgetAccountId,
-                            budgetAccountName: acct.budgetAccountName,
+                            fundSourceType,
+                            sourceUserId: fundSourceType === 'wallet'
+                                ? (lockedWalletPeer ? request?.sourceUserId : sourceUserId)
+                                : undefined,
+                            sourceAccountId: fundSourceType === 'wallet' ? undefined : acct.sourceAccountId,
+                            sourceAccountName: fundSourceType === 'wallet' ? undefined : acct.sourceAccountName,
+                            budgetAccountId: fundSourceType === 'wallet' ? undefined : acct.budgetAccountId,
+                            budgetAccountName: fundSourceType === 'wallet' ? undefined : acct.budgetAccountName,
                         })}
                     >
                         {busy ? <Loader2 size={14} className="spin" /> : <Check size={16} />}
@@ -323,19 +393,96 @@ function ApproveFundModal({ request, busy, onCancel, onConfirm, error }) {
                 </div>
             ) : null}
             <p className="admin-wallets-modal-lead">
-                Approve <strong>{request.requestNumber}</strong> for{' '}
-                <strong>SAR {formatSar(request.amount)}</strong>. Amount will be deducted from the selected payment account
-                and credited to the admin wallet.
+                Approve <strong>{request.requestNumber}</strong> and credit <strong>{recipientName}</strong>&apos;s wallet.
+                Amount <strong>SAR {formatSar(request.amount)}</strong>
+                {fundSourceType === 'wallet'
+                    ? ' will be transferred from the selected admin wallet.'
+                    : ' will be deducted from the selected payment account.'}
             </p>
 
-            <WalletApprovalAccountFields
-                workshopId={request?.workshopId != null ? String(request.workshopId) : ''}
-                branchId={request?.branchId != null ? String(request.branchId) : ''}
-                amount={request?.amount}
-                mode="fund"
-                busy={busy}
-                onChange={setAcct}
-            />
+            {!lockedWalletPeer ? (
+                <div style={{ marginBottom: 14 }}>
+                    <label className="admin-wallets-modal-label">Funding source</label>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className={fundSourceType === 'external' ? 'admin-wallets-modal-btn-primary' : 'admin-wallets-modal-btn-cancel'}
+                            disabled={busy}
+                            onClick={() => setFundSourceType('external')}
+                        >
+                            Cash / Bank
+                        </button>
+                        <button
+                            type="button"
+                            className={fundSourceType === 'wallet' ? 'admin-wallets-modal-btn-primary' : 'admin-wallets-modal-btn-cancel'}
+                            disabled={busy}
+                            onClick={() => setFundSourceType('wallet')}
+                        >
+                            Deduct from another wallet
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+
+            {fundSourceType === 'wallet' ? (
+                <div
+                    style={{
+                        marginBottom: 14,
+                        padding: '12px 14px',
+                        borderRadius: 10,
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                    }}
+                >
+                    <p style={{ margin: '0 0 8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                        Wallet transfer
+                    </p>
+                    <p style={{ margin: '0 0 6px', fontSize: '0.875rem' }}>
+                        <strong>From wallet:</strong>{' '}
+                        {lockedWalletPeer ? (
+                            <>{request?.sourceUserName || 'Source user'}
+                            {sourceUserBalance != null ? ` — SAR ${formatSar(sourceUserBalance)}` : ''}</>
+                        ) : (
+                            <select
+                                className="admin-wallets-modal-textarea"
+                                style={{ marginTop: 6, width: '100%', minHeight: 0, padding: '8px 10px' }}
+                                value={sourceUserId}
+                                onChange={(e) => setSourceUserId(e.target.value)}
+                                disabled={busy || walletUsersLoading}
+                            >
+                                <option value="">
+                                    {walletUsersLoading ? 'Loading…' : 'Select source wallet user'}
+                                </option>
+                                {walletUsers.map((u) => (
+                                    <option key={u.id} value={u.id}>
+                                        {u.name || u.email || `User ${u.id}`}
+                                        {u.wallet?.balance != null
+                                            ? ` — SAR ${formatSar(u.wallet.balance)}`
+                                            : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+                    </p>
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>
+                        <strong>To wallet:</strong> {recipientName}
+                    </p>
+                    {sourceUserBalance != null ? (
+                        <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                            Source balance after transfer: SAR {formatSar(Math.max(0, sourceUserBalance - amt))}
+                        </p>
+                    ) : null}
+                </div>
+            ) : (
+                <WalletApprovalAccountFields
+                    workshopId={request?.workshopId != null ? String(request.workshopId) : ''}
+                    branchId={request?.branchId != null ? String(request.branchId) : ''}
+                    amount={request?.amount}
+                    mode="fund"
+                    busy={busy}
+                    onChange={setAcct}
+                />
+            )}
 
             <label className="admin-wallets-modal-label" htmlFor="aw-remarks">
                 Remarks (optional)
@@ -897,6 +1044,7 @@ export default function AdminWalletsPage() {
             {approveTarget && (
                 <ApproveFundModal
                     request={approveTarget}
+                    requesterName={detail?.name}
                     busy={actionBusyId === approveTarget.id}
                     error={actionError}
                     onCancel={() => {

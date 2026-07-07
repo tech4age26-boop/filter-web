@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import '../../styles/admin/ApprovalsPage.css';
 import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
+import { getRequesterWalletBalance, listAdminWallets } from '../../services/adminWalletApi';
 import {
     list as listApprovals,
     approve as approveApi,
@@ -608,6 +609,11 @@ function buildMetaChips(item) {
             break;
         case 'admin_wallet_fund_request':
             push('Admin', m.adminUserName ?? m.adminUserEmail);
+            if (m.fundSourceType === 'wallet' && m.sourceUserName) {
+                push('From wallet', m.sourceUserName);
+            } else if (m.fundSourceType === 'wallet') {
+                push('Funding', 'Wallet intra-system');
+            }
             push('Workshop', m.workshopName);
             push('Branch', m.branchName);
             push('Amount', m.amountLabel ?? (m.amount != null ? `SAR ${m.amount}` : null));
@@ -703,15 +709,86 @@ function ApproveModal({ item, busy, onCancel, onConfirm, asPage = false }) {
     );
 }
 
-/** Approve admin wallet fund request — super admin picks source cash/bank account. */
+/** Approve admin wallet fund request — super admin picks source cash/bank account or wallet. */
 function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, asPage = false }) {
     const [remarks, setRemarks] = useState('');
+    const [fundSourceType, setFundSourceType] = useState(
+        () => (item?.meta?.fundSourceType === 'wallet' ? 'wallet' : 'external'),
+    );
+    const [walletUsers, setWalletUsers] = useState([]);
+    const [walletUsersLoading, setWalletUsersLoading] = useState(false);
+    const [sourceUserId, setSourceUserId] = useState(item?.meta?.sourceUserId ?? '');
+    const [sourceUserBalance, setSourceUserBalance] = useState(null);
     const [acct, setAcct] = useState({ blocked: true, loading: true });
     const workshopId = item?.meta?.workshopId ?? '';
     const branchId = item?.meta?.branchId ?? '';
+    const requesterUserId = item?.meta?.adminUserId ?? '';
+    const requesterName = item?.meta?.adminUserName ?? 'Requester';
+    const lockedWalletPeer = item?.meta?.fundSourceType === 'wallet' && item?.meta?.sourceUserId;
     const amountLabel = item?.meta?.amountLabel
         ?? (item?.meta?.amount != null ? `SAR ${item.meta.amount}` : '—');
-    const displayError = error || acct.blockReason;
+    const amt = Number(item?.meta?.amount ?? 0);
+
+    useEffect(() => {
+        if (fundSourceType !== 'wallet') return undefined;
+        let cancelled = false;
+        setWalletUsersLoading(true);
+        listAdminWallets({ walletOnly: true, limit: 100 })
+            .then((res) => {
+                if (cancelled) return;
+                const peers = (res?.items ?? [])
+                    .filter((u) => String(u.id) !== String(requesterUserId));
+                setWalletUsers(peers);
+            })
+            .catch(() => {
+                if (!cancelled) setWalletUsers([]);
+            })
+            .finally(() => {
+                if (!cancelled) setWalletUsersLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [fundSourceType, requesterUserId]);
+
+    useEffect(() => {
+        const userId = lockedWalletPeer ? item?.meta?.sourceUserId : sourceUserId;
+        if (fundSourceType !== 'wallet' || !userId) {
+            setSourceUserBalance(null);
+            return undefined;
+        }
+        let cancelled = false;
+        getRequesterWalletBalance(userId)
+            .then((res) => {
+                if (!cancelled) setSourceUserBalance(Number(res?.balance ?? 0));
+            })
+            .catch(() => {
+                if (!cancelled) setSourceUserBalance(null);
+            });
+        return () => { cancelled = true; };
+    }, [fundSourceType, sourceUserId, lockedWalletPeer, item?.meta?.sourceUserId]);
+
+    const selectedWalletUser = walletUsers.find(
+        (u) => String(u.id) === String(lockedWalletPeer ? item?.meta?.sourceUserId : sourceUserId),
+    ) || (lockedWalletPeer && item?.meta?.sourceUserName
+        ? { id: item.meta.sourceUserId, name: item.meta.sourceUserName, wallet: { balance: sourceUserBalance } }
+        : null);
+
+    const walletBlocked = fundSourceType === 'wallet' && (
+        walletUsersLoading
+        || !(lockedWalletPeer ? item?.meta?.sourceUserId : sourceUserId)
+        || (sourceUserBalance != null && amt > 0 && sourceUserBalance < amt)
+    );
+    const walletBlockReason = fundSourceType === 'wallet'
+        ? (walletUsersLoading
+            ? 'Loading wallet users…'
+            : !(lockedWalletPeer ? item?.meta?.sourceUserId : sourceUserId)
+                ? 'Select a source wallet user.'
+                : (sourceUserBalance != null && amt > 0 && sourceUserBalance < amt)
+                    ? `Insufficient balance in source wallet (SAR ${Number(sourceUserBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}).`
+                    : '')
+        : '';
+
+    const displayError = error || walletBlockReason || acct.blockReason;
+    const confirmBlocked = busy || (fundSourceType === 'wallet' ? walletBlocked : acct.blocked);
 
     return (
         <ApprovalShell asPage={asPage}
@@ -727,13 +804,17 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
                     <button
                         type="button"
                         className="btn-approve"
-                        disabled={busy || acct.blocked}
+                        disabled={confirmBlocked}
                         onClick={() => onConfirm({
                             remarks: remarks.trim() || undefined,
-                            sourceAccountId: acct.sourceAccountId,
-                            sourceAccountName: acct.sourceAccountName,
-                            budgetAccountId: acct.budgetAccountId,
-                            budgetAccountName: acct.budgetAccountName,
+                            fundSourceType,
+                            sourceUserId: fundSourceType === 'wallet'
+                                ? (lockedWalletPeer ? item?.meta?.sourceUserId : sourceUserId)
+                                : undefined,
+                            sourceAccountId: fundSourceType === 'wallet' ? undefined : acct.sourceAccountId,
+                            sourceAccountName: fundSourceType === 'wallet' ? undefined : acct.sourceAccountName,
+                            budgetAccountId: fundSourceType === 'wallet' ? undefined : acct.budgetAccountId,
+                            budgetAccountName: fundSourceType === 'wallet' ? undefined : acct.budgetAccountName,
                         })}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
@@ -758,9 +839,30 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
                     {displayError}
                 </div>
             ) : null}
+            {lockedWalletPeer && item?.meta?.sourceUserName ? (
+                <div
+                    style={{
+                        margin: '0 0 14px',
+                        padding: '12px 14px',
+                        borderRadius: 10,
+                        background: '#eff6ff',
+                        border: '1px solid #bfdbfe',
+                        fontSize: '0.875rem',
+                        color: '#1e40af',
+                    }}
+                >
+                    <strong>Requested from wallet user:</strong> {item.meta.sourceUserName}
+                    <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: '0.8125rem' }}>
+                        {requesterName} asked this user to fund their wallet.
+                    </p>
+                </div>
+            ) : null}
             <p className="approval-modal-lead">
-                Approve <strong>{item.title}</strong> and credit the admin wallet.
-                Amount <strong>{amountLabel}</strong> will be deducted from the selected payment account.
+                Approve <strong>{item.title}</strong> and credit <strong>{requesterName}</strong>&apos;s wallet.
+                Amount <strong>{amountLabel}</strong>
+                {fundSourceType === 'wallet'
+                    ? ' will be transferred from the selected admin wallet.'
+                    : ' will be deducted from the selected payment account.'}
                 {item?.meta?.workshopName ? (
                     <> Workshop: <strong>{item.meta.workshopName}</strong>
                     {item.meta.branchName ? <> · Branch: <strong>{item.meta.branchName}</strong></> : null}
@@ -768,14 +870,89 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
                 ) : null}
             </p>
 
-            <WalletApprovalAccountFields
-                workshopId={workshopId}
-                branchId={branchId}
-                amount={item?.meta?.amount}
-                mode="fund"
-                busy={busy}
-                onChange={setAcct}
-            />
+            {!lockedWalletPeer ? (
+                <div style={{ marginBottom: 14 }}>
+                    <label className="approval-modal-label">Funding source</label>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            className={fundSourceType === 'external' ? 'btn-approve' : 'btn-view-details'}
+                            disabled={busy}
+                            onClick={() => setFundSourceType('external')}
+                        >
+                            Cash / Bank
+                        </button>
+                        <button
+                            type="button"
+                            className={fundSourceType === 'wallet' ? 'btn-approve' : 'btn-view-details'}
+                            disabled={busy}
+                            onClick={() => setFundSourceType('wallet')}
+                        >
+                            Deduct from another wallet
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+
+            {fundSourceType === 'wallet' ? (
+                <div
+                    style={{
+                        marginBottom: 14,
+                        padding: '12px 14px',
+                        borderRadius: 10,
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                    }}
+                >
+                    <p style={{ margin: '0 0 8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                        Wallet transfer
+                    </p>
+                    <p style={{ margin: '0 0 6px', fontSize: '0.875rem' }}>
+                        <strong>From wallet:</strong>{' '}
+                        {lockedWalletPeer ? (
+                            <>{item?.meta?.sourceUserName || 'Source user'}
+                            {sourceUserBalance != null ? ` — SAR ${Number(sourceUserBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</>
+                        ) : (
+                            <select
+                                className="form-input-field"
+                                style={{ marginTop: 6, width: '100%' }}
+                                value={sourceUserId}
+                                onChange={(e) => setSourceUserId(e.target.value)}
+                                disabled={busy || walletUsersLoading}
+                            >
+                                <option value="">
+                                    {walletUsersLoading ? 'Loading…' : 'Select source wallet user'}
+                                </option>
+                                {walletUsers.map((u) => (
+                                    <option key={u.id} value={u.id}>
+                                        {u.name || u.email || `User ${u.id}`}
+                                        {u.wallet?.balance != null
+                                            ? ` — SAR ${Number(u.wallet.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                            : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+                    </p>
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>
+                        <strong>To wallet:</strong> {requesterName}
+                    </p>
+                    {selectedWalletUser && sourceUserBalance != null ? (
+                        <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                            Source balance after transfer: SAR {Math.max(0, sourceUserBalance - amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                    ) : null}
+                </div>
+            ) : (
+                <WalletApprovalAccountFields
+                    workshopId={workshopId}
+                    branchId={branchId}
+                    amount={item?.meta?.amount}
+                    mode="fund"
+                    busy={busy}
+                    onChange={setAcct}
+                />
+            )}
 
             <label className="approval-modal-label" htmlFor="admin-wallet-approve-remarks" style={{ marginTop: 14 }}>
                 Remarks <span className="approval-modal-optional">(optional)</span>
@@ -1323,6 +1500,11 @@ function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onRe
     const requestNumber = row.requestNumber ?? row.request_number ?? item?.meta?.requestNumber ?? `#${id}`;
     const status = String(row.status ?? item?.status ?? 'pending').toLowerCase();
     const adminUser = row.adminUser ?? {};
+    const fundSourceType = String(
+        row.fundSourceType ?? item?.meta?.fundSourceType ?? 'external',
+    ).toLowerCase();
+    const sourceUserName = row.sourceUserName ?? item?.meta?.sourceUserName ?? null;
+    const isWalletPeerRequest = fundSourceType === 'wallet' && Boolean(sourceUserName);
 
     const money = (v) =>
         `${currency} ${Number(v || 0).toLocaleString(undefined, {
@@ -1387,11 +1569,43 @@ function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onRe
                             {row.purpose ?? item?.meta?.purpose ?? '—'}
                         </p>
                     </div>
-                    {(row.sourceAccountName ?? row.source_account_name ?? item?.meta?.sourceAccountName) && (
+                    <div
+                        style={{
+                            marginBottom: 14,
+                            padding: 12,
+                            background: isWalletPeerRequest ? '#eff6ff' : '#f8fafc',
+                            borderRadius: 10,
+                            border: isWalletPeerRequest ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
+                        }}
+                    >
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>
+                            Funding type
+                        </p>
+                        <p style={{ margin: '6px 0 0', fontWeight: 700, fontSize: '0.9375rem' }}>
+                            {isWalletPeerRequest
+                                ? 'Wallet intra-system (peer request)'
+                                : 'Company (cash / bank approval)'}
+                        </p>
+                        {isWalletPeerRequest ? (
+                            <p style={{ margin: '8px 0 0', fontSize: '0.875rem', color: '#1e40af' }}>
+                                <strong>Requested from wallet user:</strong>{' '}
+                                {sourceUserName}
+                            </p>
+                        ) : null}
+                        {isWalletPeerRequest ? (
+                            <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                {adminUser.name ?? row.adminUserName ?? item?.meta?.adminUserName ?? 'Requester'}
+                                {' '}asked this user to fund their wallet.
+                            </p>
+                        ) : null}
+                    </div>
+                    {((row.sourceAccountName ?? row.source_account_name ?? item?.meta?.sourceAccountName)
+                        || (fundSourceType === 'wallet' && sourceUserName && status === 'approved')) && (
                         <div style={{ marginBottom: 14, padding: 12, background: '#f0fdf4', borderRadius: 10 }}>
                             <p style={{ margin: 0, fontSize: '0.7rem', color: '#166534', textTransform: 'uppercase', fontWeight: 700 }}>Funded from</p>
                             <p style={{ margin: '6px 0 0', fontWeight: 700 }}>
-                                {row.sourceAccountName ?? row.source_account_name ?? item?.meta?.sourceAccountName}
+                                {row.sourceAccountName ?? row.source_account_name ?? item?.meta?.sourceAccountName
+                                    ?? (sourceUserName ? `${sourceUserName} (wallet)` : '—')}
                             </p>
                         </div>
                     )}

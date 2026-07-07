@@ -276,6 +276,17 @@ export function createAdminStorageFacilityApi(supplierId) {
                 body: JSON.stringify(body),
             }),
 
+        getStorageTransfer: (brandId, transferId) =>
+            apiFetch(
+                `${base}/brands/${encodeURIComponent(brandId)}/transfers/${encodeURIComponent(transferId)}`,
+            ),
+
+        updateStorageTransfer: (brandId, transferId, body) =>
+            apiFetch(
+                `${base}/brands/${encodeURIComponent(brandId)}/transfers/${encodeURIComponent(transferId)}`,
+                { method: 'PATCH', body: JSON.stringify(body) },
+            ),
+
         searchWarehouseProductsForMap: (q, params = {}) =>
             apiFetch(withQuery(`${base}/warehouse-products`, { q, ...params })),
     };

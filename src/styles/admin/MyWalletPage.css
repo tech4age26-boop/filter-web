@@ -23,9 +23,9 @@
     --mw-radius-sm: 12px;
 
     animation: fadeIn 0.35s ease-out;
-    max-width: 1100px;
     width: 100%;
-    margin: 0 auto;
+    max-width: none;
+    margin: 0;
 }
 
 /* Buttons scoped to wallet page */
@@ -850,7 +850,8 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    max-width: 920px;
+    width: 100%;
+    max-width: none;
 }
 
 .my-wallet-tab-cta {
@@ -866,18 +867,19 @@
 }
 
 @media (min-width: 769px) {
-    .my-wallet-title-row {
-        max-width: 920px;
+    .my-wallet-desktop-tabs {
+        width: 100%;
+    }
+
+    .my-wallet-title-row,
+    .my-wallet-stats,
+    .my-wallet-balance {
+        max-width: none;
     }
 
     .my-wallet-header-add-btn {
         padding: 8px 14px;
         font-size: 0.8125rem;
-    }
-
-    .my-wallet-stats,
-    .my-wallet-balance {
-        max-width: 920px;
     }
 }
 
