@@ -118,6 +118,10 @@ export default function MyWalletPage() {
     const [error, setError] = useState('');
 
     const [fundOpen, setFundOpen] = useState(false);
+    const [fundSourceType, setFundSourceType] = useState('external');
+    const [fundPeerId, setFundPeerId] = useState('');
+    const [walletPeers, setWalletPeers] = useState([]);
+    const [walletPeersLoading, setWalletPeersLoading] = useState(false);
     const [fundAmount, setFundAmount] = useState('');
     const [fundPurpose, setFundPurpose] = useState('');
     const [fundWorkshopId, setFundWorkshopId] = useState('');
@@ -165,7 +169,9 @@ export default function MyWalletPage() {
         if (!canPostToChat || !chat) return;
         if (chat.posted) {
             setWalletChatNotice(
-                successMessage.replace('{name}', chat.contactName || 'super admin'),
+                fundSourceType === 'wallet'
+                    ? successMessage.replace('{name}', chat.contactName || 'wallet user')
+                    : successMessage.replace('{name}', chat.contactName || 'super admin'),
             );
             if (chat.conversationId) {
                 setLastChatConversationId(String(chat.conversationId));
@@ -173,7 +179,11 @@ export default function MyWalletPage() {
             return;
         }
         if (chat.alreadyInChat) {
-            setWalletChatNotice('This request is already visible in your support chat.');
+            setWalletChatNotice(
+                fundSourceType === 'wallet'
+                    ? 'This request is already visible in chat with the selected wallet user.'
+                    : 'This request is already visible in your support chat.',
+            );
             if (chat.conversationId) {
                 setLastChatConversationId(String(chat.conversationId));
             }
@@ -264,6 +274,30 @@ export default function MyWalletPage() {
         }
     }, [walletWorkshops, fundWorkshopId]);
 
+    const isPlatformAdminWallet = !isWorkshopPortal && !isMarketingPortal;
+
+    useEffect(() => {
+        if (!fundOpen || !isPlatformAdminWallet || fundSourceType !== 'wallet') {
+            return undefined;
+        }
+        if (!walletApi.listMyWalletPeers) return undefined;
+        let cancelled = false;
+        setWalletPeersLoading(true);
+        walletApi.listMyWalletPeers()
+            .then((res) => {
+                if (!cancelled) {
+                    setWalletPeers(Array.isArray(res?.peers) ? res.peers : []);
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setWalletPeers([]);
+            })
+            .finally(() => {
+                if (!cancelled) setWalletPeersLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [fundOpen, fundSourceType, isPlatformAdminWallet, walletApi]);
+
     const openFundsTab = (openForm = false) => {
         setActiveTab('funds');
         setExpenseOpen(false);
@@ -309,6 +343,10 @@ export default function MyWalletPage() {
             alert('Select a branch.');
             return;
         }
+        if (fundSourceType === 'wallet' && !fundPeerId) {
+            alert('Select a wallet user to request funds from.');
+            return;
+        }
         setFundSaving(true);
         setWalletChatNotice('');
         try {
@@ -316,19 +354,41 @@ export default function MyWalletPage() {
                 amount,
                 purpose: fundPurpose.trim(),
                 workshopId: skipWorkshopFields ? '' : fundWorkshopId,
+                fundSourceType,
             };
+            if (fundSourceType === 'wallet') {
+                payload.sourceUserId = fundPeerId;
+            }
             if (!skipWorkshopFields && !fundIsHq) payload.branchId = fundBranchId;
             const res = await walletApi.createMyFundRequest(payload);
+            const submittedSourceType = fundSourceType;
             setFundOpen(false);
             setFundAmount('');
             setFundPurpose('');
             setFundBranchId('');
+            setFundPeerId('');
+            setFundSourceType('external');
             setActiveTab('funds');
             if (canPostToChat) {
-                applyChatResult(
-                    res?.chat,
-                    'Fund request sent to {name} in chat.',
-                );
+                const chatMsg = submittedSourceType === 'wallet'
+                    ? 'Fund request sent to {name} in chat.'
+                    : 'Fund request sent to {name} in chat.';
+                if (submittedSourceType === 'wallet') {
+                    setWalletChatNotice(
+                        res?.chat?.posted
+                            ? `Fund request sent to ${res?.chat?.contactName || 'wallet user'} in chat.`
+                            : res?.chat?.alreadyInChat
+                                ? 'This request is already visible in chat with the selected wallet user.'
+                                : 'Fund request submitted.',
+                    );
+                    if (res?.chat?.conversationId) {
+                        setLastChatConversationId(String(res.chat.conversationId));
+                    }
+                } else {
+                    applyChatResult(res?.chat, chatMsg);
+                }
+            } else if (submittedSourceType === 'wallet') {
+                setWalletChatNotice('Wallet fund request submitted for approval.');
             } else {
                 setWalletChatNotice('Fund request submitted for super-admin approval.');
             }
@@ -498,17 +558,72 @@ export default function MyWalletPage() {
                     </div>
                     <div>
                         <h3 className="my-wallet-card-title">Request Funds</h3>
-                        <p className="my-wallet-card-sub">Submit for super-admin approval</p>
+                        <p className="my-wallet-card-sub">
+                            {fundSourceType === 'wallet'
+                                ? 'Request from another admin wallet user'
+                                : 'Submit for super-admin approval'}
+                        </p>
                     </div>
                 </div>
             </div>
             <div className="my-wallet-card-body">
             <form onSubmit={handleFundSubmit} className="my-wallet-form">
+                {isPlatformAdminWallet ? (
+                    <div className="ws-field">
+                        <label>Funding source</label>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                className={fundSourceType === 'external' ? 'ws-btn-primary' : 'ws-btn-secondary'}
+                                onClick={() => {
+                                    setFundSourceType('external');
+                                    setFundPeerId('');
+                                }}
+                                disabled={fundSaving}
+                            >
+                                Company (cash/bank)
+                            </button>
+                            <button
+                                type="button"
+                                className={fundSourceType === 'wallet' ? 'ws-btn-primary' : 'ws-btn-secondary'}
+                                onClick={() => setFundSourceType('wallet')}
+                                disabled={fundSaving}
+                            >
+                                Request from wallet
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
                 <p className="my-wallet-form-lead">
-                    {canPostToChat
-                        ? 'Your request is sent for super-admin approval and posted to your support chat.'
-                        : 'Your request is sent for super-admin approval.'}
+                    {fundSourceType === 'wallet'
+                        ? (canPostToChat
+                            ? 'Your request is sent to the selected wallet user in chat for approval.'
+                            : 'Your request is sent to the selected wallet user for approval.')
+                        : (canPostToChat
+                            ? 'Your request is sent for super-admin approval and posted to your support chat.'
+                            : 'Your request is sent for super-admin approval.')}
                 </p>
+                {fundSourceType === 'wallet' && isPlatformAdminWallet ? (
+                    <div className="ws-field">
+                        <label>Request from wallet user *</label>
+                        <select
+                            className="form-input-field"
+                            value={fundPeerId}
+                            onChange={(e) => setFundPeerId(e.target.value)}
+                            disabled={fundSaving || walletPeersLoading}
+                        >
+                            <option value="">
+                                {walletPeersLoading ? 'Loading wallet users…' : 'Select admin wallet user'}
+                            </option>
+                            {walletPeers.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                    {p.name || p.email || `User ${p.id}`}
+                                    {` — SAR ${formatSar(p.balance)}`}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                ) : null}
                 {!skipWorkshopFields ? (
                 <div className="ws-field">
                     <label>Workshop *</label>
@@ -559,7 +674,9 @@ export default function MyWalletPage() {
                     <label>Purpose *</label>
                     <textarea rows={3} value={fundPurpose} onChange={(e) => setFundPurpose(e.target.value)} placeholder="Why do you need these funds?" />
                     <p className="my-wallet-form-hint">
-                        GL on approval: DR [1335] admin wallet · CR payment account; franchise branch also DR [1280-BR] fund.
+                        {fundSourceType === 'wallet'
+                            ? 'On approval: source wallet is credited and your wallet is debited in GL (employee petty cash funds).'
+                            : 'GL on approval: DR employee petty cash fund · CR payment account.'}
                     </p>
                 </div>
                 <div className="my-wallet-form-actions">

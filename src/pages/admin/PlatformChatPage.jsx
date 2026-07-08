@@ -1037,6 +1037,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             return (
                 <PlatformChatWalletMessage
                     message={m}
+                    currentUserId={user?.id}
                     canApproveFund={walletChatContext?.canApproveFund}
                     canRejectFund={walletChatContext?.canRejectFund}
                     canApproveExpense={walletChatContext?.canApproveExpense}

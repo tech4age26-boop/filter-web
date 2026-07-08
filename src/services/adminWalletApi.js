@@ -56,6 +56,8 @@ export function createMyWalletApi(basePath) {
         listMyWalletWorkshops: () => apiFetch(`${base}/workshops`),
         listMyWalletBranches: ({ workshopId } = {}) =>
             apiFetch(`${base}/branches${buildQs({ workshopId })}`),
+        listMyWalletPeers: ({ search } = {}) =>
+            apiFetch(`${base}/wallet-peers${buildQs({ search })}`),
         createMyFundRequest: (payload) =>
             apiFetch(`${base}/fund-requests`, {
                 method: 'POST',

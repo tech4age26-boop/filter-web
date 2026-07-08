@@ -100,6 +100,7 @@ export function walletMessagePreview(m) {
 
 export function PlatformChatWalletMessage({
     message,
+    currentUserId = '',
     canApproveFund,
     canRejectFund,
     canApproveExpense,
@@ -112,6 +113,17 @@ export function PlatformChatWalletMessage({
     if (!p) {
         return <span className="platform-chat-bubble-text">Wallet message</span>;
     }
+
+    const isWalletPeerFund =
+        message.type === 'wallet_fund_request'
+        && p.fundSourceType === 'wallet'
+        && p.sourceUserId;
+    const isPeerApprover =
+        isWalletPeerFund
+        && currentUserId
+        && String(p.sourceUserId) === String(currentUserId);
+    const effectiveCanApproveFund = canApproveFund || isPeerApprover;
+    const effectiveCanRejectFund = canRejectFund || isPeerApprover;
 
     if (message.type === 'wallet_fund_request') {
         const status = String(p.status || 'pending').toLowerCase();
@@ -150,6 +162,14 @@ export function PlatformChatWalletMessage({
                             </p>
                         </div>
                     )}
+                    {isWalletPeerFund && (
+                        <div className="pc-wallet-card-detail">
+                            <span className="pc-wallet-card-detail-label">Wallet request</span>
+                            <p className="pc-wallet-card-detail-value">
+                                {p.requesterName ? `${p.requesterName} requested from your wallet` : 'Intra-wallet transfer request'}
+                            </p>
+                        </div>
+                    )}
                     {!isPending && p.balanceAfter != null && (
                         <div className="pc-wallet-card-meta">
                             Balance after: SAR {formatSar(p.balanceAfter)}
@@ -161,9 +181,9 @@ export function PlatformChatWalletMessage({
                         receiptStatus={message.receiptStatus}
                     />
                 </div>
-                {isPending && !message.isSelf && (canApproveFund || canRejectFund) && (
+                {isPending && !message.isSelf && (effectiveCanApproveFund || effectiveCanRejectFund) && (
                     <div className="pc-wallet-card-actions-bar">
-                        {canRejectFund && (
+                        {effectiveCanRejectFund && (
                             <button
                                 type="button"
                                 className="pc-wallet-btn pc-wallet-btn--reject"
@@ -173,7 +193,7 @@ export function PlatformChatWalletMessage({
                                 Reject
                             </button>
                         )}
-                        {canApproveFund && (
+                        {effectiveCanApproveFund && (
                             <button
                                 type="button"
                                 className="pc-wallet-btn pc-wallet-btn--approve"
@@ -193,6 +213,7 @@ export function PlatformChatWalletMessage({
         const status = String(p.status || '').toLowerCase();
         const approved = status === 'approved';
         const isExpense = isExpenseStatusEvent(p);
+        const isTransferOut = p.transferDirection === 'out';
         return (
             <div className={`pc-wallet-card pc-wallet-card--status ${approved ? 'is-approved' : 'is-rejected'}${isExpense ? ' pc-wallet-card--status-expense' : ''}`}>
                 <div className="pc-wallet-card-status-banner">
@@ -201,7 +222,11 @@ export function PlatformChatWalletMessage({
                     ) : (
                         <XCircle size={18} strokeWidth={2.25} aria-hidden />
                     )}
-                    <span>{statusEventTitle(p, approved)}</span>
+                    <span>
+                        {isTransferOut
+                            ? 'Wallet debited for transfer'
+                            : statusEventTitle(p, approved)}
+                    </span>
                 </div>
                 <div className="pc-wallet-card-ref">{p.requestNumber}</div>
                 <div className="pc-wallet-card-amount pc-wallet-card-amount--compact">
@@ -211,8 +236,14 @@ export function PlatformChatWalletMessage({
                         {formatSar(p.amount)}
                     </span>
                 </div>
-                {approved && !isExpense && p.sourceAccountName && (
+                {approved && !isExpense && p.sourceAccountName && !isTransferOut && (
                     <div className="pc-wallet-card-meta">Funded from {p.sourceAccountName}</div>
+                )}
+                {isTransferOut && (
+                    <div className="pc-wallet-card-meta">
+                        SAR {formatSar(p.amount)} transferred to {p.requesterName || 'recipient'}
+                        {p.approvedByName ? ` · approved by ${p.approvedByName}` : ''}
+                    </div>
                 )}
                 {approved && p.balanceAfter != null && (
                     <div className="pc-wallet-card-meta">

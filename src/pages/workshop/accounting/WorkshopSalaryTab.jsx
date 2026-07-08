@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Save, RefreshCw, Users, Banknote } from 'lucide-react';
+import { Plus, Trash2, Save, RefreshCw, Users, Banknote, Search, Filter, FileDown } from 'lucide-react';
 import {
     getRecentWorkshopSalaryPayroll,
     getSalaryPayrollPreview,
@@ -13,6 +13,10 @@ import {
     unwrapWorkshopEmployeesList,
     workshopStaffSelectValue,
 } from '../../../services/workshopStaffApi';
+import {
+    exportSalaryPaymentsExcel,
+    exportSalaryPaymentsPdf,
+} from './workshopSalaryPaymentsExport';
 
 const fmt = (n) => {
     const x = Number(n);
@@ -95,7 +99,7 @@ function netPayable(row) {
     return Math.max(basic + reward + comm - adv - pen, 0);
 }
 
-export default function WorkshopSalaryTab({ branchFilter = '' }) {
+export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) {
     const [period, setPeriod] = useState(defaultPeriod());
     const [paymentDate, setPaymentDate] = useState(todayIso());
     const [payFromAccountId, setPayFromAccountId] = useState('');
@@ -104,16 +108,72 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
     const [accounts, setAccounts] = useState([]);
     const [recent, setRecent] = useState([]);
     const [recentLoading, setRecentLoading] = useState(false);
+    const [recentDateFrom, setRecentDateFrom] = useState('');
+    const [recentDateTo, setRecentDateTo] = useState('');
+    const [recentBranchId, setRecentBranchId] = useState(() => branchFilter || '');
+    const [recentEmployeeSearch, setRecentEmployeeSearch] = useState('');
     const [loadingLookups, setLoadingLookups] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [msg, setMsg] = useState('');
     const [error, setError] = useState('');
     const previewSeqRef = useRef({});
+    const recentFiltersRef = useRef({
+        recentBranchId: '',
+        recentDateFrom: '',
+        recentDateTo: '',
+        recentEmployeeSearch: '',
+    });
+
+    recentFiltersRef.current = {
+        recentBranchId,
+        recentDateFrom,
+        recentDateTo,
+        recentEmployeeSearch,
+    };
 
     const branchParams = useMemo(
         () => (branchFilter ? { branchId: branchFilter } : {}),
         [branchFilter],
     );
+
+    const buildRecentQueryParams = useCallback(() => {
+        const f = recentFiltersRef.current;
+        return {
+            limit: 500,
+            ...(f.recentBranchId ? { branchId: f.recentBranchId } : {}),
+            ...(f.recentDateFrom ? { dateFrom: f.recentDateFrom } : {}),
+            ...(f.recentDateTo ? { dateTo: f.recentDateTo } : {}),
+            ...(f.recentEmployeeSearch.trim() ? { search: f.recentEmployeeSearch.trim() } : {}),
+        };
+    }, []);
+
+    const loadRecentPayments = useCallback(async () => {
+        setRecentLoading(true);
+        try {
+            const salRes = await getRecentWorkshopSalaryPayroll(buildRecentQueryParams());
+            setRecent(salRes?.list ?? []);
+        } catch (e) {
+            setError(e?.message || 'Could not refresh recent salary payments.');
+        } finally {
+            setRecentLoading(false);
+        }
+    }, [buildRecentQueryParams]);
+
+    const recentBranchName = useMemo(() => {
+        if (!recentBranchId) return 'All branches';
+        const match = branches.find((b) => String(b.id) === String(recentBranchId));
+        return match?.name || 'Branch';
+    }, [recentBranchId, branches]);
+
+    useEffect(() => {
+        const next = branchFilter || '';
+        setRecentBranchId(next);
+        recentFiltersRef.current = {
+            ...recentFiltersRef.current,
+            recentBranchId: next,
+        };
+        loadRecentPayments();
+    }, [branchFilter, loadRecentPayments]);
 
     const staffBySelectKey = useMemo(
         () => indexWorkshopStaffBySelectValue(employees),
@@ -125,29 +185,15 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
         [employees],
     );
 
-    const loadRecentPayments = useCallback(async () => {
-        setRecentLoading(true);
-        try {
-            const salRes = await getRecentWorkshopSalaryPayroll({ limit: 50 });
-            setRecent(salRes?.list ?? []);
-        } catch (e) {
-            setError(e?.message || 'Could not refresh recent salary payments.');
-        } finally {
-            setRecentLoading(false);
-        }
-    }, []);
-
     const loadLookups = useCallback(async () => {
         setLoadingLookups(true);
         try {
-            const [empRes, cashRes, salRes] = await Promise.all([
+            const [empRes, cashRes] = await Promise.all([
                 getWorkshopEmployees({ ...branchParams, limit: 200 }).catch(() => ({ employees: [] })),
                 listCashBankAccounts(branchParams).catch(() => ({ accounts: [] })),
-                getRecentWorkshopSalaryPayroll({ limit: 50 }).catch(() => ({ list: [] })),
             ]);
             setEmployees(unwrapWorkshopEmployeesList(empRes));
             setAccounts(cashRes?.accounts ?? cashRes?.items ?? []);
-            setRecent(salRes?.list ?? []);
         } catch (e) {
             setError(e?.message || 'Could not load salary data.');
         } finally {
@@ -560,19 +606,137 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
             </div>
 
             <section className="premium-table cash-bank-table">
-                <header style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Banknote size={16} />
-                    <strong>Recent Salary Payments</strong>
-                    <button
-                        type="button"
-                        className="btn-portal-outline"
-                        disabled={recentLoading}
-                        onClick={loadRecentPayments}
-                        style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 12 }}
-                    >
-                        <RefreshCw size={14} style={{ marginRight: 6 }} />
-                        {recentLoading ? 'Refreshing…' : 'Refresh status'}
-                    </button>
+                <header style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <Banknote size={16} />
+                        <strong>Recent Salary Payments</strong>
+                        <button
+                            type="button"
+                            className="btn-portal-outline"
+                            disabled={recentLoading}
+                            onClick={loadRecentPayments}
+                            style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 12 }}
+                        >
+                            <RefreshCw size={14} style={{ marginRight: 6 }} />
+                            {recentLoading ? 'Refreshing…' : 'Refresh status'}
+                        </button>
+                    </div>
+
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                        gap: 10,
+                        alignItems: 'end',
+                    }}>
+                        <div>
+                            <label className="form-label">From</label>
+                            <input
+                                type="date"
+                                className="form-input-field"
+                                value={recentDateFrom}
+                                onChange={(e) => setRecentDateFrom(e.target.value)}
+                            />
+                        </div>
+                        <div>
+                            <label className="form-label">To</label>
+                            <input
+                                type="date"
+                                className="form-input-field"
+                                value={recentDateTo}
+                                onChange={(e) => setRecentDateTo(e.target.value)}
+                            />
+                        </div>
+                        {branches.length > 0 ? (
+                            <div>
+                                <label className="form-label">Branch</label>
+                                <select
+                                    className="form-input-field"
+                                    value={recentBranchId}
+                                    onChange={(e) => setRecentBranchId(e.target.value)}
+                                >
+                                    <option value="">All branches</option>
+                                    {branches.map((b) => (
+                                        <option key={String(b.id)} value={String(b.id)}>
+                                            {b.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        ) : null}
+                        <div>
+                            <label className="form-label">Employee</label>
+                            <div style={{ position: 'relative' }}>
+                                <Search
+                                    size={14}
+                                    style={{
+                                        position: 'absolute',
+                                        left: 10,
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        color: '#94A3B8',
+                                    }}
+                                />
+                                <input
+                                    type="text"
+                                    className="form-input-field"
+                                    style={{ paddingLeft: 32 }}
+                                    value={recentEmployeeSearch}
+                                    onChange={(e) => setRecentEmployeeSearch(e.target.value)}
+                                    placeholder="Search employee name…"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') loadRecentPayments();
+                                    }}
+                                />
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                className="btn-portal"
+                                disabled={recentLoading}
+                                onClick={loadRecentPayments}
+                            >
+                                <Filter size={14} style={{ marginRight: 6 }} />
+                                Apply
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-portal-outline"
+                                disabled={recent.length === 0 || recentLoading}
+                                onClick={async () => {
+                                    try {
+                                        await exportSalaryPaymentsPdf({
+                                            rows: recent,
+                                            branchName: recentBranchName,
+                                            dateFrom: recentDateFrom,
+                                            dateTo: recentDateTo,
+                                            employeeSearch: recentEmployeeSearch,
+                                        });
+                                    } catch (e) {
+                                        setError(e?.message || 'Could not export salary payments PDF.');
+                                    }
+                                }}
+                            >
+                                <FileDown size={14} style={{ marginRight: 6 }} />
+                                PDF
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-portal-outline"
+                                disabled={recent.length === 0}
+                                onClick={() => exportSalaryPaymentsExcel({
+                                    rows: recent,
+                                    branchName: recentBranchName,
+                                    dateFrom: recentDateFrom,
+                                    dateTo: recentDateTo,
+                                    employeeSearch: recentEmployeeSearch,
+                                })}
+                            >
+                                <FileDown size={14} style={{ marginRight: 6 }} />
+                                Excel
+                            </button>
+                        </div>
+                    </div>
                 </header>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
@@ -591,7 +755,7 @@ export default function WorkshopSalaryTab({ branchFilter = '' }) {
                     </thead>
                     <tbody>
                         {recent.length === 0 ? (
-                            <tr><td colSpan={9} className="table-cell table-empty">No salary payments yet.</td></tr>
+                            <tr><td colSpan={10} className="table-cell table-empty">No salary payments yet.</td></tr>
                         ) : recent.map((s) => (
                             <tr key={s.id}>
                                 <td className="table-cell">{s.paymentDate ? new Date(s.paymentDate).toLocaleDateString() : '—'}</td>
