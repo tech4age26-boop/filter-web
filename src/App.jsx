@@ -13,6 +13,7 @@ import DemoInvoicesPage from './pages/admin/DemoInvoicesPage';
 import TierManagementPage from './pages/admin/TierManagementPage';
 import TaxCodePage from './pages/admin/TaxCodePage';
 import LegalPagesPage from './pages/admin/LegalPagesPage';
+import MobileAppMenuPage from './pages/admin/MobileAppMenuPage';
 import InventoryPage from './pages/admin/InventoryPage';
 import CustomersPage from './pages/admin/CustomersPage';
 import SuppliersPage from './pages/admin/SuppliersPage';
@@ -107,6 +108,7 @@ function AdminIndexRedirect() {
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicWpiVerifyPage from './pages/PublicWpiVerifyPage';
 import PublicLegalPage from './pages/PublicLegalPage';
+import AccountDeletionPage from './pages/AccountDeletionPage';
 import PublicSinvVerifyPage from './pages/PublicSinvVerifyPage';
 import PublicSspVerifyPage from './pages/PublicSspVerifyPage';
 import PublicAprVerifyPage from './pages/PublicAprVerifyPage';
@@ -160,6 +162,7 @@ function App() {
               path="/terms-and-conditions"
               element={<PublicLegalPage slug="terms-and-conditions" />}
             />
+            <Route path="/account-deletion" element={<AccountDeletionPage />} />
 
             <Route path="/admin/login" element={<SignInPage />} />
             <Route path="/:portalId/login" element={<PortalLoginPage />} />
@@ -239,6 +242,7 @@ function App() {
 
               <Route path="tax-codes" element={<TaxCodePage />} />
               <Route path="legal-pages" element={<LegalPagesPage />} />
+              <Route path="mobile-app-menu" element={<MobileAppMenuPage />} />
               <Route path="permissions" element={<PermissionsPage />} />
               <Route path="permissions/roles/new" element={<PermissionsPage />} />
               <Route path="permissions/roles/:roleId/edit" element={<PermissionsPage />} />

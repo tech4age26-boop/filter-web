@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Copy, ExternalLink, FileText, Loader2, Save, Shield } from 'lucide-react';
+import { CheckCircle2, Copy, ExternalLink, FileText, Loader2, Save, Shield, UserX } from 'lucide-react';
 import { getLegalPage, updateLegalPage } from '../../services/superAdminApi';
 import '../../styles/admin/LegalPagesPage.css';
 
@@ -16,7 +16,24 @@ const TABS = [
         publicPath: '/terms-and-conditions',
         icon: FileText,
     },
+    {
+        slug: 'account-deletion',
+        label: 'Account Deletion',
+        publicPath: '/account-deletion',
+        icon: UserX,
+        static: true,
+    },
 ];
+
+const STATIC_PAGE_SUMMARY = {
+    title: 'Fixed Play Store page',
+    points: [
+        'Content is built into the app and follows Google Play account deletion requirements.',
+        'Always published — no draft or save needed.',
+        'Covers in-app deletion steps, email requests, deleted vs retained data, and processing time.',
+        'Available in English and Arabic on the public URL.',
+    ],
+};
 
 const emptyForm = {
     titleEn: '',
@@ -46,7 +63,18 @@ export default function LegalPagesPage() {
         return `${window.location.origin}${activeTab.publicPath}`;
     }, [activeTab.publicPath]);
 
+    const isStaticTab = activeTab.static === true;
+
     useEffect(() => {
+        if (isStaticTab) {
+            setLoading(false);
+            setError('');
+            setSuccess('');
+            setForm(emptyForm);
+            setUpdatedAt(null);
+            return undefined;
+        }
+
         let mounted = true;
         const load = async () => {
             setLoading(true);
@@ -75,7 +103,7 @@ export default function LegalPagesPage() {
         return () => {
             mounted = false;
         };
-    }, [activeSlug]);
+    }, [activeSlug, isStaticTab]);
 
     const handleChange = (field, value) => {
         setForm((prev) => ({ ...prev, [field]: value }));
@@ -122,8 +150,8 @@ export default function LegalPagesPage() {
                 <div>
                     <h1>Legal Pages</h1>
                     <p>
-                        Manage public Privacy Policy and Terms &amp; Conditions for Play Store
-                        and app store listings.
+                        Manage public legal pages for Play Store and app store listings.
+                        Privacy Policy and Terms are editable; Account Deletion is a fixed page.
                     </p>
                 </div>
             </header>
@@ -159,9 +187,14 @@ export default function LegalPagesPage() {
                             {publicUrl}
                             <ExternalLink size={14} />
                         </a>
-                        {!form.isPublished && (
+                        {!isStaticTab && !form.isPublished && (
                             <div className="legal-pages-draft-note">
                                 Draft — publish to make this URL visible publicly.
+                            </div>
+                        )}
+                        {isStaticTab && (
+                            <div className="legal-pages-static-badge">
+                                Static · always live
                             </div>
                         )}
                     </div>
@@ -175,6 +208,28 @@ export default function LegalPagesPage() {
                     <div className="legal-pages-loading">
                         <Loader2 className="spin" size={28} />
                         <span>Loading…</span>
+                    </div>
+                ) : isStaticTab ? (
+                    <div className="legal-pages-static-panel">
+                        <h2>{STATIC_PAGE_SUMMARY.title}</h2>
+                        <p className="legal-pages-static-lead">
+                            This page cannot be edited here. Use the public link above for Play Store
+                            and store listings.
+                        </p>
+                        <ul className="legal-pages-static-list">
+                            {STATIC_PAGE_SUMMARY.points.map((point) => (
+                                <li key={point}>{point}</li>
+                            ))}
+                        </ul>
+                        <a
+                            href={publicUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="legal-pages-static-preview-btn"
+                        >
+                            <ExternalLink size={16} />
+                            Preview {activeTab.label}
+                        </a>
                     </div>
                 ) : (
                     <form onSubmit={handleSave} className="legal-pages-form">

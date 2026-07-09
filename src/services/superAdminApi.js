@@ -771,3 +771,18 @@ export const updateLegalPage = (slug, body) =>
         method: 'PATCH',
         body: JSON.stringify(body),
     });
+
+export const getMobileAppMenu = () =>
+    apiFetch('/super-admin/mobile-app-menu');
+
+export const updateMobileAppMenu = (body) =>
+    apiFetch('/super-admin/mobile-app-menu', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+
+export const createMobileAppMenuPortal = (body) =>
+    apiFetch('/super-admin/mobile-app-menu', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });

@@ -1,15 +1,14 @@
 import { notifyUserActivity } from '../utils/sessionIdle';
 
-// staging url
-//export const BASE_URL = 'https://filterbackend-production.up.railway.app';
-// staging url (production default when VITE_API_BASE_URL is unset)
-export const BASE_URL  = 'https://filterbackend-production.up.railway.app';
+const configuredApiBase =
+  typeof import.meta !== "undefined" &&
+  import.meta.env?.VITE_API_BASE_URL?.trim()
+    ? import.meta.env.VITE_API_BASE_URL.trim().replace(/\/$/, "")
+    : "";
 
-// production url
-//export const BASE_URL  = 'https://api.filtercarservices.com';
-
-// development url
-// export const BASE_URL = 'http://localhost:3000';
+/** Railway hosts legal pages + current admin APIs; do not point public pages at api.filtercarservices.com until that stack is updated. */
+export const BASE_URL =
+  configuredApiBase || "https://filterbackend-production.up.railway.app";
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
