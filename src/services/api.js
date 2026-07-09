@@ -1,14 +1,8 @@
 import { notifyUserActivity } from '../utils/sessionIdle';
 
-const configuredApiBase =
-  typeof import.meta !== "undefined" &&
-  import.meta.env?.VITE_API_BASE_URL?.trim()
-    ? import.meta.env.VITE_API_BASE_URL.trim().replace(/\/$/, "")
-    : "";
+export const BASE_URL = "https://filterbackend-production.up.railway.app";
 
-/** Railway hosts legal pages + current admin APIs; do not point public pages at api.filtercarservices.com until that stack is updated. */
-export const BASE_URL =
-  configuredApiBase || "https://filterbackend-production.up.railway.app";
+//export const BASE_URL = "https://api.filtercarservices.com";
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
