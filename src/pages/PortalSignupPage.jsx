@@ -39,6 +39,7 @@ export default function PortalSignupPage() {
     const [corporateForm, setCorporateForm] = useState({
         companyName: '',
         vatNumber: '',
+        crNumber: '',
         contactPerson: '',
         email: '',
         password: '',
@@ -271,6 +272,7 @@ export default function PortalSignupPage() {
         return corporateRegister({
             companyName,
             vatNumber: text(corporateForm.vatNumber) || undefined,
+            crNumber: text(corporateForm.crNumber) || undefined,
             contactPerson,
             email: emailVal,
             password,
@@ -419,6 +421,10 @@ export default function PortalSignupPage() {
                                     <div className="form-group">
                                         <label>VAT Number</label>
                                         <input className="signin-input" value={corporateForm.vatNumber} onChange={(e) => setCorporateForm((p) => ({ ...p, vatNumber: e.target.value }))} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>CR Number</label>
+                                        <input className="signin-input" value={corporateForm.crNumber} onChange={(e) => setCorporateForm((p) => ({ ...p, crNumber: e.target.value }))} />
                                     </div>
                                 </div>
 
