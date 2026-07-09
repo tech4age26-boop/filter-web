@@ -12,6 +12,7 @@ import MyWalletPage from './pages/admin/MyWalletPage';
 import DemoInvoicesPage from './pages/admin/DemoInvoicesPage';
 import TierManagementPage from './pages/admin/TierManagementPage';
 import TaxCodePage from './pages/admin/TaxCodePage';
+import LegalPagesPage from './pages/admin/LegalPagesPage';
 import InventoryPage from './pages/admin/InventoryPage';
 import CustomersPage from './pages/admin/CustomersPage';
 import SuppliersPage from './pages/admin/SuppliersPage';
@@ -105,6 +106,7 @@ function AdminIndexRedirect() {
 }
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicWpiVerifyPage from './pages/PublicWpiVerifyPage';
+import PublicLegalPage from './pages/PublicLegalPage';
 import PublicSinvVerifyPage from './pages/PublicSinvVerifyPage';
 import PublicSspVerifyPage from './pages/PublicSspVerifyPage';
 import PublicAprVerifyPage from './pages/PublicAprVerifyPage';
@@ -149,6 +151,15 @@ function App() {
             <Route path="/verify/sinv/:id" element={<PublicSinvVerifyPage />} />
             <Route path="/verify/ssp/:id" element={<PublicSspVerifyPage />} />
             <Route path="/verify/apr/:qrToken" element={<PublicAprVerifyPage />} />
+
+            <Route
+              path="/privacy-policy"
+              element={<PublicLegalPage slug="privacy-policy" />}
+            />
+            <Route
+              path="/terms-and-conditions"
+              element={<PublicLegalPage slug="terms-and-conditions" />}
+            />
 
             <Route path="/admin/login" element={<SignInPage />} />
             <Route path="/:portalId/login" element={<PortalLoginPage />} />
@@ -227,6 +238,7 @@ function App() {
               </Route>
 
               <Route path="tax-codes" element={<TaxCodePage />} />
+              <Route path="legal-pages" element={<LegalPagesPage />} />
               <Route path="permissions" element={<PermissionsPage />} />
               <Route path="permissions/roles/new" element={<PermissionsPage />} />
               <Route path="permissions/roles/:roleId/edit" element={<PermissionsPage />} />
