@@ -41,6 +41,7 @@ function buildEditForm(row) {
         contactPerson: person,
         mobile: row.customer?.mobile || '',
         taxId: row.customer?.taxId || row.customer?.vatNumber || '',
+        crNumber: row.customer?.crNumber || '',
         status: String(row.status || 'active').toLowerCase(),
         selectedBranchIds: (row.selectedBranchIds || []).map((id) => String(id)),
     };
@@ -71,6 +72,7 @@ function buildPatchBody(form, initial) {
     if (form.contactPerson.trim() !== initial.contactPerson) body.contactPerson = form.contactPerson.trim();
     if (form.mobile.trim() !== initial.mobile) body.mobile = form.mobile.trim();
     if (form.taxId.trim() !== initial.taxId) body.taxId = form.taxId.trim();
+    if (form.crNumber.trim() !== initial.crNumber) body.crNumber = form.crNumber.trim();
     if (form.status !== initial.status) body.status = form.status;
     if (!sameIdSet(form.selectedBranchIds, initial.selectedBranchIds)) {
         body.selectedBranchIds = form.selectedBranchIds;
@@ -186,6 +188,14 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
+                <FieldRow icon={FileText} label="CR number">
+                    <input
+                        type="text"
+                        value={form.crNumber}
+                        onChange={(e) => setForm((f) => ({ ...f, crNumber: e.target.value }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
                 <FieldRow icon={ToggleLeft} label="Status">
                     <select
                         value={form.status}
@@ -290,6 +300,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
         email: '',
         password: '',
         vatNumber: '',
+        crNumber: '',
         referralId: '',
         selectedBranchIds: defaultBranches,
     });
@@ -304,6 +315,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
             email: '',
             password: '',
             vatNumber: '',
+            crNumber: '',
             referralId: '',
             selectedBranchIds: defaultBranches,
         });
@@ -328,6 +340,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
         const email = form.email.trim();
         const password = form.password;
         const vatNumber = form.vatNumber.trim();
+        const crNumber = form.crNumber.trim();
         const referralId = form.referralId.trim();
         if (!companyName || !contactPerson || !mobile || !email || !password) {
             setSaveError('Company, contact, mobile, email, and password are required.');
@@ -353,6 +366,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                 selectedStoreIds: form.selectedBranchIds.map(String),
             };
             if (vatNumber) payload.vatNumber = vatNumber;
+            if (crNumber) payload.crNumber = crNumber;
             if (referralId) payload.referralId = referralId;
             const res = await postCorporateRegister(payload);
             if (res && res.success === false) {
@@ -443,6 +457,14 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                         type="text"
                         value={form.vatNumber}
                         onChange={(e) => setForm((f) => ({ ...f, vatNumber: e.target.value }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+                <FieldRow icon={FileText} label="CR number">
+                    <input
+                        type="text"
+                        value={form.crNumber}
+                        onChange={(e) => setForm((f) => ({ ...f, crNumber: e.target.value }))}
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
