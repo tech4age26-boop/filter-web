@@ -692,8 +692,14 @@ export const getWorkshopReportsByCustomer = (params = {}, options = {}) =>
 export const getWorkshopReportsByProduct = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-product${qs(params)}`, options);
 
+export const getWorkshopReportsByService = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-service${qs(params)}`, options);
+
 export const getWorkshopReportsByDepartment = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-department${qs(params)}`, options);
+
+export const getWorkshopReportsByCategory = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-category${qs(params)}`, options);
 
 export const getWorkshopReportsByBranch = (params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-branch${qs(params)}`, options);
@@ -710,8 +716,14 @@ export const getWorkshopReportsByCustomerDetails = (id, params = {}, options = {
 export const getWorkshopReportsByProductDetails = (id, params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-product/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
 
+export const getWorkshopReportsByServiceDetails = (id, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-service/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
+
 export const getWorkshopReportsByDepartmentDetails = (id, params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-department/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
+
+export const getWorkshopReportsByCategoryDetails = (id, params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/reports/by-category/${encodeURIComponent(String(id))}/details${qs(params)}`, options);
 
 export const getWorkshopReportsByBranchDetails = (id, params = {}, options = {}) =>
     apiFetch(`/workshop-staff/reports/by-branch/${encodeURIComponent(String(id))}/details${qs(params)}`, options);

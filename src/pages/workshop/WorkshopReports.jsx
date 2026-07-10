@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
+import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
 import RowActionsMenu from '../../components/RowActionsMenu';
 import '../../styles/RowActionsMenu.css';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -19,7 +20,9 @@ const REPORTS_TAB_PERMISSION = {
     by_technician: 'workshop.reports.by-technician.view',
     by_customer:   'workshop.reports.by-customer.view',
     by_product:    'workshop.reports.by-product.view',
+    by_service:    'workshop.reports.by-service.view',
     by_department: 'workshop.reports.by-department.view',
+    by_category:   'workshop.reports.by-category.view',
     by_branch:     'workshop.reports.by-branch.view',
     by_cashier:    'workshop.reports.by-cashier.view',
 };
@@ -38,8 +41,12 @@ import {
     getWorkshopReportsByCustomerDetails,
     getWorkshopReportsByDepartment,
     getWorkshopReportsByDepartmentDetails,
+    getWorkshopReportsByCategory,
+    getWorkshopReportsByCategoryDetails,
     getWorkshopReportsByProduct,
     getWorkshopReportsByProductDetails,
+    getWorkshopReportsByService,
+    getWorkshopReportsByServiceDetails,
     getWorkshopReportsByTechnician,
     getWorkshopReportsByTechnicianDetails,
     getWorkshopReportsDailySalesDetails,
@@ -204,6 +211,7 @@ function isMoneyDetailColumnKey(k) {
         n === 'discountamount' ||
         n === 'discount_amount' ||
         n === 'departmentlinetotal' ||
+        n === 'categorylinetotal' ||
         n === 'invoicetotalamount' ||
         n === 'invoice_amount' ||
         n === 'invoiceamount' ||
@@ -369,13 +377,48 @@ function createEmptyTabSearch() {
         by_technician: '',
         by_customer: '',
         by_product: '',
+        by_service: '',
         by_department: '',
+        by_category: '',
         by_branch: '',
         by_cashier: '',
     };
 }
 
 const ORDERS_PAGE_SIZE = 25;
+const REPORTS_SUMMARY_PAGE_SIZE = 50;
+
+function createEmptySummaryPages() {
+    return {
+        by_technician: 1,
+        by_customer: 1,
+        by_product: 1,
+        by_service: 1,
+        by_department: 1,
+        by_category: 1,
+        by_branch: 1,
+        by_cashier: 1,
+    };
+}
+
+function createEmptySummaryTotals() {
+    return {
+        by_technician: 0,
+        by_customer: 0,
+        by_product: 0,
+        by_service: 0,
+        by_department: 0,
+        by_category: 0,
+        by_branch: 0,
+        by_cashier: 0,
+    };
+}
+
+function extractSummaryTotal(res) {
+    const raw = res?.total ?? res?.data?.total ?? res?.count ?? res?.data?.count;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+}
 
 function KpiProofStat({ label, value }) {
     return (
@@ -453,8 +496,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [tabSearch, setTabSearch] = useState(createEmptyTabSearch);
     const [technicianOptions, setTechnicianOptions] = useState([]);
     const [byProductTechnicianId, setByProductTechnicianId] = useState('');
+    const [byProductTechnicianFilterText, setByProductTechnicianFilterText] = useState('');
     const [byProductTechnicianLoading, setByProductTechnicianLoading] = useState(false);
     const [byProductTechnicianError, setByProductTechnicianError] = useState('');
+    const [byServiceTechnicianId, setByServiceTechnicianId] = useState('');
+    const [byServiceTechnicianFilterText, setByServiceTechnicianFilterText] = useState('');
+    const [byServiceTechnicianLoading, setByServiceTechnicianLoading] = useState(false);
+    const [byServiceTechnicianError, setByServiceTechnicianError] = useState('');
     const [reportData, setReportData] = useState(null);
     const [recentOrders, setRecentOrders] = useState([]);
     const [ordersPage, setOrdersPage] = useState(1);
@@ -464,11 +512,25 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [ordersPaymentMethod, setOrdersPaymentMethod] = useState('');
     const [ordersListLoading, setOrdersListLoading] = useState(false);
     const [ordersListError, setOrdersListError] = useState('');
+    const [summaryPages, setSummaryPages] = useState(createEmptySummaryPages);
+    const [summaryTotals, setSummaryTotals] = useState(createEmptySummaryTotals);
+    const [summaryLoading, setSummaryLoading] = useState({
+        by_technician: false,
+        by_customer: false,
+        by_product: false,
+        by_service: false,
+        by_department: false,
+        by_category: false,
+        by_branch: false,
+        by_cashier: false,
+    });
     const [summaryData, setSummaryData] = useState({
         by_technician: [],
         by_customer: [],
         by_product: [],
+        by_service: [],
         by_department: [],
+        by_category: [],
         by_branch: [],
         by_cashier: [],
     });
@@ -544,11 +606,61 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const fetchRecentOrdersListRef = useRef(fetchRecentOrdersList);
     fetchRecentOrdersListRef.current = fetchRecentOrdersList;
 
+    const fetchSummaryTabPage = useCallback(
+        async (tabId, page = 1) => {
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const technicianId =
+                tabId === 'by_product'
+                    ? byProductTechnicianId
+                    : tabId === 'by_service'
+                      ? byServiceTechnicianId
+                      : '';
+            const baseParams = workshopReportsAnalyticsParams(selectedBranchId, {
+                startDate,
+                endDate,
+                ...(technicianId ? { technicianId } : {}),
+            });
+            const params = {
+                ...baseParams,
+                limit: REPORTS_SUMMARY_PAGE_SIZE,
+                offset: (Math.max(1, Number(page) || 1) - 1) * REPORTS_SUMMARY_PAGE_SIZE,
+            };
+            let fetcher = null;
+            if (tabId === 'by_technician') fetcher = getWorkshopReportsByTechnician;
+            else if (tabId === 'by_customer') fetcher = getWorkshopReportsByCustomer;
+            else if (tabId === 'by_product') fetcher = getWorkshopReportsByProduct;
+            else if (tabId === 'by_service') fetcher = getWorkshopReportsByService;
+            else if (tabId === 'by_department') fetcher = getWorkshopReportsByDepartment;
+            else if (tabId === 'by_category') fetcher = getWorkshopReportsByCategory;
+            else if (tabId === 'by_branch') fetcher = getWorkshopReportsByBranch;
+            else if (tabId === 'by_cashier') fetcher = getWorkshopReportsByCashier;
+            if (!fetcher) return null;
+
+            setSummaryLoading((prev) => ({ ...prev, [tabId]: true }));
+            if (tabId === 'by_product') setByProductTechnicianLoading(true);
+            if (tabId === 'by_service') setByServiceTechnicianLoading(true);
+            try {
+                const res = await fetcher(params);
+                const rows = extractSummaryRows(res, tabId);
+                const total = extractSummaryTotal(res);
+                setSummaryData((prev) => ({ ...prev, [tabId]: rows }));
+                setSummaryTotals((prev) => ({ ...prev, [tabId]: total || rows.length }));
+                return { rows, total: total || rows.length };
+            } finally {
+                if (tabId === 'by_product') setByProductTechnicianLoading(false);
+                if (tabId === 'by_service') setByServiceTechnicianLoading(false);
+                setSummaryLoading((prev) => ({ ...prev, [tabId]: false }));
+            }
+        },
+        [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, byServiceTechnicianId],
+    );
+
     const loadReports = useCallback(async () => {
         setIsLoading(true);
         setLoadError('');
         setDetailsError('');
         setOrdersPage(1);
+        setSummaryPages(createEmptySummaryPages());
         try {
             const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
@@ -557,22 +669,26 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             });
             const [
                 response,
+                techniciansRes,
                 byTechnicianRes,
                 byCustomerRes,
                 byProductRes,
+                byServiceRes,
                 byDepartmentRes,
+                byCategoryRes,
                 byBranchRes,
                 byCashierRes,
-                techniciansRes,
             ] = await Promise.all([
                 getWorkshopReportsAnalytics(params),
-                getWorkshopReportsByTechnician(params),
-                getWorkshopReportsByCustomer(params),
-                getWorkshopReportsByProduct(params),
-                getWorkshopReportsByDepartment(params),
-                getWorkshopReportsByBranch(params),
-                getWorkshopReportsByCashier(params),
                 getWorkshopTechnicians(workshopStaffListScopeQuery(selectedBranchId)),
+                getWorkshopReportsByTechnician({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
+                getWorkshopReportsByCustomer({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
+                getWorkshopReportsByProduct({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
+                getWorkshopReportsByService({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
+                getWorkshopReportsByDepartment({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
+                getWorkshopReportsByCategory({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
+                getWorkshopReportsByBranch({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
+                getWorkshopReportsByCashier({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
             ]);
             if (!response?.success) {
                 throw new Error('Invalid reports response.');
@@ -582,9 +698,21 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 by_technician: extractSummaryRows(byTechnicianRes, 'by_technician'),
                 by_customer: extractSummaryRows(byCustomerRes, 'by_customer'),
                 by_product: extractSummaryRows(byProductRes, 'by_product'),
+                by_service: extractSummaryRows(byServiceRes, 'by_service'),
                 by_department: extractSummaryRows(byDepartmentRes, 'by_department'),
+                by_category: extractSummaryRows(byCategoryRes, 'by_category'),
                 by_branch: extractSummaryRows(byBranchRes, 'by_branch'),
                 by_cashier: extractSummaryRows(byCashierRes, 'by_cashier'),
+            });
+            setSummaryTotals({
+                by_technician: extractSummaryTotal(byTechnicianRes) || extractSummaryRows(byTechnicianRes, 'by_technician').length,
+                by_customer: extractSummaryTotal(byCustomerRes) || extractSummaryRows(byCustomerRes, 'by_customer').length,
+                by_product: extractSummaryTotal(byProductRes) || extractSummaryRows(byProductRes, 'by_product').length,
+                by_service: extractSummaryTotal(byServiceRes) || extractSummaryRows(byServiceRes, 'by_service').length,
+                by_department: extractSummaryTotal(byDepartmentRes) || extractSummaryRows(byDepartmentRes, 'by_department').length,
+                by_category: extractSummaryTotal(byCategoryRes) || extractSummaryRows(byCategoryRes, 'by_category').length,
+                by_branch: extractSummaryTotal(byBranchRes) || extractSummaryRows(byBranchRes, 'by_branch').length,
+                by_cashier: extractSummaryTotal(byCashierRes) || extractSummaryRows(byCashierRes, 'by_cashier').length,
             });
             const rawTech = unwrapWorkshopStaffList(techniciansRes, 'technician');
             const opts = rawTech
@@ -603,10 +731,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 by_technician: [],
                 by_customer: [],
                 by_product: [],
+                by_service: [],
                 by_department: [],
+                by_category: [],
                 by_branch: [],
                 by_cashier: [],
             });
+            setSummaryTotals(createEmptySummaryTotals());
             setRecentOrders([]);
             setOrdersTotal(0);
             setOrdersListError('');
@@ -645,44 +776,48 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         void fetchRecentOrdersList();
     }, [fetchRecentOrdersList, ordersPage, ordersSearchDebounced]);
 
-    const refetchByProductForTechnician = useCallback(
-        async (technicianId) => {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
-            const params = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate,
-                endDate,
-                ...(technicianId ? { technicianId } : {}),
-            });
-            const byProductRes = await getWorkshopReportsByProduct(params);
-            setSummaryData((prev) => ({
-                ...prev,
-                by_product: extractSummaryRows(byProductRes, 'by_product'),
-            }));
-        },
-        [selectedBranchId, rangeFromLocal, rangeToLocal],
+    const activeSummaryPage = activeTab.startsWith('by_')
+        ? (summaryPages[activeTab] ?? 1)
+        : 1;
+
+    useEffect(() => {
+        if (!activeTab.startsWith('by_')) return;
+        void fetchSummaryTabPage(activeTab, activeSummaryPage);
+    }, [activeTab, activeSummaryPage, fetchSummaryTabPage, byProductTechnicianId, byServiceTechnicianId]);
+
+    const technicianComboboxOptions = useMemo(
+        () =>
+            technicianOptions.map((t) => ({
+                id: String(t.id),
+                label: t.name || 'Technician',
+                subtitle: t.phone ? String(t.phone) : '',
+            })),
+        [technicianOptions],
     );
 
-    const handleByProductTechnicianChange = useCallback(
-        async (e) => {
-            const id = e.target.value;
-            detailAnchorRef.current = null;
-            setByProductTechnicianId(id);
-            setSelectedDetailKey('');
-            setDetailRows([]);
-            setDetailsTitle('');
-            setDetailsError('');
-            setByProductTechnicianError('');
-            setByProductTechnicianLoading(true);
-            try {
-                await refetchByProductForTechnician(id);
-            } catch (err) {
-                setByProductTechnicianError(err?.message || 'Failed to load product sales for this technician.');
-            } finally {
-                setByProductTechnicianLoading(false);
-            }
-        },
-        [refetchByProductForTechnician],
-    );
+    const resetByProductTechnicianFilter = useCallback(() => {
+        detailAnchorRef.current = null;
+        setByProductTechnicianId('');
+        setByProductTechnicianFilterText('');
+        setSelectedDetailKey('');
+        setDetailRows([]);
+        setDetailsTitle('');
+        setDetailsError('');
+        setByProductTechnicianError('');
+        setSummaryPages((prev) => ({ ...prev, by_product: 1 }));
+    }, []);
+
+    const resetByServiceTechnicianFilter = useCallback(() => {
+        detailAnchorRef.current = null;
+        setByServiceTechnicianId('');
+        setByServiceTechnicianFilterText('');
+        setSelectedDetailKey('');
+        setDetailRows([]);
+        setDetailsTitle('');
+        setDetailsError('');
+        setByServiceTechnicianError('');
+        setSummaryPages((prev) => ({ ...prev, by_service: 1 }));
+    }, []);
 
     useEffect(() => {
         const prev = prevBranchIdRef.current;
@@ -697,7 +832,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             setDetailsTitle('');
             setDetailsError('');
             setByProductTechnicianId('');
+            setByProductTechnicianFilterText('');
             setByProductTechnicianError('');
+            setByServiceTechnicianId('');
+            setByServiceTechnicianFilterText('');
+            setByServiceTechnicianError('');
         }
         prevBranchIdRef.current = selectedBranchId;
     }, [selectedBranchId]);
@@ -876,6 +1015,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 ...(tabId === 'by_product' && byProductTechnicianId
                     ? { technicianId: byProductTechnicianId }
                     : {}),
+                ...(tabId === 'by_service' && byServiceTechnicianId
+                    ? { technicianId: byServiceTechnicianId }
+                    : {}),
             });
             let fetcher = null;
             let key = '';
@@ -892,10 +1034,18 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 fetcher = getWorkshopReportsByProductDetails;
                 key = String(row.product_id ?? row.productId ?? '');
                 title = `Product details: ${row.product_name ?? row.productName ?? row.item_name ?? 'Item'}`;
+            } else if (tabId === 'by_service') {
+                fetcher = getWorkshopReportsByServiceDetails;
+                key = String(row.service_id ?? row.serviceId ?? '');
+                title = `Service details: ${row.service_name ?? row.serviceName ?? row.item_name ?? 'Service'}`;
             } else if (tabId === 'by_department') {
                 fetcher = getWorkshopReportsByDepartmentDetails;
                 key = String(row.department_id ?? row.departmentId ?? '');
                 title = `Department details: ${row.department_name ?? row.departmentName ?? 'Department'}`;
+            } else if (tabId === 'by_category') {
+                fetcher = getWorkshopReportsByCategoryDetails;
+                key = String(row.category_id ?? row.categoryId ?? 'uncategorized');
+                title = `Category details: ${row.category_name ?? row.categoryName ?? 'Category'}`;
             } else if (tabId === 'by_branch') {
                 fetcher = getWorkshopReportsByBranchDetails;
                 key = String(row.branch_id ?? row.branchId ?? '');
@@ -977,7 +1127,45 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             return next;
                         }),
                     );
+                } else if (tabId === 'by_service') {
+                    setDetailRows(
+                        rows.map((r) => {
+                            const next = { ...(r || {}) };
+                            delete next.salesOrderItemId;
+                            delete next.sales_order_item_id;
+                            delete next.salesOrderId;
+                            delete next.sales_order_id;
+                            delete next.invoiceId;
+                            delete next.invoice_id;
+                            delete next.vehicleId;
+                            delete next.vehicle_id;
+                            delete next.productId;
+                            delete next.product_id;
+                            delete next.serviceId;
+                            delete next.service_id;
+                            return next;
+                        }),
+                    );
                 } else if (tabId === 'by_department') {
+                    setDetailRows(
+                        rows.map((r) => {
+                            const next = { ...(r || {}) };
+                            delete next.salesOrderItemId;
+                            delete next.sales_order_item_id;
+                            delete next.salesOrderId;
+                            delete next.sales_order_id;
+                            delete next.invoiceId;
+                            delete next.invoice_id;
+                            delete next.vehicleId;
+                            delete next.vehicle_id;
+                            delete next.productId;
+                            delete next.product_id;
+                            delete next.serviceId;
+                            delete next.service_id;
+                            return next;
+                        }),
+                    );
+                } else if (tabId === 'by_category') {
                     setDetailRows(
                         rows.map((r) => {
                             const next = { ...(r || {}) };
@@ -1042,7 +1230,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 setDetailsLoading(false);
             }
         },
-        [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId],
+        [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, byServiceTechnicianId],
     );
 
     loadDetailsRef.current = loadDetails;
@@ -1100,7 +1288,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             byTechnician,
             byCustomer: parseArr(summaryData.by_customer).length ? summaryData.by_customer : parseArr(r.by_customer),
             byProduct: parseArr(summaryData.by_product).length ? summaryData.by_product : parseArr(r.by_product),
+            byService: parseArr(summaryData.by_service).length ? summaryData.by_service : parseArr(r.by_service),
             byDepartment: parseArr(summaryData.by_department).length ? summaryData.by_department : parseArr(r.by_department),
+            byCategory: parseArr(summaryData.by_category).length ? summaryData.by_category : parseArr(r.by_category),
             byBranch: parseArr(summaryData.by_branch).length ? summaryData.by_branch : parseArr(r.by_branch),
             byCashier: parseArr(summaryData.by_cashier).length ? summaryData.by_cashier : parseArr(r.by_cashier),
             period: r.period ?? null,
@@ -1323,7 +1513,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         { id: 'by_technician', label: 'By Technician' },
         { id: 'by_customer', label: 'By Customer' },
         { id: 'by_product', label: 'By Product' },
+        { id: 'by_service', label: 'By Service' },
         { id: 'by_department', label: 'By Department' },
+        { id: 'by_category', label: 'By Category' },
         { id: 'by_branch', label: 'By Branch' },
         { id: 'by_cashier', label: 'By Cashier' },
     ].filter((t) => visibleReportTabIds.includes(t.id));
@@ -1385,7 +1577,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     }, [norm, tabSearch.by_customer]);
 
     const filteredByProduct = useMemo(() => {
-        const rows = norm?.byProduct ?? [];
+        const rows = (norm?.byProduct ?? []).filter((row) => {
+            const itemType = String(row.item_type ?? row.itemType ?? 'product').toLowerCase();
+            const productKey = String(row.product_id ?? row.productId ?? '');
+            return itemType !== 'service' && !productKey.startsWith('s:');
+        });
         const q = tabSearch.by_product;
         return rows.filter((row) =>
             rowMatchesTabQuery(
@@ -1395,8 +1591,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     row.item_name,
                     row.product_id,
                     row.productId,
-                    row.item_type,
-                    row.itemType,
                     row.qty_sold,
                     row.qtySold,
                     row.revenue_sar,
@@ -1406,6 +1600,31 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             ),
         );
     }, [norm, tabSearch.by_product]);
+
+    const filteredByService = useMemo(() => {
+        const rows = (norm?.byService ?? []).filter((row) => {
+            const itemType = String(row.item_type ?? row.itemType ?? 'service').toLowerCase();
+            const serviceKey = String(row.service_id ?? row.serviceId ?? '');
+            return itemType !== 'product' && !serviceKey.startsWith('p:');
+        });
+        const q = tabSearch.by_service;
+        return rows.filter((row) =>
+            rowMatchesTabQuery(
+                [
+                    row.service_name,
+                    row.serviceName,
+                    row.item_name,
+                    row.service_id,
+                    row.serviceId,
+                    row.qty_sold,
+                    row.qtySold,
+                    row.revenue_sar,
+                    row.revenueSar,
+                ],
+                q,
+            ),
+        );
+    }, [norm, tabSearch.by_service]);
 
     const filteredByDepartment = useMemo(() => {
         const rows = norm?.byDepartment ?? [];
@@ -1426,6 +1645,28 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             ),
         );
     }, [norm, tabSearch.by_department]);
+
+    const filteredByCategory = useMemo(() => {
+        const rows = norm?.byCategory ?? [];
+        const q = tabSearch.by_category;
+        return rows.filter((row) =>
+            rowMatchesTabQuery(
+                [
+                    row.category_name,
+                    row.categoryName,
+                    row.category_id,
+                    row.categoryId,
+                    row.qty_sold,
+                    row.qtySold,
+                    row.orders_count,
+                    row.ordersCount,
+                    row.revenue_sar,
+                    row.revenueSar,
+                ],
+                q,
+            ),
+        );
+    }, [norm, tabSearch.by_category]);
 
     const filteredByBranch = useMemo(() => {
         const rows = norm?.byBranch ?? [];
@@ -1472,6 +1713,66 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const ordersRangeFrom =
         ordersTotal === 0 ? 0 : (ordersPage - 1) * ORDERS_PAGE_SIZE + 1;
     const ordersRangeTo = Math.min(ordersPage * ORDERS_PAGE_SIZE, ordersTotal);
+    const renderSummaryPagination = (tabId, visibleCount) => {
+        const total = summaryTotals[tabId] ?? 0;
+        if (total <= REPORTS_SUMMARY_PAGE_SIZE) return null;
+        const page = summaryPages[tabId] ?? 1;
+        const totalPages = Math.max(1, Math.ceil(total / REPORTS_SUMMARY_PAGE_SIZE));
+        const rangeFrom = total === 0 ? 0 : (page - 1) * REPORTS_SUMMARY_PAGE_SIZE + 1;
+        const rangeTo = Math.min((page - 1) * REPORTS_SUMMARY_PAGE_SIZE + visibleCount, total);
+        return (
+            <div className="ws-report-pagination">
+                <p className="ws-report-pagination__info">
+                    Showing <strong>{rangeFrom}</strong>–<strong>{rangeTo}</strong> of <strong>{total}</strong>
+                    {summaryLoading[tabId] ? <span> · Loading…</span> : null}
+                </p>
+                <nav className="ws-report-pagination__nav" aria-label={`${humanizeKey(tabId)} pages`}>
+                    <button
+                        type="button"
+                        className="ws-report-pagination__edge"
+                        disabled={page <= 1 || summaryLoading[tabId]}
+                        onClick={() =>
+                            setSummaryPages((prev) => ({ ...prev, [tabId]: Math.max(1, page - 1) }))
+                        }
+                    >
+                        Previous
+                    </button>
+                    <div className="ws-report-pagination__pages" role="group" aria-label="Page numbers">
+                        {(() => {
+                            const maxBtn = 7;
+                            let start = Math.max(1, page - Math.floor(maxBtn / 2));
+                            let end = Math.min(totalPages, start + maxBtn - 1);
+                            start = Math.max(1, end - maxBtn + 1);
+                            const nums = [];
+                            for (let n = start; n <= end; n += 1) nums.push(n);
+                            return nums.map((n) => (
+                                <button
+                                    key={`${tabId}-${n}`}
+                                    type="button"
+                                    className={`ws-report-pagination__page${n === page ? ' ws-report-pagination__page--active' : ''}`}
+                                    aria-current={n === page ? 'page' : undefined}
+                                    disabled={summaryLoading[tabId]}
+                                    onClick={() => setSummaryPages((prev) => ({ ...prev, [tabId]: n }))}
+                                >
+                                    {n}
+                                </button>
+                            ));
+                        })()}
+                    </div>
+                    <button
+                        type="button"
+                        className="ws-report-pagination__edge"
+                        disabled={page >= totalPages || summaryLoading[tabId]}
+                        onClick={() =>
+                            setSummaryPages((prev) => ({ ...prev, [tabId]: Math.min(totalPages, page + 1) }))
+                        }
+                    >
+                        Next
+                    </button>
+                </nav>
+            </div>
+        );
+    };
 
     return (
         <div className="ws-reports-page">
@@ -1646,6 +1947,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             </table>
                             </WsTableScroll>
                         </div>
+                        {renderSummaryPagination('by_technician', filteredByTechnician.length)}
                     </div>
                 )}
 
@@ -1809,6 +2111,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
+                        {renderSummaryPagination('by_customer', filteredByCustomer.length)}
                     </>
                 )}
 
@@ -1816,24 +2119,39 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     <>
                         <div className="ws-report-tab-toolbar ws-report-tab-toolbar--split">
                             <div className="ws-report-tab-toolbar-left">
-                                <label className="ws-report-tab-field-label" htmlFor="ws-by-product-technician">
-                                    Technician
-                                </label>
-                                <select
-                                    id="ws-by-product-technician"
-                                    className="ws-report-tab-select"
-                                    value={byProductTechnicianId}
-                                    onChange={handleByProductTechnicianChange}
-                                    disabled={isLoading || byProductTechnicianLoading}
-                                    aria-label="Filter product sales by technician"
-                                >
-                                    <option value="">All technicians</option>
-                                    {technicianOptions.map((t) => (
-                                        <option key={t.id} value={t.id}>
-                                            {t.name}
-                                        </option>
-                                    ))}
-                                </select>
+                                <div className="ws-report-tab-field ws-report-tab-field--technician">
+                                    <label className="ws-report-tab-field-label" htmlFor="ws-by-product-technician">
+                                        Technician
+                                    </label>
+                                    <SearchableEntityCombobox
+                                        id="ws-by-product-technician"
+                                        className="ws-report-tab-combobox"
+                                        options={technicianComboboxOptions}
+                                        value={byProductTechnicianId}
+                                        displayText={byProductTechnicianFilterText}
+                                        entityLabel="technician"
+                                        placeholder="All technicians — search…"
+                                        emptyHint="No technicians match — clear to show all"
+                                        disabled={isLoading || byProductTechnicianLoading}
+                                        onDisplayTextChange={(text) => {
+                                            setByProductTechnicianFilterText(text);
+                                            if (!text.trim()) {
+                                                resetByProductTechnicianFilter();
+                                            }
+                                        }}
+                                        onSelect={(opt) => {
+                                            detailAnchorRef.current = null;
+                                            setByProductTechnicianId(String(opt.id));
+                                            setByProductTechnicianFilterText(opt.label || '');
+                                            setSelectedDetailKey('');
+                                            setDetailRows([]);
+                                            setDetailsTitle('');
+                                            setDetailsError('');
+                                            setByProductTechnicianError('');
+                                            setSummaryPages((prev) => ({ ...prev, by_product: 1 }));
+                                        }}
+                                    />
+                                </div>
                                 {byProductTechnicianLoading && (
                                     <span className="ws-text-dim ws-report-tab-inline-hint">Updating…</span>
                                 )}
@@ -1841,7 +2159,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search product, type, qty, revenue…"
+                                placeholder="Search product, qty, revenue…"
                                 value={tabSearch.by_product}
                                 onChange={(e) => setTabSearch((p) => ({ ...p, by_product: e.target.value }))}
                                 aria-label="Search by product"
@@ -1857,8 +2175,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>PRODUCT / SERVICE</th>
-                                    <th>TYPE</th>
+                                    <th>PRODUCT</th>
                                     <th>QTY</th>
                                     <th>REVENUE (SAR)</th>
                                 </tr>
@@ -1866,13 +2183,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <tbody>
                                 {(norm?.byProduct ?? []).length === 0 ? (
                                     <tr>
-                                        <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                             No product breakdown for this scope.
                                         </td>
                                     </tr>
                                 ) : filteredByProduct.length === 0 ? (
                                     <tr>
-                                        <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                             No rows match your search.
                                         </td>
                                     </tr>
@@ -1895,7 +2212,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             <td>
                                                 <strong>{row.product_name ?? row.productName ?? row.product_id ?? row.productId ?? '—'}</strong>
                                             </td>
-                                            <td>{row.item_type ?? row.itemType ?? '—'}</td>
                                             <td>{toNumber(row.qty_sold ?? row.qtySold)}</td>
                                             <td className="ws-font-bold">
                                                 SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
@@ -1907,6 +2223,119 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
+                        {renderSummaryPagination('by_product', filteredByProduct.length)}
+                    </>
+                )}
+
+                {activeTab === 'by_service' && (
+                    <>
+                        <div className="ws-report-tab-toolbar ws-report-tab-toolbar--split">
+                            <div className="ws-report-tab-toolbar-left">
+                                <div className="ws-report-tab-field ws-report-tab-field--technician">
+                                    <label className="ws-report-tab-field-label" htmlFor="ws-by-service-technician">
+                                        Technician
+                                    </label>
+                                    <SearchableEntityCombobox
+                                        id="ws-by-service-technician"
+                                        className="ws-report-tab-combobox"
+                                        options={technicianComboboxOptions}
+                                        value={byServiceTechnicianId}
+                                        displayText={byServiceTechnicianFilterText}
+                                        entityLabel="technician"
+                                        placeholder="All technicians — search…"
+                                        emptyHint="No technicians match — clear to show all"
+                                        disabled={isLoading || byServiceTechnicianLoading}
+                                        onDisplayTextChange={(text) => {
+                                            setByServiceTechnicianFilterText(text);
+                                            if (!text.trim()) {
+                                                resetByServiceTechnicianFilter();
+                                            }
+                                        }}
+                                        onSelect={(opt) => {
+                                            detailAnchorRef.current = null;
+                                            setByServiceTechnicianId(String(opt.id));
+                                            setByServiceTechnicianFilterText(opt.label || '');
+                                            setSelectedDetailKey('');
+                                            setDetailRows([]);
+                                            setDetailsTitle('');
+                                            setDetailsError('');
+                                            setByServiceTechnicianError('');
+                                            setSummaryPages((prev) => ({ ...prev, by_service: 1 }));
+                                        }}
+                                    />
+                                </div>
+                                {byServiceTechnicianLoading && (
+                                    <span className="ws-text-dim ws-report-tab-inline-hint">Updating…</span>
+                                )}
+                            </div>
+                            <input
+                                type="search"
+                                className="ws-report-tab-search"
+                                placeholder="Search service, qty, revenue…"
+                                value={tabSearch.by_service}
+                                onChange={(e) => setTabSearch((p) => ({ ...p, by_service: e.target.value }))}
+                                aria-label="Search by service"
+                            />
+                        </div>
+                        {byServiceTechnicianError && (
+                            <p className="ws-report-tab-inline-error" role="alert">
+                                {byServiceTechnicianError}
+                            </p>
+                        )}
+                        <div className="ws-report-table-wrapper">
+                        <WsTableScroll>
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>SERVICE</th>
+                                    <th>QTY</th>
+                                    <th>REVENUE (SAR)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(norm?.byService ?? []).length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No service breakdown for this scope.
+                                        </td>
+                                    </tr>
+                                ) : filteredByService.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No rows match your search.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    filteredByService.map((row, i) => (
+                                        <tr
+                                            key={row.service_id ?? row.serviceId ?? i}
+                                            onClick={() => {
+                                                if (!byServiceTechnicianLoading) loadDetails('by_service', row);
+                                            }}
+                                            style={{
+                                                cursor: byServiceTechnicianLoading ? 'wait' : 'pointer',
+                                                opacity: byServiceTechnicianLoading ? 0.65 : undefined,
+                                                background:
+                                                    selectedDetailKey === `by_service:${String(row.service_id ?? row.serviceId ?? '')}`
+                                                        ? '#F8FAFC'
+                                                        : undefined,
+                                            }}
+                                        >
+                                            <td>
+                                                <strong>{row.service_name ?? row.serviceName ?? row.service_id ?? row.serviceId ?? '—'}</strong>
+                                            </td>
+                                            <td>{toNumber(row.qty_sold ?? row.qtySold)}</td>
+                                            <td className="ws-font-bold">
+                                                SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                        </WsTableScroll>
+                        </div>
+                        {renderSummaryPagination('by_service', filteredByService.length)}
                     </>
                 )}
 
@@ -1966,6 +2395,78 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
+                        {renderSummaryPagination('by_department', filteredByDepartment.length)}
+                    </>
+                )}
+
+                {activeTab === 'by_category' && (
+                    <>
+                        <div className="ws-report-tab-toolbar">
+                            <input
+                                type="search"
+                                className="ws-report-tab-search"
+                                placeholder="Search category, qty, orders, revenue…"
+                                value={tabSearch.by_category}
+                                onChange={(e) => setTabSearch((p) => ({ ...p, by_category: e.target.value }))}
+                                aria-label="Search by category"
+                            />
+                        </div>
+                        <div className="ws-report-table-wrapper">
+                        <WsTableScroll>
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>CATEGORY</th>
+                                    <th>QTY SOLD</th>
+                                    <th>ORDERS</th>
+                                    <th>REVENUE (SAR)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(norm?.byCategory ?? []).length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No category breakdown for this scope.
+                                        </td>
+                                    </tr>
+                                ) : filteredByCategory.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                            No rows match your search.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    filteredByCategory.map((row, i) => {
+                                        const rowKey = String(row.category_id ?? row.categoryId ?? i);
+                                        return (
+                                            <tr
+                                                key={rowKey}
+                                                onClick={() => loadDetails('by_category', row)}
+                                                style={{
+                                                    cursor: 'pointer',
+                                                    background:
+                                                        selectedDetailKey === `by_category:${rowKey}`
+                                                            ? '#F8FAFC'
+                                                            : undefined,
+                                                }}
+                                            >
+                                                <td>
+                                                    <strong>{row.category_name ?? row.categoryName ?? '—'}</strong>
+                                                </td>
+                                                <td>{toNumber(row.qty_sold ?? row.qtySold)}</td>
+                                                <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
+                                                <td className="ws-font-bold">
+                                                    SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                        </WsTableScroll>
+                        </div>
+                        {renderSummaryPagination('by_category', filteredByCategory.length)}
                     </>
                 )}
 
@@ -2025,6 +2526,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
+                        {renderSummaryPagination('by_branch', filteredByBranch.length)}
                     </>
                 )}
 
@@ -2093,6 +2595,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
+                        {renderSummaryPagination('by_cashier', filteredByCashier.length)}
                     </>
                 )}
 
