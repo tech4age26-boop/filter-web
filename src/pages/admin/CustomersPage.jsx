@@ -51,6 +51,7 @@ function mapCustomersResponse(d) {
         mobile: c.mobile ?? '—',
         whatsapp: c.whatsapp ?? '—',
         taxId: c.taxId ?? '-',
+        crNumber: c.crNumber ?? '-',
         customerType: c.customerType === 'corporate' ? 'corporate' : 'regular',
         isActive: c.isActive !== false,
         vehiclesCount: Number(c.vehiclesCount ?? 0),
@@ -76,6 +77,7 @@ const EMPTY_NEW_CUSTOMER = {
     email: '',
     password: '',
     vatNumber: '',
+    crNumber: '',
     referralId: '',
     selectedStoreIds: [],
 };
@@ -265,6 +267,7 @@ export default function CustomersPage() {
             mobile: c.mobile === '—' ? '' : (c.mobile ?? ''),
             whatsapp: c.whatsapp === '—' ? '' : (c.whatsapp ?? ''),
             taxId: c.taxId === '-' ? '' : (c.taxId ?? ''),
+            crNumber: c.crNumber === '-' ? '' : (c.crNumber ?? ''),
             isActive: c.isActive !== false,
             corporateAccount: c.corporateAccount,
             companyName: c.corporateAccount?.companyName ?? '',
@@ -418,6 +421,7 @@ export default function CustomersPage() {
             const payload = {
                 companyName,
                 vatNumber: String(newCustomer.vatNumber || '').trim() || undefined,
+                crNumber: String(newCustomer.crNumber || '').trim() || undefined,
                 contactPerson,
                 email,
                 password,
@@ -462,6 +466,7 @@ export default function CustomersPage() {
                 mobile: String(editingCustomer.mobile ?? '').trim() || undefined,
                 whatsapp: String(editingCustomer.whatsapp ?? '').trim() || undefined,
                 taxId: String(editingCustomer.taxId ?? '').trim() || undefined,
+                crNumber: String(editingCustomer.crNumber ?? '').trim() || undefined,
                 isActive: !!editingCustomer.isActive,
             };
             if (isCorp) {
@@ -604,6 +609,16 @@ export default function CustomersPage() {
                                                 placeholder="Optional"
                                                 value={newCustomer.vatNumber}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, vatNumber: e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">CR number</label>
+                                            <input
+                                                type="text"
+                                                className="form-input-field"
+                                                placeholder="Commercial registration"
+                                                value={newCustomer.crNumber}
+                                                onChange={(e) => setNewCustomer((p) => ({ ...p, crNumber: e.target.value }))}
                                             />
                                         </div>
                                     </div>
@@ -756,6 +771,15 @@ export default function CustomersPage() {
                                                             className="form-input-field"
                                                             value={editingCustomer.taxId}
                                                             onChange={(e) => setEditingCustomer((p) => ({ ...p, taxId: e.target.value }))}
+                                                        />
+                                                    </div>
+                                                    <div className="form-group">
+                                                        <label className="form-label">CR number</label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-input-field"
+                                                            value={editingCustomer.crNumber ?? ''}
+                                                            onChange={(e) => setEditingCustomer((p) => ({ ...p, crNumber: e.target.value }))}
                                                         />
                                                     </div>
                                                 </div>

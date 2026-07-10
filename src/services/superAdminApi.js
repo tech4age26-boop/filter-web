@@ -757,3 +757,32 @@ export const getBanners = ({ workshopId } = {}) =>
 
 export const createBanner = (body) =>
     apiFetch('/super-admin/banners', { method: 'POST', body: JSON.stringify(body) });
+
+// ─── Legal pages (privacy policy, terms & conditions) ─────────────────────────
+
+export const getLegalPages = () =>
+    apiFetch('/super-admin/legal-pages');
+
+export const getLegalPage = (slug) =>
+    apiFetch(`/super-admin/legal-pages/${encodeURIComponent(slug)}`);
+
+export const updateLegalPage = (slug, body) =>
+    apiFetch(`/super-admin/legal-pages/${encodeURIComponent(slug)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+
+export const getMobileAppMenu = () =>
+    apiFetch('/super-admin/mobile-app-menu');
+
+export const updateMobileAppMenu = (body) =>
+    apiFetch('/super-admin/mobile-app-menu', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+
+export const createMobileAppMenuPortal = (body) =>
+    apiFetch('/super-admin/mobile-app-menu', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });

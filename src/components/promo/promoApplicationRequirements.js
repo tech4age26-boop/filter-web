@@ -151,7 +151,7 @@ export function buildPromoApplicationRequirements({
       type: 'subheading',
       text:
         mode === 'all_required' && hasServiceSelection && selectedServiceRequired !== false
-          ? 'Required services / categories (all)'
+          ? 'Required services / categories (trigger only — no discount)'
           : 'Eligible services / categories',
     });
     serviceNames.forEach((name) => lines.push({ type: 'bullet', text: name }));
@@ -163,7 +163,7 @@ export function buildPromoApplicationRequirements({
       text:
         selectedServiceRequired === false
           ? 'Toggle OFF: selected service is optional; promo can apply on selected products/categories.'
-          : 'Toggle ON: selected product/category and selected service/category must both be present on the invoice.',
+          : 'Toggle ON: selected product/category and selected service/category must both be present on the invoice. Required services are trigger-only — no discount on them.',
     });
   }
 

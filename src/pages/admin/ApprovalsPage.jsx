@@ -531,6 +531,7 @@ function buildMetaChips(item) {
             push('Mobile', m.mobile);
             push('Email', m.email);
             push('VAT', m.vatNumber);
+            push('CR', m.crNumber);
             if (Array.isArray(m.selectedBranchIds) && m.selectedBranchIds.length > 0) {
                 push('Branches', `${m.selectedBranchIds.length}`);
             }
