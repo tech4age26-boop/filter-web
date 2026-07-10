@@ -1393,8 +1393,9 @@
 
 .ws-report-tab-toolbar--split {
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: center;
     flex-wrap: wrap;
+    gap: 12px;
 }
 
 .ws-report-tab-toolbar-left {
@@ -1402,6 +1403,20 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 12px;
+    flex: 1 1 280px;
+    min-width: 0;
+}
+
+.ws-report-tab-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.ws-report-tab-field--technician {
+    flex: 1 1 280px;
+    max-width: 360px;
 }
 
 .ws-report-tab-field-label {
@@ -1410,6 +1425,7 @@
     color: var(--color-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    line-height: 1.2;
 }
 
 .ws-report-tab-select {
@@ -1422,6 +1438,52 @@
     background: #fff;
     color: var(--color-text-dark);
     cursor: pointer;
+}
+
+.ws-report-tab-combobox {
+    width: 100%;
+    min-width: 0;
+}
+
+.ws-report-tab-combobox.sf-entity-combobox-anchor .pi-search-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 42px;
+    padding: 0 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: #fff;
+    box-sizing: border-box;
+}
+
+.ws-report-tab-combobox.sf-entity-combobox-anchor .pi-search-box svg {
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+}
+
+.ws-report-tab-combobox.sf-entity-combobox-anchor .pi-search-box input {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    padding: 10px 0;
+    font-size: 0.875rem;
+    color: var(--color-text-dark);
+    box-shadow: none;
+}
+
+.ws-report-tab-combobox.sf-entity-combobox-anchor .pi-search-box:focus-within {
+    border-color: #3B82F6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.ws-report-tab-combobox.sf-entity-combobox-anchor .pi-search-box input:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
 }
 
 .ws-report-tab-select:disabled {
@@ -1455,6 +1517,13 @@
     font-size: 0.875rem;
     background: #fff;
     color: var(--color-text-dark);
+    min-height: 42px;
+    box-sizing: border-box;
+}
+
+.ws-report-tab-toolbar--split > .ws-report-tab-search {
+    align-self: flex-end;
+    flex: 0 1 280px;
 }
 
 .ws-report-tab-search:focus {
@@ -1723,8 +1792,13 @@
         align-items: stretch;
     }
 
+    .ws-report-tab-field--technician {
+        max-width: none;
+    }
+
     .ws-report-tab-select,
-    .ws-report-tab-search {
+    .ws-report-tab-search,
+    .ws-report-tab-combobox {
         width: 100%;
         min-width: 0;
         max-width: none;

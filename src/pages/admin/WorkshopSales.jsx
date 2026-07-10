@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { FileText, Search, Loader } from 'lucide-react';
 import '../../styles/admin/SalesOrders.css';
 import '../workshop/Workshop.css';
@@ -13,8 +13,50 @@ import {
 import { ExportMenu } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
 
-const PAGE_SIZE = 25;
-const EXPORT_LIMIT = 5000;
+const PAGE_SIZE = 50;
+/** Backend `listInvoices` caps each request at 200 rows. */
+const EXPORT_BATCH_SIZE = 200;
+
+function unwrapInvoicesList(res) {
+    if (Array.isArray(res?.invoices)) return res.invoices;
+    if (Array.isArray(res?.data?.invoices)) return res.data.invoices;
+    return [];
+}
+
+function unwrapInvoicesTotal(res, fallback = 0) {
+    const raw = res?.total ?? res?.data?.total;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+function localDateTimeToIso(localValue) {
+    if (!localValue) return '';
+    const d = new Date(localValue);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString();
+}
+
+function buildInvoiceListQuery({
+    workshopId,
+    branchId,
+    paymentStatus,
+    search,
+    dateFrom,
+    dateTo,
+    limit,
+    offset,
+}) {
+    return {
+        workshopId: workshopId || undefined,
+        branchId: branchId || undefined,
+        paymentStatus: paymentStatus || undefined,
+        search: search || undefined,
+        startDate: localDateTimeToIso(dateFrom) || undefined,
+        endDate: localDateTimeToIso(dateTo) || undefined,
+        limit: String(limit),
+        offset: String(offset),
+    };
+}
 
 /** Build {headers, rows} mirroring the on-screen table — used for PDF/Excel export. */
 function buildWorkshopSalesExportRows(invoices, fmtDateTime) {
@@ -97,13 +139,6 @@ function formatDiscountCell(discountType, discountValue) {
     if (!v) return '—';
     if (t === 'percent' || t === 'percentage') return `${v}%`;
     return `SAR ${v.toLocaleString()}`;
-}
-
-function localDateTimeToIso(localValue) {
-    if (!localValue) return '';
-    const d = new Date(localValue);
-    if (Number.isNaN(d.getTime())) return '';
-    return d.toISOString();
 }
 
 export default function WorkshopSales() {
@@ -201,36 +236,36 @@ export default function WorkshopSales() {
         return () => clearTimeout(t);
     }, [searchInput]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         setPage(1);
     }, [selectedWorkshopId, selectedBranchId, paymentStatusFilter, dateFrom, dateTo, searchDebounced]);
+
+    const listQueryBase = useMemo(
+        () => ({
+            workshopId: selectedWorkshopId,
+            branchId: selectedBranchId,
+            paymentStatus: paymentStatusFilter,
+            search: searchDebounced,
+            dateFrom,
+            dateTo,
+        }),
+        [selectedWorkshopId, selectedBranchId, paymentStatusFilter, searchDebounced, dateFrom, dateTo],
+    );
 
     const fetchInvoices = useCallback(async () => {
         setLoading(true);
         setLoadError('');
         try {
-            const res = await getInvoices({
-                workshopId: selectedWorkshopId || undefined,
-                branchId: selectedBranchId || undefined,
-                paymentStatus: paymentStatusFilter || undefined,
-                search: searchDebounced || undefined,
-                startDate: localDateTimeToIso(dateFrom) || undefined,
-                endDate: localDateTimeToIso(dateTo) || undefined,
-                limit: String(PAGE_SIZE),
-                offset: String((page - 1) * PAGE_SIZE),
-            });
-            const rows = Array.isArray(res?.invoices)
-                ? res.invoices
-                : Array.isArray(res?.data?.invoices)
-                  ? res.data.invoices
-                  : [];
-            setInvoices(rows);
-            const tot = res?.total ?? res?.data?.total;
-            setTotal(
-                typeof tot === 'number' && Number.isFinite(tot)
-                    ? tot
-                    : Number.parseInt(String(tot ?? ''), 10) || rows.length,
+            const res = await getInvoices(
+                buildInvoiceListQuery({
+                    ...listQueryBase,
+                    limit: PAGE_SIZE,
+                    offset: (page - 1) * PAGE_SIZE,
+                }),
             );
+            const rows = unwrapInvoicesList(res);
+            setInvoices(rows);
+            setTotal(unwrapInvoicesTotal(res, rows.length));
         } catch (e) {
             setInvoices([]);
             setTotal(0);
@@ -238,29 +273,39 @@ export default function WorkshopSales() {
         } finally {
             setLoading(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, paymentStatusFilter, searchDebounced, dateFrom, dateTo, page]);
+    }, [listQueryBase, page]);
 
     useEffect(() => {
         void fetchInvoices();
     }, [fetchInvoices]);
 
-    // Export the FULL filtered set (one bounded re-fetch with the active filters).
+    const fetchAllFilteredInvoices = useCallback(async () => {
+        let offset = 0;
+        let totalCount = Number.POSITIVE_INFINITY;
+        const all = [];
+        while (offset < totalCount) {
+            const res = await getInvoices(
+                buildInvoiceListQuery({
+                    ...listQueryBase,
+                    limit: EXPORT_BATCH_SIZE,
+                    offset,
+                }),
+            );
+            const batch = unwrapInvoicesList(res);
+            totalCount = unwrapInvoicesTotal(res, batch.length);
+            all.push(...batch);
+            if (!batch.length) break;
+            offset += EXPORT_BATCH_SIZE;
+            if (all.length >= totalCount) break;
+        }
+        return all;
+    }, [listQueryBase]);
+
     const runExport = useCallback(async (kind) => {
         setExporting(true);
         setLoadError('');
         try {
-            const res = await getInvoices({
-                workshopId: selectedWorkshopId || undefined,
-                branchId: selectedBranchId || undefined,
-                paymentStatus: paymentStatusFilter || undefined,
-                search: searchDebounced || undefined,
-                startDate: localDateTimeToIso(dateFrom) || undefined,
-                endDate: localDateTimeToIso(dateTo) || undefined,
-                limit: String(EXPORT_LIMIT),
-                offset: '0',
-            });
-            const list = Array.isArray(res?.invoices) ? res.invoices
-                : Array.isArray(res?.data?.invoices) ? res.data.invoices : [];
+            const list = await fetchAllFilteredInvoices();
             const { headers, rows } = buildWorkshopSalesExportRows(list, formatDateTime);
             const subtitle = `${rows.length} invoice(s)`
                 + (dateFrom || dateTo ? ` · ${dateFrom || '…'} → ${dateTo || '…'}` : '')
@@ -275,7 +320,7 @@ export default function WorkshopSales() {
         } finally {
             setExporting(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, paymentStatusFilter, searchDebounced, dateFrom, dateTo]);
+    }, [fetchAllFilteredInvoices, dateFrom, dateTo, paymentStatusFilter]);
 
     const openDetails = useCallback(async (invoiceId) => {
         if (!invoiceId) return;
