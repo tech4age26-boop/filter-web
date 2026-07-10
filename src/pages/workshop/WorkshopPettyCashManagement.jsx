@@ -11,16 +11,17 @@ import {
     getStaffPettyCashWallet,
 } from '../../services/employeeExpenseApi';
 import { listCashBankAccounts } from '../../services/workshopAccountingApi';
-import { getWorkshopBranches, unwrapWorkshopBranchesResponse } from '../../services/workshopStaffApi';
 import { StatusBadge, MessageThread, formatSar, WalletTransactionsTable } from './WorkshopMyPettyCash.shared';
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import PettyCashRecordForms from './PettyCashRecordForms';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/AccountingPage.css';
 
+const EMPTY_BRANCHES = [];
+
 export default function WorkshopPettyCashManagement({
     selectedBranchId = 'all',
-    branches: branchesProp = [],
+    branches: branchesProp,
     workshopId = null,
 }) {
     const scopeQuery = useMemo(
@@ -58,6 +59,12 @@ export default function WorkshopPettyCashManagement({
     const [registerData, setRegisterData] = useState(null);
     const [registerLoading, setRegisterLoading] = useState(false);
 
+    const branchesFromProps = branchesProp ?? EMPTY_BRANCHES;
+    const branchesPropKey = useMemo(
+        () => branchesFromProps.map((b) => String(b.id ?? '')).join('\u0001'),
+        [branchesFromProps],
+    );
+
     const effectiveBranch = branchFilter || undefined;
 
     const loadAll = useCallback(async () => {
@@ -91,7 +98,7 @@ export default function WorkshopPettyCashManagement({
         } finally {
             setLoading(false);
         }
-    }, [effectiveBranch, scopeQuery, workshopId]);
+    }, [effectiveBranch, scopeQuery]);
 
     useEffect(() => {
         const next =
@@ -102,14 +109,8 @@ export default function WorkshopPettyCashManagement({
     }, [selectedBranchId]);
 
     useEffect(() => {
-        if (!workshopId) {
-            getWorkshopBranches()
-                .then((r) => setBranches(unwrapWorkshopBranchesResponse(r)))
-                .catch(() => undefined);
-            return;
-        }
-        setBranches(branchesProp?.length ? branchesProp : []);
-    }, [workshopId, branchesProp]);
+        setBranches(branchesFromProps);
+    }, [branchesPropKey]);
 
     useEffect(() => {
         loadAll();

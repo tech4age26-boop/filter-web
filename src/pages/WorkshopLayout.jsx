@@ -600,6 +600,7 @@ export default function WorkshopLayout() {
                     <WorkshopMyPettyCash
                         selectedBranchId={selectedBranch}
                         branches={activeBranches}
+                        workshopId={user?.workshopId ? String(user.workshopId) : null}
                     />
                 );
             case 'inventory': return (
