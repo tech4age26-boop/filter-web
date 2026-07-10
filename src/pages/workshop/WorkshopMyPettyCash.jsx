@@ -11,6 +11,8 @@ import { StatusBadge, MessageThread, formatSar, WalletTransactionsTable } from '
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import '../../styles/admin/AccountingPage.css';
 
+const EMPTY_BRANCHES = [];
+
 function WorkshopMyPettyCashStaff({ workshopId: workshopIdProp = null, defaultBranchId = '' }) {
     const { user, workshop } = useAuth();
 
@@ -173,12 +175,17 @@ function WorkshopMyPettyCashStaff({ workshopId: workshopIdProp = null, defaultBr
     );
 }
 
-export default function WorkshopMyPettyCash({ selectedBranchId = 'all', workshopId = null }) {
+export default function WorkshopMyPettyCash({
+    selectedBranchId = 'all',
+    branches = EMPTY_BRANCHES,
+    workshopId = null,
+}) {
     const { user, hasPermission } = useAuth();
     if (user?.userType === 'workshop_owner' || hasPermission('workshop.my-petty-cash.view')) {
         return (
             <WorkshopPettyCashManagement
                 selectedBranchId={selectedBranchId}
+                branches={branches}
                 workshopId={workshopId}
             />
         );

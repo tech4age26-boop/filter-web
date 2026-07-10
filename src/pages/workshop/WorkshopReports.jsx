@@ -336,6 +336,18 @@ function parseArr(v) {
     return [];
 }
 
+/** Prefer paginated summary rows; when a technician filter is active, never fall back to unfiltered analytics. */
+function pickSummaryTabRows(summaryKey, summaryData, reportPayload, technicianFilterActive = false) {
+    const fromSummary = summaryData?.[summaryKey];
+    if (technicianFilterActive && Array.isArray(fromSummary)) {
+        return fromSummary;
+    }
+    if (Array.isArray(fromSummary) && fromSummary.length > 0) {
+        return fromSummary;
+    }
+    return parseArr(reportPayload?.[summaryKey]);
+}
+
 function extractSummaryRows(res, key) {
     const direct = parseArr(res?.[key]);
     if (direct.length) return direct;
@@ -639,13 +651,32 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             setSummaryLoading((prev) => ({ ...prev, [tabId]: true }));
             if (tabId === 'by_product') setByProductTechnicianLoading(true);
             if (tabId === 'by_service') setByServiceTechnicianLoading(true);
+            if (tabId === 'by_product' || tabId === 'by_service') {
+                const techActive =
+                    (tabId === 'by_product' && byProductTechnicianId) ||
+                    (tabId === 'by_service' && byServiceTechnicianId);
+                if (techActive) {
+                    setSummaryData((prev) => ({ ...prev, [tabId]: [] }));
+                    setSummaryTotals((prev) => ({ ...prev, [tabId]: 0 }));
+                }
+            }
             try {
                 const res = await fetcher(params);
                 const rows = extractSummaryRows(res, tabId);
                 const total = extractSummaryTotal(res);
                 setSummaryData((prev) => ({ ...prev, [tabId]: rows }));
                 setSummaryTotals((prev) => ({ ...prev, [tabId]: total || rows.length }));
+                if (tabId === 'by_product') setByProductTechnicianError('');
+                if (tabId === 'by_service') setByServiceTechnicianError('');
                 return { rows, total: total || rows.length };
+            } catch (err) {
+                if (tabId === 'by_product') {
+                    setByProductTechnicianError(err?.message || 'Failed to load product sales for this technician.');
+                }
+                if (tabId === 'by_service') {
+                    setByServiceTechnicianError(err?.message || 'Failed to load service sales for this technician.');
+                }
+                throw err;
             } finally {
                 if (tabId === 'by_product') setByProductTechnicianLoading(false);
                 if (tabId === 'by_service') setByServiceTechnicianLoading(false);
@@ -667,6 +698,16 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 startDate,
                 endDate,
             });
+            const productParams = workshopReportsAnalyticsParams(selectedBranchId, {
+                startDate,
+                endDate,
+                technicianId: byProductTechnicianId,
+            });
+            const serviceParams = workshopReportsAnalyticsParams(selectedBranchId, {
+                startDate,
+                endDate,
+                technicianId: byServiceTechnicianId,
+            });
             const [
                 response,
                 techniciansRes,
@@ -683,8 +724,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 getWorkshopTechnicians(workshopStaffListScopeQuery(selectedBranchId)),
                 getWorkshopReportsByTechnician({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
                 getWorkshopReportsByCustomer({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
-                getWorkshopReportsByProduct({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
-                getWorkshopReportsByService({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
+                getWorkshopReportsByProduct({ ...productParams, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
+                getWorkshopReportsByService({ ...serviceParams, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
                 getWorkshopReportsByDepartment({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
                 getWorkshopReportsByCategory({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
                 getWorkshopReportsByBranch({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
@@ -759,7 +800,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 });
             }
         }
-    }, [selectedBranchId, rangeFromLocal, rangeToLocal]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, byServiceTechnicianId]);
 
     useEffect(() => {
         const t = setTimeout(() => {
@@ -1286,19 +1327,19 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             skusNotSoldInPeriod,
             dailyRevenue,
             byTechnician,
-            byCustomer: parseArr(summaryData.by_customer).length ? summaryData.by_customer : parseArr(r.by_customer),
-            byProduct: parseArr(summaryData.by_product).length ? summaryData.by_product : parseArr(r.by_product),
-            byService: parseArr(summaryData.by_service).length ? summaryData.by_service : parseArr(r.by_service),
-            byDepartment: parseArr(summaryData.by_department).length ? summaryData.by_department : parseArr(r.by_department),
-            byCategory: parseArr(summaryData.by_category).length ? summaryData.by_category : parseArr(r.by_category),
-            byBranch: parseArr(summaryData.by_branch).length ? summaryData.by_branch : parseArr(r.by_branch),
-            byCashier: parseArr(summaryData.by_cashier).length ? summaryData.by_cashier : parseArr(r.by_cashier),
+            byCustomer: pickSummaryTabRows('by_customer', summaryData, r),
+            byProduct: pickSummaryTabRows('by_product', summaryData, r, Boolean(byProductTechnicianId)),
+            byService: pickSummaryTabRows('by_service', summaryData, r, Boolean(byServiceTechnicianId)),
+            byDepartment: pickSummaryTabRows('by_department', summaryData, r),
+            byCategory: pickSummaryTabRows('by_category', summaryData, r),
+            byBranch: pickSummaryTabRows('by_branch', summaryData, r),
+            byCashier: pickSummaryTabRows('by_cashier', summaryData, r),
             period: r.period ?? null,
             previousPeriod: r.previous_period ?? null,
             definitions: r.definitions && typeof r.definitions === 'object' ? r.definitions : {},
             kpiProof,
         };
-    }, [reportData, summaryData]);
+    }, [reportData, summaryData, byProductTechnicianId, byServiceTechnicianId]);
 
     const kpis = useMemo(() => {
         if (!norm) {
@@ -2293,7 +2334,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 </tr>
                             </thead>
                             <tbody>
-                                {(norm?.byService ?? []).length === 0 ? (
+                                {(norm?.byService ?? []).length === 0 && !byServiceTechnicianId ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                             No service breakdown for this scope.
@@ -2302,7 +2343,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 ) : filteredByService.length === 0 ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No rows match your search.
+                                            {byServiceTechnicianId
+                                                ? 'No service sales for this technician in the selected range.'
+                                                : 'No rows match your search.'}
                                         </td>
                                     </tr>
                                 ) : (
