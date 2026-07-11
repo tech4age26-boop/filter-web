@@ -494,7 +494,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                         <td className="table-cell">{a.branchName || '—'}</td>
                                         <td className="table-cell" style={{ fontWeight: 700 }}>{a.employeeName}</td>
                                         <td className="table-cell">{a.reason || '—'}</td>
-                                        <td className="table-cell">{a.payFromAccountName || '—'}</td>
+                                        <td className="table-cell">{a.payFromAccountName || (a.payFromAccountId ? '—' : 'Petty cash')}</td>
                                         <td className="table-cell" style={{ fontWeight: 700 }}>SAR {fmt(a.amount)}</td>
                                         <td className="table-cell">SAR {fmt(a.repaidAmount)}</td>
                                         <td className="table-cell">SAR {fmt(a.balance)}</td>
