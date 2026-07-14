@@ -157,6 +157,7 @@ const mapRecentPdfToInvoice = (raw) => {
         salesOrder,
         customerType: src.customerType,
         splitPayments,
+        zatca: src.zatca || null,
     };
 };
 

@@ -68,10 +68,15 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice, pdfCapture 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Public invoice URL QR when available. Otherwise ZATCA Phase-1 TLV (tags 1–5)
-      // — scannable on standard ZATCA apps. Timestamp uses the printed invoice date
-      // (not row creation time) for backdated demo / sandbox invoices.
-      let payload = resolveInvoicePublicQrUrl(invoice);
+      // Prefer server Phase-2 ZATCA TLV (signed hash) when present — required for
+      // official e-invoice QR. Then public URL, then client Phase-1 TLV fallback.
+      const serverPhase2 =
+        String(invoice?.zatca?.qrBase64 || '').trim() || null;
+      let payload = serverPhase2;
+
+      if (!payload) {
+        payload = resolveInvoicePublicQrUrl(invoice);
+      }
       if (!payload) {
         const vatNo = sellerVatRegistration(invoice);
         payload = buildZatcaPhase1QrPayloadFromInvoice({
@@ -87,6 +92,10 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice, pdfCapture 
         payload = thermalInvoiceQrPayload(invoice, totals.totalInvoiceAmount);
       }
       try {
+        if (!payload) {
+          if (!cancelled) setQrDataUrl('');
+          return;
+        }
         const url = await QRCode.toDataURL(payload, {
           width: 132,
           margin: 2,

@@ -47,6 +47,7 @@ export function normalizeInvoiceForModal(invoice) {
     const srcJobs = Array.isArray(srcOrder.jobs)
         ? srcOrder.jobs
         : Array.isArray(invoice.jobs) ? invoice.jobs : [];
+    const zatca = invoice.zatca || invoice.zatca_detail || invoice.zatcaDetail || null;
     return {
         ...invoice,
         order: { ...srcOrder, jobs: srcJobs },
@@ -56,6 +57,7 @@ export function normalizeInvoiceForModal(invoice) {
         branch: invoice.branch || srcOrder.branch,
         workshop: invoice.workshop || srcOrder.workshop,
         paymentMethod: invoice.paymentMethod || invoice.payments?.[0]?.method,
+        zatca,
     };
 }
 

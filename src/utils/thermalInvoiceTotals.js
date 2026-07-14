@@ -268,6 +268,27 @@ export function normalizeCashierInvoice(raw) {
     : Array.isArray(order.jobs)
       ? order.jobs
       : [];
+  const zatcaRaw = raw.zatca || raw.zatca_detail || raw.zatcaDetail || null;
+  const zatca =
+    zatcaRaw && typeof zatcaRaw === 'object'
+      ? {
+          status: zatcaRaw.status ?? null,
+          subtype: zatcaRaw.subtype ?? zatcaRaw.zatca_invoice_subtype ?? null,
+          icv: zatcaRaw.icv ?? null,
+          invoiceHash:
+            zatcaRaw.invoiceHash ?? zatcaRaw.invoice_hash ?? null,
+          previousInvoiceHash:
+            zatcaRaw.previousInvoiceHash ??
+            zatcaRaw.previous_invoice_hash ??
+            null,
+          signedAt: zatcaRaw.signedAt ?? zatcaRaw.signed_at ?? null,
+          qrBase64:
+            zatcaRaw.qrBase64 ??
+            zatcaRaw.qr_base64 ??
+            zatcaRaw.qr ??
+            null,
+        }
+      : null;
 
   const source = String(order.source || raw.source || '').toLowerCase();
   let customerType = raw.customerType || raw.customer_type || '';
@@ -314,6 +335,7 @@ export function normalizeCashierInvoice(raw) {
       raw.promotionDiscountTotal ?? raw.promotion_discount_total ?? 0,
     jobs,
     order,
+    zatca,
   };
 }
 
