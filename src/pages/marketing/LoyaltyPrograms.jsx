@@ -375,7 +375,7 @@ export const LoyaltyPrograms = () => {
       );
     } catch (error) {
       console.error('Loyalty programs load error:', error);
-      setPageError(error?.message || 'Loyalty programs API load nahi hui.');
+      setPageError(error?.message || 'Could not load loyalty programs.');
       setPrograms([]);
     } finally {
       setLoadingPrograms(false);
@@ -399,7 +399,7 @@ export const LoyaltyPrograms = () => {
       setSuccessMessage('Loyalty program delete ho gaya.');
     } catch (error) {
       console.error('Loyalty program delete error:', error);
-      alert(error?.message || 'Loyalty program delete nahi hua.');
+      alert(error?.message || 'Could not delete loyalty program.');
     }
   };
 

@@ -77,7 +77,7 @@ export const PromoCodes = () => {
       const data = await marketingListPromoCodes({ limit: 200, offset: 0, status: 'all' });
       setCodes(safeArray(data, ['promoCodes', 'items', 'data']).map(normalizePromoCode));
     } catch (error) {
-      setPageError(error?.message || 'Promo codes API load nahi hui.');
+      setPageError(error?.message || 'Could not load promo codes.');
       setCodes([]);
     } finally {
       setLoadingCodes(false);
@@ -117,7 +117,7 @@ export const PromoCodes = () => {
       await loadCodes();
       setSuccessMessage('Promo code delete ho gaya.');
     } catch (error) {
-      alert(error?.message || 'Promo code delete nahi hua.');
+      alert(error?.message || 'Could not delete promo code.');
     }
   };
 
