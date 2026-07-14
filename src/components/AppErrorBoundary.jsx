@@ -1,5 +1,5 @@
 import React from 'react';
-import { isChunkLoadError } from '../utils/lazyWithRetry';
+import { isChunkLoadError, reloadOnceForStaleChunk } from '../utils/lazyWithRetry';
 
 export default class AppErrorBoundary extends React.Component {
     constructor(props) {
@@ -13,6 +13,12 @@ export default class AppErrorBoundary extends React.Component {
 
     componentDidCatch(error, info) {
         console.error('[AppErrorBoundary]', error, info);
+        // Stale lazy chunk after a deploy: reload once to pull the fresh files.
+        // reloadOnceForStaleChunk is loop-safe (only one reload per session), so
+        // a genuine (non-chunk) crash just falls through to the error UI below.
+        if (isChunkLoadError(error)) {
+            reloadOnceForStaleChunk();
+        }
     }
 
     render() {

@@ -12,6 +12,16 @@ export function isChunkLoadError(error) {
         || msg.includes('Loading chunk')
         || msg.includes('Loading CSS chunk')
         || msg.includes('ChunkLoadError')
+        // A stale chunk doesn't always 404 cleanly. When the SPA fallback serves
+        // index.html for a removed *.js chunk, the import can resolve to an empty/
+        // undefined module — React.lazy then throws while reading `.default`, or
+        // the HTML gets parsed as a module (wrong MIME / "Unexpected token '<'").
+        // These are thrown during render, so lazyWithRetry's import-catch never
+        // sees them; the AppErrorBoundary uses this same check to recover.
+        || msg.includes("reading 'default'")
+        || msg.includes("Unexpected token '<'")
+        || msg.includes('not a valid JavaScript MIME type')
+        || msg.includes('module script but the server responded with a MIME type')
     );
 }
 

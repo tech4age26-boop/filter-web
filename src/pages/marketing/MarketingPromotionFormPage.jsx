@@ -233,7 +233,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
         setRewardItems(data.rewardItems);
       } catch (error) {
         if (!cancelled) {
-          setDropdownError(error?.message || "Dropdown data load nahi hua.");
+          setDropdownError(error?.message || "Could not load dropdown data.");
         }
       } finally {
         if (!cancelled) setLoadingDropdowns(false);
@@ -306,7 +306,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
         }
       } catch (error) {
         if (!cancelled) {
-          setPageError(error?.message || "Promotion load nahi hui.");
+          setPageError(error?.message || "Could not load promotion.");
         }
       } finally {
         if (!cancelled) setLoadingPage(false);
@@ -359,7 +359,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
       console.error("Promotion action error:", error);
       alert(
         error?.message ||
-          "Promotion save nahi hui. Console aur Network tab check karo."
+          "Could not save promotion. Check the console and network tab."
       );
     } finally {
       setSubmitting(false);

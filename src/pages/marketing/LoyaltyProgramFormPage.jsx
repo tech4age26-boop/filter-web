@@ -87,7 +87,7 @@ export default function LoyaltyProgramFormPage() {
         const item = data?.loyaltyProgram || data?.data || data;
         if (active && item) setForm(programToForm(item));
       } catch (error) {
-        alert(error?.message || 'Loyalty program load nahi hua.');
+        alert(error?.message || 'Could not load loyalty program.');
       } finally {
         if (active) setLoading(false);
       }
@@ -127,7 +127,7 @@ export default function LoyaltyProgramFormPage() {
       }
       goBack();
     } catch (error) {
-      alert(error?.message || 'Loyalty program save nahi hua.');
+      alert(error?.message || 'Could not save loyalty program.');
     } finally {
       setSubmitting(false);
     }

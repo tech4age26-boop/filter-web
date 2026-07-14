@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Users, Wrench, Radio, Plus, Pencil, Trash2, Loader, Eye, EyeOff, ShieldCheck, Key, ChevronDown, ChevronRight } from 'lucide-react';
+import { Users, Wrench, Radio, Plus, Pencil, Trash2, Loader, Eye, EyeOff, ShieldCheck, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import RowActionsMenu from '../../components/RowActionsMenu';
+import '../../styles/RowActionsMenu.css';
 import { useAuth } from '../../context/AuthContext';
 import * as workshopPermsApi from '../../services/workshopPermissionsApi';
 import { codesToActionsByTab, flattenActionsByTab } from '../../utils/permissions';
@@ -91,7 +93,7 @@ const EMPTY_FORM = {
     permissionRoleId: '',
 };
 
-export default function WorkshopEmployees({
+function WorkshopEmployees({
     selectedBranchId = 'all',
     branches: branchesProp = [],
     workshopId = null,
@@ -318,24 +320,81 @@ export default function WorkshopEmployees({
         await loadWorkshopDepartmentCatalog();
     }, [workshopDepartments.length, loadWorkshopDepartmentCatalog]);
 
-    const formatEmployeeDepartments = useCallback(
+    const getEmployeeDepartmentNames = useCallback(
         (emp) => {
-            const direct = emp.department && String(emp.department).trim();
-            if (direct) return direct;
             const ids = Array.isArray(emp.departmentIds) ? emp.departmentIds : [];
-            if (!ids.length || !workshopDepartments.length) return null;
-            const names = ids
-                .map((id) => {
-                    const row = workshopDepartments.find(
-                        (d) => String(d.id ?? d._id) === String(id),
-                    );
-                    return row?.name ?? row?.departmentName ?? '';
-                })
+            if (ids.length && workshopDepartments.length) {
+                const names = ids
+                    .map((id) => {
+                        const row = workshopDepartments.find(
+                            (d) => String(d.id ?? d._id) === String(id),
+                        );
+                        return row?.name ?? row?.departmentName ?? '';
+                    })
+                    .map((n) => String(n).trim())
+                    .filter(Boolean);
+                if (names.length) return names;
+            }
+            const direct = emp.department && String(emp.department).trim();
+            if (!direct) return [];
+            return direct
+                .split(',')
+                .map((n) => n.trim())
                 .filter(Boolean);
-            return names.length ? names.join(', ') : null;
         },
         [workshopDepartments],
     );
+
+    const getEmployeeBranchNames = useCallback(
+        (emp) => {
+            const ids =
+                Array.isArray(emp.effectiveBranchIds) && emp.effectiveBranchIds.length > 0
+                    ? emp.effectiveBranchIds.map(String)
+                    : emp.branchId
+                      ? [String(emp.branchId)]
+                      : [];
+            if (ids.length && branchList.length) {
+                const names = ids
+                    .map((id) => {
+                        const row = branchList.find((b) => String(b.id) === String(id));
+                        return row?.name ?? row?.branchName ?? '';
+                    })
+                    .map((n) => String(n).trim())
+                    .filter(Boolean);
+                if (names.length) return names;
+            }
+            const direct = emp.branch && String(emp.branch).trim();
+            if (!direct || direct === '—') return [];
+            return direct
+                .split(',')
+                .map((n) => n.trim())
+                .filter(Boolean);
+        },
+        [branchList],
+    );
+
+    // --- Search over the employees/technicians list ---
+    const [empSearch, setEmpSearch] = useState('');
+
+    const searchedEmployees = useMemo(() => {
+        const q = empSearch.trim().toLowerCase();
+        if (!q) return displayedEmployees;
+        return displayedEmployees.filter((e) => {
+            const hay = [
+                e.name,
+                e.phone,
+                e.email,
+                String(e.role || '').replace(/_/g, ' '),
+                ...getEmployeeBranchNames(e),
+                ...getEmployeeDepartmentNames(e),
+                e.permissionRole?.name,
+            ]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase();
+            return hay.includes(q);
+        });
+    }, [displayedEmployees, empSearch, getEmployeeBranchNames, getEmployeeDepartmentNames]);
 
     const openAdd = () => {
         setEditing(null);
@@ -768,7 +827,8 @@ export default function WorkshopEmployees({
                 backLabel="Back to Employees"
                 onBack={() => !saving && setModalOpen(false)}
                 backDisabled={saving}
-                size="wide"
+                size="full"
+                className="ws-employee-form-screen"
                 footer={(
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
                         <button type="button" className="btn-secondary" onClick={() => setModalOpen(false)} disabled={saving}>
@@ -780,20 +840,13 @@ export default function WorkshopEmployees({
                     </div>
                 )}
             >
-                <div className="ws-section" style={{ padding: 20 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                            <div>
-                                <div
-                                    style={{
-                                        fontSize: '0.75rem',
-                                        fontWeight: 800,
-                                        color: 'var(--color-text-muted)',
-                                        letterSpacing: '0.08em',
-                                    }}
-                                >
+                <div className="ws-section ws-employee-form">
+                        <div className="ws-employee-form__sections">
+                            <div className="ws-employee-form__section">
+                                <div className="ws-employee-form__section-title">
                                     BASIC INFORMATION
                                 </div>
-                                <div className="ws-form-grid" style={{ marginTop: 10 }}>
+                                <div className="ws-form-grid ws-form-grid--employee">
                                     <div className="ws-field">
                                         <label>Full Name *</label>
                                         <input
@@ -1007,29 +1060,13 @@ export default function WorkshopEmployees({
                                 </div>
                             </div>
 
-                            <div style={{ height: 1, background: 'var(--color-border-light)' }} />
-
-                            <div>
-                                <div
-                                    style={{
-                                        fontSize: '0.75rem',
-                                        fontWeight: 800,
-                                        color: 'var(--color-text-muted)',
-                                        letterSpacing: '0.08em',
-                                    }}
-                                >
+                            <div className="ws-employee-form__section">
+                                <div className="ws-employee-form__section-title">
                                     TECHNICIAN SETTINGS
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+                                <div className="ws-employee-form__tech-row">
                                     <label
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                            cursor: 'pointer',
-                                            fontWeight: 700,
-                                            fontSize: '0.875rem',
-                                        }}
+                                        className="ws-employee-form__check-label"
                                     >
                                         <input
                                             type="checkbox"
@@ -1048,35 +1085,17 @@ export default function WorkshopEmployees({
                                     </label>
                                 </div>
                                 {(form.is_technician || isTechnicianRole(form.role)) && (
-                                    <div style={{ marginTop: 10 }}>
-                                        <div
-                                            style={{
-                                                fontSize: '0.6875rem',
-                                                fontWeight: 800,
-                                                color: 'var(--color-text-muted)',
-                                                textTransform: 'uppercase',
-                                                letterSpacing: '0.07em',
-                                                marginBottom: 10,
-                                            }}
-                                        >
+                                    <div className="ws-employee-form__tech-type">
+                                        <div className="ws-employee-form__section-subtitle">
                                             Technician type
                                         </div>
-                                        <p style={{ margin: '0 0 10px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.45 }}>
+                                        <p className="ws-employee-form__hint">
                                             {isCreateTechnicianMode
                                                 ? 'Default for new technicians: both Workshop and On-Call are enabled.'
                                                 : 'Select one or both. Workshop covers in-house assignment; On-Call covers mobile / after-hours eligibility.'}
                                         </p>
-                                        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-                                            <label
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 8,
-                                                    cursor: 'pointer',
-                                                    fontWeight: 600,
-                                                    fontSize: '0.875rem',
-                                                }}
-                                            >
+                                        <div className="ws-employee-form__tech-checks">
+                                            <label className="ws-employee-form__check-label">
                                                 <input
                                                     type="checkbox"
                                                     checked={isCreateTechnicianMode ? true : form.workshop_duty}
@@ -1085,16 +1104,7 @@ export default function WorkshopEmployees({
                                                 />
                                                 Workshop
                                             </label>
-                                            <label
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 8,
-                                                    cursor: 'pointer',
-                                                    fontWeight: 600,
-                                                    fontSize: '0.875rem',
-                                                }}
-                                            >
+                                            <label className="ws-employee-form__check-label">
                                                 <input
                                                     type="checkbox"
                                                     checked={isCreateTechnicianMode ? true : form.oncall_available}
@@ -1108,20 +1118,11 @@ export default function WorkshopEmployees({
                                 )}
                             </div>
 
-                            <div style={{ height: 1, background: 'var(--color-border-light)' }} />
-
-                            <div>
-                                <div
-                                    style={{
-                                        fontSize: '0.75rem',
-                                        fontWeight: 800,
-                                        color: 'var(--color-text-muted)',
-                                        letterSpacing: '0.08em',
-                                    }}
-                                >
+                            <div className="ws-employee-form__section">
+                                <div className="ws-employee-form__section-title">
                                     FINANCIAL
                                 </div>
-                                <div className="ws-form-grid" style={{ marginTop: 10 }}>
+                                <div className="ws-form-grid ws-form-grid--employee">
                                     <div className="ws-field">
                                         <label>Basic Salary (SAR)</label>
                                         <input
@@ -1160,21 +1161,12 @@ export default function WorkshopEmployees({
                                 </div>
                             </div>
 
-                            <div style={{ height: 1, background: 'var(--color-border-light)' }} />
-
-                            <div>
-                                <div
-                                    style={{
-                                        fontSize: '0.75rem',
-                                        fontWeight: 800,
-                                        color: 'var(--color-text-muted)',
-                                        letterSpacing: '0.08em',
-                                    }}
-                                >
+                            <div className="ws-employee-form__section">
+                                <div className="ws-employee-form__section-title">
                                     {editing ? 'RESET PASSWORD' : 'INITIAL PASSWORD'}
                                 </div>
-                                <div className="ws-form-grid" style={{ marginTop: 10 }}>
-                                    <div className="ws-field" style={{ gridColumn: '1/-1' }}>
+                                <div className="ws-form-grid ws-form-grid--employee" style={{ marginTop: 10 }}>
+                                    <div className="ws-field ws-employee-form__password-field">
                                         <label>
                                             {editing ? 'New Password' : 'Password'}{' '}
                                             <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>
@@ -1313,14 +1305,33 @@ export default function WorkshopEmployees({
                 </div>
             </div>
             <div className="ws-section" style={{ position: 'relative' }}>
+                <div className="ws-emp-search">
+                    <Search size={16} />
+                    <input
+                        type="text"
+                        value={empSearch}
+                        onChange={(e) => setEmpSearch(e.target.value)}
+                        placeholder="Search employees & technicians…"
+                        aria-label="Search employees and technicians"
+                    />
+                </div>
+                {!loading && empSearch.trim() && (
+                    <p className="ws-emp-search-count">
+                        {searchedEmployees.length} match{searchedEmployees.length === 1 ? '' : 'es'}
+                    </p>
+                )}
                 {loading && (
                     <div style={{ padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                         <Loader size={20} style={{ animation: 'ws-spin 0.8s linear infinite' }} />
                         <span style={{ fontSize: '0.875rem' }}>Loading employees…</span>
                     </div>
                 )}
-                {!loading && displayedEmployees.length === 0 ? (
-                    <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No employees in this view.</p>
+                {!loading && searchedEmployees.length === 0 ? (
+                    <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
+                        {empSearch.trim()
+                            ? `No employees or technicians match “${empSearch.trim()}”.`
+                            : 'No employees in this view.'}
+                    </p>
                 ) : (
                     !loading && (
                         <WsTableScroll>
@@ -1334,13 +1345,13 @@ export default function WorkshopEmployees({
                                     <th>Branch</th>
                                     <th>Phone</th>
                                     <th>Commission %</th>
-                                    <th>Workshop Duty</th>
-                                    <th>Status</th>
+                                    <th className="ws-col-narrow">Workshop Duty</th>
+                                    <th className="ws-col-narrow">Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {displayedEmployees.map((emp) => (
+                                {searchedEmployees.map((emp) => (
                                     <tr key={`${emp._source}-${emp.id}`}>
                                         <td>
                                             <strong>{emp.name}</strong>
@@ -1359,16 +1370,44 @@ export default function WorkshopEmployees({
                                                 <span style={{ color: '#94a3b8' }}>—</span>
                                             )}
                                         </td>
-                                        <td>{formatEmployeeDepartments(emp) ?? '—'}</td>
-                                        <td>{emp.branch || '—'}</td>
+                                        <td>
+                                            {(() => {
+                                                const names = getEmployeeDepartmentNames(emp);
+                                                if (!names.length) return '—';
+                                                return (
+                                                    <div className="ws-cell-stack">
+                                                        {names.map((name) => (
+                                                            <span key={name} className="ws-cell-stack__item">
+                                                                {name}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </td>
+                                        <td>
+                                            {(() => {
+                                                const names = getEmployeeBranchNames(emp);
+                                                if (!names.length) return '—';
+                                                return (
+                                                    <div className="ws-cell-stack">
+                                                        {names.map((name) => (
+                                                            <span key={name} className="ws-cell-stack__item">
+                                                                {name}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </td>
                                         <td>{emp.phone}</td>
                                         <td>{emp.commission_percent}%</td>
-                                        <td>
+                                        <td className="ws-col-narrow">
                                             <span className={`ws-badge ${emp.workshop_duty ? 'ws-badge--green' : 'ws-badge--gray'}`}>
                                                 {emp.workshop_duty ? 'Active' : 'Off'}
                                             </span>
                                         </td>
-                                        <td>
+                                        <td className="ws-col-narrow">
                                             <span
                                                 className={`ws-badge ${
                                                     emp.status === 'active'
@@ -1381,83 +1420,40 @@ export default function WorkshopEmployees({
                                                 {emp.status === 'pending' ? 'pending approval' : emp.status}
                                             </span>
                                         </td>
-                                        <td style={{ display: 'flex', gap: 6 }}>
-                                            {canEdit && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openEdit(emp)}
-                                                    style={{
-                                                        padding: '5px 10px',
-                                                        background: '#EFF6FF',
-                                                        color: '#2563EB',
-                                                        border: 'none',
-                                                        borderRadius: 6,
-                                                        fontWeight: 700,
-                                                        cursor: 'pointer',
-                                                        fontSize: '0.75rem',
-                                                    }}
-                                                    disabled={saving}
-                                                >
-                                                    <Pencil size={12} />
-                                                </button>
-                                            )}
-                                            {canDelete && emp._source !== 'technician' && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleDelete(emp)}
-                                                    style={{
-                                                        padding: '5px 10px',
-                                                        background: '#FEE2E2',
-                                                        color: '#DC2626',
-                                                        border: 'none',
-                                                        borderRadius: 6,
-                                                        fontWeight: 700,
-                                                        cursor: 'pointer',
-                                                        fontSize: '0.75rem',
-                                                    }}
-                                                    disabled={saving}
-                                                >
-                                                    <Trash2 size={12} />
-                                                </button>
-                                            )}
-                                            {canManagePermissions && emp.userId && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setPortalAccessTarget(emp)}
-                                                    title="Grant / change portal access (cashier / technician / workshop)"
-                                                    style={{
-                                                        padding: '5px 10px',
-                                                        background: '#FEF3C7',
-                                                        color: '#92400E',
-                                                        border: 'none',
-                                                        borderRadius: 6,
-                                                        fontWeight: 700,
-                                                        cursor: 'pointer',
-                                                        fontSize: '0.75rem',
-                                                    }}
-                                                >
-                                                    <Key size={12} />
-                                                </button>
-                                            )}
-                                            {canManagePermissions && emp.userId && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setPermissionsTarget(emp)}
-                                                    title="Override permissions for this user"
-                                                    style={{
-                                                        padding: '5px 10px',
-                                                        background: '#F3E8FF',
-                                                        color: '#6B21A8',
-                                                        border: 'none',
-                                                        borderRadius: 6,
-                                                        fontWeight: 700,
-                                                        cursor: 'pointer',
-                                                        fontSize: '0.75rem',
-                                                    }}
-                                                >
-                                                    <ShieldCheck size={12} />
-                                                </button>
-                                            )}
+                                        <td onClick={(e) => e.stopPropagation()}>
+                                            <RowActionsMenu
+                                                disabled={saving}
+                                                ariaLabel={`Actions for ${emp.name || 'employee'}`}
+                                                items={[
+                                                    {
+                                                        id: 'edit',
+                                                        label: 'Edit',
+                                                        hidden: !canEdit,
+                                                        onClick: () => openEdit(emp),
+                                                    },
+                                                    {
+                                                        id: 'portal-access',
+                                                        label: 'Portal access',
+                                                        title: 'Grant / change portal access (cashier / technician / workshop)',
+                                                        hidden: !(canManagePermissions && emp.userId),
+                                                        onClick: () => setPortalAccessTarget(emp),
+                                                    },
+                                                    {
+                                                        id: 'permissions',
+                                                        label: 'Override permissions',
+                                                        title: 'Override permissions for this user',
+                                                        hidden: !(canManagePermissions && emp.userId),
+                                                        onClick: () => setPermissionsTarget(emp),
+                                                    },
+                                                    {
+                                                        id: 'delete',
+                                                        label: 'Delete',
+                                                        danger: true,
+                                                        hidden: !(canDelete && emp._source !== 'technician'),
+                                                        onClick: () => handleDelete(emp),
+                                                    },
+                                                ]}
+                                            />
                                         </td>
                                     </tr>
                                 ))}
@@ -1470,6 +1466,8 @@ export default function WorkshopEmployees({
         </div>
     );
 }
+
+export default WorkshopEmployees;
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /*  Workshop Roles Panel — lists this workshop's custom roles                */
