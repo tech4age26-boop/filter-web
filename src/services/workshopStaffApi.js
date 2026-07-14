@@ -15,23 +15,67 @@ export function qs(params) {
 }
 
 /**
- * Optional `branchId` for workshop-staff list endpoints when the sidebar branch is not "all".
- * Backends may ignore this if unsupported; callers can still client-filter rows when fields exist.
+ * Branch query params for workshop-staff list endpoints.
+ * One branch → `branchId`; "All Branches" with role scope → permitted `branchIds`;
+ * unrestricted "All Branches" → `allBranches=true` (backends ignore unknown flags).
+ * Prefer this over hand-rolled `branchId`-only filters (those leak other branches on "all").
  */
-export function branchScopeParams(selectedBranchId) {
-    if (selectedBranchId == null || selectedBranchId === '' || selectedBranchId === 'all') return {};
-    return { branchId: String(selectedBranchId) };
+export function branchScopeParams(selectedBranchId, allowedBranchIds) {
+    return workshopStaffListScopeQuery(selectedBranchId, allowedBranchIds);
+}
+
+/**
+ * Role branch scope from persisted auth user (same rules as WorkshopLayout).
+ * Empty array = unrestricted.
+ */
+function getAuthUserAllowedBranchIds() {
+    try {
+        const raw = localStorage.getItem('filter_auth_user');
+        if (!raw) return [];
+        const user = JSON.parse(raw);
+        if (!user?.role || user.role.isSystem) return [];
+        const roleIds = Array.isArray(user.role.branchIds)
+            ? user.role.branchIds.map(String).filter(Boolean)
+            : [];
+        if (roleIds.length > 0) return roleIds;
+        if (user.branchId != null && String(user.branchId) !== '') {
+            return [String(user.branchId)];
+        }
+        return [];
+    } catch {
+        return [];
+    }
 }
 
 /**
  * For GET /workshop-staff/products, /workshop-staff/commissions, etc.:
- * one branch → `branchId`; workshop-wide in the UI → `allBranches=true` (API limits this to **active** branches only).
+ * one branch → `branchId`;
+ * "All Branches" with role scope → those permitted ids (not whole workshop);
+ * unrestricted "All Branches" → `allBranches=true`.
+ *
+ * @param {string|number|'all'|undefined} selectedBranchId
+ * @param {Array<string|number>} [allowedBranchIds] optional override (e.g. sidebar activeBranches)
  */
-export function workshopStaffListScopeQuery(selectedBranchId) {
-    if (selectedBranchId == null || selectedBranchId === '' || selectedBranchId === 'all') {
-        return { allBranches: true };
+export function workshopStaffListScopeQuery(selectedBranchId, allowedBranchIds) {
+    if (selectedBranchId != null && selectedBranchId !== '' && selectedBranchId !== 'all') {
+        return { branchId: String(selectedBranchId) };
     }
-    return { branchId: String(selectedBranchId) };
+    const fromArg = Array.isArray(allowedBranchIds)
+        ? allowedBranchIds.map(String).filter(Boolean)
+        : [];
+    const ids = [...new Set(fromArg.length ? fromArg : getAuthUserAllowedBranchIds())];
+    if (ids.length === 1) {
+        return { branchId: ids[0] };
+    }
+    if (ids.length > 1) {
+        const joined = ids.join(',');
+        return {
+            allBranches: true,
+            branchIds: joined,
+            branch_ids: joined,
+        };
+    }
+    return { allBranches: true };
 }
 
 function unwrapList(res, keys = ['data', 'technicians', 'cashiers', 'users', 'items']) {
@@ -1242,14 +1286,11 @@ export function normalizeUnifiedWorkshopEmployeeRow(raw) {
  * @param {number|string} [params.offset]
  */
 export async function loadWorkshopEmployeesCombined(params = {}) {
-    const query = {};
-    const isWorkshopWide =
-        params.branchId == null ||
-        params.branchId === '' ||
-        String(params.branchId) === 'all';
-    if (params.branchId != null && params.branchId !== '' && params.branchId !== 'all') {
-        query.branchId = String(params.branchId);
-    }
+    const scope = workshopStaffListScopeQuery(
+        params.branchId,
+        params.allowedBranchIds,
+    );
+    const query = { ...scope };
     if (params.employeeType != null && params.employeeType !== '') {
         query.employeeType = String(params.employeeType);
     }

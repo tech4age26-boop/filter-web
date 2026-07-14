@@ -1816,6 +1816,22 @@ function WorkshopRoleScreen({ role, branches = [], onBack, onSaved }) {
     );
 }
 
+const ACTION_LABEL = {
+    view: 'View',
+    create: 'Create',
+    edit: 'Edit',
+    delete: 'Delete',
+    approve: 'Approve',
+    reject: 'Reject',
+    export: 'Export',
+    add: 'Add',
+    manage: 'Manage',
+    'request-from-supplier': 'Request from Supplier',
+    'manual-adjust': 'Manual Adjust',
+    'critical-level': 'Critical level',
+    'force-logout': 'Force Logout',
+};
+
 function SectionCard({ section, perms, onToggleAction, onToggleTab }) {
     const [open, setOpen] = useState(true);
     const total = section.tabs.reduce((s, t) => s + (t.actions?.length ?? 0), 0);
@@ -1853,7 +1869,7 @@ function SectionCard({ section, perms, onToggleAction, onToggleTab }) {
                                         fontSize: '0.7rem', fontWeight: 700,
                                     }}>
                                         <input type="checkbox" checked={on} onChange={() => onToggleAction(tab.key, a)} style={{ display: 'none' }} />
-                                        {a}
+                                        {ACTION_LABEL[a] || a}
                                     </label>
                                 );
                             })}
