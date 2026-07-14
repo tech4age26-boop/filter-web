@@ -64,6 +64,10 @@ const ACTION_LABEL = {
     approve: 'Approve',
     reject: 'Reject',
     export: 'Export',
+    'request-from-supplier': 'Request from Supplier',
+    'manual-adjust': 'Manual Adjust',
+    'critical-level': 'Critical level',
+    'force-logout': 'Force Logout',
 };
 const ACTION_COLOR = {
     view: '#0ea5e9',
@@ -73,6 +77,10 @@ const ACTION_COLOR = {
     approve: '#7c3aed',
     reject: '#be185d',
     export: '#0891b2',
+    'request-from-supplier': '#7c3aed',
+    'manual-adjust': '#d97706',
+    'critical-level': '#dc2626',
+    'force-logout': '#dc2626',
 };
 
 /** Fallback skeleton when a portal's tree isn't seeded yet. */

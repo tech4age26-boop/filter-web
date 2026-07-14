@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { LogOut, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
-import { qs, branchScopeParams } from '../../services/workshopStaffApi';
+import { qs, workshopStaffListScopeQuery } from '../../services/workshopStaffApi';
 import ForceCashierLogoutModal from '../../components/workshop/ForceCashierLogoutModal';
 import ClosingReportDetailModal from '../../components/workshop/ClosingReportDetailModal';
 import PosMonitoringKpiProofModal from '../../components/workshop/PosMonitoringKpiProofModal';
@@ -23,6 +24,8 @@ const formatShiftOpenedAt = (counter) => {
 };
 
 export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branches = [] }) {
+    const { hasPermission } = useAuth();
+    const canForceLogout = hasPermission('workshop.pos-monitoring.force-logout');
     const [data, setData] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -30,11 +33,21 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
     const [selectedClosingReport, setSelectedClosingReport] = useState(null);
     const [kpiProofModalId, setKpiProofModalId] = useState(null);
 
+    const allowedBranchIdsKey = useMemo(
+        () => branches.map((b) => String(b.id)).filter(Boolean).sort().join(','),
+        [branches],
+    );
+
     const loadPosMonitoring = useCallback(async () => {
         setIsLoading(true);
         setError('');
         try {
-            const response = await apiFetch(`/workshop-staff/pos-monitoring${qs(branchScopeParams(selectedBranchId))}`);
+            const allowedIds = allowedBranchIdsKey
+                ? allowedBranchIdsKey.split(',')
+                : [];
+            const response = await apiFetch(
+                `/workshop-staff/pos-monitoring${qs(workshopStaffListScopeQuery(selectedBranchId, allowedIds))}`,
+            );
             if (!response?.success) {
                 throw new Error('Invalid POS monitoring response.');
             }
@@ -44,7 +57,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, allowedBranchIdsKey]);
 
     const branchLabel = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
@@ -54,8 +67,18 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
     const { liveCountersScoped, closingReportsScoped } = useMemo(() => {
         const rawLive = data?.liveCounters || [];
         const rawClose = data?.closingReports || [];
+        const allowedIds = new Set(branches.map((b) => String(b.id)));
+        const inSidebarBranches = (row) => {
+            const rid = row.branchId ?? row.branch_id;
+            // If sidebar has no branches yet, don't hide rows.
+            if (allowedIds.size === 0) return true;
+            return rid != null && allowedIds.has(String(rid));
+        };
         if (!selectedBranchId || selectedBranchId === 'all') {
-            return { liveCountersScoped: rawLive, closingReportsScoped: rawClose };
+            return {
+                liveCountersScoped: rawLive.filter(inSidebarBranches),
+                closingReportsScoped: rawClose.filter(inSidebarBranches),
+            };
         }
         const bn = branches.find((b) => String(b.id) === String(selectedBranchId))?.name || '';
         const match = (row) => {
@@ -74,9 +97,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
         loadPosMonitoring();
     }, [loadPosMonitoring]);
 
-    const isAllBranches = !selectedBranchId || selectedBranchId === 'all';
-
-    const liveCountersKpi = isAllBranches ? toNumber(data?.liveCountersCount) : liveCountersScoped.length;
+    const liveCountersKpi = liveCountersScoped.length;
     const openOrdersKpi = toNumber(data?.openOrdersCount);
     const todaySalesKpi = toNumber(data?.todaySales);
 
@@ -139,12 +160,14 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                                 <th>Shift Sales</th>
                                 <th>Open Orders</th>
                                 <th>Elapsed</th>
+                                {canForceLogout ? (
                                 <th style={{ width: 140 }}>Actions</th>
+                                ) : null}
                             </tr>
                         </thead>
                         <tbody>
                             {liveCountersScoped.length === 0 ? (
-                                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>No live counters</td></tr>
+                                <tr><td colSpan={canForceLogout ? 8 : 7} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>No live counters</td></tr>
                             ) : liveCountersScoped.map((counter) => (
                                 <tr key={counter.posSessionId}>
                                     <td>{counter.cashierName || '—'}</td>
@@ -154,6 +177,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                                     <td>SAR {toNumber(counter.shiftSales).toLocaleString()}</td>
                                     <td>{toNumber(counter.shiftOpenOrders)}</td>
                                     <td>{counter.shiftElapsedTime || '—'}</td>
+                                    {canForceLogout ? (
                                     <td>
                                         <button
                                             type="button"
@@ -167,6 +191,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                                             <LogOut size={12} /> Force logout
                                         </button>
                                     </td>
+                                    ) : null}
                                 </tr>
                             ))}
                         </tbody>
@@ -217,7 +242,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                 </WsTableScroll>
             </div>
 
-            {forceLogoutCounter && (
+            {canForceLogout && forceLogoutCounter && (
                 <ForceCashierLogoutModal
                     counter={forceLogoutCounter}
                     onClose={() => setForceLogoutCounter(null)}

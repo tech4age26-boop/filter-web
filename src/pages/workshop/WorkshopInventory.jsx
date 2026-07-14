@@ -896,8 +896,12 @@ export default function WorkshopInventory({
     onTabChange,
     updateProductStatus,
 }) {
-    const { workshop } = useAuth();
+    const { workshop, hasPermission } = useAuth();
     const workshopIdQuery = useMemo(() => workshopIdFromSession(workshop), [workshop]);
+    const canRequestFromSupplier = hasPermission('workshop.inventory.request-from-supplier');
+    const canManualAdjust = hasPermission('workshop.inventory.manual-adjust');
+    const canCriticalLevel = hasPermission('workshop.inventory.critical-level');
+    const canAnyInventoryAction = canRequestFromSupplier || canManualAdjust || canCriticalLevel;
 
     const [searchQuery, setSearchQuery] = useState('');
     const [departmentFilter, setDepartmentFilter] = useState('all');
@@ -1310,6 +1314,7 @@ export default function WorkshopInventory({
     }, [productRows, selectedBranchName, inventoryValueBreakdown.total, lowStockBreakdown.count]);
 
     const handleOpenRequest = (item) => {
+        if (!hasPermission('workshop.inventory.request-from-supplier')) return;
         if (updateProductStatus) {
             updateProductStatus(item.id, 'Requested');
         }
@@ -1357,6 +1362,7 @@ export default function WorkshopInventory({
     );
 
     const handleOpenAdjust = (item) => {
+        if (!hasPermission('workshop.inventory.manual-adjust')) return;
         const resolved = resolveEffectiveOpeningForItem(item);
         setAdjustItem(resolved);
         setNewQty(resolved.qty != null ? String(resolved.qty) : '0');
@@ -1386,6 +1392,7 @@ export default function WorkshopInventory({
     };
 
     const handleOpenCritical = (item) => {
+        if (!hasPermission('workshop.inventory.critical-level')) return;
         setCriticalItem(item);
         setCriticalInput(item.critical_level != null && item.critical_level !== '' ? String(item.critical_level) : '0');
         setCriticalSubmitError('');
@@ -3347,6 +3354,7 @@ export default function WorkshopInventory({
                                         >
                                             Status
                                         </th>
+                                        {canAnyInventoryAction ? (
                                         <th
                                             style={{
                                                 padding: '16px 24px',
@@ -3359,6 +3367,7 @@ export default function WorkshopInventory({
                                         >
                                             Actions
                                         </th>
+                                        ) : null}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -3366,7 +3375,7 @@ export default function WorkshopInventory({
                                         <ShimmerTableBodyRows rows={8} columns={12} />
                                     ) : filteredProducts.length === 0 ? (
                                         <tr>
-                                            <td colSpan={12} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                            <td colSpan={canAnyInventoryAction ? 12 : 11} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <div style={{ marginBottom: '16px', opacity: 0.3 }}>
                                                     <Package size={48} style={{ margin: '0 auto' }} />
                                                 </div>
@@ -3566,8 +3575,10 @@ export default function WorkshopInventory({
                                                             {st.label}
                                                         </span>
                                                     </td>
+                                                    {canAnyInventoryAction ? (
                                                     <td style={{ padding: '16px 24px', textAlign: 'right' }}>
                                                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                                            {canRequestFromSupplier ? (
                                                             <button
                                                                 type="button"
                                                                 className="mc-btn-primary"
@@ -3579,6 +3590,8 @@ export default function WorkshopInventory({
                                                             >
                                                                 Request from Supplier
                                                             </button>
+                                                            ) : null}
+                                                            {canManualAdjust ? (
                                                             <button
                                                                 type="button"
                                                                 className="mc-btn-ghost"
@@ -3590,6 +3603,8 @@ export default function WorkshopInventory({
                                                             >
                                                                 Manual Adjust
                                                             </button>
+                                                            ) : null}
+                                                            {canCriticalLevel ? (
                                                             <button
                                                                 type="button"
                                                                 className="mc-btn-ghost"
@@ -3607,8 +3622,10 @@ export default function WorkshopInventory({
                                                             >
                                                                 Critical level
                                                             </button>
+                                                            ) : null}
                                                         </div>
                                                     </td>
+                                                    ) : null}
                                                 </tr>
                                             );
                                         })
