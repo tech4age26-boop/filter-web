@@ -94,7 +94,7 @@ export const MarketingPromotions = () => {
     } catch (error) {
       console.error("Promotion API error:", error);
       setPageError(
-        error?.message || "Promotions API load nahi hui. Network/API check karo."
+        error?.message || "Could not load promotions. Check the network/API."
       );
       setPromotions([]);
     } finally {
@@ -124,7 +124,7 @@ export const MarketingPromotions = () => {
       console.error("Delete promotion error:", error);
       alert(
         error?.message ||
-          "Promotion delete nahi hui. Console aur Network tab check karo."
+          "Could not delete promotion. Check the console and network tab."
       );
     }
   };
