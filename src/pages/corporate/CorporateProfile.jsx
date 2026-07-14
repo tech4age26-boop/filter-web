@@ -10,6 +10,7 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
         email: profile?.email || '',
         companyName: profile?.corporateAccount?.companyName || '',
         vatNumber: profile?.corporateAccount?.vatNumber || '',
+        crNumber: profile?.corporateAccount?.crNumber || '',
         billingAddress: profile?.corporateAccount?.billingAddress || '',
         phoneNumber: profile?.corporateAccount?.phoneNumber || '',
         selectedStoreIds: (profile?.corporateAccount?.selectedStoreIds || []).map(String),
@@ -45,6 +46,7 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
             email: formData.email,
             companyName: formData.companyName,
             vatNumber: formData.vatNumber,
+            crNumber: formData.crNumber,
             billingAddress: formData.billingAddress,
             phoneNumber: formData.phoneNumber,
             selectedStoreIds: formData.selectedStoreIds,
@@ -138,6 +140,17 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
                             value={formData.vatNumber}
                             onChange={handleChange}
                             placeholder="e.g. 310123456700003"
+                        />
+                    </div>
+                    <div className="ws-form-group">
+                        <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>CR Number</label>
+                        <input
+                            type="text"
+                            name="crNumber"
+                            style={{width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem'}}
+                            value={formData.crNumber}
+                            onChange={handleChange}
+                            placeholder="e.g. 1010123456"
                         />
                     </div>
                 </div>
@@ -324,6 +337,7 @@ export default function CorporateProfile({ onTabChange }) {
                                     <p style={{fontSize:'0.8125rem',color:'var(--color-text-muted)',margin:0, display:'flex', alignItems:'center', gap:6}}><MapPin size={12}/> {ca?.billingAddress || 'No billing address'}</p>
                                 </div>
                                 <p style={{fontSize:'0.8125rem',color:'var(--color-text-muted)',marginTop:6, fontWeight:600}}>VAT: {ca?.vatNumber || 'N/A'}</p>
+                                <p style={{fontSize:'0.8125rem',color:'var(--color-text-muted)',marginTop:4, fontWeight:600}}>CR: {ca?.crNumber || 'N/A'}</p>
                             </div>
                         </div>
                         <div style={{display:'flex',gap:12,alignItems:'center'}}>

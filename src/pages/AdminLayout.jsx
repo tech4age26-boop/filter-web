@@ -8,7 +8,7 @@ import {
     Shield, Map, Truck, Building, UserCheck, Receipt, ArrowLeftRight, FileSpreadsheet,
     Landmark, FileText, Car, Warehouse, Box, ShoppingCart, UserPlus, Globe, Megaphone,
     Menu, X, Percent, Wrench, GitBranch, Radio, BarChart2, ClipboardList, CreditCard,
-    FlaskConical, Smartphone, MessageCircle, Wallet, CircleDollarSign,
+    FlaskConical, Smartphone, MessageCircle, Wallet, CircleDollarSign, ScrollText,
 } from 'lucide-react';
 import '../styles/AdminLayout.css';
 import '../styles/admin/PlatformChat.css';
@@ -47,7 +47,7 @@ const TRANSLATIONS = {
     en: {
         section: { CONTROL: 'CONTROL', OPERATIONS: 'OPERATIONS', FINANCE: 'FINANCE', SPECIALIZED: 'SPECIALIZED' },
         nav: {
-            dashboard: 'Dashboard', reports: 'Reporting', pos: 'POS / New Order', approvals: 'Approvals', 'zone-management': 'Zone Management', 'tax-codes': 'Tax Code', permissions: 'Permissions', 'admin-wallets': 'Admin Wallets', 'my-wallet': 'My Wallet', 'tier-management': 'Tier Management',
+            dashboard: 'Dashboard', reports: 'Reporting', pos: 'POS / New Order', approvals: 'Approvals', 'zone-management': 'Zone Management', 'tax-codes': 'Tax Code', 'legal-pages': 'Legal Pages', 'mobile-app-menu': 'Mobile App Menu', permissions: 'Permissions', 'admin-wallets': 'Admin Wallets', 'my-wallet': 'My Wallet', 'tier-management': 'Tier Management',
             inventory: 'Inventory', 'master-catalog': 'Master Catalog', 'products-services': 'Products & Services', 'stock-movements': 'Stock Movements', categories: 'Categories', 'units-of-measure': 'Units of Measure',
             customers: 'Customers', 'all-customers': 'All Customers', 'corporate-billing': 'Corporate Billing',
             suppliers: 'Suppliers', 'storage-facility': 'Storage Facility', employees: 'Employees', branches: 'Branches', workshop: 'Workshop', 'staff-app': 'Staff App',
@@ -77,7 +77,7 @@ const TRANSLATIONS = {
     ar: {
         section: { CONTROL: 'التحكم', OPERATIONS: 'العمليات', FINANCE: 'المالية', SPECIALIZED: 'متخصص' },
         nav: {
-            dashboard: 'لوحة التحكم', reports: 'التقارير', pos: 'نقطة البيع / طلب جديد', approvals: 'الموافقات', 'zone-management': 'إدارة المناطق', 'tax-codes': 'أكواد الضريبة', permissions: 'الصلاحيات', 'admin-wallets': 'محافظ المشرفين', 'my-wallet': 'محفظتي', 'tier-management': 'إدارة الفئات',
+            dashboard: 'لوحة التحكم', reports: 'التقارير', pos: 'نقطة البيع / طلب جديد', approvals: 'الموافقات', 'zone-management': 'إدارة المناطق', 'tax-codes': 'أكواد الضريبة', 'legal-pages': 'الصفحات القانونية', 'mobile-app-menu': 'قائمة تطبيق الجوال', permissions: 'الصلاحيات', 'admin-wallets': 'محافظ المشرفين', 'my-wallet': 'محفظتي', 'tier-management': 'إدارة الفئات',
             inventory: 'المخزون', 'master-catalog': 'الكتالوج الرئيسي', 'products-services': 'المنتجات والخدمات', 'stock-movements': 'حركة المخزون', categories: 'الفئات', 'units-of-measure': 'وحدات القياس',
             customers: 'العملاء', 'all-customers': 'جميع العملاء', 'corporate-billing': 'الفواتير المؤسسية',
             suppliers: 'الموردون', employees: 'الموظفون', branches: 'الفروع', workshop: 'الورشة',
@@ -114,6 +114,8 @@ const NAV_CONFIG = [
             { label: 'Approvals', path: 'approvals', icon: FileText },
             { label: 'Zone Management', path: 'zone-management', icon: Map },
             { label: 'Tax Codes', path: 'tax-codes', icon: Percent },
+            { label: 'Legal Pages', path: 'legal-pages', icon: ScrollText },
+            { label: 'Mobile App Menu', path: 'mobile-app-menu', icon: Smartphone },
             { label: 'Marketing', path: 'marketing', icon: Megaphone },
             { label: 'Permissions', path: 'permissions', icon: Shield },
             { label: 'Admin Wallets', path: 'admin-wallets', icon: Wallet },
