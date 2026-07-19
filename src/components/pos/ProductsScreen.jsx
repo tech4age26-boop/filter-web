@@ -65,13 +65,40 @@ const getMinEditablePrice = (p) => {
     return Number.isFinite(n) && n >= 0 ? n : 0;
 };
 
+const isInfiniteQty = (p) => {
+    const v = p?.isInfiniteQty ?? p?.is_infinite_qty;
+    if (v === true) return true;
+    if (v === false) return false;
+    if (typeof v === 'string') {
+        const s = v.trim().toLowerCase();
+        return s === 'true' || s === '1' || s === 'yes';
+    }
+    return false;
+};
+
 // Respects backend's criticalStockPoint (per-product); falls back to 5 (reference default).
 const getStockStatus = (p) => {
     if (isService(p)) return { label: 'Service', color: '#15803d', bg: '#dcfce7' };
-    const stock = parseFloat(p?.qtyOnHand ?? p?.stock ?? p?.openingQty ?? 0) || 0;
+    if (isInfiniteQty(p)) {
+        return { label: 'Infinite', color: '#15803d', bg: '#dcfce7', stock: Infinity };
+    }
+    const rawQty = p?.qtyOnHand ?? p?.stock ?? p?.openingQty;
+    const stock = rawQty == null || rawQty === ''
+        ? 0
+        : (parseFloat(rawQty) || 0);
     const critical = Math.max(parseFloat(p?.criticalStockPoint ?? 5) || 5, 0);
-    if (allowsMinusQty(p) && stock < 0) {
-        return { label: `Backorder (${stock})`, color: '#7c3aed', bg: '#ede9fe', stock };
+    // allowMinusQty: still sellable at 0 / negative — never show Out of Stock.
+    if (allowsMinusQty(p)) {
+        if (stock < 0) {
+            return { label: `Backorder (${stock})`, color: '#7c3aed', bg: '#ede9fe', stock };
+        }
+        if (stock <= 0) {
+            return { label: `Available (${stock})`, color: '#7c3aed', bg: '#ede9fe', stock };
+        }
+        if (stock <= critical) {
+            return { label: `Low (${stock})`, color: '#c2410c', bg: '#ffedd5', stock };
+        }
+        return { label: `In Stock (${stock})`, color: '#15803d', bg: '#dcfce7', stock };
     }
     if (stock <= 0) return { label: 'Out of Stock', color: '#b91c1c', bg: '#fee2e2', stock };
     if (stock <= critical) return { label: `Low (${stock})`, color: '#c2410c', bg: '#ffedd5', stock };
@@ -80,7 +107,7 @@ const getStockStatus = (p) => {
 
 const getAvailableStock = (p) => {
     if (isService(p)) return Infinity;
-    if (allowsMinusQty(p)) return Infinity;
+    if (isInfiniteQty(p) || allowsMinusQty(p)) return Infinity;
     return parseFloat(p?.qtyOnHand ?? p?.stock ?? p?.openingQty ?? 0) || 0;
 };
 
@@ -759,8 +786,8 @@ function ProductCard({ product, cartItem, onAdd, onInc, onDec }) {
     const qty = cartItem?.quantity || 0;
     const inCart = qty > 0;
     const serviceFlag = isService(product);
-    const outOfStock = !serviceFlag && !allowsMinusQty(product) && (stockInfo.stock ?? 0) <= 0;
-    const atMax = !serviceFlag && !allowsMinusQty(product) && qty >= (stockInfo.stock ?? 0);
+    const outOfStock = !serviceFlag && !isInfiniteQty(product) && !allowsMinusQty(product) && (stockInfo.stock ?? 0) <= 0;
+    const atMax = !serviceFlag && !isInfiniteQty(product) && !allowsMinusQty(product) && qty >= (stockInfo.stock ?? 0);
     const decimalAllowed = allowsDecimalQty(product);
 
     return (

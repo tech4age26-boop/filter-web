@@ -270,6 +270,11 @@ export default function OrderBuilder({ orderInfo, department, createdOrderId, de
                             {filtered.map(p => {
                                 const inCart = cart.find(i => i.id === p.id);
                                 const outOfStock = !p.allowMinusQty && p.stock <= 0;
+                                const stockLabel = outOfStock
+                                    ? 'Out of Stock'
+                                    : (p.allowMinusQty && p.stock <= 0
+                                        ? `Available: ${p.stock}`
+                                        : `Available: ${p.stock}`);
                                 return (
                                     <div key={p.id} style={{
                                         background: '#fff', borderRadius: 20, padding: '16px 20px', border: `2px solid ${inCart ? '#FCC247' : '#f1f5f9'}`,
@@ -281,8 +286,8 @@ export default function OrderBuilder({ orderInfo, department, createdOrderId, de
                                                 {inCart && <Check size={16} color="#FCC247" strokeWidth={3} />}
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '4px 10px', borderRadius: 8, background: outOfStock ? '#FEE2E2' : '#DCFCE7', color: outOfStock ? '#B91C1C' : '#15803D' }}>
-                                                    {outOfStock ? 'Out of Stock' : `Available: ${p.stock}`}
+                                                <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '4px 10px', borderRadius: 8, background: outOfStock ? '#FEE2E2' : (p.allowMinusQty && p.stock <= 0 ? '#EDE9FE' : '#DCFCE7'), color: outOfStock ? '#B91C1C' : (p.allowMinusQty && p.stock <= 0 ? '#7C3AED' : '#15803D') }}>
+                                                    {stockLabel}
                                                 </span>
                                                 <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 700 }}>Unit: {p.unit}</span>
                                             </div>
