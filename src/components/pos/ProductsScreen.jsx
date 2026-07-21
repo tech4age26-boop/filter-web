@@ -30,8 +30,19 @@ const parsePrice = (p) => {
 const isService = (p) =>
     p?.type === 'service' || p?.typeLabel === 'Services' || p?.isService === true || p?.isServiceType === true;
 
+/** Master-catalog `serviceQty`: non-null (typically 1) means cashier may change qty. */
+const allowsServiceQty = (p) => {
+    if (!isService(p)) return true;
+    const v = p?.serviceQty ?? p?.service_qty;
+    if (v === true || v === 1) return true;
+    if (v == null || v === '' || v === false || v === 0) return false;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0;
+};
+
 // Reference _parseAllowDecimalQty: bool / "true"/"1"/"yes" / known UOM fallback.
 const allowsDecimalQty = (p) => {
+    if (isService(p)) return false;
     const v = p?.allowDecimalQty ?? p?.allow_decimal_qty;
     if (v === true) return true;
     if (v === false) return false;
@@ -65,13 +76,40 @@ const getMinEditablePrice = (p) => {
     return Number.isFinite(n) && n >= 0 ? n : 0;
 };
 
+const isInfiniteQty = (p) => {
+    const v = p?.isInfiniteQty ?? p?.is_infinite_qty;
+    if (v === true) return true;
+    if (v === false) return false;
+    if (typeof v === 'string') {
+        const s = v.trim().toLowerCase();
+        return s === 'true' || s === '1' || s === 'yes';
+    }
+    return false;
+};
+
 // Respects backend's criticalStockPoint (per-product); falls back to 5 (reference default).
 const getStockStatus = (p) => {
     if (isService(p)) return { label: 'Service', color: '#15803d', bg: '#dcfce7' };
-    const stock = parseFloat(p?.qtyOnHand ?? p?.stock ?? p?.openingQty ?? 0) || 0;
+    if (isInfiniteQty(p)) {
+        return { label: 'Infinite', color: '#15803d', bg: '#dcfce7', stock: Infinity };
+    }
+    const rawQty = p?.qtyOnHand ?? p?.stock ?? p?.openingQty;
+    const stock = rawQty == null || rawQty === ''
+        ? 0
+        : (parseFloat(rawQty) || 0);
     const critical = Math.max(parseFloat(p?.criticalStockPoint ?? 5) || 5, 0);
-    if (allowsMinusQty(p) && stock < 0) {
-        return { label: `Backorder (${stock})`, color: '#7c3aed', bg: '#ede9fe', stock };
+    // allowMinusQty: still sellable at 0 / negative — never show Out of Stock.
+    if (allowsMinusQty(p)) {
+        if (stock < 0) {
+            return { label: `Backorder (${stock})`, color: '#7c3aed', bg: '#ede9fe', stock };
+        }
+        if (stock <= 0) {
+            return { label: `Available (${stock})`, color: '#7c3aed', bg: '#ede9fe', stock };
+        }
+        if (stock <= critical) {
+            return { label: `Low (${stock})`, color: '#c2410c', bg: '#ffedd5', stock };
+        }
+        return { label: `In Stock (${stock})`, color: '#15803d', bg: '#dcfce7', stock };
     }
     if (stock <= 0) return { label: 'Out of Stock', color: '#b91c1c', bg: '#fee2e2', stock };
     if (stock <= critical) return { label: `Low (${stock})`, color: '#c2410c', bg: '#ffedd5', stock };
@@ -80,7 +118,7 @@ const getStockStatus = (p) => {
 
 const getAvailableStock = (p) => {
     if (isService(p)) return Infinity;
-    if (allowsMinusQty(p)) return Infinity;
+    if (isInfiniteQty(p) || allowsMinusQty(p)) return Infinity;
     return parseFloat(p?.qtyOnHand ?? p?.stock ?? p?.openingQty ?? 0) || 0;
 };
 
@@ -233,6 +271,8 @@ export default function ProductsScreen() {
             let q = parseFloat(newQty);
             if (!isFinite(q) || q <= 0) q = 0;
             if (!decimal) q = Math.floor(q);
+            // Service qty OFF → lock at 1 (cannot increase beyond).
+            if (isService(item.product) && !allowsServiceQty(item.product) && q > 1) q = 1;
             if (isFinite(max) && q > max) q = max; // don't exceed on-hand
             return { ...item, quantity: q };
         }).filter(i => i.quantity > 0));
@@ -759,8 +799,11 @@ function ProductCard({ product, cartItem, onAdd, onInc, onDec }) {
     const qty = cartItem?.quantity || 0;
     const inCart = qty > 0;
     const serviceFlag = isService(product);
-    const outOfStock = !serviceFlag && !allowsMinusQty(product) && (stockInfo.stock ?? 0) <= 0;
-    const atMax = !serviceFlag && !allowsMinusQty(product) && qty >= (stockInfo.stock ?? 0);
+    const outOfStock = !serviceFlag && !isInfiniteQty(product) && !allowsMinusQty(product) && (stockInfo.stock ?? 0) <= 0;
+    const serviceQtyLocked = serviceFlag && !allowsServiceQty(product);
+    const atMax =
+        (serviceQtyLocked && qty >= 1) ||
+        (!serviceFlag && !isInfiniteQty(product) && !allowsMinusQty(product) && qty >= (stockInfo.stock ?? 0));
     const decimalAllowed = allowsDecimalQty(product);
 
     return (
@@ -856,6 +899,7 @@ function CartLine({
 }) {
     const p = item.product;
     const decimalAllowed = allowsDecimalQty(p);
+    const serviceQtyLocked = isService(p) && !allowsServiceQty(p);
     const unit = getUnit(p);
     const priceEditable = isPriceEditable(p);
     const minEditablePrice = getMinEditablePrice(p);
@@ -871,16 +915,17 @@ function CartLine({
                     {/* Quantity stepper with inline editable qty */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', padding: '2px 4px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                            <button onClick={onDec} style={qtyBtnSm}><Minus size={10} /></button>
+                            <button onClick={onDec} style={qtyBtnSm} disabled={serviceQtyLocked && item.quantity <= 1}><Minus size={10} /></button>
                             <input
                                 type="number"
                                 step={1}
                                 min={decimalAllowed ? 0.1 : 1}
                                 value={item.quantity}
                                 onChange={e => onSetQty(e.target.value)}
-                                style={{ width: 44, border: 'none', background: 'transparent', fontWeight: 800, fontSize: '0.75rem', textAlign: 'center', outline: 'none', fontFamily: 'inherit' }}
+                                readOnly={serviceQtyLocked}
+                                style={{ width: 44, border: 'none', background: 'transparent', fontWeight: 800, fontSize: '0.75rem', textAlign: 'center', outline: 'none', fontFamily: 'inherit', opacity: serviceQtyLocked ? 0.7 : 1 }}
                             />
-                            <button onClick={onInc} style={qtyBtnSm}><Plus size={10} /></button>
+                            <button onClick={onInc} style={qtyBtnSm} disabled={serviceQtyLocked}><Plus size={10} /></button>
                         </div>
                         {unit && <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700 }}>{unit}</span>}
                         <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>

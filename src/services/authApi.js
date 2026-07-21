@@ -25,6 +25,15 @@ export async function adminLogin(email, password) {
     });
 }
 
+/** Generic user login (any user_type, e.g. referrer_user). */
+export async function userLogin(email, password) {
+    return authRequest('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
+        body: JSON.stringify({ email, password }),
+    });
+}
+
 export async function corporateLogin(email, password) {
     return authRequest('/auth/corporate/login', {
         method: 'POST',

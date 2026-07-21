@@ -5,6 +5,26 @@ import { apiFetch } from '../../services/api';
 const VAT_RATE = 0.15;
 const PAYMENT_METHODS = ['Cash', 'Card', 'Bank Transfer'];
 
+const isPriceEditable = (p) =>
+    p?.isPriceEditable === true ||
+    p?.is_price_editable === true ||
+    String(p?.isPriceEditable ?? '').toLowerCase() === 'true';
+
+const getMinEditablePrice = (p) => {
+    const n = parseFloat(p?.minPriceEditable ?? p?.min_price_editable);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+};
+
+const catalogUnitPrice = (p) => parseFloat(p?.salePrice ?? p?.price ?? 0) || 0;
+
+const lineUnitPrice = (entry) => {
+    const override = parseFloat(entry?.unitPrice);
+    if (Number.isFinite(override) && override > 0 && isPriceEditable(entry.product)) {
+        return override;
+    }
+    return catalogUnitPrice(entry.product);
+};
+
 export default function TakeawayScreen() {
     const [catalog, setCatalog] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -64,7 +84,17 @@ export default function TakeawayScreen() {
     }, [catalog, currentDept, selectedCat, search]);
 
     const addToCart = (p) => {
-        setCart(prev => ({ ...prev, [p.id]: { product: p, qty: (prev[p.id]?.qty || 0) + 1 } }));
+        setCart(prev => {
+            const existing = prev[p.id];
+            return {
+                ...prev,
+                [p.id]: {
+                    product: p,
+                    qty: (existing?.qty || 0) + 1,
+                    unitPrice: existing?.unitPrice ?? catalogUnitPrice(p),
+                },
+            };
+        });
     };
     const decToCart = (id) => {
         setCart(prev => {
@@ -75,10 +105,31 @@ export default function TakeawayScreen() {
         });
     };
     const removeItem = (id) => setCart(prev => { const n = { ...prev }; delete n[id]; return n; });
+    const setLineUnitPrice = (id, value) => {
+        const product = cart[id]?.product;
+        if (!product || !isPriceEditable(product)) return;
+        const parsed = parseFloat(value);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            setCart(prev => ({
+                ...prev,
+                [id]: { ...prev[id], unitPrice: catalogUnitPrice(product) },
+            }));
+            return;
+        }
+        const min = getMinEditablePrice(product);
+        if (parsed < min - 0.005) {
+            alert(`Price cannot be below SAR ${min.toFixed(2)} for this product.`);
+            return;
+        }
+        setCart(prev => ({
+            ...prev,
+            [id]: { ...prev[id], unitPrice: Math.round(parsed * 100) / 100 },
+        }));
+    };
 
     const cartItems = Object.values(cart);
     const cartCount = cartItems.reduce((s, { qty }) => s + qty, 0);
-    const subtotal = cartItems.reduce((s, { product, qty }) => s + (parseFloat(product.salePrice ?? product.price ?? 0) * qty), 0);
+    const subtotal = cartItems.reduce((s, entry) => s + lineUnitPrice(entry) * entry.qty, 0);
     const discountAmt = Math.max(0, Math.min(parseFloat(discount) || 0, subtotal));
     const afterDiscount = subtotal - discountAmt;
     const vat = afterDiscount * VAT_RATE;
@@ -88,14 +139,19 @@ export default function TakeawayScreen() {
         if (cartItems.length === 0) return;
         setCheckingOut(true);
         try {
-            const items = cartItems.map(({ product, qty }) => ({
-                productId: product.id,
-                quantity: qty,
-                unitPrice: parseFloat(product.salePrice ?? product.price ?? 0),
-            }));
+            const items = cartItems.map((entry) => {
+                const unitPrice = lineUnitPrice(entry);
+                return {
+                    productId: entry.product.id,
+                    qty: entry.qty,
+                    unitPrice,
+                };
+            });
             await apiFetch('/cashier/takeaway/checkout', {
                 method: 'POST',
                 body: JSON.stringify({
+                    customerName: 'Walk-in Customer',
+                    customerMobile: '+966500000000',
                     items,
                     paymentMethod: payMethod,
                     discount: discountAmt,
@@ -195,9 +251,13 @@ export default function TakeawayScreen() {
                                 const originalPrice = parseFloat(p.salePrice ?? p.price ?? 0);
                                 const priceIncVat = (originalPrice * (1 + VAT_RATE));
                                 const allowsMinus = p.allowMinusQty === true || p.allow_minus_qty === true
-                                    || String(p.allowMinusQty ?? '').toLowerCase() === 'true';
-                                const qty = p.qtyOnHand ?? p.stock ?? 0;
+                                    || String(p.allowMinusQty ?? '').toLowerCase() === 'true'
+                                    || String(p.allow_minus_qty ?? '').toLowerCase() === 'true';
+                                const qty = Number(p.qtyOnHand ?? p.stock ?? 0) || 0;
                                 const outOfStock = !allowsMinus && qty <= 0;
+                                const stockLabel = allowsMinus
+                                    ? (qty < 0 ? `Backorder: ${qty}` : `Available: ${qty}`)
+                                    : (outOfStock ? 'No Stock' : `In Stock: ${qty}`);
                                 
                                 return (
                                     <div key={p.id} style={{ 
@@ -212,8 +272,8 @@ export default function TakeawayScreen() {
                                         <div style={{ flex: 1 }}>
                                             <p style={{ margin: '0 0 6px', fontWeight: 800, fontSize: '0.9rem', color: '#1E2124', lineHeight: 1.4 }}>{p.name}</p>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                <span style={{ fontSize: '0.65rem', fontWeight: 800, padding: '3px 8px', borderRadius: 6, background: outOfStock ? '#FEE2E2' : '#DCFCE7', color: outOfStock ? '#B91C1C' : '#15803D' }}>
-                                                    {outOfStock ? 'No Stock' : `In Stock: ${qty}`}
+                                                <span style={{ fontSize: '0.65rem', fontWeight: 800, padding: '3px 8px', borderRadius: 6, background: outOfStock ? '#FEE2E2' : (allowsMinus && qty <= 0 ? '#EDE9FE' : '#DCFCE7'), color: outOfStock ? '#B91C1C' : (allowsMinus && qty <= 0 ? '#7C3AED' : '#15803D') }}>
+                                                    {stockLabel}
                                                 </span>
                                             </div>
                                         </div>
@@ -228,7 +288,7 @@ export default function TakeawayScreen() {
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#23262D', borderRadius: 12, padding: '4px 10px', color: '#FCC247' }}>
                                                     <button onClick={() => decToCart(p.id)} style={qtyBtnDark}><Minus size={12} /></button>
                                                     <span style={{ fontWeight: 900, minWidth: 20, textAlign: 'center', fontSize: '0.85rem' }}>{inCart}</span>
-                                                    <button onClick={() => addToCart(p)} style={qtyBtnDark} disabled={inCart >= qty}><Plus size={12} /></button>
+                                                    <button onClick={() => addToCart(p)} style={qtyBtnDark} disabled={!allowsMinus && inCart >= qty}><Plus size={12} /></button>
                                                 </div>
                                             ) : (
                                                 <button onClick={() => addToCart(p)} disabled={outOfStock}
@@ -262,13 +322,38 @@ export default function TakeawayScreen() {
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                            {cartItems.map(({ product, qty }) => {
-                                const unitPrice = parseFloat(product.salePrice ?? product.price ?? 0);
+                            {cartItems.map((entry) => {
+                                const { product, qty } = entry;
+                                const unitPrice = lineUnitPrice(entry);
+                                const editable = isPriceEditable(product);
+                                const minPrice = getMinEditablePrice(product);
                                 return (
                                     <div key={product.id} style={{ display: 'flex', gap: 12, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
                                         <div style={{ flex: 1 }}>
                                             <p style={{ margin: '0 0 4px', fontWeight: 800, fontSize: '0.85rem', color: '#1E2124' }}>{product.name}</p>
-                                            <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>{qty} × SAR {unitPrice.toFixed(2)}</p>
+                                            {editable ? (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b' }}>{qty} ×</span>
+                                                        <input
+                                                            type="number"
+                                                            min={minPrice}
+                                                            step="0.01"
+                                                            value={entry.unitPrice ?? unitPrice}
+                                                            onChange={(e) => setLineUnitPrice(product.id, e.target.value)}
+                                                            style={{ width: 88, padding: '4px 6px', border: '1.5px solid #FCC247', borderRadius: 6, fontSize: '0.75rem', fontWeight: 800, outline: 'none', fontFamily: 'inherit' }}
+                                                        />
+                                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>SAR (VAT inc.)</span>
+                                                    </div>
+                                                    {minPrice > 0 && (
+                                                        <span style={{ fontSize: '0.62rem', color: '#92400e', fontWeight: 700 }}>
+                                                            Min SAR {minPrice.toFixed(2)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>{qty} × SAR {unitPrice.toFixed(2)}</p>
+                                            )}
                                         </div>
                                         <div style={{ textAlign: 'right' }}>
                                             <p style={{ margin: 0, fontWeight: 900, fontSize: '0.9rem', color: '#1E2124' }}>SAR {(unitPrice * qty).toFixed(2)}</p>

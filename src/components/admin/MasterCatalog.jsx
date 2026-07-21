@@ -275,6 +275,21 @@ const toBoolAllowMinus = (obj) => {
     return false;
 };
 
+/** Service qty toggle: ON when serviceQty is a positive number (typically 1); OFF when null. */
+const toBoolServiceQty = (obj) => {
+    if (!obj || typeof obj !== 'object') return false;
+    const raw = obj.serviceQty ?? obj.service_qty;
+    if (raw === true || raw === 1) return true;
+    if (raw === false || raw === 0 || raw == null || raw === '') return false;
+    if (typeof raw === 'string') {
+        const s = raw.trim().toLowerCase();
+        if (s === 'true' || s === 'yes') return true;
+        if (s === 'false' || s === 'no' || s === 'null') return false;
+    }
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0;
+};
+
 /** ISO-8601 from catalog APIs → short local display; empty string if missing/invalid. */
 const formatCatalogCreatedAt = (iso) => {
     if (iso == null || iso === '') return '';
@@ -522,6 +537,7 @@ export default function MasterCatalog() {
         unitOfMeasurement: 'ea',
         sellingPrice: '',
         isPriceEditable: true,
+        serviceQtyEnabled: false,
         minPriceCorporate: '',
         maxPriceCorporate: '',
         departmentId: '',
@@ -955,6 +971,7 @@ export default function MasterCatalog() {
         description: service.description || '',
         sellingPrice: service.sellingPrice == null ? '' : String(service.sellingPrice),
         isPriceEditable: toBoolPriceEditable(service),
+        serviceQtyEnabled: toBoolServiceQty(service),
         minPriceCorporate:
             service.minPriceCorporate == null && service.min_price_corporate == null
                 ? ''
@@ -1296,6 +1313,7 @@ export default function MasterCatalog() {
                 unitOfMeasurement: newService.unitOfMeasurement || 'ea',
                 sellingPrice: newService.sellingPrice === '' ? null : parseNumberOr(newService.sellingPrice, 0),
                 isPriceEditable: !!newService.isPriceEditable,
+                serviceQty: newService.serviceQtyEnabled ? 1 : null,
                 minPriceCorporate: parseNumberOr(newService.minPriceCorporate, 0),
                 maxPriceCorporate: parseNumberOr(newService.maxPriceCorporate, 0),
             });
@@ -1308,6 +1326,7 @@ export default function MasterCatalog() {
                 unitOfMeasurement: 'ea',
                 sellingPrice: '',
                 isPriceEditable: true,
+                serviceQtyEnabled: false,
                 minPriceCorporate: '',
                 maxPriceCorporate: '',
                 departmentId: '',
@@ -1353,6 +1372,7 @@ export default function MasterCatalog() {
                         ? undefined
                         : parseNumberOr(editingService.maxPriceCorporate, 0),
                 isPriceEditable: !!editingService.isPriceEditable,
+                serviceQty: editingService.serviceQtyEnabled ? 1 : null,
                 isActive: !!editingService.isActive,
                 categoryId:
                     editingService.categoryId == null || editingService.categoryId === ''
@@ -2484,10 +2504,12 @@ export default function MasterCatalog() {
                     {displayedServices.map((p) => {
                         const isActive = toBoolActive(p);
                         const priceEditable = toBoolPriceEditable(p);
+                        const serviceQtyOn = toBoolServiceQty(p);
                         const createdRaw = p.createdAt ?? p.created_at;
                         const createdLabel = formatCatalogCreatedAt(createdRaw);
                         const activeBusy = serviceToggleBusyKey === `${catalogItemId(p)}:isActive`;
                         const priceBusy = serviceToggleBusyKey === `${catalogItemId(p)}:isPriceEditable`;
+                        const qtyBusy = serviceToggleBusyKey === `${catalogItemId(p)}:serviceQty`;
                         return (
                             <div
                                 key={p.id}
@@ -2578,6 +2600,26 @@ export default function MasterCatalog() {
                                                     handleToggleServiceField(p, 'isPriceEditable', !priceEditable);
                                                 }}
                                                 style={{ opacity: priceBusy ? 0.65 : 1, pointerEvents: priceBusy ? 'none' : 'auto' }}
+                                            />
+                                        </div>
+                                        <div className="mc-sc-toggle-group" style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0 }}>
+                                            <div className="mc-toggle-label">
+                                                <strong>Service Qty</strong>
+                                                <span className={serviceQtyOn ? 'mc-toggle-state--on' : ''}>
+                                                    {qtyBusy ? 'Updating...' : serviceQtyOn ? 'Qty ON' : 'Qty OFF'}
+                                                </span>
+                                            </div>
+                                            <div
+                                                className={`mc-toggle-switch${serviceQtyOn ? ' active' : ''}`}
+                                                role="button"
+                                                aria-label={`Toggle ${p.name} service quantity`}
+                                                aria-pressed={serviceQtyOn}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (qtyBusy) return;
+                                                    handleToggleServiceField(p, 'serviceQty', serviceQtyOn ? null : 1);
+                                                }}
+                                                style={{ opacity: qtyBusy ? 0.65 : 1, pointerEvents: qtyBusy ? 'none' : 'auto' }}
                                             />
                                         </div>
                                     </div>
@@ -3057,6 +3099,25 @@ export default function MasterCatalog() {
 
                             <div className="mc-toggle-box blue-toggle">
                                 <div className="mc-toggle-info">
+                                    <strong>Allow Service Qty on POS</strong>
+                                    <span>When ON, cashier can set quantity (default 1). Line total = price × qty (e.g. 3 tyres × SAR 50).</span>
+                                </div>
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={!!newService.serviceQtyEnabled}
+                                        onChange={(e) =>
+                                            setNewService((prev) => ({
+                                                ...prev,
+                                                serviceQtyEnabled: e.target.checked,
+                                            }))
+                                        }
+                                    />
+                                </label>
+                            </div>
+
+                            <div className="mc-toggle-box blue-toggle">
+                                <div className="mc-toggle-info">
                                     <strong>Active Status</strong>
                                     <span>Enable or disable this service across the catalog</span>
                                 </div>
@@ -3261,6 +3322,29 @@ export default function MasterCatalog() {
                                         }
                                     />
                                 </div>
+                            </div>
+
+                            <div className="mc-toggle-box blue-toggle" style={{ marginTop: 12 }}>
+                                <div className="mc-toggle-info">
+                                    <strong>Allow Service Qty on POS</strong>
+                                    <span>
+                                        {editingService.serviceQtyEnabled
+                                            ? 'Cashier can change qty (default 1). Total = price × qty'
+                                            : 'Qty fixed at 1 on POS'}
+                                    </span>
+                                </div>
+                                <div
+                                    className={`mc-toggle-switch small${editingService.serviceQtyEnabled ? ' active' : ''}`}
+                                    role="button"
+                                    aria-label="Toggle service quantity"
+                                    aria-pressed={!!editingService.serviceQtyEnabled}
+                                    onClick={() =>
+                                        setEditingService((prev) => ({
+                                            ...prev,
+                                            serviceQtyEnabled: !prev.serviceQtyEnabled,
+                                        }))
+                                    }
+                                />
                             </div>
 
                             <div className="mc-modal-footer row">

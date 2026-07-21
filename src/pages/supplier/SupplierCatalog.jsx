@@ -13,14 +13,12 @@ import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import { UNIT_OPTIONS } from '../workshop/constants';
 import {
-    createSupplierProduct,
+    bulkAddMasterProductsToInventory,
     createSupplierProductRequest,
     getSupplierLocations,
     listSupplierMasterCatalogProducts,
     listSupplierProductRequests,
     fetchAllSupplierProducts,
-    setSupplierStock,
-    updateSupplierProduct,
 } from '../../services/supplierApi';
 import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 import { formatUomRule } from '../workshop/workshopUomUtils';
@@ -221,28 +219,17 @@ export default function SupplierCatalog() {
 
     const myInventoryKeyset = useMemo(() => {
         const byMasterId = new Set();
-        const bySku = new Set();
-        const byName = new Set();
         (existingSupplierProducts || []).forEach((p) => {
             const masterId = String(p?.masterProductId || '').trim();
             if (masterId) byMasterId.add(masterId);
-            if (p?.sku) bySku.add(String(p.sku).trim().toLowerCase());
-            const nm = String(p?.productName || p?.name || '').trim().toLowerCase();
-            if (nm) byName.add(nm);
         });
-        return { byMasterId, bySku, byName };
+        return { byMasterId };
     }, [existingSupplierProducts]);
 
     const isAlreadyAdded = useCallback(
         (p) => {
             const masterId = String(p?.id || '').trim();
-            if (masterId && myInventoryKeyset.byMasterId.has(masterId)) return true;
-            const skuKey = String(p?.sku || '').trim().toLowerCase();
-            const nameKey = String(p?.name || '').trim().toLowerCase();
-            return (
-                (!!skuKey && myInventoryKeyset.bySku.has(skuKey)) ||
-                (!!nameKey && myInventoryKeyset.byName.has(nameKey))
-            );
+            return !!masterId && myInventoryKeyset.byMasterId.has(masterId);
         },
         [myInventoryKeyset],
     );
@@ -480,20 +467,7 @@ export default function SupplierCatalog() {
         setInventorySuccess('');
 
         try {
-            const byMasterId = new Map();
-            const bySku = new Map();
-            const byName = new Map();
-            existingSupplierProducts.forEach((p) => {
-                if (p?.masterProductId) {
-                    byMasterId.set(String(p.masterProductId).trim(), p);
-                }
-                if (p?.sku) bySku.set(String(p.sku).trim().toLowerCase(), p);
-                if (p?.name || p?.productName) {
-                    byName.set(String(p.name || p.productName).trim().toLowerCase(), p);
-                }
-            });
-
-            for (const master of selectedMasterProducts) {
+            const items = selectedMasterProducts.map((master) => {
                 const id = String(master.id);
                 const row = inventoryQtyForm[id] || {
                     openingQty: '0',
@@ -502,9 +476,12 @@ export default function SupplierCatalog() {
                 };
                 const openingQty = Math.max(0, Number(row.openingQty || 0));
                 const stockQty = Math.max(0, Number(row.stockQty || 0));
-
+                const payload = {
+                    masterProductId: id,
+                    openingQty: Number.isFinite(openingQty) ? openingQty : 0,
+                    stockQty: Number.isFinite(stockQty) ? stockQty : 0,
+                };
                 const critRaw = row.criticalStockLevel;
-                let criticalStockAlert;
                 if (
                     critRaw !== '' &&
                     critRaw !== undefined &&
@@ -512,68 +489,33 @@ export default function SupplierCatalog() {
                 ) {
                     const n = Number(critRaw);
                     if (Number.isFinite(n) && n >= 0) {
-                        criticalStockAlert = n;
+                        payload.criticalStockLevel = n;
                     }
                 }
+                return payload;
+            });
 
-                const skuKey = String(master.sku || '').trim().toLowerCase();
-                const nameKey = String(master.name || '').trim().toLowerCase();
-                const masterIdKey = String(master.id || '').trim();
+            const result = await bulkAddMasterProductsToInventory({
+                ...(autoLocationId
+                    ? { supplierLocationId: String(autoLocationId) }
+                    : {}),
+                items,
+            });
 
-                let supplierProductId =
-                    byMasterId.get(masterIdKey)?.id ||
-                    bySku.get(skuKey)?.id ||
-                    byName.get(nameKey)?.id ||
-                    null;
-                const wasExistingSupplierProduct = !!supplierProductId;
-
-                if (!supplierProductId) {
-                    const created = await createSupplierProduct({
-                        productName: master.name,
-                        sku: master.sku || `MC-${master.id}`,
-                        masterProductId: masterIdKey,
-                        categoryId: master.categoryId ? String(master.categoryId) : undefined,
-                        pricePerWarehouseUnit: Number(
-                            master.purchasePrice ?? master.salePrice ?? 0,
-                        ),
-                        reorderLevel: openingQty,
-                        ...(criticalStockAlert !== undefined
-                            ? { criticalStockAlert }
-                            : {}),
-                    });
-                    supplierProductId = created?.product?.id;
-                    if (!supplierProductId) {
-                        throw new Error(`Failed to create supplier product for ${master.name}`);
-                    }
-                }
-
-                if (skuKey) {
-                    bySku.set(skuKey, { id: supplierProductId });
-                }
-                if (nameKey) {
-                    byName.set(nameKey, { id: supplierProductId });
-                }
-                if (masterIdKey) {
-                    byMasterId.set(masterIdKey, { id: supplierProductId });
-                }
-
-                await setSupplierStock({
-                    supplierProductId: String(supplierProductId),
-                    ...(autoLocationId ? { supplierLocationId: String(autoLocationId) } : {}),
-                    currentQuantity: stockQty,
-                });
-
-                if (wasExistingSupplierProduct && criticalStockAlert !== undefined) {
-                    await updateSupplierProduct(String(supplierProductId), {
-                        ...(criticalStockAlert !== undefined
-                            ? { criticalStockAlert }
-                            : {}),
-                    });
-                }
-            }
-
+            const created = Number(result?.created ?? 0);
+            const already = Number(result?.alreadyInInventory ?? 0);
+            const skipped = Array.isArray(result?.skippedMasterProductIds)
+                ? result.skippedMasterProductIds.length
+                : 0;
+            const parts = [];
+            if (created > 0) parts.push(`${created} added`);
+            if (already > 0) parts.push(`${already} already in inventory`);
+            if (skipped > 0) parts.push(`${skipped} skipped (inactive/missing)`);
             setInventorySuccess(
-                `${selectedMasterProducts.length} product(s) added to inventory successfully.`,
+                parts.length > 0
+                    ? `Inventory updated: ${parts.join(', ')}.`
+                    : result?.message ||
+                          `${selectedMasterProducts.length} product(s) processed.`,
             );
             setAddInventoryOpen(false);
             setSelectedProductIds(new Set());
@@ -908,30 +850,11 @@ export default function SupplierCatalog() {
                         let supplierWhQty = 0;
                         let supplierProductInactive = false;
                         if (added && masterProduct) {
-                            const skuKey = String(masterProduct.sku || '')
-                                .trim()
-                                .toLowerCase();
-                            const nameKey = String(masterProduct.name || '')
-                                .trim()
-                                .toLowerCase();
-                            const sp =
-                                existingSupplierProducts.find(
-                                    (p) =>
-                                        String(p.masterProductId || '') ===
-                                        String(masterProduct.id),
-                                ) ||
-                                existingSupplierProducts.find(
-                                    (p) =>
-                                        skuKey &&
-                                        String(p.sku || '').trim().toLowerCase() === skuKey,
-                                ) ||
-                                existingSupplierProducts.find(
-                                    (p) =>
-                                        nameKey &&
-                                        String(p.name || p.productName || '')
-                                            .trim()
-                                            .toLowerCase() === nameKey,
-                                );
+                            const sp = existingSupplierProducts.find(
+                                (p) =>
+                                    String(p.masterProductId || '') ===
+                                    String(masterProduct.id),
+                            );
                             supplierProductInactive = sp?.isActive === false;
                             supplierWhQty = Number(
                                 sp?.warehouseQty ?? sp?.qty ?? sp?.currentQuantity ?? 0,

@@ -141,6 +141,11 @@ export const getSupplierProduct = (productId) =>
     apiFetch(`/supplier/products/${productId}`);
 export const createSupplierProduct = (body) =>
     apiFetch('/supplier/products', { method: 'POST', body: JSON.stringify(body) });
+export const bulkAddMasterProductsToInventory = (body) =>
+    apiFetch('/supplier/products/bulk-add-from-master', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
 export const updateSupplierProduct = (productId, body) =>
     apiFetch(`/supplier/products/${productId}`, {
         method: 'PATCH',

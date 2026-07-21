@@ -161,8 +161,21 @@ export default function ProductSelectionModal({
                                         const selItem = selectedProducts.find(sp => String(sp.id) === String(p.id));
                                         const allowsMinus = p.allowMinusQty === true || p.allow_minus_qty === true
                                             || String(p.allowMinusQty ?? '').toLowerCase() === 'true';
-                                        const stock = p.qtyOnHand ?? 0;
-                                        const inStock = p.isService || allowsMinus || stock > 0;
+                                        const infinite = p.isInfiniteQty === true || p.is_infinite_qty === true
+                                            || String(p.isInfiniteQty ?? '').toLowerCase() === 'true';
+                                        // null qtyOnHand = infinite / unknown physical — treat as sellable when flagged
+                                        const stockRaw = p.qtyOnHand;
+                                        const stock = stockRaw == null || stockRaw === ''
+                                            ? (infinite ? Infinity : 0)
+                                            : Number(stockRaw) || 0;
+                                        const inStock = p.isService || allowsMinus || infinite || stock > 0;
+                                        const stockTag = p.isService
+                                            ? 'Service'
+                                            : infinite
+                                                ? 'Infinite'
+                                                : allowsMinus && stock <= 0
+                                                    ? `Available: ${stock}`
+                                                    : `Stock: ${Number.isFinite(stock) ? stock : 0}`;
                                         return (
                                             <div 
                                                 key={p.uniqueKey} 
@@ -175,7 +188,7 @@ export default function ProductSelectionModal({
                                                         {selItem && <div className="sel-badge"><Check size={14} /></div>}
                                                     </div>
                                                     <div className="p-card-mid">
-                                                        <span className={`tag ${p.isService ? 'service' : 'product'}`}>{p.isService ? 'Service' : `Stock: ${stock}`}</span>
+                                                        <span className={`tag ${p.isService ? 'service' : 'product'}`}>{stockTag}</span>
                                                         <span className="unit">{p.unit || 'Unit'}</span>
                                                     </div>
                                                     <div className="p-card-bottom">
