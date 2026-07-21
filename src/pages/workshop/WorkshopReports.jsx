@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
 import RowActionsMenu from '../../components/RowActionsMenu';
 import '../../styles/RowActionsMenu.css';
@@ -495,8 +494,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     // Applied range — what the fetches actually query.
     const [rangeFromLocal, setRangeFromLocal] = useState(initialRange.start);
     const [rangeToLocal, setRangeToLocal] = useState(initialRange.end);
-    // Draft range — what the date inputs edit; committed to the applied range
-    // only when the user clicks "Apply" (so typing a range doesn't auto-fetch).
+    // Draft range — committed only when the user clicks Apply.
     const [draftRangeFrom, setDraftRangeFrom] = useState(initialRange.start);
     const [draftRangeTo, setDraftRangeTo] = useState(initialRange.end);
     const [activeTab, setActiveTab] = useState(() => visibleReportTabIds[0] ?? 'recent_orders');
@@ -807,24 +805,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         }
     }, [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, byServiceTechnicianId]);
 
-    /** True when the draft date range differs from the currently applied one. */
     const rangeDirty =
         draftRangeFrom !== rangeFromLocal || draftRangeTo !== rangeToLocal;
 
-    /**
-     * Commit the draft date range to the applied range. Changing the applied
-     * range re-runs `loadReports` (and the recent-orders / summary fetches) via
-     * their effects. If the range is unchanged, reload directly so the button
-     * still works as a manual refresh.
-     */
     const applyDateRange = useCallback(() => {
-        if (rangeDirty) {
-            setRangeFromLocal(draftRangeFrom);
-            setRangeToLocal(draftRangeTo);
-        } else {
-            void loadReports();
-        }
-    }, [rangeDirty, draftRangeFrom, draftRangeTo, loadReports]);
+        if (!rangeDirty) return;
+        setRangeFromLocal(draftRangeFrom);
+        setRangeToLocal(draftRangeTo);
+    }, [rangeDirty, draftRangeFrom, draftRangeTo]);
 
     useEffect(() => {
         const t = setTimeout(() => {
@@ -1877,15 +1865,16 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             aria-label="To date and time"
                         />
                     </div>
-                    <button
-                        type="button"
-                        className="ws-btn-refresh"
-                        onClick={applyDateRange}
-                        disabled={isLoading}
-                    >
-                        <RefreshCw size={14} />{' '}
-                        {isLoading ? 'Loading...' : rangeDirty ? 'Apply' : 'Refresh'}
-                    </button>
+                    {rangeDirty ? (
+                        <button
+                            type="button"
+                            className="ws-btn-refresh"
+                            onClick={applyDateRange}
+                            disabled={isLoading}
+                        >
+                            {isLoading ? 'Loading...' : 'Apply'}
+                        </button>
+                    ) : null}
                 </div>
                 <div className="ws-order-count">
                     <span>{completedOrdersDisplay} completed orders</span>
