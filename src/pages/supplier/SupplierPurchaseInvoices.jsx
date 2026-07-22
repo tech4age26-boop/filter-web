@@ -59,7 +59,8 @@ const TAXES = [
 ];
 
 import {
-    resolveManualInvoiceLineLabel,
+    resolveInvoiceLineProductName,
+    isLikelyGlAccountLabel,
     isManualInvoiceLineComplete,
 } from '../../utils/invoiceLineLabel';
 
@@ -1147,7 +1148,7 @@ export default function SupplierPurchaseInvoices() {
         [catalogItems],
     );
 
-    /** Apply stock row to an existing line — same source as “Search stock inventory”. */
+    /** Apply master-catalog / stock row to an existing purchase line. */
     const applyCatalogPurchaseItemToLine = (lineId, catItem) => {
         const unitPrice = Number(catItem.price) || 0;
         const catalogId =
@@ -1162,6 +1163,7 @@ export default function SupplierPurchaseInvoices() {
                     sku: catItem.sku || '',
                     item: catItem.name,
                     supplierProductId: catalogId,
+                    masterProductId: catItem.masterProductId || catalogId,
                     account:
                         catItem.type === 'Stock'
                             ? '1410 - Inventory Asset'
@@ -1389,6 +1391,7 @@ export default function SupplierPurchaseInvoices() {
             sku: item.sku || '',
             item: item.name,
             supplierProductId: catalogId,
+            masterProductId: item.masterProductId || catalogId,
             account:
                 item.type === 'Stock' ? '1410 - Inventory Asset' : '5100 - Cost of Goods Sold',
             description: '',
@@ -1704,10 +1707,21 @@ export default function SupplierPurchaseInvoices() {
                 qtyNum > 0 ? roundMoney2(fin.lineEx / qtyNum) : 0;
             const inv = findPiCapsRow(line, catalogItems);
             const resolvedUnit = resolvePiLineUnitForApi(line, inv);
+            let productName = resolveInvoiceLineProductName(line, {
+                inventoryItems: catalogItems,
+            });
+            // Never persist the GL account label as the product name for stock lines.
+            if (
+                line.supplierProductId &&
+                (!productName || isLikelyGlAccountLabel(productName))
+            ) {
+                productName =
+                    String(inv?.name || line.item || '').trim() || productName;
+            }
             return {
                 idx,
-                productName: resolveManualInvoiceLineLabel(line),
-                sku: String(line.sku || '').trim() || undefined,
+                productName,
+                sku: String(line.sku || inv?.sku || '').trim() || undefined,
                 supplierProductId:
                     line.supplierProductId != null &&
                     String(line.supplierProductId).trim() !== ''
@@ -1722,18 +1736,27 @@ export default function SupplierPurchaseInvoices() {
 
         if (isDraftSave) {
             // Drafts only need at least one named line; finalize enforces the rest.
-            const namedLine = normalizedLines.find((l) => l.productName);
+            const namedLine = normalizedLines.find(
+                (l) => l.productName && !isLikelyGlAccountLabel(l.productName),
+            );
             if (!namedLine) {
-                setCreateError('Add at least one line with an account or item name to save a draft.');
+                setCreateError(
+                    'Add at least one product line (select from master catalog) to save a draft.',
+                );
                 return;
             }
         } else {
             const bad = normalizedLines.find(
-                (l) => !l.productName || !(l.qty > 0) || l.unitPrice < 0,
+                (l) =>
+                    !l.productName ||
+                    isLikelyGlAccountLabel(l.productName) ||
+                    !(l.qty > 0) ||
+                    l.unitPrice < 0 ||
+                    !l.supplierProductId,
             );
             if (bad) {
                 setCreateError(
-                    `Line ${bad.idx + 1}: select an account (or enter item name), qty > 0, and unit price cannot be negative.`,
+                    `Line ${bad.idx + 1}: select a product from the master catalog, qty > 0, and unit price cannot be negative.`,
                 );
                 return;
             }
@@ -3149,7 +3172,7 @@ export default function SupplierPurchaseInvoices() {
                                                                 ? itemPickerInput
                                                                 : (line.item ?? '')
                                                         }
-                                                        placeholder="Item (optional) — or use account"
+                                                        placeholder="Select product from master catalog"
                                                         onFocus={() => {
                                                             setItemPickerLineId(line.id);
                                                             setItemPickerInput(String(line.item ?? ''));
@@ -3706,7 +3729,7 @@ export default function SupplierPurchaseInvoices() {
                                             <Search size={16} />
                                             <input
                                                 type="text"
-                                                placeholder="Search stock inventory (name or SKU)"
+                                                placeholder="Search master catalog (name or SKU)"
                                                 value={searchQuery}
                                                 onChange={(e) => applySearchQueryPi(e.target.value)}
                                                 onKeyDown={handleKeyDown}

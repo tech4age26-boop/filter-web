@@ -44,13 +44,14 @@ export function resolveManualInvoiceLineLabel(line, searchText = '') {
 export function resolveInvoiceLineProductName(line, options = {}) {
     const searchText = options.searchText ?? line?.item ?? '';
     const item = String(searchText).trim();
-    if (item) return item;
+    if (item && !isLikelyGlAccountLabel(item)) return item;
 
     const productId = String(
         options.productId ??
             line?.supplierStockProductId ??
             line?.supplierProductId ??
             line?.productId ??
+            line?.masterProductId ??
             '',
     ).trim();
     const inventoryItems = options.inventoryItems;
@@ -58,11 +59,16 @@ export function resolveInvoiceLineProductName(line, options = {}) {
         const match = inventoryItems.find((p) => {
             const id = String(p?.id ?? '').trim();
             const sid = String(p?.supplierStockProductId ?? '').trim();
-            return id === productId || sid === productId;
+            const mid = String(p?.masterProductId ?? '').trim();
+            return id === productId || sid === productId || mid === productId;
         });
         const catalogName = String(match?.name ?? '').trim();
-        if (catalogName) return catalogName;
+        if (catalogName && !isLikelyGlAccountLabel(catalogName)) return catalogName;
     }
+
+    // Linked stock/catalog line must never fall back to "Inventory Asset".
+    if (productId && item && !isLikelyGlAccountLabel(item)) return item;
+    if (productId) return item && !isLikelyGlAccountLabel(item) ? item : '';
 
     return resolveManualInvoiceLineLabel(line, searchText);
 }
