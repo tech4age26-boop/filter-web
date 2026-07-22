@@ -28,6 +28,7 @@ import {
     getSuperSupplierPurchaseProducts,
     getSupplierInventoryStockBalances,
     getSupplierSuperSupplierPurchase,
+    listSupplierMasterCatalogProducts,
     listSupplierSuperSuppliers,
     createSupplierSuperSupplier,
     updateSupplierSuperSupplier,
@@ -192,66 +193,129 @@ function splitSuperSupplierPurchaseNotes(notes) {
     return { userNotes, dueIso };
 }
 
-/** Rows from `/supplier/inventory/stock-balances` only — purchase picker must not mix full catalog / services. */
+/** Rows from master catalog for the purchase picker (all active master products). */
+function mapMasterCatalogToPurchasePickerRow(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const mid =
+        raw.id != null && raw.id !== ''
+            ? String(raw.id)
+            : raw.masterProductId != null && raw.masterProductId !== ''
+              ? String(raw.masterProductId)
+              : '';
+    if (!mid) return null;
+    const warehouseUnit =
+        raw.warehouseUnit || raw.unitCode || raw.unit || 'Box';
+    const workshopUnit = raw.workshopUnit || warehouseUnit || 'pcs';
+    const conversionFactor = Number(raw.conversionFactor) || 1;
+    const price = Math.max(0, Number(raw.purchasePrice ?? raw.salePrice ?? 0) || 0);
+    return {
+        /** Sent as supplierProductId — backend accepts master id and auto-adopts. */
+        id: mid,
+        masterProductId: mid,
+        sku: String(raw.sku ?? raw.barcode ?? '').trim(),
+        name: raw.name || raw.productName || 'Product',
+        price,
+        unit: warehouseUnit,
+        warehouseUnit,
+        workshopUnit,
+        conversionFactor,
+        warehouseStockQty: null,
+        stockQtyWorkshop: null,
+        type: 'Stock',
+        stockHint:
+            'Master catalog product — added to Stock Inventory on save if not already listed.',
+        hasPreviousPurchase: false,
+        lastPrice: 0,
+        lastPurchaseMeta: '',
+    };
+}
+
+/** Overlay stock / last-purchase hints onto a master-catalog picker row. */
+function applyStockBalanceHintsToPickerRow(pickerRow, stockRaw) {
+    if (!pickerRow || !stockRaw || typeof stockRaw !== 'object') return pickerRow;
+    const qtyWh = Number(stockRaw.currentBalanceWarehouse || 0);
+    const conversionFactor =
+        Number(stockRaw.conversionFactor) || Number(pickerRow.conversionFactor) || 1;
+    const warehouseUnit =
+        stockRaw.warehouseUnit || pickerRow.warehouseUnit || 'Box';
+    const workshopUnit = stockRaw.workshopUnit || pickerRow.workshopUnit || 'pcs';
+    const unitCostWh =
+        qtyWh > 0
+            ? Number(stockRaw.valueWarehouseSar || 0) / qtyWh
+            : Number(pickerRow.price) || 0;
+    const lastPurchaseRaw =
+        stockRaw && typeof stockRaw.lastPurchase === 'object' && stockRaw.lastPurchase != null
+            ? stockRaw.lastPurchase
+            : null;
+    const hasPreviousPurchase = !!(
+        lastPurchaseRaw && String(lastPurchaseRaw.purchaseDate || '').trim() !== ''
+    );
+    const lastPurchasePriceNum = hasPreviousPurchase
+        ? Number(lastPurchaseRaw.unitPrice ?? stockRaw.lastPurchasePrice ?? 0)
+        : 0;
+    const purchaseDateRaw = String(lastPurchaseRaw?.purchaseDate || '').trim();
+    const supplierLabel = String(
+        lastPurchaseRaw?.superSupplierName || stockRaw.lastPurchaseSupplierLabel || '',
+    ).trim();
+    const lastPurchaseMeta =
+        hasPreviousPurchase && (purchaseDateRaw || supplierLabel)
+            ? [purchaseDateRaw, supplierLabel].filter(Boolean).join(' • ')
+            : '';
+    const adoptedSupplierProductId =
+        stockRaw.productId != null && String(stockRaw.productId).trim() !== ''
+            ? String(stockRaw.productId).trim()
+            : null;
+    return {
+        ...pickerRow,
+        id: adoptedSupplierProductId || pickerRow.id,
+        supplierProductId: adoptedSupplierProductId || undefined,
+        warehouseUnit,
+        workshopUnit,
+        conversionFactor,
+        unit: warehouseUnit,
+        price:
+            Number.isFinite(unitCostWh) && unitCostWh > 0 ? unitCostWh : pickerRow.price,
+        warehouseStockQty: qtyWh,
+        stockQtyWorkshop: Number(stockRaw.currentBalanceWorkshop ?? 0),
+        stockHint:
+            qtyWh >= 0
+                ? `Warehouse stock: ${qtyWh} ${warehouseUnit}${
+                      conversionFactor > 1
+                          ? ` (= ${qtyWh * conversionFactor} ${workshopUnit})`
+                          : ''
+                  }`
+                : pickerRow.stockHint,
+        hasPreviousPurchase,
+        lastPrice: lastPurchasePriceNum,
+        lastPurchaseMeta,
+    };
+}
+
+/** Stock Inventory → Adjust via Purchase preset (supplier product rows). */
 function mapStockBalanceToPurchasePickerRow(raw) {
     if (!raw || typeof raw !== 'object') return null;
+    const mid =
+        raw.masterProductId != null && String(raw.masterProductId).trim() !== ''
+            ? String(raw.masterProductId).trim()
+            : null;
     const pid =
         raw.productId != null && raw.productId !== ''
             ? String(raw.productId)
             : raw.supplierProductId != null && raw.supplierProductId !== ''
               ? String(raw.supplierProductId)
               : '';
-    if (!pid) return null;
-    const qtyWh = Number(raw.currentBalanceWarehouse || 0);
-    const conversionFactor = Number(raw.conversionFactor) || 1;
-    const warehouseUnit =
-        raw.warehouseUnit || raw.unitCode || raw.unit || 'Box';
-    const workshopUnit = raw.workshopUnit || 'pcs';
-    const unitCostWh =
-        qtyWh > 0 ? Number(raw.valueWarehouseSar || 0) / qtyWh : 0;
-    const lastPurchaseRaw =
-        raw && typeof raw.lastPurchase === 'object' && raw.lastPurchase != null
-            ? raw.lastPurchase
-            : null;
-    const hasPreviousPurchase = !!(
-        lastPurchaseRaw &&
-        String(lastPurchaseRaw.purchaseDate || '').trim() !== ''
-    );
-    const lastPurchasePriceNum = hasPreviousPurchase
-        ? Number(lastPurchaseRaw.unitPrice ?? raw.lastPurchasePrice ?? 0)
-        : 0;
-    const purchaseDateRaw = String(lastPurchaseRaw?.purchaseDate || '').trim();
-    const supplierLabel = String(
-        lastPurchaseRaw?.superSupplierName ||
-            raw.lastPurchaseSupplierLabel ||
-            '',
-    ).trim();
-    const lastPurchaseMeta =
-        hasPreviousPurchase && (purchaseDateRaw || supplierLabel)
-            ? [purchaseDateRaw, supplierLabel].filter(Boolean).join(' • ')
-            : '';
-    const price = Number.isFinite(unitCostWh) ? Math.max(0, unitCostWh) : 0;
-    const uom = warehouseUnit;
-    return {
-        id: pid,
-        sku: String(raw.sku ?? raw.barcode ?? '').trim(),
-        name: raw.productName || 'Product',
-        price,
-        unit: uom,
-        warehouseUnit,
-        workshopUnit,
-        conversionFactor,
-        warehouseStockQty: qtyWh,
-        stockQtyWorkshop: Number(raw.currentBalanceWorkshop ?? 0),
-        type: 'Stock',
-        stockHint:
-            qtyWh >= 0
-                ? `Warehouse stock: ${qtyWh} ${warehouseUnit}${conversionFactor > 1 ? ` (= ${qtyWh * conversionFactor} ${workshopUnit})` : ''}`
-                : 'Enter qty in warehouse or workshop UOM; stock-in converts to warehouse units.',
-        hasPreviousPurchase,
-        lastPrice: lastPurchasePriceNum,
-        lastPurchaseMeta,
-    };
+    if (!pid && !mid) return null;
+    const base = mapMasterCatalogToPurchasePickerRow({
+        id: mid || pid,
+        masterProductId: mid || pid,
+        name: raw.productName,
+        sku: raw.sku ?? raw.barcode,
+        warehouseUnit: raw.warehouseUnit || raw.unitCode || raw.unit,
+        workshopUnit: raw.workshopUnit,
+        conversionFactor: raw.conversionFactor,
+        purchasePrice: 0,
+    });
+    return applyStockBalanceHintsToPickerRow(base, raw);
 }
 
 function normPiUomLabel(u) {
@@ -267,7 +331,11 @@ function isPiWarehouseUomLine(line, inv) {
 function findPiCapsRow(line, inventoryItems) {
     const pid = String(line?.supplierProductId ?? '').trim();
     if (!pid) return null;
-    return inventoryItems.find((inv) => String(inv.id) === pid) ?? null;
+    return (
+        inventoryItems.find((inv) => String(inv.id) === pid) ??
+        inventoryItems.find((inv) => String(inv.masterProductId ?? '') === pid) ??
+        null
+    );
 }
 
 function linePiUomOptions(line, inv) {
@@ -791,17 +859,41 @@ export default function SupplierPurchaseInvoices() {
         if (!modalOpen) return undefined;
         let cancelled = false;
         setCatalogLoading(true);
-        const params = { limit: 500, offset: 0 };
+        const stockParams = { limit: 2000, offset: 0 };
         if (superSupplierId) {
-            params.superSupplierId = String(superSupplierId);
+            stockParams.superSupplierId = String(superSupplierId);
         }
-        getSupplierInventoryStockBalances(params)
-            .then((res) => {
-                const raw = Array.isArray(res?.items) ? res.items : [];
-                const mapped = raw
-                    .map((row) => mapStockBalanceToPurchasePickerRow(row))
+        Promise.all([
+            listSupplierMasterCatalogProducts(),
+            getSupplierInventoryStockBalances(stockParams).catch(() => ({ items: [] })),
+        ])
+            .then(([masterRes, stockRes]) => {
+                if (cancelled) return;
+                const masters = Array.isArray(masterRes?.products)
+                    ? masterRes.products
+                    : Array.isArray(masterRes?.items)
+                      ? masterRes.items
+                      : Array.isArray(masterRes)
+                        ? masterRes
+                        : [];
+                const stockRows = Array.isArray(stockRes?.items) ? stockRes.items : [];
+                const stockByMasterId = new Map();
+                for (const row of stockRows) {
+                    const mid =
+                        row?.masterProductId != null && String(row.masterProductId).trim() !== ''
+                            ? String(row.masterProductId).trim()
+                            : '';
+                    if (mid) stockByMasterId.set(mid, row);
+                }
+                const mapped = masters
+                    .map((row) => {
+                        const base = mapMasterCatalogToPurchasePickerRow(row);
+                        if (!base) return null;
+                        const stock = stockByMasterId.get(String(base.masterProductId));
+                        return stock ? applyStockBalanceHintsToPickerRow(base, stock) : base;
+                    })
                     .filter(Boolean);
-                if (!cancelled) setCatalogItems(mapped);
+                setCatalogItems(mapped);
             })
             .catch(() => {
                 if (!cancelled) setCatalogItems([]);
@@ -819,26 +911,59 @@ export default function SupplierPurchaseInvoices() {
         let cancelled = false;
         setLastPurchaseStockRefreshing(true);
         getSupplierInventoryStockBalances({
-            limit: 500,
+            limit: 2000,
             offset: 0,
             superSupplierId: String(superSupplierId),
         })
             .then((res) => {
                 if (cancelled) return;
-                const normalized = (Array.isArray(res?.items) ? res.items : [])
-                    .map((row) => mapStockBalanceToPurchasePickerRow(row))
-                    .filter(Boolean);
-                setCatalogItems((prev) => {
-                    const byId = new Map(normalized.map((r) => [String(r.id), r]));
-                    return prev.map((p) => byId.get(String(p.id)) ?? p);
-                });
+                const stockRows = Array.isArray(res?.items) ? res.items : [];
+                const stockByMasterId = new Map();
+                const stockBySupplierProductId = new Map();
+                for (const row of stockRows) {
+                    const mid =
+                        row?.masterProductId != null && String(row.masterProductId).trim() !== ''
+                            ? String(row.masterProductId).trim()
+                            : '';
+                    const sid =
+                        row?.productId != null && String(row.productId).trim() !== ''
+                            ? String(row.productId).trim()
+                            : '';
+                    if (mid) stockByMasterId.set(mid, row);
+                    if (sid) stockBySupplierProductId.set(sid, row);
+                }
+                const enrich = (row) => {
+                    const stock =
+                        stockBySupplierProductId.get(String(row.id)) ||
+                        stockByMasterId.get(String(row.masterProductId || row.id));
+                    return stock ? applyStockBalanceHintsToPickerRow(row, stock) : row;
+                };
+                setCatalogItems((prev) => prev.map(enrich));
                 setLineItems((prev) =>
                     prev.map((line) => {
                         if (!line.supplierProductId) return line;
-                        const inv = normalized.find(
-                            (x) => String(x.id) === String(line.supplierProductId),
+                        const invKey = String(line.supplierProductId);
+                        const stock =
+                            stockBySupplierProductId.get(invKey) ||
+                            stockByMasterId.get(invKey);
+                        if (!stock) return line;
+                        const inv = applyStockBalanceHintsToPickerRow(
+                            {
+                                id: invKey,
+                                masterProductId: stock.masterProductId || invKey,
+                                name: line.item,
+                                sku: line.sku,
+                                price: Number(line.price) || 0,
+                                unit: line.uom,
+                                warehouseUnit: line.warehouseUnit,
+                                workshopUnit: line.workshopUnitCatalog,
+                                conversionFactor: line.conversionFactor,
+                                hasPreviousPurchase: false,
+                                lastPrice: 0,
+                                lastPurchaseMeta: '',
+                            },
+                            stock,
                         );
-                        if (!inv) return line;
                         const hasPrev = !!inv.hasPreviousPurchase;
                         return applyLineTotals(
                             {
@@ -1001,9 +1126,10 @@ export default function SupplierPurchaseInvoices() {
     const lastPurchaseHintForLine = useCallback(
         (line) => {
             if (line.supplierProductId) {
-                const inv = catalogItems.find(
-                    (x) => String(x.id) === String(line.supplierProductId),
-                );
+                const key = String(line.supplierProductId);
+                const inv =
+                    catalogItems.find((x) => String(x.id) === key) ||
+                    catalogItems.find((x) => String(x.masterProductId ?? '') === key);
                 if (inv) {
                     return {
                         hasPrev: !!inv.hasPreviousPurchase,
@@ -2936,10 +3062,10 @@ export default function SupplierPurchaseInvoices() {
 
                             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '0 0 8px 0' }}>
                                 {catalogLoading
-                                    ? 'Loading warehouse stock…'
+                                    ? 'Loading master catalog…'
                                     : catalogForSearch.length
-                                      ? 'Search products that exist in Stock Inventory (warehouse) to add lines.'
-                                      : 'No stock rows returned. Open Stock Inventory — only listed SKUs appear here.'}
+                                      ? 'Search all master catalog products to add lines. New SKUs are added to Stock Inventory on save.'
+                                      : 'No master catalog products returned.'}
                             </p>
 
                             <div className="pi-lines-section">
@@ -3626,8 +3752,8 @@ export default function SupplierPurchaseInvoices() {
                                                 ) : (
                                                     <div style={{ padding: 14, fontSize: 13, color: '#64748b' }}>
                                                         {catalogForSearch.length === 0
-                                                            ? 'No stock inventory items loaded. Check Stock Inventory — this list matches warehouse stock only.'
-                                                            : 'No matching stock items.'}
+                                                            ? 'No master catalog products loaded.'
+                                                            : 'No matching products.'}
                                                     </div>
                                                 )}
                                             </div>
