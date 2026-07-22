@@ -9,7 +9,7 @@ import {
     getSupplierSuperSupplierPurchase,
     createSupplierSuperSupplierPurchase,
     updateSupplierSuperSupplierPurchase,
-    listSupplierProducts,
+    listSupplierMasterCatalogProducts,
 } from '../../services/supplierApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
@@ -123,16 +123,23 @@ export default function SupplierSuperSupplierPurchasesPanel({
         if (!composer) return undefined;
         let cancelled = false;
         setCatalogLoading(true);
-        listSupplierProducts({ limit: 350 })
+        listSupplierMasterCatalogProducts()
             .then((res) => {
                 if (cancelled) return;
+                const masters = Array.isArray(res?.products)
+                    ? res.products
+                    : Array.isArray(res?.items)
+                      ? res.items
+                      : Array.isArray(res)
+                        ? res
+                        : [];
                 setCatalog(
-                    unwrapProducts(res).map((p) => ({
-                        id: String(p.id ?? p.supplierProductId ?? ''),
+                    masters.map((p) => ({
+                        id: String(p.id ?? ''),
                         name: p.name ?? p.productName ?? 'Item',
                         sku: (p.sku || '').trim(),
-                        unit: (p.unit || p.uom || 'pcs').trim() || 'pcs',
-                        price: Number(p.price ?? p.unitPrice ?? p.sellingPrice ?? 0),
+                        unit: (p.warehouseUnit || p.unit || p.uom || 'pcs').trim() || 'pcs',
+                        price: Number(p.purchasePrice ?? p.salePrice ?? p.price ?? 0),
                     })),
                 );
             })
