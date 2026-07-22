@@ -490,6 +490,8 @@ function lineEnglishName(line) {
     const nested = line?.product && typeof line.product === 'object' ? line.product : null;
     const candidates = [
         nested?.name,
+        line?.catalogProductName,
+        line?.supplierProductName,
         line?.productName,
         line?.product_name,
         line?.itemName,
@@ -497,7 +499,12 @@ function lineEnglishName(line) {
         line?.description,
     ];
     for (const c of candidates) {
-        if (c != null && String(c).trim() !== '') return String(c).trim();
+        if (c == null || String(c).trim() === '') continue;
+        const s = String(c).trim();
+        // Skip GL account labels that were incorrectly stored as productName.
+        if (/^\d{4}(\s*-\s*.+)?$/i.test(s)) continue;
+        if (s.toLowerCase() === 'inventory asset') continue;
+        return s;
     }
     return '—';
 }
