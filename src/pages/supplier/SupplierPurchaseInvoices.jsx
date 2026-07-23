@@ -195,6 +195,15 @@ function splitSuperSupplierPurchaseNotes(notes) {
 }
 
 /** Rows from master catalog for the purchase picker (all active master products). */
+/** Master-catalog warehouse UOM only — never fall back to legacy `unit` (often workshop/liter). */
+function masterCatalogWarehouseUnit(raw, fallback = 'pcs') {
+    const wu = String(raw?.warehouseUnit ?? '').trim();
+    if (wu) return wu;
+    const code = String(raw?.unitCode ?? '').trim();
+    if (code) return code;
+    return fallback;
+}
+
 function mapMasterCatalogToPurchasePickerRow(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const mid =
@@ -204,9 +213,9 @@ function mapMasterCatalogToPurchasePickerRow(raw) {
               ? String(raw.masterProductId)
               : '';
     if (!mid) return null;
-    const warehouseUnit =
-        raw.warehouseUnit || raw.unitCode || raw.unit || 'Box';
-    const workshopUnit = raw.workshopUnit || warehouseUnit || 'pcs';
+    const warehouseUnit = masterCatalogWarehouseUnit(raw, 'pcs');
+    const workshopUnit =
+        String(raw.workshopUnit ?? '').trim() || warehouseUnit;
     const conversionFactor = Number(raw.conversionFactor) || 1;
     const price = Math.max(0, Number(raw.purchasePrice ?? raw.salePrice ?? 0) || 0);
     return {
@@ -237,9 +246,13 @@ function applyStockBalanceHintsToPickerRow(pickerRow, stockRaw) {
     const qtyWh = Number(stockRaw.currentBalanceWarehouse || 0);
     const conversionFactor =
         Number(stockRaw.conversionFactor) || Number(pickerRow.conversionFactor) || 1;
-    const warehouseUnit =
-        stockRaw.warehouseUnit || pickerRow.warehouseUnit || 'Box';
-    const workshopUnit = stockRaw.workshopUnit || pickerRow.workshopUnit || 'pcs';
+    const warehouseUnit = masterCatalogWarehouseUnit(
+        { warehouseUnit: stockRaw.warehouseUnit || pickerRow.warehouseUnit },
+        'pcs',
+    );
+    const workshopUnit =
+        String(stockRaw.workshopUnit || pickerRow.workshopUnit || '').trim() ||
+        warehouseUnit;
     const unitCostWh =
         qtyWh > 0
             ? Number(stockRaw.valueWarehouseSar || 0) / qtyWh
@@ -311,7 +324,7 @@ function mapStockBalanceToPurchasePickerRow(raw) {
         masterProductId: mid || pid,
         name: raw.productName,
         sku: raw.sku ?? raw.barcode,
-        warehouseUnit: raw.warehouseUnit || raw.unitCode || raw.unit,
+        warehouseUnit: masterCatalogWarehouseUnit(raw, 'pcs'),
         workshopUnit: raw.workshopUnit,
         conversionFactor: raw.conversionFactor,
         purchasePrice: 0,
@@ -340,20 +353,19 @@ function findPiCapsRow(line, inventoryItems) {
 }
 
 function linePiUomOptions(line, inv) {
-    const wu = String(inv?.warehouseUnit ?? '').trim();
-    const wsu = String(inv?.workshopUnit ?? '').trim();
+    const wu = String(inv?.warehouseUnit ?? line?.warehouseUnit ?? '').trim();
     if (wu) return [wu];
-    if (wsu) return [wsu];
-    return [String(line?.uom ?? 'Box').trim() || 'Box'];
+    return [String(line?.uom ?? 'pcs').trim() || 'pcs'];
 }
 
-/** Purchase invoices always stock-in in warehouse units (Box), never workshop (Liter). */
+/**
+ * Purchase invoices always stock-in in Master Catalog warehouse UOM
+ * (never legacy `unit` / workshop Liter).
+ */
 function resolvePiLineUnitForApi(line, inv) {
     const wu = String(inv?.warehouseUnit ?? line?.warehouseUnit ?? '').trim();
     if (wu) return wu;
-    const wsu = String(inv?.workshopUnit ?? line?.workshopUnitCatalog ?? '').trim();
-    if (wsu) return wsu;
-    return String(line?.uom ?? 'Box').trim() || 'Box';
+    return String(line?.uom ?? 'pcs').trim() || 'pcs';
 }
 
 function formatPiUomConversionPreview(line, inv) {
@@ -895,6 +907,40 @@ export default function SupplierPurchaseInvoices() {
                     })
                     .filter(Boolean);
                 setCatalogItems(mapped);
+                // Keep open lines on Master Catalog warehouse UOM (never legacy liter/pcs drift).
+                setLineItems((prev) =>
+                    prev.map((line) => {
+                        if (!line.supplierProductId) return line;
+                        const inv =
+                            mapped.find((x) => String(x.id) === String(line.supplierProductId)) ||
+                            mapped.find(
+                                (x) =>
+                                    String(x.masterProductId ?? '') ===
+                                    String(line.supplierProductId),
+                            );
+                        if (!inv) return line;
+                        const whUom = masterCatalogWarehouseUnit(inv, line.uom || 'pcs');
+                        if (
+                            String(line.uom || '') === whUom &&
+                            String(line.warehouseUnit || '') === whUom
+                        ) {
+                            return line;
+                        }
+                        return applyLineTotals(
+                            {
+                                ...line,
+                                uom: whUom,
+                                warehouseUnit: whUom,
+                                workshopUnitCatalog:
+                                    String(inv.workshopUnit ?? '').trim() ||
+                                    line.workshopUnitCatalog,
+                                conversionFactor:
+                                    inv.conversionFactor ?? line.conversionFactor ?? 1,
+                            },
+                            amountsTaxInclusive,
+                        );
+                    }),
+                );
             })
             .catch(() => {
                 if (!cancelled) setCatalogItems([]);
@@ -905,7 +951,7 @@ export default function SupplierPurchaseInvoices() {
         return () => {
             cancelled = true;
         };
-    }, [modalOpen, superSupplierId]);
+    }, [modalOpen, superSupplierId, amountsTaxInclusive]);
 
     useEffect(() => {
         if (!modalOpen || !superSupplierId) return undefined;
@@ -966,13 +1012,18 @@ export default function SupplierPurchaseInvoices() {
                             stock,
                         );
                         const hasPrev = !!inv.hasPreviousPurchase;
+                        const whUom =
+                            masterCatalogWarehouseUnit(inv, '') ||
+                            String(line.warehouseUnit || line.uom || '').trim() ||
+                            'pcs';
                         return applyLineTotals(
                             {
                                 ...line,
-                                uom: line.uom || inv.unit,
-                                warehouseUnit: inv.warehouseUnit ?? line.warehouseUnit,
+                                uom: whUom,
+                                warehouseUnit: whUom,
                                 workshopUnitCatalog:
-                                    inv.workshopUnit ?? line.workshopUnitCatalog,
+                                    String(inv.workshopUnit ?? '').trim() ||
+                                    line.workshopUnitCatalog,
                                 conversionFactor:
                                     inv.conversionFactor ?? line.conversionFactor,
                                 hasPreviousPurchase: hasPrev,
@@ -1168,10 +1219,15 @@ export default function SupplierPurchaseInvoices() {
                         catItem.type === 'Stock'
                             ? '1410 - Inventory Asset'
                             : '5100 - Cost of Goods Sold',
-                    uom: catItem.warehouseUnit || catItem.unit || line.uom || 'Box',
-                    warehouseUnit: catItem.warehouseUnit ?? line.warehouseUnit ?? null,
+                    uom: masterCatalogWarehouseUnit(catItem, line.uom || 'pcs'),
+                    warehouseUnit:
+                        masterCatalogWarehouseUnit(catItem, '') ||
+                        line.warehouseUnit ||
+                        null,
                     workshopUnitCatalog:
-                        catItem.workshopUnit ?? line.workshopUnitCatalog ?? null,
+                        String(catItem.workshopUnit ?? '').trim() ||
+                        line.workshopUnitCatalog ||
+                        null,
                     conversionFactor: catItem.conversionFactor ?? line.conversionFactor ?? 1,
                     price: unitPrice,
                     hasPreviousPurchase: !!catItem.hasPreviousPurchase,
@@ -1306,7 +1362,9 @@ export default function SupplierPurchaseInvoices() {
             supplierProductId: undefined,
             account: '1410 - Inventory Asset',
             description: '',
-            uom: 'Box',
+            uom: 'pcs',
+            warehouseUnit: null,
+            workshopUnitCatalog: null,
             qty: 1,
             price: 0,
             discount: 0,
@@ -1395,9 +1453,9 @@ export default function SupplierPurchaseInvoices() {
             account:
                 item.type === 'Stock' ? '1410 - Inventory Asset' : '5100 - Cost of Goods Sold',
             description: '',
-            uom: item.warehouseUnit || item.unit || 'Box',
-            warehouseUnit: item.warehouseUnit ?? null,
-            workshopUnitCatalog: item.workshopUnit ?? null,
+            uom: masterCatalogWarehouseUnit(item, 'pcs'),
+            warehouseUnit: masterCatalogWarehouseUnit(item, '') || null,
+            workshopUnitCatalog: String(item.workshopUnit ?? '').trim() || null,
             conversionFactor: item.conversionFactor ?? 1,
             qty: 1,
             price: unitPrice,
@@ -1612,7 +1670,9 @@ export default function SupplierPurchaseInvoices() {
                                     : undefined,
                             account: '1410 - Inventory Asset',
                             description: String(it.lineDescription ?? '').trim(),
-                            uom: it.unit || 'Box',
+                            uom: it.unit || 'pcs',
+                            warehouseUnit: it.unit || null,
+                            workshopUnitCatalog: null,
                             qty: String(it.qty ?? 1),
                             price: priceStr,
                             discount: discVal,
@@ -3382,7 +3442,26 @@ export default function SupplierPurchaseInvoices() {
                                             </div>
                                         )}
                                         <div className="pi-col-uom">
-                                            {uomOpts.length > 1 ? (
+                                            {capsRow ? (
+                                                <input
+                                                    type="text"
+                                                    className="pi-row-input"
+                                                    readOnly
+                                                    title="Master Catalog warehouse unit"
+                                                    value={uomOpts[0] || line.uom || 'pcs'}
+                                                    ref={(el) => {
+                                                        lineFieldRefs.current[`${line.id}:uom`] = el;
+                                                    }}
+                                                    onKeyDown={(e) =>
+                                                        handleLineFieldTab(
+                                                            e,
+                                                            line.id,
+                                                            'uom',
+                                                            idx,
+                                                        )
+                                                    }
+                                                />
+                                            ) : uomOpts.length > 1 ? (
                                                 <select
                                                     className="pi-row-input"
                                                     value={line.uom ?? uomOpts[0]}

@@ -549,7 +549,7 @@ function lineUom(line) {
     for (const c of candidates) {
         if (c != null && String(c).trim() !== '') return String(c).trim();
     }
-    return 'piece';
+    return 'pcs';
 }
 
 function lineWorkshopConversionNote(line) {
