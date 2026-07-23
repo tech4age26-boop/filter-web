@@ -2727,7 +2727,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     <th>DATE / TIME</th>
                                     <th>CUSTOMER NAME</th>
                                     <th>PLATE NO</th>
-                                    <th>TOTAL (SAR)</th>
+                                    <th>
+                                        {ordersPaymentMethod
+                                            ? `AMOUNT (${
+                                                  {
+                                                      cash: 'Cash',
+                                                      card: 'Card',
+                                                      bank: 'Bank',
+                                                      wallet: 'Wallet',
+                                                      corporate_credit: 'Corporate',
+                                                      monthly_billing: 'Monthly',
+                                                      pay_monthly: 'Pay Monthly',
+                                                      unpaid: 'Unpaid',
+                                                  }[ordersPaymentMethod] || ordersPaymentMethod
+                                              }, SAR)`
+                                            : 'TOTAL (SAR)'}
+                                    </th>
                                     <th style={{ width: 56 }} />
                                 </tr>
                             </thead>

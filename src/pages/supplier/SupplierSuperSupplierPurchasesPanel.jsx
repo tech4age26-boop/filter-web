@@ -134,13 +134,20 @@ export default function SupplierSuperSupplierPurchasesPanel({
                         ? res
                         : [];
                 setCatalog(
-                    masters.map((p) => ({
-                        id: String(p.id ?? ''),
-                        name: p.name ?? p.productName ?? 'Item',
-                        sku: (p.sku || '').trim(),
-                        unit: (p.warehouseUnit || p.unit || p.uom || 'pcs').trim() || 'pcs',
-                        price: Number(p.purchasePrice ?? p.salePrice ?? p.price ?? 0),
-                    })),
+                    masters.map((p) => {
+                        const warehouseUnit =
+                            String(p.warehouseUnit ?? '').trim() || 'pcs';
+                        return {
+                            id: String(p.id ?? ''),
+                            name: p.name ?? p.productName ?? 'Item',
+                            sku: (p.sku || '').trim(),
+                            unit: warehouseUnit,
+                            warehouseUnit,
+                            workshopUnit:
+                                String(p.workshopUnit ?? '').trim() || warehouseUnit,
+                            price: Number(p.purchasePrice ?? p.salePrice ?? p.price ?? 0),
+                        };
+                    }),
                 );
             })
             .catch(() => {
@@ -267,7 +274,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                               sku: p.sku || '',
                               supplierProductId: p.id,
                               qty: '1',
-                              unit: p.unit || 'pcs',
+                              unit: p.warehouseUnit || p.unit || 'pcs',
                               unitPrice: String(p.price ?? ''),
                           },
                       ],
@@ -771,7 +778,14 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                                             placeholder="pcs"
                                                             style={{ width: 76 }}
                                                             value={ln.unit}
+                                                            readOnly={!!ln.supplierProductId}
+                                                            title={
+                                                                ln.supplierProductId
+                                                                    ? 'Master Catalog warehouse unit'
+                                                                    : undefined
+                                                            }
                                                             onChange={(e) => {
+                                                                if (ln.supplierProductId) return;
                                                                 const v = e.target.value;
                                                                 setComposer((c) =>
                                                                     c
