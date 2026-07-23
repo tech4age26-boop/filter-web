@@ -1244,7 +1244,8 @@ export default function SupplierPurchaseInvoices() {
         setItemPickerLineId(null);
         setItemPickerInput('');
         setItemPickerFilter('');
-        focusLineField(lineId, 'uom');
+        // Focus qty — never UOM (browser autofill was overwriting Box → piece).
+        focusLineField(lineId, 'qty');
     };
 
     const removePurchaseLine = (lineId) => {
@@ -1257,6 +1258,17 @@ export default function SupplierPurchaseInvoices() {
         setLineItems((prev) =>
             prev.map((line) => {
                 if (line.id !== id) return line;
+                // Linked catalog lines: UOM is locked to Master Catalog warehouse unit.
+                if (field === 'uom' && line.supplierProductId) {
+                    const inv = findPiCapsRow(line, catalogItems);
+                    const locked = masterCatalogWarehouseUnit(
+                        inv || { warehouseUnit: line.warehouseUnit },
+                        line.warehouseUnit || line.uom || 'pcs',
+                    );
+                    if (String(value ?? '').trim() !== locked) {
+                        return line;
+                    }
+                }
                 let updated = { ...line, [field]: value };
                 if (field === 'uom') {
                     const inv = findPiCapsRow(line, catalogItems);
@@ -1474,7 +1486,7 @@ export default function SupplierPurchaseInvoices() {
         setLineItems((prev) => [...prev, newLine]);
         setSearchQuery('');
         setShowDropdown(false);
-        pendingFocusLineFieldRef.current = { lineId, fieldName: 'uom' };
+        pendingFocusLineFieldRef.current = { lineId, fieldName: 'qty' };
         return lineId;
     };
 
@@ -3442,13 +3454,23 @@ export default function SupplierPurchaseInvoices() {
                                             </div>
                                         )}
                                         <div className="pi-col-uom">
-                                            {capsRow ? (
+                                            {capsRow || line.supplierProductId ? (
                                                 <input
                                                     type="text"
                                                     className="pi-row-input"
                                                     readOnly
-                                                    title="Master Catalog warehouse unit"
-                                                    value={uomOpts[0] || line.uom || 'pcs'}
+                                                    autoComplete="off"
+                                                    data-1p-ignore="true"
+                                                    data-lpignore="true"
+                                                    name={`pi-uom-locked-${line.id}`}
+                                                    title="Master Catalog warehouse unit (locked)"
+                                                    value={
+                                                        (capsRow
+                                                            ? masterCatalogWarehouseUnit(capsRow, '')
+                                                            : '') ||
+                                                        String(line.warehouseUnit || line.uom || 'pcs').trim() ||
+                                                        'pcs'
+                                                    }
                                                     ref={(el) => {
                                                         lineFieldRefs.current[`${line.id}:uom`] = el;
                                                     }}
@@ -3461,40 +3483,15 @@ export default function SupplierPurchaseInvoices() {
                                                         )
                                                     }
                                                 />
-                                            ) : uomOpts.length > 1 ? (
-                                                <select
-                                                    className="pi-row-input"
-                                                    value={line.uom ?? uomOpts[0]}
-                                                    ref={(el) => {
-                                                        lineFieldRefs.current[`${line.id}:uom`] = el;
-                                                    }}
-                                                    onChange={(e) =>
-                                                        updateLineItem(
-                                                            line.id,
-                                                            'uom',
-                                                            e.target.value,
-                                                        )
-                                                    }
-                                                    onKeyDown={(e) =>
-                                                        handleLineFieldTab(
-                                                            e,
-                                                            line.id,
-                                                            'uom',
-                                                            idx,
-                                                        )
-                                                    }
-                                                >
-                                                    {uomOpts.map((opt) => (
-                                                        <option key={opt} value={opt}>
-                                                            {opt}
-                                                        </option>
-                                                    ))}
-                                                </select>
                                             ) : (
                                             <input
                                                 type="text"
                                                 className="pi-row-input"
                                                 placeholder="UOM"
+                                                autoComplete="off"
+                                                data-1p-ignore="true"
+                                                data-lpignore="true"
+                                                name={`pi-uom-${line.id}`}
                                                 value={line.uom ?? ''}
                                                     ref={(el) => {
                                                         lineFieldRefs.current[`${line.id}:uom`] = el;
