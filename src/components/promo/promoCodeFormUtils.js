@@ -23,6 +23,8 @@ export const catalogItemName = (row) =>
 
 export const emptyPromoForm = () => ({
   code: '',
+  promotionId: '',
+  promotionName: '',
   workshopMode: 'all',
   workshopId: '',
   workshopIds: [],
@@ -46,6 +48,216 @@ export const emptyPromoForm = () => ({
   selectedItemMatchMode: 'all_required',
   selectedServiceRequired: true,
 });
+
+/** Rule fields overwritten when linking a promotion (code stays editable). */
+export const PROMO_RULE_SNAPSHOT_KEYS = [
+  'workshopMode',
+  'workshopId',
+  'workshopIds',
+  'discountType',
+  'discountValue',
+  'validFrom',
+  'validTo',
+  'usageLimit',
+  'minOrderAmount',
+  'description',
+  'branchMode',
+  'branchIds',
+  'productScope',
+  'productIds',
+  'productCategoryIds',
+  'serviceScope',
+  'serviceIds',
+  'serviceCategoryIds',
+  'selectedItemMatchMode',
+  'selectedServiceRequired',
+];
+
+export function snapshotPromoRuleFields(form) {
+  const snap = {};
+  for (const key of PROMO_RULE_SNAPSHOT_KEYS) {
+    const val = form?.[key];
+    snap[key] = Array.isArray(val) ? [...val] : val;
+  }
+  return snap;
+}
+
+export function restorePromoRuleFields(form, snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return form;
+  const next = { ...form };
+  for (const key of PROMO_RULE_SNAPSHOT_KEYS) {
+    if (!(key in snapshot)) continue;
+    const val = snapshot[key];
+    next[key] = Array.isArray(val) ? [...val] : val;
+  }
+  return next;
+}
+
+/** Map a Marketing Promotion API row → promo-code form rule fields. */
+export function promotionToPromoFormRules(promotion) {
+  if (!promotion || typeof promotion !== 'object') return {};
+
+  const discountRaw = String(
+    promotion.discountType ?? promotion.discount_type ?? 'fixed',
+  ).toLowerCase();
+  const discountType =
+    discountRaw.includes('percent') || discountRaw === 'percentage'
+      ? 'percent'
+      : 'fixed';
+
+  const productIds = (
+    Array.isArray(promotion.triggerProductIds)
+      ? promotion.triggerProductIds
+      : Array.isArray(promotion.productIds)
+        ? promotion.productIds
+        : Array.isArray(promotion.applicableProducts)
+          ? promotion.applicableProducts
+          : []
+  )
+    .map((item) =>
+      typeof item === 'object' ? String(item.id ?? item.productId ?? '') : String(item),
+    )
+    .filter(Boolean);
+
+  const serviceIds = (
+    Array.isArray(promotion.triggerServiceIds)
+      ? promotion.triggerServiceIds
+      : Array.isArray(promotion.serviceIds)
+        ? promotion.serviceIds
+        : Array.isArray(promotion.applicableServices)
+          ? promotion.applicableServices
+          : []
+  )
+    .map((item) =>
+      typeof item === 'object' ? String(item.id ?? item.serviceId ?? '') : String(item),
+    )
+    .filter(Boolean);
+
+  const productCategoryIds = (
+    Array.isArray(promotion.triggerProductCategoryIds)
+      ? promotion.triggerProductCategoryIds
+      : Array.isArray(promotion.productCategoryIds)
+        ? promotion.productCategoryIds
+        : []
+  )
+    .map((item) =>
+      typeof item === 'object' ? String(item.id ?? item.categoryId ?? '') : String(item),
+    )
+    .filter(Boolean);
+
+  const serviceCategoryIds = (
+    Array.isArray(promotion.triggerServiceCategoryIds)
+      ? promotion.triggerServiceCategoryIds
+      : Array.isArray(promotion.serviceCategoryIds)
+        ? promotion.serviceCategoryIds
+        : []
+  )
+    .map((item) =>
+      typeof item === 'object' ? String(item.id ?? item.categoryId ?? '') : String(item),
+    )
+    .filter(Boolean);
+
+  const branchIds = (
+    Array.isArray(promotion.targetBranchIds)
+      ? promotion.targetBranchIds
+      : Array.isArray(promotion.branchIds)
+        ? promotion.branchIds
+        : []
+  )
+    .map((item) =>
+      typeof item === 'object' ? String(item.id ?? item.branchId ?? '') : String(item),
+    )
+    .filter(Boolean);
+
+  const workshopIds = [];
+  if (promotion.sourceWorkshopId != null) {
+    workshopIds.push(String(promotion.sourceWorkshopId));
+  }
+  if (
+    promotion.targetWorkshopId != null &&
+    String(promotion.targetWorkshopId) !== String(promotion.sourceWorkshopId ?? '')
+  ) {
+    workshopIds.push(String(promotion.targetWorkshopId));
+  }
+  if (Array.isArray(promotion.workshopIds)) {
+    for (const id of promotion.workshopIds) {
+      const s = String(id ?? '').trim();
+      if (s && !workshopIds.includes(s)) workshopIds.push(s);
+    }
+  }
+
+  const productScope = inferScope(
+    promotion.productScope,
+    [...productIds, ...productCategoryIds],
+  );
+  const serviceScope = inferScope(
+    promotion.serviceScope,
+    [...serviceIds, ...serviceCategoryIds],
+  );
+
+  const matchRaw = String(
+    promotion.selectedItemMatchMode ?? promotion.selected_item_match_mode ?? 'all_required',
+  ).toLowerCase();
+  let selectedItemMatchMode = 'all_required';
+  if (matchRaw === 'any_present' || matchRaw === 'any' || matchRaw === 'partial') {
+    selectedItemMatchMode = 'any_present';
+  } else if (matchRaw === 'entire_order' || matchRaw === 'full_order') {
+    selectedItemMatchMode = 'entire_order';
+  }
+
+  const usage =
+    promotion.maxUsageCount ??
+    promotion.max_usage_count ??
+    promotion.usageLimit ??
+    promotion.maxUsage ??
+    '';
+
+  const minAmt =
+    promotion.minPurchaseAmount ??
+    promotion.min_purchase_amount ??
+    promotion.minOrderAmount ??
+    '';
+
+  return {
+    discountType,
+    discountValue:
+      promotion.discountValue != null && promotion.discountValue !== ''
+        ? String(promotion.discountValue)
+        : promotion.value != null && promotion.value !== ''
+          ? String(promotion.value)
+          : '',
+    validFrom: dateOnly(
+      promotion.validFrom ?? promotion.valid_from ?? promotion.startAt ?? promotion.startDate,
+    ),
+    validTo: dateOnly(
+      promotion.validTo ??
+        promotion.valid_to ??
+        promotion.endAt ??
+        promotion.endDate ??
+        promotion.validUntil,
+    ),
+    usageLimit: usage !== '' && usage != null ? String(usage) : '',
+    minOrderAmount: minAmt !== '' && minAmt != null ? String(minAmt) : '',
+    description:
+      String(promotion.description ?? '').trim() ||
+      String(promotion.name ?? promotion.promotionName ?? '').trim() ||
+      '',
+    workshopMode: workshopIds.length > 0 ? 'selected' : 'all',
+    workshopIds,
+    workshopId: workshopIds.length === 1 ? workshopIds[0] : '',
+    branchMode: branchIds.length > 0 ? 'selected' : 'all',
+    branchIds,
+    productScope,
+    productIds,
+    productCategoryIds,
+    serviceScope,
+    serviceIds,
+    serviceCategoryIds,
+    selectedItemMatchMode,
+    selectedServiceRequired:
+      promotion.selectedServiceRequired ?? promotion.selected_service_required ?? true,
+  };
+}
 
 export const normalizeWorkflowStatus = (promo) => {
   const raw = String(promo?.status ?? '')
@@ -209,6 +421,10 @@ export const promoToForm = (promo) => {
 
   return {
     code: promo.code || '',
+    promotionId: String(promo.promotionId ?? promo.promotion_id ?? '').trim(),
+    promotionName: String(
+      promo.promotionName ?? promo.promotion_name ?? promo.promotion ?? '',
+    ).trim(),
     workshopMode:
       appliesToAll || workshopIds.length === 0 ? 'all' : 'selected',
     workshopId: workshopIds.length === 1 ? workshopIds[0] : '',
@@ -317,6 +533,10 @@ export function buildMarketingPromoPayload(form, { isEdit = false, allWorkshopId
 
   return {
     code: base.code,
+    promotionId: strTrim(form.promotionId) || null,
+    promotion_id: strTrim(form.promotionId) || null,
+    promotionName: strTrim(form.promotionName) || null,
+    promotion_name: strTrim(form.promotionName) || null,
     workshopIds: base.workshopIds,
     workshop_ids: base.workshopIds,
     workshopId: base.workshopId,
