@@ -368,6 +368,10 @@ export default function PromoCodeFormFields({
   showStatus = true,
   requireWorkshop = false,
   onAutoGenerate,
+  promotionOptions = [],
+  promotionsLoading = false,
+  rulesLocked = false,
+  onPromotionLinkChange,
 }) {
   const branchOptions = useMemo(() => {
     const active = branches.filter((b) => b.isActive !== false);
@@ -466,7 +470,9 @@ export default function PromoCodeFormFields({
 
       <section className="ws-promo-form-section">
         <h3 className="ws-promo-form-section-title">Promo details</h3>
-        <p className="ws-promo-form-section-desc">Code, discount, and optional description.</p>
+        <p className="ws-promo-form-section-desc">
+          Code, optional promotion link, and status.
+        </p>
         <div className="ws-form-grid">
           <div className="ws-field">
             <label>Promo Code *</label>
@@ -503,6 +509,57 @@ export default function PromoCodeFormFields({
               ) : null}
             </div>
           </div>
+          <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+            <label>Link to Promotion (optional)</label>
+            <select
+              value={form.promotionId || ''}
+              disabled={promotionsLoading || !onPromotionLinkChange}
+              onChange={(e) => {
+                const id = e.target.value;
+                const opt = promotionOptions.find((p) => String(p.id) === String(id));
+                onPromotionLinkChange?.(id, opt || null);
+              }}
+              style={
+                rulesLocked
+                  ? { background: '#f8fafc', borderColor: '#F59E0B' }
+                  : undefined
+              }
+            >
+              <option value="">
+                {promotionsLoading ? 'Loading promotions…' : 'Select promotion...'}
+              </option>
+              {promotionOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {rulesLocked ? (
+              <p
+                style={{
+                  margin: '6px 0 0',
+                  fontSize: '0.75rem',
+                  color: '#B45309',
+                  fontWeight: 600,
+                }}
+              >
+                Rules are locked to promotion
+                {form.promotionName ? ` “${form.promotionName}”` : ''}. Clear the
+                link to edit them again.
+              </p>
+            ) : (
+              <p
+                style={{
+                  margin: '6px 0 0',
+                  fontSize: '0.75rem',
+                  color: 'var(--color-text-muted)',
+                }}
+              >
+                Optional. Linking copies Active/Approved promotion rules onto this
+                code (rewards/BOGO stay tied to the promotion).
+              </p>
+            )}
+          </div>
           {showStatus ? (
             <div className="ws-field">
               <label>Status</label>
@@ -538,6 +595,27 @@ export default function PromoCodeFormFields({
               />
             </div>
           )}
+        </div>
+      </section>
+
+      <fieldset
+        disabled={rulesLocked}
+        style={{
+          border: 'none',
+          margin: 0,
+          padding: 0,
+          minWidth: 0,
+          opacity: rulesLocked ? 0.72 : 1,
+        }}
+      >
+      <section className="ws-promo-form-section">
+        <h3 className="ws-promo-form-section-title">Discount & description</h3>
+        <p className="ws-promo-form-section-desc">
+          {rulesLocked
+            ? 'Copied from the linked promotion (read-only while linked).'
+            : 'Discount type, value, and optional description.'}
+        </p>
+        <div className="ws-form-grid">
           <div className="ws-field">
             <label>Discount Type *</label>
             <select
@@ -937,6 +1015,7 @@ export default function PromoCodeFormFields({
           </div>
         </div>
       </section>
+      </fieldset>
     </div>
   );
 }
