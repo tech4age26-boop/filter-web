@@ -314,27 +314,11 @@ export function normalizeSupplierTimelineEntry(h) {
     const cfForWs =
         uom.conversionFactor != null && uom.conversionFactor > 0 ? uom.conversionFactor : 1;
 
-    // Timeline balances are product-wide warehouse totals — not per-location counts.
-    const balancePrev =
-        type === 'stock_adjusted' && metaPrevTotal != null
-            ? metaPrevTotal
-            : type === 'inventory_out_sales_invoice' || type === 'inventory_in_sales_return'
-              ? (metaPrevTotal ?? metaPrev)
-              : metaPrev;
-    const balanceNext =
-        type === 'stock_adjusted' && metaNextTotal != null
-            ? metaNextTotal
-            : type === 'inventory_out_sales_invoice' || type === 'inventory_in_sales_return'
-              ? (metaNextTotal ?? metaNext)
-              : metaNext;
-    const hasMetaBalances =
-        balancePrev != null &&
-        balanceNext != null &&
-        (type === 'inventory_in_super_supplier_purchase' ||
-            type === 'inventory_out_sales_invoice' ||
-            type === 'inventory_in_sales_return' ||
-            (type === 'stock_adjusted' &&
-                (metaPrevTotal != null || metaNextTotal != null)));
+    // Prefer product-wide totals when present; otherwise use quantity captured at write-time.
+    // These must stay attached so From/To do not rewrite on reload.
+    const balancePrev = metaPrevTotal ?? metaPrev;
+    const balanceNext = metaNextTotal ?? metaNext;
+    const hasMetaBalances = balancePrev != null && balanceNext != null;
 
     return {
         id,
@@ -363,11 +347,13 @@ export function normalizeSupplierTimelineEntry(h) {
 }
 
 /**
- * Build FROM/TO balances by walking oldest → newest (warehouse UOM).
- * Backward walks from "current on-hand" break the chain after purchases (+156 Box)
- * because each sale's FROM becomes `running - delta` (e.g. 8 - (-5) = 13 Box).
+ * Build FROM/TO balances (warehouse UOM).
+ *
+ * Prefer frozen metadata previousQty/newQty whenever they match the row delta —
+ * those were captured at event time and must not change on reload / new stock.
+ * Only synthesize balances when metadata is missing.
  */
-export function fillSupplierTimelineRunningQty(entries, currentQtyOnHand, productUom = {}) {
+export function fillSupplierTimelineRunningQty(entries, _currentQtyOnHand, productUom = {}) {
     if (!Array.isArray(entries) || entries.length === 0) return [];
 
     const defaultWh = productUom.warehouseUnit || entries[0]?.warehouseUnit || 'Box';
@@ -381,7 +367,8 @@ export function fillSupplierTimelineRunningQty(entries, currentQtyOnHand, produc
 
     const chronological = [...entries].sort((a, b) => String(a.at).localeCompare(String(b.at)));
 
-    let running = 0;
+    /** @type {number | null} */
+    let running = null;
     const filled = chronological.map((entry) => {
         const cf =
             entry.conversionFactor != null && entry.conversionFactor > 0
@@ -401,24 +388,35 @@ export function fillSupplierTimelineRunningQty(entries, currentQtyOnHand, produc
         }
         delta = Number(delta);
 
-        let previousQty = running;
-        let newQty = running + delta;
-
-        // Use stored balances only when they continue the forward running total.
-        if (
+        const hasMeta =
             entry.previousQty != null &&
             entry.newQty != null &&
             Number.isFinite(Number(entry.previousQty)) &&
-            Number.isFinite(Number(entry.newQty))
-        ) {
+            Number.isFinite(Number(entry.newQty));
+
+        let previousQty;
+        let newQty;
+
+        if (hasMeta) {
             const metaPrev = Number(entry.previousQty);
             const metaNext = Number(entry.newQty);
             const metaMatchesDelta = Math.abs(metaNext - metaPrev - delta) <= 0.0005;
-            const metaContinuesRunning = Math.abs(metaPrev - running) <= 0.0005;
-            if (metaMatchesDelta && metaContinuesRunning) {
+            if (metaMatchesDelta) {
+                // Frozen at write-time — never rewrite when current stock changes.
                 previousQty = metaPrev;
                 newQty = metaNext;
+            } else {
+                // Metadata inconsistent with delta: keep From frozen, apply delta for To.
+                previousQty = metaPrev;
+                newQty = metaPrev + delta;
             }
+        } else if (running != null && Number.isFinite(running)) {
+            previousQty = running;
+            newQty = running + delta;
+        } else {
+            // No frozen balance and no prior chain (incomplete history) — relative only.
+            previousQty = 0;
+            newQty = delta;
         }
 
         running = newQty;

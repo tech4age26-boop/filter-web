@@ -9,7 +9,7 @@ import {
     getSupplierSuperSupplierPurchase,
     createSupplierSuperSupplierPurchase,
     updateSupplierSuperSupplierPurchase,
-    listSupplierProducts,
+    listSupplierMasterCatalogProducts,
 } from '../../services/supplierApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
@@ -123,17 +123,31 @@ export default function SupplierSuperSupplierPurchasesPanel({
         if (!composer) return undefined;
         let cancelled = false;
         setCatalogLoading(true);
-        listSupplierProducts({ limit: 350 })
+        listSupplierMasterCatalogProducts()
             .then((res) => {
                 if (cancelled) return;
+                const masters = Array.isArray(res?.products)
+                    ? res.products
+                    : Array.isArray(res?.items)
+                      ? res.items
+                      : Array.isArray(res)
+                        ? res
+                        : [];
                 setCatalog(
-                    unwrapProducts(res).map((p) => ({
-                        id: String(p.id ?? p.supplierProductId ?? ''),
-                        name: p.name ?? p.productName ?? 'Item',
-                        sku: (p.sku || '').trim(),
-                        unit: (p.unit || p.uom || 'pcs').trim() || 'pcs',
-                        price: Number(p.price ?? p.unitPrice ?? p.sellingPrice ?? 0),
-                    })),
+                    masters.map((p) => {
+                        const warehouseUnit =
+                            String(p.warehouseUnit ?? '').trim() || 'pcs';
+                        return {
+                            id: String(p.id ?? ''),
+                            name: p.name ?? p.productName ?? 'Item',
+                            sku: (p.sku || '').trim(),
+                            unit: warehouseUnit,
+                            warehouseUnit,
+                            workshopUnit:
+                                String(p.workshopUnit ?? '').trim() || warehouseUnit,
+                            price: Number(p.purchasePrice ?? p.salePrice ?? p.price ?? 0),
+                        };
+                    }),
                 );
             })
             .catch(() => {
@@ -260,7 +274,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                               sku: p.sku || '',
                               supplierProductId: p.id,
                               qty: '1',
-                              unit: p.unit || 'pcs',
+                              unit: p.warehouseUnit || p.unit || 'pcs',
                               unitPrice: String(p.price ?? ''),
                           },
                       ],
@@ -764,7 +778,14 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                                             placeholder="pcs"
                                                             style={{ width: 76 }}
                                                             value={ln.unit}
+                                                            readOnly={!!ln.supplierProductId}
+                                                            title={
+                                                                ln.supplierProductId
+                                                                    ? 'Master Catalog warehouse unit'
+                                                                    : undefined
+                                                            }
                                                             onChange={(e) => {
+                                                                if (ln.supplierProductId) return;
                                                                 const v = e.target.value;
                                                                 setComposer((c) =>
                                                                     c
