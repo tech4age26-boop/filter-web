@@ -1377,3 +1377,7 @@ export const forceClosePosSession = (posSessionId, body) =>
         method: 'POST',
         body: JSON.stringify(body),
     });
+
+/** Workshop activity logs (excludes order status / order workflow). */
+export const listWorkshopLogs = (params = {}) =>
+    apiFetch(`/workshop-staff/logs${qs(params)}`);
