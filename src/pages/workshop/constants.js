@@ -2,7 +2,7 @@ import {
     LayoutDashboard, Users, Layers, Package, ShoppingCart, ClipboardCheck,
     Truck, BarChart3, Building2, CheckCircle, CheckCircle2, PlayCircle,
     Store, Shield, Globe, Landmark, Banknote, Monitor, TicketPercent, Briefcase,
-    Archive, Lock, Wallet, RotateCcw, Smartphone, MessageCircle,
+    Archive, Lock, Wallet, RotateCcw, Smartphone, MessageCircle, ScrollText,
 } from 'lucide-react';
 import { STAFF_APP_NAV_ITEMS } from './staff-app/constants';
 
@@ -22,6 +22,7 @@ export const NAV_ITEMS = [
     { id: 'non-affiliated-suppliers', label: 'Non-Affiliated Suppliers', icon: Truck, permission: 'workshop.non-affiliated-suppliers.view' },
     { id: 'reports', label: 'Reports & Analytics', icon: BarChart3, permission: 'workshop.reports.view' },
     { id: 'pos-monitoring', label: 'POS Monitoring', icon: Monitor, permission: 'workshop.pos-monitoring.view' },
+    { id: 'logs', label: 'Logs', icon: ScrollText, permission: 'workshop.logs.view' },
 
     { id: 'locker-management', label: 'Locker Management', icon: Lock, permission: 'workshop.locker-management.view' },
 

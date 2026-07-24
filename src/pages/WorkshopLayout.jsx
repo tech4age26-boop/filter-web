@@ -20,6 +20,7 @@ import WorkshopDiscounts from './workshop/WorkshopDiscounts';
 import WorkshopSuppliers from './workshop/WorkshopSuppliers';
 import WorkshopReports from './workshop/WorkshopReports';
 import WorkshopPosMonitoring from './workshop/WorkshopPosMonitoring';
+import WorkshopLogs from './workshop/WorkshopLogs';
 import WorkshopLockerManagement from './workshop/WorkshopLockerManagement';
 import WorkshopPromoCodes from './workshop/WorkshopPromoCodes';
 import WorkshopCorporateManagement from './workshop/WorkshopCorporateManagement';
@@ -582,6 +583,7 @@ export default function WorkshopLayout() {
                 );
             case 'reports':     return <WorkshopReports selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'pos-monitoring': return <WorkshopPosMonitoring selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'logs': return <WorkshopLogs selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'locker-management': return <WorkshopLockerManagement />;
             case 'catalog-new': return (
                 <WorkshopCatalogNew
