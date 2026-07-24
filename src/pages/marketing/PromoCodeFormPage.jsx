@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Hourglass, Loader2 } from 'lucide-react';
 import PromoCodeFormFields from '../../components/promo/PromoCodeFormFields';
@@ -8,7 +8,10 @@ import {
   emptyPromoForm,
   generatePromoCode,
   promoToForm,
+  promotionToPromoFormRules,
   reconcilePromoFormWithWorkshops,
+  restorePromoRuleFields,
+  snapshotPromoRuleFields,
   strTrim,
   validatePromoForm,
 } from '../../components/promo/promoCodeFormUtils';
@@ -16,11 +19,13 @@ import {
   marketingCreatePromoCode,
   marketingGetPromoCode,
   marketingGetPromoCodeOptions,
+  marketingGetPromotion,
+  marketingListPromotions,
   marketingUpdatePromoCode,
 } from '../../services/superAdminMarketingApi';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
-import { normalizePromoCode } from './promoCodeShared';
+import { normalizePromoCode, safeArray } from './promoCodeShared';
 import '../workshop/Workshop.css';
 import './MarketingUniversal.css';
 
@@ -86,6 +91,10 @@ export default function PromoCodeFormPage({ readOnly = false }) {
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [usageCount, setUsageCount] = useState(null);
+  const [promotionOptions, setPromotionOptions] = useState([]);
+  const [promotionsLoading, setPromotionsLoading] = useState(false);
+  const [promotionsById, setPromotionsById] = useState(() => new Map());
+  const ruleSnapshotRef = useRef(null);
 
   const goBack = () => navigate(listPath);
 
@@ -147,6 +156,57 @@ export default function PromoCodeFormPage({ readOnly = false }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setPromotionsLoading(true);
+        const data = await marketingListPromotions({ limit: 500, offset: 0 });
+        if (cancelled) return;
+
+        const rows = safeArray(data, ['promotions', 'items']);
+        const byId = new Map();
+        const options = [];
+
+        for (const row of rows) {
+          const status = String(row?.status ?? '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, '_');
+          if (status !== 'active' && status !== 'approved') continue;
+
+          const idStr = String(row?.id ?? '').trim();
+          if (!idStr) continue;
+
+          byId.set(idStr, row);
+          options.push({
+            id: idStr,
+            label:
+              String(row?.name ?? row?.promotionName ?? '').trim() ||
+              `Promotion ${idStr}`,
+            status,
+          });
+        }
+
+        options.sort((a, b) => a.label.localeCompare(b.label));
+        setPromotionsById(byId);
+        setPromotionOptions(options);
+      } catch {
+        if (!cancelled) {
+          setPromotionsById(new Map());
+          setPromotionOptions([]);
+        }
+      } finally {
+        if (!cancelled) setPromotionsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isEdit && !readOnly) return undefined;
 
     let cancelled = false;
@@ -164,6 +224,7 @@ export default function PromoCodeFormPage({ readOnly = false }) {
 
         setForm(reconcilePromoFormWithWorkshops(item, workshops));
         setUsageCount(item.currentUsage ?? item.current_usage_count ?? null);
+        ruleSnapshotRef.current = null;
       } catch (error) {
         if (!cancelled) {
           setRecordError(error?.message || 'Promo code load failed.');
@@ -177,6 +238,80 @@ export default function PromoCodeFormPage({ readOnly = false }) {
       cancelled = true;
     };
   }, [id, isEdit, readOnly, loadingOptions, workshops]);
+
+  const promotionSelectOptions = useMemo(() => {
+    const opts = [...promotionOptions];
+    const linkedId = String(form.promotionId || '').trim();
+    if (
+      linkedId &&
+      !opts.some((opt) => String(opt.id) === linkedId)
+    ) {
+      opts.unshift({
+        id: linkedId,
+        label:
+          String(form.promotionName || '').trim() ||
+          `Promotion ${linkedId}`,
+        status: 'linked',
+      });
+    }
+    return opts;
+  }, [promotionOptions, form.promotionId, form.promotionName]);
+
+  const handlePromotionLinkChange = async (rawId, opt) => {
+    const idStr = String(rawId ?? '').trim();
+
+    if (!idStr) {
+      setForm((prev) => {
+        const restored = restorePromoRuleFields(prev, ruleSnapshotRef.current);
+        ruleSnapshotRef.current = null;
+        return {
+          ...restored,
+          promotionId: '',
+          promotionName: '',
+        };
+      });
+      return;
+    }
+
+    let promotion = promotionsById.get(idStr) || null;
+    if (!promotion) {
+      try {
+        const data = await marketingGetPromotion(idStr);
+        promotion =
+          data?.promotion || data?.data || data?.item || data || null;
+        if (promotion) {
+          setPromotionsById((prev) => {
+            const next = new Map(prev);
+            next.set(idStr, promotion);
+            return next;
+          });
+        }
+      } catch {
+        promotion = null;
+      }
+    }
+
+    const name =
+      String(
+        promotion?.name ??
+          promotion?.promotionName ??
+          opt?.label ??
+          '',
+      ).trim() || `Promotion ${idStr}`;
+
+    setForm((prev) => {
+      if (!ruleSnapshotRef.current) {
+        ruleSnapshotRef.current = snapshotPromoRuleFields(prev);
+      }
+      const rules = promotionToPromoFormRules(promotion || {});
+      return {
+        ...prev,
+        ...rules,
+        promotionId: idStr,
+        promotionName: name,
+      };
+    });
+  };
 
   const handleSubmit = async (e) => {
     if (readOnly) return;
@@ -266,6 +401,10 @@ export default function PromoCodeFormPage({ readOnly = false }) {
               formError={formError}
               showStatus={isEdit}
               requireWorkshop
+              promotionOptions={promotionSelectOptions}
+              promotionsLoading={promotionsLoading}
+              rulesLocked={Boolean(String(form.promotionId || '').trim())}
+              onPromotionLinkChange={readOnly ? undefined : handlePromotionLinkChange}
               onAutoGenerate={
                 isEdit ? undefined : () => setForm((prev) => ({ ...prev, code: generatePromoCode() }))
               }
