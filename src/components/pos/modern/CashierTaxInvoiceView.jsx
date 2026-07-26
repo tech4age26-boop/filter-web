@@ -79,8 +79,12 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice, pdfCapture 
       }
       if (!payload) {
         const vatNo = sellerVatRegistration(invoice);
+        const branchName =
+          String(invoice?.branchName || invoice?.branch?.name || '').trim();
+        const workshopName =
+          String(invoice?.workshop?.name || invoice?.workshopName || '').trim();
         payload = buildZatcaPhase1QrPayloadFromInvoice({
-          sellerName: invoice.workshop?.name || invoice.workshopName || 'FILTER',
+          sellerName: branchName || workshopName || 'FILTER',
           vatNumber: vatNo,
           invoiceDate: invoice.invoiceDate || invoice.issuedAt,
           issuedAt: invoice.issuedAt,

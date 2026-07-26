@@ -228,14 +228,12 @@ export function computeThermalInvoiceTotals(invoice) {
   let totalTaxableAmount = thermalR2(
     grossAmountExclVat - itemDiscountsTotal - invoiceDiscount - promoDiscount,
   );
-  let vatAmount = thermalR2(totalTaxableAmount * 0.15);
-  let totalInvoiceAmount = thermalR2(totalTaxableAmount + vatAmount);
 
+  // Prefer authoritative taxable from API when present, then always charge VAT
+  // on that post-discount taxable amount (never on pre-promo gross).
   if (subtotalApi > 0.001) totalTaxableAmount = thermalR2(subtotalApi);
-  const vatApi = parseFloat(invoice.vatAmount ?? invoice.vat_amount) || 0;
-  if (vatApi > 0.001) vatAmount = thermalR2(vatApi);
-  const totalApi = parseFloat(invoice.totalAmount ?? invoice.total_amount ?? invoice.grandTotal) || 0;
-  if (totalApi > 0.001) totalInvoiceAmount = thermalR2(totalApi);
+  const vatAmount = thermalR2(totalTaxableAmount * 0.15);
+  const totalInvoiceAmount = thermalR2(totalTaxableAmount + vatAmount);
 
   const grossExVatBeforeDiscount =
     grossAmountExclVat > 0.001
