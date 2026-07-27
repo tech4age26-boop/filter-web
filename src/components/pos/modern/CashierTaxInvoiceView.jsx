@@ -18,7 +18,7 @@ import {
   thermalInvoiceQrPayload,
   thermalR2,
 } from '../../../utils/thermalInvoiceTotals';
-import { buildZatcaPhase1QrPayloadFromInvoice } from '../../../utils/zatcaQr';
+import { buildZatcaPhase1QrPayloadFromInvoice, isValidZatcaQrTlvBase64 } from '../../../utils/zatcaQr';
 import './CashierTaxInvoiceView.css';
 
 function dash(s) {
@@ -68,15 +68,13 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice, pdfCapture 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Prefer server Phase-2 ZATCA TLV (signed hash) when present — required for
-      // official e-invoice QR. Then public URL, then client Phase-1 TLV fallback.
-      const serverPhase2 =
-        String(invoice?.zatca?.qrBase64 || '').trim() || null;
-      let payload = serverPhase2;
+      // Prefer a *valid* server Phase-2 ZATCA TLV when present. Never encode a
+      // bare invoice/PIH hash (common API mistake) — Qeemah reports
+      // "Invalid TLV: tag …". Then build client Phase-1 TLV. URL last.
+      const serverRaw = String(invoice?.zatca?.qrBase64 || '').trim();
+      let payload =
+        serverRaw && isValidZatcaQrTlvBase64(serverRaw) ? serverRaw : null;
 
-      if (!payload) {
-        payload = resolveInvoicePublicQrUrl(invoice);
-      }
       if (!payload) {
         const vatNo = sellerVatRegistration(invoice);
         const branchName =
@@ -91,6 +89,9 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice, pdfCapture 
           grandTotal: totals.totalInvoiceAmount,
           vatAmount: totals.vatAmount,
         });
+      }
+      if (!payload) {
+        payload = resolveInvoicePublicQrUrl(invoice);
       }
       if (!payload) {
         payload = thermalInvoiceQrPayload(invoice, totals.totalInvoiceAmount);

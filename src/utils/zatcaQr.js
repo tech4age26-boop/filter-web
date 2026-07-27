@@ -87,6 +87,45 @@ function hexToBytes(hex) {
     return out;
 }
 
+/**
+ * True when base64 decodes to ZATCA TLV with tags 1–5 present.
+ * Rejects bare SHA-256 invoice/PIH hashes (exactly 32 bytes) that were
+ * previously mistaken for QR payloads.
+ */
+export function isValidZatcaQrTlvBase64(value) {
+    const b64 = String(value || '').replace(/\s+/g, '').trim();
+    if (!b64 || b64.length < 16) return false;
+    let binary;
+    try {
+        binary = atob(b64);
+    } catch {
+        return false;
+    }
+    if (binary.length < 40) return false;
+    const buf = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) buf[i] = binary.charCodeAt(i);
+    if (buf[0] !== 1) return false;
+
+    const seen = new Set();
+    let i = 0;
+    while (i + 2 <= buf.length) {
+        const tag = buf[i];
+        let len = buf[i + 1];
+        let header = 2;
+        if (len === 0x81 && i + 3 <= buf.length) {
+            len = buf[i + 2];
+            header = 3;
+        } else if (len === 0x82 && i + 4 <= buf.length) {
+            len = (buf[i + 2] << 8) | buf[i + 3];
+            header = 4;
+        }
+        if (len < 0 || i + header + len > buf.length) return false;
+        if (tag >= 1 && tag <= 9) seen.add(tag);
+        i += header + len;
+    }
+    return seen.has(1) && seen.has(2) && seen.has(3) && seen.has(4) && seen.has(5);
+}
+
 /** ZATCA tag 3 timestamp — uses printed invoice date for backdated invoices. */
 function invoiceDateToZatcaTimestamp(invoiceDate, issuedAt) {
     const raw = invoiceDate ?? issuedAt;
