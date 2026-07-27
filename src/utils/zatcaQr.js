@@ -119,7 +119,10 @@ export function isValidZatcaQrTlvBase64(value) {
             len = (buf[i + 2] << 8) | buf[i + 3];
             header = 4;
         }
-        if (len < 0 || i + header + len > buf.length) return false;
+        if (len < 0 || i + header + len > buf.length) {
+            // Phase-2 crypto stamp may leave trailing / non-strict bytes.
+            break;
+        }
         if (tag >= 1 && tag <= 9) seen.add(tag);
         i += header + len;
     }
@@ -132,10 +135,18 @@ function invoiceDateToZatcaTimestamp(invoiceDate, issuedAt) {
     if (!raw) return new Date();
     const s = String(raw).trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-        return new Date(`${s}T12:00:00.000Z`);
+        // Noon UTC avoids date-boundary shifts; ZATCA wants no milliseconds.
+        return new Date(`${s}T12:00:00Z`);
     }
     const d = new Date(raw);
     return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
+/** ISO-8601 without milliseconds — Qeemah rejects `…T00:00:00.000Z`. */
+function toZatcaIsoTimestamp(date) {
+    const d = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(d.getTime())) return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 /**
@@ -151,8 +162,8 @@ export async function buildZatcaPhase2QrTlvBase64(opts) {
 
     const timestampUtc = new Date(opts.timestampUtc);
     const ts = Number.isNaN(timestampUtc.getTime())
-        ? new Date().toISOString()
-        : timestampUtc.toISOString();
+        ? toZatcaIsoTimestamp(new Date())
+        : toZatcaIsoTimestamp(timestampUtc);
 
     const invoiceNumber = String(opts.invoiceNumber || '').trim();
     const canonical = [
@@ -197,7 +208,9 @@ export function buildZatcaQrTlvBase64(opts) {
     if (!s || !v || !t || !va) return null;
 
     const ts = new Date(opts.timestampUtc);
-    const iso = Number.isNaN(ts.getTime()) ? new Date().toISOString() : ts.toISOString();
+    const iso = Number.isNaN(ts.getTime())
+        ? toZatcaIsoTimestamp(new Date())
+        : toZatcaIsoTimestamp(ts);
     const chunks = [];
     writeTlvText(chunks, 1, s);
     writeTlvText(chunks, 2, v);
