@@ -116,6 +116,9 @@ function WorkshopCreateForm({ values, onChange, onDetectGps, isDetectingLocation
                             onChange={set('branchName')}
                         />
                     </div>
+                </div>
+            </section>
+
             <section className="workshop-form-section">
                 <div className="workshop-form-section-head">
                     <h2 className="workshop-form-section-title">Default branch (ZATCA)</h2>
