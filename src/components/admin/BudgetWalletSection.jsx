@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Plus, Pencil, Wallet, RefreshCw, X } from 'lucide-react';
+import { useOutletContext } from 'react-router-dom';
+import { Loader2, Plus, Pencil, Wallet, RefreshCw } from 'lucide-react';
 import Modal from '../Modal';
 import { getWorkshops, getBranches } from '../../services/superAdminApi';
 import {
@@ -8,6 +9,17 @@ import {
     updateBudgetWalletAccount,
     listBudgetWalletTransactions,
 } from '../../services/budgetWalletApi';
+import { awT } from '../../utils/adminWalletsI18n';
+
+function useAwLocale() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => awT(locale, key, vars), [locale]);
+    return { locale, t };
+}
 
 function fmt(value) {
     const n = Number(value ?? 0);
@@ -17,29 +29,36 @@ function fmt(value) {
     });
 }
 
-function normalizeWorkshops(res) {
+function normalizeWorkshops(res, t) {
     const list = Array.isArray(res) ? res : (res?.workshops ?? res?.data ?? []);
     return (Array.isArray(list) ? list : [])
         .filter((w) => !w.isPlatformHq && !w.is_platform_hq)
-        .map((w) => ({ id: String(w.id), name: w.name || `Workshop ${w.id}` }));
+        .map((w) => ({ id: String(w.id), name: w.name || t('budget.workshopFallback', { id: w.id }) }));
 }
 
-function normalizeBranches(res) {
+function normalizeBranches(res, t) {
     const list = Array.isArray(res) ? res : (res?.branches ?? res?.data ?? []);
     return (Array.isArray(list) ? list : []).map((b) => ({
         id: String(b.id),
-        name: b.name || `Branch ${b.id}`,
+        name: b.name || t('budget.branchFallback', { id: b.id }),
     }));
 }
 
-function txTypeLabel(t) {
-    if (t === 'allocation') return 'Allocation';
-    if (t === 'expense') return 'Expense';
-    if (t === 'adjustment') return 'Adjustment';
-    return t;
+function txTypeLabel(type, t) {
+    if (type === 'allocation') return t('ledger.txAllocation');
+    if (type === 'expense') return t('ledger.txExpense');
+    if (type === 'adjustment') return t('ledger.txAdjustment');
+    return type;
 }
 
-function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit }) {
+function statusLabel(status, t) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'active') return t('status.active');
+    if (s === 'inactive') return t('status.inactive');
+    return status;
+}
+
+function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit, t }) {
     const editing = Boolean(account);
     const [name, setName] = useState(account?.name ?? '');
     const [code, setCode] = useState(account?.code ?? '');
@@ -60,9 +79,9 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit 
     useEffect(() => {
         if (editing) return;
         getWorkshops({ status: 'approved' })
-            .then((res) => setWorkshops(normalizeWorkshops(res)))
+            .then((res) => setWorkshops(normalizeWorkshops(res, t)))
             .catch(() => setWorkshops([]));
-    }, [editing]);
+    }, [editing, t]);
 
     useEffect(() => {
         if (editing || scopeType !== 'workshop' || !workshopId) {
@@ -70,9 +89,9 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit 
             return;
         }
         getBranches({ workshopId })
-            .then((res) => setBranches(normalizeBranches(res)))
+            .then((res) => setBranches(normalizeBranches(res, t)))
             .catch(() => setBranches([]));
-    }, [editing, scopeType, workshopId]);
+    }, [editing, scopeType, workshopId, t]);
 
     const valid = editing
         ? name.trim().length > 0
@@ -108,14 +127,14 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit 
 
     return (
         <Modal
-            title={editing ? 'Edit budget account' : 'Create budget account'}
+            title={editing ? t('budgetModal.editTitle') : t('budgetModal.createTitle')}
             onClose={busy ? undefined : onCancel}
             width={520}
             disableClose={busy}
             footer={(
                 <div className="admin-wallets-modal-footer">
                     <button type="button" className="admin-wallets-modal-btn-cancel" disabled={busy} onClick={onCancel}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -124,7 +143,7 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit 
                         onClick={submit}
                     >
                         {busy ? <Loader2 size={14} className="spin" /> : null}
-                        {editing ? 'Save changes' : 'Create account'}
+                        {editing ? t('btn.saveChanges') : t('btn.createAccount')}
                     </button>
                 </div>
             )}
@@ -133,60 +152,60 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit 
                 <div className="admin-wallets-alert" role="alert" style={{ marginTop: 0 }}>{error}</div>
             ) : null}
 
-            <label className="admin-wallets-modal-label">Account name *</label>
+            <label className="admin-wallets-modal-label">{t('budgetModal.name')}</label>
             <input
                 className="admin-wallets-modal-select"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 disabled={busy}
-                placeholder="e.g. Salary Budget Account"
+                placeholder={t('budgetModal.namePh')}
             />
 
-            <label className="admin-wallets-modal-label">Short code (optional)</label>
+            <label className="admin-wallets-modal-label">{t('budgetModal.code')}</label>
             <input
                 className="admin-wallets-modal-select"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 disabled={busy}
-                placeholder="e.g. SAL-BUD"
+                placeholder={t('budgetModal.codePh')}
             />
 
             {!editing ? (
                 <>
-                    <label className="admin-wallets-modal-label">Scope *</label>
+                    <label className="admin-wallets-modal-label">{t('budgetModal.scope')}</label>
                     <select
                         className="admin-wallets-modal-select"
                         value={scopeType}
                         onChange={(e) => { setScopeType(e.target.value); setWorkshopId(''); setBranchId(''); }}
                         disabled={busy}
                     >
-                        <option value="platform_hq">Platform HQ</option>
-                        <option value="workshop">Workshop / Branch</option>
+                        <option value="platform_hq">{t('budget.scopeHq')}</option>
+                        <option value="workshop">{t('budget.scopeWorkshopBranch')}</option>
                     </select>
 
                     {scopeType === 'workshop' ? (
                         <>
-                            <label className="admin-wallets-modal-label">Workshop *</label>
+                            <label className="admin-wallets-modal-label">{t('budgetModal.workshop')}</label>
                             <select
                                 className="admin-wallets-modal-select"
                                 value={workshopId}
                                 onChange={(e) => { setWorkshopId(e.target.value); setBranchId(''); }}
                                 disabled={busy}
                             >
-                                <option value="">Select workshop…</option>
+                                <option value="">{t('budget.selectWorkshop')}</option>
                                 {workshops.map((w) => (
                                     <option key={w.id} value={w.id}>{w.name}</option>
                                 ))}
                             </select>
 
-                            <label className="admin-wallets-modal-label">Branch *</label>
+                            <label className="admin-wallets-modal-label">{t('budgetModal.branch')}</label>
                             <select
                                 className="admin-wallets-modal-select"
                                 value={branchId}
                                 onChange={(e) => setBranchId(e.target.value)}
                                 disabled={busy || !workshopId}
                             >
-                                <option value="">Select branch…</option>
+                                <option value="">{t('budget.selectBranch')}</option>
                                 {branches.map((b) => (
                                     <option key={b.id} value={b.id}>{b.name}</option>
                                 ))}
@@ -194,7 +213,7 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit 
                         </>
                     ) : null}
 
-                    <label className="admin-wallets-modal-label">Initial budget (SAR) *</label>
+                    <label className="admin-wallets-modal-label">{t('budgetModal.initial')}</label>
                     <input
                         type="number"
                         min="0"
@@ -203,23 +222,23 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit 
                         value={initialBudget}
                         onChange={(e) => setInitialBudget(e.target.value)}
                         disabled={busy}
-                        placeholder="e.g. 50000"
+                        placeholder={t('budgetModal.initialPh')}
                     />
                 </>
             ) : (
                 <>
-                    <label className="admin-wallets-modal-label">Status</label>
+                    <label className="admin-wallets-modal-label">{t('budgetModal.status')}</label>
                     <select
                         className="admin-wallets-modal-select"
                         value={status}
                         onChange={(e) => setStatus(e.target.value)}
                         disabled={busy}
                     >
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
+                        <option value="active">{t('budgetModal.active')}</option>
+                        <option value="inactive">{t('budgetModal.inactive')}</option>
                     </select>
 
-                    <label className="admin-wallets-modal-label">Manual adjustment (SAR, +/-)</label>
+                    <label className="admin-wallets-modal-label">{t('budgetModal.adjustment')}</label>
                     <input
                         type="number"
                         step="0.01"
@@ -227,24 +246,24 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit 
                         value={adjustmentAmount}
                         onChange={(e) => setAdjustmentAmount(e.target.value)}
                         disabled={busy}
-                        placeholder="e.g. 10000 to add, -5000 to reduce"
+                        placeholder={t('budgetModal.adjustmentPh')}
                     />
                     {adjustmentAmount !== '' && Number(adjustmentAmount) !== 0 ? (
                         <>
-                            <label className="admin-wallets-modal-label">Adjustment reason</label>
+                            <label className="admin-wallets-modal-label">{t('budgetModal.adjustmentReason')}</label>
                             <input
                                 className="admin-wallets-modal-select"
                                 value={adjustmentReason}
                                 onChange={(e) => setAdjustmentReason(e.target.value)}
                                 disabled={busy}
-                                placeholder="Why are you adjusting this budget?"
+                                placeholder={t('budgetModal.adjustmentReasonPh')}
                             />
                         </>
                     ) : null}
                 </>
             )}
 
-            <label className="admin-wallets-modal-label">Description (optional)</label>
+            <label className="admin-wallets-modal-label">{t('budgetModal.description')}</label>
             <textarea
                 className="admin-wallets-modal-textarea"
                 rows={2}
@@ -256,7 +275,7 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit 
     );
 }
 
-function BudgetLedgerModal({ account, onClose }) {
+function BudgetLedgerModal({ account, onClose, t }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -267,50 +286,50 @@ function BudgetLedgerModal({ account, onClose }) {
         setError('');
         listBudgetWalletTransactions(account.id, { limit: 200 })
             .then((res) => { if (!cancelled) setRows(Array.isArray(res?.transactions) ? res.transactions : []); })
-            .catch((e) => { if (!cancelled) setError(e?.message || 'Failed to load ledger'); })
+            .catch((e) => { if (!cancelled) setError(e?.message || t('budget.errLoadLedger')); })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [account.id]);
+    }, [account.id, t]);
 
     return (
-        <Modal title={`Ledger — ${account.name}`} onClose={onClose} width={720}>
+        <Modal title={t('ledger.title', { name: account.name })} onClose={onClose} width={720}>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
                 <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
-                    Allocated: <strong>SAR {fmt(account.allocatedTotal)}</strong>
+                    {t('ledger.allocated')} <strong>SAR {fmt(account.allocatedTotal)}</strong>
                 </span>
                 <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
-                    Spent: <strong>SAR {fmt(account.spentTotal)}</strong>
+                    {t('ledger.spent')} <strong>SAR {fmt(account.spentTotal)}</strong>
                 </span>
                 <span style={{ fontSize: '0.8125rem', color: '#15803d' }}>
-                    Remaining: <strong>SAR {fmt(account.remainingBalance)}</strong>
+                    {t('ledger.remaining')} <strong>SAR {fmt(account.remainingBalance)}</strong>
                 </span>
             </div>
             {loading ? (
-                <p style={{ color: '#64748b' }}><Loader2 size={14} className="spin" /> Loading…</p>
+                <p style={{ color: '#64748b' }}><Loader2 size={14} className="spin" /> {t('budget.loading')}</p>
             ) : error ? (
                 <p style={{ color: '#b91c1c' }}>{error}</p>
             ) : rows.length === 0 ? (
-                <p style={{ color: '#64748b' }}>No transactions yet.</p>
+                <p style={{ color: '#64748b' }}>{t('ledger.empty')}</p>
             ) : (
                 <div className="admin-wallets-tx-table-wrap">
                     <table className="admin-wallets-tx-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Reference</th>
-                                <th>Payment account</th>
-                                <th style={{ textAlign: 'right' }}>Amount</th>
-                                <th style={{ textAlign: 'right' }}>Running balance</th>
+                                <th>{t('th.date')}</th>
+                                <th>{t('th.type')}</th>
+                                <th>{t('th.reference')}</th>
+                                <th>{t('th.paymentAccount')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('th.amount')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('th.runningBalance')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {rows.map((r) => (
                                 <tr key={r.id}>
                                     <td>{new Date(r.createdAt).toLocaleString()}</td>
-                                    <td>{txTypeLabel(r.type)}</td>
-                                    <td>{r.referenceNumber || r.description || '—'}</td>
-                                    <td>{r.sourceAccountName || '—'}</td>
+                                    <td>{txTypeLabel(r.type, t)}</td>
+                                    <td>{r.referenceNumber || r.description || t('empty.emDash')}</td>
+                                    <td>{r.sourceAccountName || t('empty.emDash')}</td>
                                     <td style={{ textAlign: 'right', color: r.type === 'expense' ? '#b91c1c' : '#15803d' }}>
                                         {r.type === 'expense' ? '-' : '+'}SAR {fmt(r.amount)}
                                     </td>
@@ -326,6 +345,7 @@ function BudgetLedgerModal({ account, onClose }) {
 }
 
 export default function BudgetWalletSection({ canCreate, canEdit }) {
+    const { t } = useAwLocale();
     const [scope, setScope] = useState('platform_hq');
     const [filterWorkshopId, setFilterWorkshopId] = useState('');
     const [filterBranchId, setFilterBranchId] = useState('');
@@ -336,7 +356,7 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    const [modal, setModal] = useState(null); // { account? }
+    const [modal, setModal] = useState(null);
     const [modalBusy, setModalBusy] = useState(false);
     const [modalError, setModalError] = useState('');
     const [ledger, setLedger] = useState(null);
@@ -344,16 +364,16 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
     useEffect(() => {
         if (scope !== 'workshop') return;
         getWorkshops({ status: 'approved' })
-            .then((res) => setWorkshops(normalizeWorkshops(res)))
+            .then((res) => setWorkshops(normalizeWorkshops(res, t)))
             .catch(() => setWorkshops([]));
-    }, [scope]);
+    }, [scope, t]);
 
     useEffect(() => {
         if (scope !== 'workshop' || !filterWorkshopId) { setBranches([]); return; }
         getBranches({ workshopId: filterWorkshopId })
-            .then((res) => setBranches(normalizeBranches(res)))
+            .then((res) => setBranches(normalizeBranches(res, t)))
             .catch(() => setBranches([]));
-    }, [scope, filterWorkshopId]);
+    }, [scope, filterWorkshopId, t]);
 
     const loadAccounts = useCallback(() => {
         if (scope === 'workshop' && (!filterWorkshopId || !filterBranchId)) {
@@ -367,9 +387,9 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
             : { scopeType: 'workshop', workshopId: filterWorkshopId, branchId: filterBranchId, status: 'all' };
         listBudgetWalletAccounts(params)
             .then((res) => setAccounts(Array.isArray(res?.accounts) ? res.accounts : []))
-            .catch((e) => setError(e?.message || 'Failed to load budget accounts'))
+            .catch((e) => setError(e?.message || t('budget.errLoadAccounts')))
             .finally(() => setLoading(false));
-    }, [scope, filterWorkshopId, filterBranchId]);
+    }, [scope, filterWorkshopId, filterBranchId, t]);
 
     useEffect(() => { loadAccounts(); }, [loadAccounts]);
 
@@ -385,7 +405,7 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
             setModal(null);
             loadAccounts();
         } catch (e) {
-            setModalError(e?.message || 'Save failed');
+            setModalError(e?.message || t('budget.errSave'));
         } finally {
             setModalBusy(false);
         }
@@ -401,7 +421,7 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
             <div className="admin-wallets-panel-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <Wallet size={18} />
-                    <h2 className="admin-wallets-panel-title" style={{ margin: 0 }}>Budget Wallet</h2>
+                    <h2 className="admin-wallets-panel-title" style={{ margin: 0 }}>{t('budget.title')}</h2>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <div className="admin-wallets-filters">
@@ -410,22 +430,22 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
                             className={`admin-wallets-filter-btn${scope === 'platform_hq' ? ' active' : ''}`}
                             onClick={() => setScope('platform_hq')}
                         >
-                            Platform HQ
+                            {t('budget.scopeHq')}
                         </button>
                         <button
                             type="button"
                             className={`admin-wallets-filter-btn${scope === 'workshop' ? ' active' : ''}`}
                             onClick={() => setScope('workshop')}
                         >
-                            Workshop
+                            {t('budget.scopeWorkshop')}
                         </button>
                     </div>
-                    <button type="button" className="admin-wallets-modal-btn-cancel" onClick={loadAccounts} title="Refresh">
+                    <button type="button" className="admin-wallets-modal-btn-cancel" onClick={loadAccounts} title={t('btn.refresh')}>
                         <RefreshCw size={14} />
                     </button>
                     {canCreate ? (
                         <button type="button" className="admin-wallets-modal-btn-primary" onClick={() => { setModalError(''); setModal({}); }}>
-                            <Plus size={14} /> New account
+                            <Plus size={14} /> {t('btn.newAccount')}
                         </button>
                     ) : null}
                 </div>
@@ -439,7 +459,7 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
                         value={filterWorkshopId}
                         onChange={(e) => { setFilterWorkshopId(e.target.value); setFilterBranchId(''); }}
                     >
-                        <option value="">Select workshop…</option>
+                        <option value="">{t('budget.selectWorkshop')}</option>
                         {workshops.map((w) => (<option key={w.id} value={w.id}>{w.name}</option>))}
                     </select>
                     <select
@@ -449,7 +469,7 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
                         onChange={(e) => setFilterBranchId(e.target.value)}
                         disabled={!filterWorkshopId}
                     >
-                        <option value="">Select branch…</option>
+                        <option value="">{t('budget.selectBranch')}</option>
                         {branches.map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
                     </select>
                 </div>
@@ -459,25 +479,25 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
 
             {scope === 'workshop' && (!filterWorkshopId || !filterBranchId) ? (
                 <p style={{ color: '#64748b', padding: '16px 4px' }}>
-                    Select a workshop and branch to view its budget accounts.
+                    {t('budget.pickScope')}
                 </p>
             ) : loading ? (
-                <p style={{ color: '#64748b', padding: '16px 4px' }}><Loader2 size={14} className="spin" /> Loading…</p>
+                <p style={{ color: '#64748b', padding: '16px 4px' }}><Loader2 size={14} className="spin" /> {t('budget.loading')}</p>
             ) : accounts.length === 0 ? (
-                <p style={{ color: '#64748b', padding: '16px 4px' }}>No budget accounts yet for this scope.</p>
+                <p style={{ color: '#64748b', padding: '16px 4px' }}>{t('budget.empty')}</p>
             ) : (
                 <div className="admin-wallets-tx-table-wrap">
                     <table className="admin-wallets-tx-table">
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>Scope</th>
-                                <th style={{ textAlign: 'right' }}>Initial</th>
-                                <th style={{ textAlign: 'right' }}>Allocated</th>
-                                <th style={{ textAlign: 'right' }}>Spent</th>
-                                <th style={{ textAlign: 'right' }}>Remaining</th>
-                                <th>Status</th>
-                                <th style={{ textAlign: 'right' }}>Actions</th>
+                                <th>{t('th.name')}</th>
+                                <th>{t('th.scope')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('th.initial')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('th.allocated')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('th.spent')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('th.remaining')}</th>
+                                <th>{t('th.status')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('th.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -493,14 +513,18 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
                                         </button>
                                         {a.code ? <span style={{ color: '#94a3b8', marginLeft: 6 }}>· {a.code}</span> : null}
                                     </td>
-                                    <td>{a.scopeType === 'platform_hq' ? 'Platform HQ' : `${a.workshopName || 'Workshop'}${a.branchName ? ` · ${a.branchName}` : ''}`}</td>
+                                    <td>
+                                        {a.scopeType === 'platform_hq'
+                                            ? t('budget.scopeHq')
+                                            : `${a.workshopName || t('budget.workshop')}${a.branchName ? ` · ${a.branchName}` : ''}`}
+                                    </td>
                                     <td style={{ textAlign: 'right' }}>SAR {fmt(a.initialBudget)}</td>
                                     <td style={{ textAlign: 'right' }}>SAR {fmt(a.allocatedTotal)}</td>
                                     <td style={{ textAlign: 'right' }}>SAR {fmt(a.spentTotal)}</td>
                                     <td style={{ textAlign: 'right', fontWeight: 700, color: '#15803d' }}>SAR {fmt(a.remainingBalance)}</td>
                                     <td>
                                         <span className={`admin-wallets-badge admin-wallets-badge--${a.status === 'active' ? 'active' : 'inactive'}`}>
-                                            {a.status}
+                                            {statusLabel(a.status, t)}
                                         </span>
                                     </td>
                                     <td style={{ textAlign: 'right' }}>
@@ -509,7 +533,7 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
                                                 type="button"
                                                 className="admin-wallets-modal-btn-cancel"
                                                 onClick={() => { setModalError(''); setModal({ account: a }); }}
-                                                title="Edit"
+                                                title={t('btn.edit')}
                                             >
                                                 <Pencil size={14} />
                                             </button>
@@ -520,7 +544,7 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td colSpan={5} style={{ textAlign: 'right', fontWeight: 600 }}>Total remaining</td>
+                                <td colSpan={5} style={{ textAlign: 'right', fontWeight: 600 }}>{t('budget.totalRemaining')}</td>
                                 <td style={{ textAlign: 'right', fontWeight: 700, color: '#15803d' }}>SAR {fmt(totalRemaining)}</td>
                                 <td colSpan={2} />
                             </tr>
@@ -535,13 +559,14 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
                     canEdit={canCreate || canEdit}
                     busy={modalBusy}
                     error={modalError}
+                    t={t}
                     onCancel={() => { if (!modalBusy) setModal(null); }}
                     onSubmit={submitModal}
                 />
             ) : null}
 
             {ledger ? (
-                <BudgetLedgerModal account={ledger} onClose={() => setLedger(null)} />
+                <BudgetLedgerModal account={ledger} onClose={() => setLedger(null)} t={t} />
             ) : null}
         </div>
     );

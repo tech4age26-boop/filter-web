@@ -1,4 +1,5 @@
 import React from 'react';
+import { staffAppT } from '../../../utils/staffAppI18n';
 
 /**
  * Catches render errors in Staff App panels so one broken tab does not white-screen the portal.
@@ -24,6 +25,9 @@ export default class StaffAppPanelErrorBoundary extends React.Component {
     }
 
     render() {
+        const locale = this.props.locale || 'en';
+        const t = this.props.t || ((key, vars) => staffAppT(locale, key, vars));
+
         if (this.state.error) {
             return (
                 <div
@@ -31,17 +35,17 @@ export default class StaffAppPanelErrorBoundary extends React.Component {
                     style={{ padding: 20, borderColor: '#fecaca', background: '#fef2f2' }}
                 >
                     <h3 style={{ margin: '0 0 8px', color: '#991b1b' }}>
-                        This screen could not be loaded
+                        {t('error.screenTitle')}
                     </h3>
                     <p style={{ margin: '0 0 12px', fontSize: '0.875rem', color: '#7f1d1d' }}>
-                        {this.state.error?.message || 'An unexpected error occurred.'}
+                        {this.state.error?.message || t('error.unexpected')}
                     </p>
                     <button
                         type="button"
                         className="staff-app-btn staff-app-btn--primary"
                         onClick={() => this.setState({ error: null })}
                     >
-                        Try again
+                        {t('common.tryAgain')}
                     </button>
                 </div>
             );

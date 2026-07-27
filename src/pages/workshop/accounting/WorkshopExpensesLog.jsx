@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Filter, RefreshCw, Wallet } from 'lucide-react';
 import {
     listLogFilterUsers,
     listPettyCashExpensesLog,
 } from '../../../services/accountingLogsApi';
+import { expLogT } from '../../../utils/expensesLogI18n';
 import '../../../styles/admin/AccountingPage.css';
 
 const fmt = (n) => {
@@ -23,6 +25,13 @@ function formatFilterUserLabel(u) {
 }
 
 export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 'all' }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => expLogT(locale, key, vars), [locale]);
+
     const [branchId, setBranchId] = useState(() => sidebarBranchToFilter(selectedBranchId));
     const [userId, setUserId] = useState('');
     const [dateFrom, setDateFrom] = useState('');
@@ -49,11 +58,11 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
             setRows(res?.items ?? []);
             setTotal(res?.total ?? 0);
         } catch (e) {
-            setError(e?.message || 'Could not load expenses.');
+            setError(e?.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, [branchId, userId, dateFrom, dateTo, search]);
+    }, [branchId, userId, dateFrom, dateTo, search, t]);
 
     useEffect(() => {
         setBranchId(sidebarBranchToFilter(selectedBranchId));
@@ -84,9 +93,9 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
     return (
         <div className="accounting-page module-container">
             <header className="cash-bank-header">
-                <h2 className="cash-bank-title"><Wallet size={20} style={{ marginRight: 8 }} />Expenses</h2>
+                <h2 className="cash-bank-title"><Wallet size={20} style={{ marginRight: 8 }} />{t('title')}</h2>
                 <p className="cash-bank-desc">
-                    Approved petty-cash expense requests across all users and branches.
+                    {t('subtitle')}
                 </p>
             </header>
 
@@ -103,42 +112,42 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                 border: '1px solid #E2E8F0',
             }}>
                 <div>
-                    <label className="form-label">Branch</label>
+                    <label className="form-label">{t('label.branch')}</label>
                     <select className="form-input-field" value={branchId} onChange={(e) => {
                         setBranchId(e.target.value);
                         setUserId('');
                     }}>
-                        <option value="">All branches</option>
+                        <option value="">{t('opt.allBranches')}</option>
                         {branches.map((b) => (
                             <option key={b.id} value={b.id}>{b.name}</option>
                         ))}
                     </select>
                 </div>
                 <div>
-                    <label className="form-label">User</label>
+                    <label className="form-label">{t('label.user')}</label>
                     <select className="form-input-field" value={userId} onChange={(e) => setUserId(e.target.value)}>
-                        <option value="">All users</option>
+                        <option value="">{t('opt.allUsers')}</option>
                         {users.map((u) => (
                             <option key={u.id} value={u.id}>{formatFilterUserLabel(u)}</option>
                         ))}
                     </select>
                 </div>
                 <div>
-                    <label className="form-label">From</label>
+                    <label className="form-label">{t('label.from')}</label>
                     <input type="date" className="form-input-field" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
                 </div>
                 <div>
-                    <label className="form-label">To</label>
+                    <label className="form-label">{t('label.to')}</label>
                     <input type="date" className="form-input-field" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                 </div>
                 <div>
-                    <label className="form-label">Search</label>
+                    <label className="form-label">{t('label.search')}</label>
                     <input type="text" className="form-input-field" value={search} onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Category / description…" />
+                        placeholder={t('search.placeholder')} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                     <button type="button" className="btn-portal" onClick={reload} disabled={loading}>
-                        <Filter size={14} style={{ marginRight: 6 }} /> Apply
+                        <Filter size={14} style={{ marginRight: 6 }} /> {t('btn.apply')}
                     </button>
                 </div>
             </section>
@@ -147,35 +156,35 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                 <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Wallet size={24} /></div>
                     <div>
-                        <p className="cash-bank-stat-label">Total Approved</p>
+                        <p className="cash-bank-stat-label">{t('stat.totalApproved')}</p>
                         <p className="cash-bank-stat-value">SAR {fmt(totalAmount)}</p>
-                        <p className="cash-bank-stat-meta">{rows.length} of {total} rows</p>
+                        <p className="cash-bank-stat-meta">{t('stat.rowsMeta', { shown: rows.length, total })}</p>
                     </div>
                 </div>
             </div>
 
             <section className="premium-table cash-bank-table">
                 <header style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between' }}>
-                    <strong>{loading ? 'Loading…' : `${rows.length} entries`}</strong>
+                    <strong>{loading ? t('header.loading') : t('header.entries', { n: rows.length })}</strong>
                     <button type="button" className="btn-portal-outline" onClick={reload} disabled={loading}>
-                        <RefreshCw size={14} style={{ marginRight: 6 }} /> Refresh
+                        <RefreshCw size={14} style={{ marginRight: 6 }} /> {t('btn.refresh')}
                     </button>
                 </header>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Date</th>
-                            <th className="table-th">Amount</th>
-                            <th className="table-th">Category</th>
-                            <th className="table-th">User</th>
-                            <th className="table-th">Branch</th>
-                            <th className="table-th">Approved by</th>
-                            <th className="table-th">Description</th>
+                            <th className="table-th">{t('th.date')}</th>
+                            <th className="table-th">{t('th.amount')}</th>
+                            <th className="table-th">{t('th.category')}</th>
+                            <th className="table-th">{t('th.user')}</th>
+                            <th className="table-th">{t('th.branch')}</th>
+                            <th className="table-th">{t('th.approvedBy')}</th>
+                            <th className="table-th">{t('th.description')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {rows.length === 0 ? (
-                            <tr><td colSpan={7} className="table-cell table-empty">No expenses found.</td></tr>
+                            <tr><td colSpan={7} className="table-cell table-empty">{t('empty')}</td></tr>
                         ) : rows.map((r) => (
                             <tr key={r.id}>
                                 <td className="table-cell">{r.approvedAt ? new Date(r.approvedAt).toLocaleDateString() : '—'}</td>

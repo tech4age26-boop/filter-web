@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
     Download,
     Loader,
@@ -33,6 +34,7 @@ import {
     exportAdjustmentReportExcel,
     exportAdjustmentReportPdf,
 } from '../../utils/inventoryAdjustmentReportExport';
+import { smT } from '../../utils/stockMovementsI18n';
 
 const GRID_LIMIT = 50;
 const MOVEMENT_LIMIT = 100;
@@ -42,10 +44,6 @@ const ADJUSTMENT_LEDGER_LIMIT = 200;
 const INV_SEARCH_SUGGEST_LIMIT = 12;
 /** Backend max page size for super-admin branch inventory list. */
 const CATALOG_PAGE_LIMIT = 200;
-
-/** Plain-language note: summary vs paginated table. */
-const SUMMARY_VS_ENTRIES_HINT =
-    'The totals in the boxes above count every movement that matches your dates and this branch—not only the rows you see in the table. The table shows one page at a time; use Next / Previous to see more.';
 
 function unwrapData(res) {
     if (res && typeof res === 'object' && res.data != null && res.success !== false) return res.data;
@@ -359,35 +357,45 @@ const MOVEMENT_SOURCE_LABELS = {
     super_admin_starting_stock: 'Super admin (starting / opening stock)',
 };
 
-function humanizeMovementKind(raw) {
+function humanizeMovementKind(raw, t) {
     let s = '';
     if (raw == null || raw === '') return '—';
     if (typeof raw === 'string' || typeof raw === 'number') s = String(raw).trim();
     else s = displayCell(raw).trim();
     if (!s || s === '—') return '—';
     const k = s.toLowerCase();
+    if (t) {
+        const key = `kind.${k}`;
+        const translated = t(key);
+        if (translated !== key) return translated;
+    }
     if (MOVEMENT_KIND_LABELS[k]) return MOVEMENT_KIND_LABELS[k];
     return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function humanizeMovementSource(raw) {
+function humanizeMovementSource(raw, t) {
     let s = '';
     if (raw == null || raw === '') return '—';
     if (typeof raw === 'string' || typeof raw === 'number') s = String(raw).trim();
     else s = displayCell(raw).trim();
     if (!s || s === '—') return '—';
     const k = s.toLowerCase();
+    if (t) {
+        const key = `source.${k}`;
+        const translated = t(key);
+        if (translated !== key) return translated;
+    }
     if (MOVEMENT_SOURCE_LABELS[k]) return MOVEMENT_SOURCE_LABELS[k];
     return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** Prefer human reason for manual rows (e.g. super-admin opening change); else movement kind label. */
-function movementWhatHappenedLabel(e) {
+function movementWhatHappenedLabel(e, t) {
     if (!e || typeof e !== 'object') return '—';
     const mt = String(e.movementType || '').toLowerCase();
     const r = e.reason != null && String(e.reason).trim() !== '' ? String(e.reason).trim() : '';
     if (mt === 'manual_adjustment' && r) return r;
-    return humanizeMovementKind(e.movementType);
+    return humanizeMovementKind(e.movementType, t);
 }
 
 function downloadCsv(filename, rows, headers) {
@@ -408,9 +416,10 @@ function downloadCsv(filename, rows, headers) {
 }
 
 /** Main label is easy to read; technical field name only in tooltip for support. */
-function GridQtyTh({ label, apiField }) {
+function GridQtyTh({ label, apiField, t, fieldTitle }) {
+    const title = fieldTitle ?? (apiField ? (t ? t('title.systemField', { field: apiField }) : `System field: ${apiField}`) : undefined);
     return (
-        <th className="table-th" title={apiField ? `System field: ${apiField}` : undefined}>
+        <th className="table-th" title={title}>
             {label}
         </th>
     );
@@ -433,6 +442,7 @@ function MovementModalBody({
     onFromChange,
     onToChange,
     onApplyDates,
+    t,
 }) {
     const [movementTab, setMovementTab] = useState('rows');
     const totalPages = Math.max(1, Math.ceil((total || 0) / limit));
@@ -443,14 +453,14 @@ function MovementModalBody({
             {loading && !summary ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 16 }}>
                     <Loader className="animate-spin" size={20} />
-                    Loading totals…
+                    {t('loading.totals')}
                 </div>
             ) : summary ? (
                 <div className="stock-movements-summary" style={{ marginBottom: 0 }}>
                     <div className="movement-summary-card">
                         <div className="summary-main">
                             <div className="summary-info">
-                                <span className="summary-label">All stock added (this period)</span>
+                                <span className="summary-label">{t('modal.stockAdded')}</span>
                                 <span className="summary-value">{formatNum(summary.totalIn)}</span>
                             </div>
                             <div className="summary-icon-box in">
@@ -461,7 +471,7 @@ function MovementModalBody({
                     <div className="movement-summary-card">
                         <div className="summary-main">
                             <div className="summary-info">
-                                <span className="summary-label">All stock removed (this period)</span>
+                                <span className="summary-label">{t('modal.stockRemoved')}</span>
                                 <span className="summary-value">{formatNum(summary.totalOut)}</span>
                             </div>
                             <div className="summary-icon-box out">
@@ -472,11 +482,11 @@ function MovementModalBody({
                     <div className="movement-summary-card">
                         <div className="summary-main">
                             <div className="summary-info">
-                                <span className="summary-label">Net change · how many lines</span>
+                                <span className="summary-label">{t('modal.netChange')}</span>
                                 <span className="summary-value">
                                     {formatNum(summary.net)}
                                     <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginLeft: 8 }}>
-                                        {summary.totalEntries ?? total} lines total (all pages)
+                                        {t('modal.linesTotal', { n: summary.totalEntries ?? total })}
                                     </span>
                                 </span>
                             </div>
@@ -488,7 +498,7 @@ function MovementModalBody({
                 </div>
             ) : (
                 <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
-                    Totals will show here after the list loads. Pick dates and press Apply dates if you want a range.
+                    {t('modal.totalsEmpty')}
                 </p>
             )}
         </div>
@@ -499,7 +509,7 @@ function MovementModalBody({
             {loading ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 24 }}>
                     <Loader className="animate-spin" size={22} />
-                    Loading rows…
+                    {t('loading.rows')}
                 </div>
             ) : (
                 <>
@@ -507,21 +517,21 @@ function MovementModalBody({
                         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
                             <thead>
                                 <tr className="table-header-row">
-                                    <th className="table-th">When</th>
-                                    <th className="table-th">What happened</th>
-                                    <th className="table-th">Qty change</th>
-                                    <th className="table-th">Stock before → after</th>
-                                    <th className="table-th">How it was recorded</th>
-                                    <th className="table-th">Invoice or link</th>
-                                    <th className="table-th">Note</th>
-                                    <th className="table-th">Staff</th>
+                                    <th className="table-th">{t('th.when')}</th>
+                                    <th className="table-th">{t('th.whatHappened')}</th>
+                                    <th className="table-th">{t('th.qtyChange')}</th>
+                                    <th className="table-th">{t('th.stockBeforeAfter')}</th>
+                                    <th className="table-th">{t('th.howRecorded')}</th>
+                                    <th className="table-th">{t('th.invoiceOrLink')}</th>
+                                    <th className="table-th">{t('th.note')}</th>
+                                    <th className="table-th">{t('th.staff')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(entries || []).length === 0 ? (
                                     <tr>
                                         <td className="table-cell" colSpan={8} style={{ textAlign: 'center', padding: 24 }}>
-                                            No stock changes for these dates.
+                                            {t('empty.noStockChanges')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -539,10 +549,10 @@ function MovementModalBody({
                                                             typeof e.movementType === 'string'
                                                                 ? e.movementType
                                                                 : displayCell(e.movementType);
-                                                        return code && code !== '—' ? `System code: ${code}` : undefined;
+                                                        return code && code !== '—' ? t('modal.systemCode', { code }) : undefined;
                                                     })()}
                                                 >
-                                                    {movementWhatHappenedLabel(e)}
+                                                    {movementWhatHappenedLabel(e, t)}
                                                 </span>
                                             </td>
                                             <td className="table-cell font-bold">{formatNum(e.delta)}</td>
@@ -555,10 +565,10 @@ function MovementModalBody({
                                                 title={(() => {
                                                     const code =
                                                         typeof e.source === 'string' ? e.source : displayCell(e.source);
-                                                    return code && code !== '—' ? `System code: ${code}` : undefined;
+                                                    return code && code !== '—' ? t('modal.systemCode', { code }) : undefined;
                                                 })()}
                                             >
-                                                {humanizeMovementSource(e.source)}
+                                                {humanizeMovementSource(e.source, t)}
                                             </td>
                                             <td className="table-cell reference-col">
                                                 <ReferencePills value={e.reference} />
@@ -578,7 +588,7 @@ function MovementModalBody({
                     {total > limit ? (
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
                             <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
-                                Page {page} of {totalPages} · {total} rows on this page. Open &quot;Period totals&quot; for full-period numbers (not only this page).
+                                {t('modal.pageRows', { page, totalPages, total })}
                             </span>
                             <div style={{ display: 'flex', gap: 8 }}>
                                 <button
@@ -587,7 +597,7 @@ function MovementModalBody({
                                     disabled={offset <= 0}
                                     onClick={() => onOffsetChange(Math.max(0, offset - limit))}
                                 >
-                                    Previous
+                                    {t('btn.previous')}
                                 </button>
                                 <button
                                     type="button"
@@ -595,7 +605,7 @@ function MovementModalBody({
                                     disabled={offset + limit >= total}
                                     onClick={() => onOffsetChange(offset + limit)}
                                 >
-                                    Next
+                                    {t('btn.next')}
                                 </button>
                             </div>
                         </div>
@@ -614,27 +624,27 @@ function MovementModalBody({
                 <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>{scopeLine}</p>
             ) : null}
             <p className="stock-movements-summary-scope-hint" role="note">
-                <strong>Heads up:</strong> {SUMMARY_VS_ENTRIES_HINT}
+                <strong>{t('modal.headsUp')}</strong> {t('modal.summaryHint')}
             </p>
             {product && (
                 <div style={{ fontWeight: 700, fontSize: '0.9375rem' }}>
                     {displayCell(product.name)}{' '}
                     <span style={{ fontWeight: 500, color: '#64748b' }}>
-                        · Code {displayCell(product.sku)} · Unit: {displayCell(product.unit)}
+                        {t('modal.codeUnit', { sku: displayCell(product.sku), unit: displayCell(product.unit) })}
                     </span>
                 </div>
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
                 <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">From date</label>
+                    <label className="form-label">{t('label.fromDate')}</label>
                     <input type="date" className="form-input-field" value={from} onChange={(e) => onFromChange(e.target.value)} />
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label">To date</label>
+                    <label className="form-label">{t('label.toDate')}</label>
                     <input type="date" className="form-input-field" value={to} onChange={(e) => onToChange(e.target.value)} />
                 </div>
                 <button type="button" className="btn-portal" style={{ padding: '10px 16px', marginBottom: 2 }} onClick={onApplyDates}>
-                    Apply dates
+                    {t('btn.applyDates')}
                 </button>
             </div>
             {error && (
@@ -646,8 +656,8 @@ function MovementModalBody({
                 value={movementTab}
                 onChange={setMovementTab}
                 tabs={[
-                    { id: 'totals', label: 'Period totals', panel: summaryPanel },
-                    { id: 'rows', label: 'Each change', panel: rowsPanel },
+                    { id: 'totals', label: t('modal.tabTotals'), panel: summaryPanel },
+                    { id: 'rows', label: t('modal.tabRows'), panel: rowsPanel },
                 ]}
             />
         </div>
@@ -655,6 +665,10 @@ function MovementModalBody({
 }
 
 export default function StockMovementsSuperAdmin() {
+    const outletCtx = useOutletContext() || {};
+    const locale = outletCtx.locale || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => smT(locale, key, vars), [locale]);
+
     const [workshops, setWorkshops] = useState([]);
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
     const [branches, setBranches] = useState([]);
@@ -766,7 +780,7 @@ export default function StockMovementsSuperAdmin() {
             } catch (e) {
                 if (!cancelled) {
                     setLedgerEntries([]);
-                    setLedgerError(e?.message || 'Could not load the movement ledger.');
+                    setLedgerError(e?.message || t('err.loadLedger'));
                 }
             } finally {
                 if (!cancelled) setLoadingLedger(false);
@@ -784,6 +798,7 @@ export default function StockMovementsSuperAdmin() {
         appliedLedgerTo,
         ledgerProductId,
         appliedLedgerSearch,
+        t,
     ]);
 
     useEffect(() => {
@@ -826,7 +841,7 @@ export default function StockMovementsSuperAdmin() {
                 if (!cancelled) {
                     setBranchAdjustments([]);
                     setBranchAdjustmentSummary(null);
-                    setBranchAdjustmentsError(e?.message || 'Could not load adjustment report.');
+                    setBranchAdjustmentsError(e?.message || t('err.loadAdjustments'));
                 }
             } finally {
                 if (!cancelled) setLoadingBranchAdjustments(false);
@@ -835,7 +850,7 @@ export default function StockMovementsSuperAdmin() {
         return () => {
             cancelled = true;
         };
-    }, [selectedWorkshopId, selectedBranchId, appliedBranchFrom, appliedBranchTo]);
+    }, [selectedWorkshopId, selectedBranchId, appliedBranchFrom, appliedBranchTo, t]);
 
     const catalogPurchasePriceByProductId = useMemo(() => {
         const map = {};
@@ -970,11 +985,11 @@ export default function StockMovementsSuperAdmin() {
             setBranchScopeMeta({ workshop, branch });
         } catch (e) {
             setBranchProductCatalog([]);
-            setProductsError(e?.message || 'Could not load the product list.');
+            setProductsError(e?.message || t('err.loadProducts'));
         } finally {
             setLoadingProducts(false);
         }
-    }, [selectedWorkshopId, selectedBranchId]);
+    }, [selectedWorkshopId, selectedBranchId, t]);
 
     useEffect(() => {
         void loadBranchProductCatalog();
@@ -1058,7 +1073,7 @@ export default function StockMovementsSuperAdmin() {
             const trimmed = String(openingDraft).trim();
             const parsed = Number(trimmed);
             if (trimmed === '' || Number.isNaN(parsed)) {
-                setOpeningHint('Enter a valid number');
+                setOpeningHint(t('err.validNumber'));
                 return;
             }
             const prevRaw = product.openingQty;
@@ -1087,7 +1102,7 @@ export default function StockMovementsSuperAdmin() {
                 });
                 cancelOpeningEdit();
             } catch (e) {
-                setOpeningHint(e?.message || 'Could not save');
+                setOpeningHint(e?.message || t('err.couldNotSave'));
             } finally {
                 setOpeningSaving(false);
             }
@@ -1098,6 +1113,7 @@ export default function StockMovementsSuperAdmin() {
             selectedBranchId,
             applyProductStockPatch,
             cancelOpeningEdit,
+            t,
         ],
     );
 
@@ -1141,7 +1157,7 @@ export default function StockMovementsSuperAdmin() {
             const trimmed = String(criticalDraft).trim();
             const parsed = Number(trimmed);
             if (trimmed === '' || Number.isNaN(parsed) || parsed < 0) {
-                setCriticalHint('Enter a valid number ≥ 0');
+                setCriticalHint(t('err.validNumberGte0'));
                 return;
             }
             const prevNum = Number(product.criticalStockPoint ?? 0);
@@ -1164,12 +1180,12 @@ export default function StockMovementsSuperAdmin() {
                 });
                 cancelCriticalEdit();
             } catch (e) {
-                setCriticalHint(e?.message || 'Could not save');
+                setCriticalHint(e?.message || t('err.couldNotSave'));
             } finally {
                 setCriticalSaving(false);
             }
         },
-        [criticalDraft, selectedWorkshopId, selectedBranchId, applyProductStockPatch, cancelCriticalEdit],
+        [criticalDraft, selectedWorkshopId, selectedBranchId, applyProductStockPatch, cancelCriticalEdit, t],
     );
 
     const openAdjustModal = useCallback((product) => {
@@ -1194,7 +1210,7 @@ export default function StockMovementsSuperAdmin() {
         if (!adjustProduct || !selectedWorkshopId || !selectedBranchId) return;
         const reason = String(adjustReason || '').trim();
         if (!reason) {
-            setAdjustError('Select a reason for the adjustment.');
+            setAdjustError(t('err.selectReason'));
             return;
         }
         const isInfinite = reason === INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY;
@@ -1203,7 +1219,7 @@ export default function StockMovementsSuperAdmin() {
         if (!isInfinite) {
             newQtyNum = Number.parseFloat(String(adjustNewQty).trim().replace(/,/g, ''));
             if (!Number.isFinite(newQtyNum) || newQtyNum < 0) {
-                setAdjustError('Enter a valid quantity ≥ 0.');
+                setAdjustError(t('err.validQtyGte0'));
                 return;
             }
             newQtyNum = Math.round(newQtyNum);
@@ -1211,7 +1227,7 @@ export default function StockMovementsSuperAdmin() {
                 ? Number(adjustProduct.openingQty ?? adjustProduct.currentQty) || 0
                 : Number(adjustProduct.currentQty) || 0;
             if (newQtyNum === baseline) {
-                setAdjustError('New quantity matches current stock — no change needed.');
+                setAdjustError(t('err.qtyUnchanged'));
                 return;
             }
         }
@@ -1267,7 +1283,7 @@ export default function StockMovementsSuperAdmin() {
             setBranchAdjustments(all);
             setBranchAdjustmentSummary(summary);
         } catch (e) {
-            setAdjustError(e?.message || 'Could not save adjustment.');
+            setAdjustError(e?.message || t('err.saveAdjustment'));
         } finally {
             setAdjustSaving(false);
         }
@@ -1283,6 +1299,7 @@ export default function StockMovementsSuperAdmin() {
         loadBranchProductCatalog,
         appliedBranchFrom,
         appliedBranchTo,
+        t,
     ]);
 
     const applyLedgerFilters = useCallback(() => {
@@ -1549,11 +1566,11 @@ export default function StockMovementsSuperAdmin() {
         <>
             <header className="stock-movements-header">
                 <div>
-                    <h1 className="stock-movements-title">Stock movements</h1>
+                    <h1 className="stock-movements-title">{t('page.title')}</h1>
                     <p className="stock-movements-subtitle">
-                        <strong>Branch stock</strong>: pick a workshop and branch for on-hand quantities and per-product history.{' '}
-                        <strong>Inventory adjustments</strong>: branch-wise adjustment report with before/after stock and staff name.{' '}
-                        <strong>Movement ledger</strong>: optional filters and a global movement list (workshop + branch on each row).
+                        <strong>{t('page.subtitle.branch')}</strong>{t('page.subtitle.branchBody')}{' '}
+                        <strong>{t('page.subtitle.adj')}</strong>{t('page.subtitle.adjBody')}{' '}
+                        <strong>{t('page.subtitle.ledger')}</strong>{t('page.subtitle.ledgerBody')}
                     </p>
                 </div>
                 <button
@@ -1562,13 +1579,13 @@ export default function StockMovementsSuperAdmin() {
                     disabled={pageTab !== 'branch-stock' || !filteredBranchProducts.length}
                     onClick={exportGridCsv}
                 >
-                    <Download size={16} /> Download table (CSV)
+                    <Download size={16} /> {t('btn.downloadCsv')}
                 </button>
             </header>
 
             <div className="stock-movements-context-bar">
                 <div className="stock-movements-context-field">
-                    <label className="log-filter-label">Workshop (center)</label>
+                    <label className="log-filter-label">{t('label.workshop')}</label>
                     <select
                         className="movements-filter-select"
                         style={{ minWidth: 200 }}
@@ -1579,7 +1596,7 @@ export default function StockMovementsSuperAdmin() {
                         }}
                         disabled={loadingWorkshops}
                     >
-                        <option value="">{loadingWorkshops ? 'Loading…' : 'Choose workshop'}</option>
+                        <option value="">{loadingWorkshops ? t('opt.loading') : t('opt.chooseWorkshop')}</option>
                         {workshopDropdown.map((w) => (
                             <option key={w.id} value={w.id}>
                                 {displayCell(w.name)}
@@ -1588,7 +1605,7 @@ export default function StockMovementsSuperAdmin() {
                     </select>
                 </div>
                 <div className="stock-movements-context-field">
-                    <label className="log-filter-label">Branch (location)</label>
+                    <label className="log-filter-label">{t('label.branch')}</label>
                     <select
                         className="movements-filter-select"
                         style={{ minWidth: 200 }}
@@ -1596,7 +1613,7 @@ export default function StockMovementsSuperAdmin() {
                         onChange={(e) => setSelectedBranchId(e.target.value)}
                         disabled={!selectedWorkshopId || loadingBranches}
                     >
-                        <option value="">{!selectedWorkshopId ? 'Choose workshop first' : loadingBranches ? 'Loading…' : 'Choose branch'}</option>
+                        <option value="">{!selectedWorkshopId ? t('opt.chooseWorkshopFirst') : loadingBranches ? t('opt.loading') : t('opt.chooseBranch')}</option>
                         {branches.map((b) => (
                             <option key={b.id} value={b.id}>
                                 {displayCell(b.name)}
@@ -1606,7 +1623,7 @@ export default function StockMovementsSuperAdmin() {
                 </div>
                 {gridMeta.workshop && gridMeta.branch ? (
                     <p className="stock-movements-context-hint">
-                        Now viewing: <strong>{displayCell(gridMeta.workshop)}</strong> — <strong>{displayCell(gridMeta.branch)}</strong>
+                        {t('hint.nowViewing')} <strong>{displayCell(gridMeta.workshop)}</strong> — <strong>{displayCell(gridMeta.branch)}</strong>
                     </p>
                 ) : null}
             </div>
@@ -1619,7 +1636,7 @@ export default function StockMovementsSuperAdmin() {
                 tabs={[
                     {
                         id: 'branch-stock',
-                        label: 'Branch stock',
+                        label: t('tab.branchStock'),
                         panel: (
                             <>
             <div className="stock-movements-filter-bar">
@@ -1631,7 +1648,7 @@ export default function StockMovementsSuperAdmin() {
                         <Search className="mc-filter-icon" size={16} />
                         <input
                             type="text"
-                            placeholder="Search by product name or SKU…"
+                            placeholder={t('search.placeholder')}
                             className="mc-filter-select"
                             style={{
                                 paddingLeft: '40px',
@@ -1687,8 +1704,8 @@ export default function StockMovementsSuperAdmin() {
                                     setInvSuggestOpen(false);
                                     setInvSuggestIndex(-1);
                                 }}
-                                aria-label="Clear search"
-                                title="Clear search"
+                                aria-label={t('search.clear')}
+                                title={t('search.clear')}
                                 style={{
                                     position: 'absolute',
                                     right: 8,
@@ -1715,11 +1732,11 @@ export default function StockMovementsSuperAdmin() {
                                 id="sm-admin-inv-search-suggest-list"
                                 className="mc-inv-search-dropdown"
                                 role="listbox"
-                                aria-label="Matching products"
+                                aria-label={t('search.matching')}
                                 onMouseDown={(ev) => ev.preventDefault()}
                             >
                                 {invSearchSuggestions.length === 0 ? (
-                                    <div className="mc-inv-search-dropdown-empty">No matching products</div>
+                                    <div className="mc-inv-search-dropdown-empty">{t('search.noMatch')}</div>
                                 ) : (
                                     invSearchSuggestions.map((row, idx) => (
                                         <button
@@ -1743,12 +1760,11 @@ export default function StockMovementsSuperAdmin() {
                         ) : null}
                     </div>
                     <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-                        Showing <strong>{filteredBranchProducts.length}</strong> of <strong>{branchProductCatalog.length}</strong>{' '}
-                        products
-                        {searchQuery ? ` for "${searchQuery}"` : ''}.
+                        {t('search.showing', { n: filteredBranchProducts.length, m: branchProductCatalog.length })}
+                        {searchQuery ? t('search.forQuery', { q: searchQuery }) : ''}.
                     </p>
                     <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                        Use <strong>↑</strong> <strong>↓</strong> and <strong>Enter</strong> to pick a suggestion — same as workshop Manage Inventory.
+                        {t('search.kbdHint')}
                     </p>
                 </div>
             </div>
@@ -1763,17 +1779,17 @@ export default function StockMovementsSuperAdmin() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Product</th>
-                            <th className="table-th">Code (SKU)</th>
-                            <th className="table-th">Brand</th>
-                            <th className="table-th">Unit</th>
-                            <GridQtyTh label="Stock now" apiField="currentQty" />
-                            <GridQtyTh label="Reserved" apiField="reservedQty" />
-                            <GridQtyTh label="Free to use" apiField="availableQty" />
-                            <GridQtyTh label="Critical stock level" apiField="criticalStockPoint" />
-                            <GridQtyTh label="Starting stock" apiField="openingQty" />
-                            <GridQtyTh label="In use" apiField="isActive" />
-                            <th className="table-th">Actions</th>
+                            <th className="table-th">{t('th.product')}</th>
+                            <th className="table-th">{t('th.sku')}</th>
+                            <th className="table-th">{t('th.brand')}</th>
+                            <th className="table-th">{t('th.unit')}</th>
+                            <GridQtyTh label={t('th.stockNow')} apiField="currentQty" t={t} />
+                            <GridQtyTh label={t('th.reserved')} apiField="reservedQty" t={t} />
+                            <GridQtyTh label={t('th.freeToUse')} apiField="availableQty" t={t} />
+                            <GridQtyTh label={t('th.critical')} apiField="criticalStockPoint" t={t} />
+                            <GridQtyTh label={t('th.startingStock')} apiField="openingQty" t={t} />
+                            <GridQtyTh label={t('th.inUse')} apiField="isActive" t={t} />
+                            <th className="table-th">{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1781,21 +1797,21 @@ export default function StockMovementsSuperAdmin() {
                             <tr>
                                 <td className="table-cell" colSpan={11} style={{ textAlign: 'center', padding: 32 }}>
                                     <Loader className="animate-spin" size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} />
-                                    Loading list…
+                                    {t('loading.list')}
                                 </td>
                             </tr>
                         ) : !selectedWorkshopId || !selectedBranchId ? (
                             <tr>
                                 <td className="table-cell" colSpan={11} style={{ textAlign: 'center', padding: 32, color: '#64748b' }}>
-                                    Choose a workshop and a branch above to load products and stock for that place.
+                                    {t('empty.pickWorkshopBranch')}
                                 </td>
                             </tr>
                         ) : filteredBranchProducts.length === 0 ? (
                             <tr>
                                 <td className="table-cell" colSpan={11} style={{ textAlign: 'center', padding: 32, color: '#64748b' }}>
                                     {branchProductCatalog.length === 0
-                                        ? 'No products in this branch yet.'
-                                        : 'No products match your search—clear or change the search box.'}
+                                        ? t('empty.noProductsBranch')
+                                        : t('empty.noProductsSearch')}
                                 </td>
                             </tr>
                         ) : (
@@ -1846,7 +1862,7 @@ export default function StockMovementsSuperAdmin() {
                                                             cancelCriticalEdit();
                                                         }
                                                     }}
-                                                    aria-label="Critical stock level"
+                                                    aria-label={t('aria.critical')}
                                                 />
                                                 {criticalSaving ? (
                                                     <Loader className="animate-spin opening-qty-spinner" size={14} />
@@ -1879,7 +1895,7 @@ export default function StockMovementsSuperAdmin() {
                                                             cancelOpeningEdit();
                                                         }
                                                     }}
-                                                    aria-label="Starting stock"
+                                                    aria-label={t('aria.starting')}
                                                 />
                                                 {openingSaving ? (
                                                     <Loader className="animate-spin opening-qty-spinner" size={14} />
@@ -1894,7 +1910,7 @@ export default function StockMovementsSuperAdmin() {
                                     </td>
                                     <td className="table-cell">
                                         <span className={`status-badge ${p.isActive ? 'status-completed' : 'status-warning'}`}>
-                                            {p.isActive ? 'On' : 'Off'}
+                                            {p.isActive ? t('status.on') : t('status.off')}
                                         </span>
                                     </td>
                                     <td className="table-cell">
@@ -1906,9 +1922,9 @@ export default function StockMovementsSuperAdmin() {
                                                         className="btn-edit"
                                                         onClick={() => void saveCriticalEdit(p)}
                                                         disabled={criticalSaving || loadingProducts}
-                                                        title="Save critical stock level"
+                                                        title={t('title.saveCritical')}
                                                     >
-                                                        Save
+                                                        {t('btn.save')}
                                                     </button>
                                                     <button
                                                         type="button"
@@ -1916,7 +1932,7 @@ export default function StockMovementsSuperAdmin() {
                                                         onClick={cancelCriticalEdit}
                                                         disabled={criticalSaving}
                                                     >
-                                                        Cancel
+                                                        {t('btn.cancel')}
                                                     </button>
                                                 </>
                                             ) : (
@@ -1931,10 +1947,10 @@ export default function StockMovementsSuperAdmin() {
                                                         criticalSaving ||
                                                         String(openingEditProductId) === String(p.productId)
                                                     }
-                                                    title="Edit critical stock level for this branch"
+                                                    title={t('title.editCritical')}
                                                 >
                                                     <Pencil size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-                                                    Critical
+                                                    {t('btn.critical')}
                                                 </button>
                                             )}
                                             {String(openingEditProductId) === String(p.productId) ? (
@@ -1949,9 +1965,9 @@ export default function StockMovementsSuperAdmin() {
                                                             !selectedWorkshopId ||
                                                             !selectedBranchId
                                                         }
-                                                        title="Save starting stock"
+                                                        title={t('title.saveStarting')}
                                                     >
-                                                        Save
+                                                        {t('btn.save')}
                                                     </button>
                                                     <button
                                                         type="button"
@@ -1959,7 +1975,7 @@ export default function StockMovementsSuperAdmin() {
                                                         onClick={cancelOpeningEdit}
                                                         disabled={openingSaving}
                                                     >
-                                                        Cancel
+                                                        {t('btn.cancel')}
                                                     </button>
                                                 </>
                                             ) : (
@@ -1973,10 +1989,10 @@ export default function StockMovementsSuperAdmin() {
                                                         !selectedBranchId ||
                                                         openingSaving
                                                     }
-                                                    title="Edit starting stock for this product"
+                                                    title={t('title.editStarting')}
                                                 >
                                                     <Pencil size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-                                                    Edit
+                                                    {t('btn.edit')}
                                                 </button>
                                             )}
                                             <button
@@ -1991,10 +2007,10 @@ export default function StockMovementsSuperAdmin() {
                                                     (String(openingEditProductId) === String(p.productId) && openingSaving) ||
                                                     String(criticalEditProductId) === String(p.productId)
                                                 }
-                                                title="Adjust on-hand quantity with a reason"
+                                                title={t('title.adjust')}
                                             >
                                                 <SlidersHorizontal size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-                                                Adjust
+                                                {t('btn.adjust')}
                                             </button>
                                             <button
                                                 type="button"
@@ -2004,10 +2020,10 @@ export default function StockMovementsSuperAdmin() {
                                                     String(openingEditProductId) === String(p.productId) &&
                                                     openingSaving
                                                 }
-                                                title="See how stock went up and down for this product at this branch"
+                                                title={t('title.viewHistory')}
                                             >
                                                 <ListTree size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-                                                View history
+                                                {t('btn.viewHistory')}
                                             </button>
                                         </div>
                                     </td>
@@ -2021,7 +2037,7 @@ export default function StockMovementsSuperAdmin() {
             {selectedWorkshopId && selectedBranchId && gridMeta.total > GRID_LIMIT ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, flexWrap: 'wrap', gap: 8 }}>
                     <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
-                        Products: page {gridPage} of {gridTotalPages} ({gridMeta.total} in total)
+                        {t('page.products', { page: gridPage, totalPages: gridTotalPages, total: gridMeta.total })}
                     </span>
                     <div style={{ display: 'flex', gap: 8 }}>
                         <button
@@ -2030,7 +2046,7 @@ export default function StockMovementsSuperAdmin() {
                             disabled={gridOffset <= 0}
                             onClick={() => setGridOffset((o) => Math.max(0, o - GRID_LIMIT))}
                         >
-                            Previous
+                            {t('btn.previous')}
                         </button>
                         <button
                             type="button"
@@ -2038,7 +2054,7 @@ export default function StockMovementsSuperAdmin() {
                             disabled={gridOffset + GRID_LIMIT >= gridMeta.total}
                             onClick={() => setGridOffset((o) => o + GRID_LIMIT)}
                         >
-                            Next
+                            {t('btn.next')}
                         </button>
                     </div>
                 </div>
@@ -2048,30 +2064,30 @@ export default function StockMovementsSuperAdmin() {
                     },
                     {
                         id: 'adjustment-report',
-                        label: 'Inventory adjustments',
+                        label: t('tab.adjustments'),
                         panel: (
                             <>
                                 {!selectedWorkshopId || !selectedBranchId ? (
                                     <p style={{ margin: 0, padding: 32, textAlign: 'center', color: '#64748b', fontSize: '0.875rem' }}>
-                                        Choose a workshop and branch above to view manual inventory adjustments for that location.
+                                        {t('empty.pickForAdjustments')}
                                     </p>
                                 ) : (
                                     <>
                                         <div className="stock-movements-filter-bar" style={{ marginBottom: 16 }}>
                                             <div className="form-group" style={{ margin: 0 }}>
-                                                <label className="form-label">From date</label>
+                                                <label className="form-label">{t('label.fromDate')}</label>
                                                 <input type="date" className="form-input-field" value={branchFrom} onChange={(e) => setBranchFrom(e.target.value)} />
                                             </div>
                                             <div className="form-group" style={{ margin: 0 }}>
-                                                <label className="form-label">To date</label>
+                                                <label className="form-label">{t('label.toDate')}</label>
                                                 <input type="date" className="form-input-field" value={branchTo} onChange={(e) => setBranchTo(e.target.value)} />
                                             </div>
                                             <button type="button" className="btn-portal" style={{ padding: '10px 16px', marginBottom: 2 }} onClick={applyBranchDateFilters}>
-                                                Apply dates
+                                                {t('btn.applyDates')}
                                             </button>
                                             {(appliedBranchFrom || appliedBranchTo) ? (
                                                 <button type="button" className="btn-secondary" style={{ marginBottom: 2 }} onClick={clearBranchDateFilters}>
-                                                    Clear dates
+                                                    {t('btn.clearDates')}
                                                 </button>
                                             ) : null}
                                             <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -2081,7 +2097,7 @@ export default function StockMovementsSuperAdmin() {
                                                     disabled={loadingBranchAdjustments || !enrichedBranchAdjustments.length}
                                                     onClick={exportAdjustmentPdf}
                                                 >
-                                                    <Download size={16} /> Download PDF
+                                                    <Download size={16} /> {t('btn.downloadPdf')}
                                                 </button>
                                                 <button
                                                     type="button"
@@ -2089,17 +2105,17 @@ export default function StockMovementsSuperAdmin() {
                                                     disabled={loadingBranchAdjustments || !enrichedBranchAdjustments.length}
                                                     onClick={exportAdjustmentExcel}
                                                 >
-                                                    <Download size={16} /> Download Excel
+                                                    <Download size={16} /> {t('btn.downloadExcel')}
                                                 </button>
                                             </div>
                                         </div>
                                         <p style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: '#64748b' }}>
-                                            Branch-wise manual adjustments for{' '}
+                                            {t('adj.intro')}{' '}
                                             <strong>{displayCell(gridMeta.branch)}</strong>
                                             {appliedBranchFrom || appliedBranchTo
-                                                ? ` from ${appliedBranchFrom || '…'} to ${appliedBranchTo || '…'}`
-                                                : ' (all dates — use Apply dates to narrow)'}
-                                            . Shows stock before and after each change, purchase value, line totals, and the user who made it.
+                                                ? t('adj.fromTo', { from: appliedBranchFrom || '…', to: appliedBranchTo || '…' })
+                                                : t('adj.allDates')}
+                                            {t('adj.introTail')}
                                         </p>
                                         {branchAdjustmentsError ? (
                                             <div style={{ padding: 12, marginBottom: 12, background: '#FEF2F2', color: '#B91C1C', borderRadius: 8, fontSize: '0.875rem' }}>
@@ -2111,8 +2127,8 @@ export default function StockMovementsSuperAdmin() {
                                                 <div className="movement-summary-card">
                                                     <div className="summary-main">
                                                         <div className="summary-info">
-                                                            <span className="summary-label">Total value before (adjusted lines)</span>
-                                                            <span className="summary-value">SAR {formatSar(adjustmentKpis.totalValueBefore)}</span>
+                                                            <span className="summary-label">{t('adj.kpiValueBefore')}</span>
+                                                            <span className="summary-value">{t('adj.sar', { amount: formatSar(adjustmentKpis.totalValueBefore) })}</span>
                                                         </div>
                                                         <div className="summary-icon-box in">
                                                             <TrendingUp size={20} />
@@ -2122,8 +2138,8 @@ export default function StockMovementsSuperAdmin() {
                                                 <div className="movement-summary-card">
                                                     <div className="summary-main">
                                                         <div className="summary-info">
-                                                            <span className="summary-label">Total value after (adjusted lines)</span>
-                                                            <span className="summary-value">SAR {formatSar(adjustmentKpis.totalValueAfter)}</span>
+                                                            <span className="summary-label">{t('adj.kpiValueAfter')}</span>
+                                                            <span className="summary-value">{t('adj.sar', { amount: formatSar(adjustmentKpis.totalValueAfter) })}</span>
                                                         </div>
                                                         <div className="summary-icon-box out">
                                                             <TrendingDown size={20} />
@@ -2134,7 +2150,9 @@ export default function StockMovementsSuperAdmin() {
                                                     <div className="summary-main">
                                                         <div className="summary-info">
                                                             <span className="summary-label">
-                                                                Total difference · {adjustmentKpis.count} adjustment{adjustmentKpis.count !== 1 ? 's' : ''}
+                                                                {adjustmentKpis.count !== 1
+                                                                    ? t('adj.kpiDiffPlural', { count: adjustmentKpis.count })
+                                                                    : t('adj.kpiDiff', { count: adjustmentKpis.count })}
                                                             </span>
                                                             <span
                                                                 className="summary-value"
@@ -2149,7 +2167,7 @@ export default function StockMovementsSuperAdmin() {
                                                             >
                                                                 {formatSignedSar(adjustmentKpis.totalDiffValue)}
                                                                 <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginLeft: 8 }}>
-                                                                    Qty {formatSignedQty(adjustmentKpis.totalDiffQty)}
+                                                                    {t('adj.qty', { qty: formatSignedQty(adjustmentKpis.totalDiffQty) })}
                                                                 </span>
                                                             </span>
                                                         </div>
@@ -2164,17 +2182,17 @@ export default function StockMovementsSuperAdmin() {
                                             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1180 }}>
                                                 <thead>
                                                     <tr className="table-header-row">
-                                                        <th className="table-th">When</th>
-                                                        <th className="table-th">Product</th>
-                                                        <th className="table-th">Reason / note</th>
-                                                        <th className="table-th">Purchase value</th>
-                                                        <th className="table-th">Stock before</th>
-                                                        <th className="table-th">Stock after</th>
-                                                        <th className="table-th">Value before</th>
-                                                        <th className="table-th">Value after</th>
-                                                        <th className="table-th">Diff qty</th>
-                                                        <th className="table-th">Diff value</th>
-                                                        <th className="table-th">Changed by</th>
+                                                        <th className="table-th">{t('th.when')}</th>
+                                                        <th className="table-th">{t('th.product')}</th>
+                                                        <th className="table-th">{t('th.reasonNote')}</th>
+                                                        <th className="table-th">{t('th.purchaseValue')}</th>
+                                                        <th className="table-th">{t('th.stockBefore')}</th>
+                                                        <th className="table-th">{t('th.stockAfter')}</th>
+                                                        <th className="table-th">{t('th.valueBefore')}</th>
+                                                        <th className="table-th">{t('th.valueAfter')}</th>
+                                                        <th className="table-th">{t('th.diffQty')}</th>
+                                                        <th className="table-th">{t('th.diffValue')}</th>
+                                                        <th className="table-th">{t('th.changedBy')}</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -2182,13 +2200,13 @@ export default function StockMovementsSuperAdmin() {
                                                         <tr>
                                                             <td className="table-cell" colSpan={11} style={{ textAlign: 'center', padding: 24 }}>
                                                                 <Loader className="animate-spin" size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} />
-                                                                Loading adjustments…
+                                                                {t('loading.adjustments')}
                                                             </td>
                                                         </tr>
                                                     ) : enrichedBranchAdjustments.length === 0 ? (
                                                         <tr>
                                                             <td className="table-cell" colSpan={11} style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>
-                                                                No manual adjustments for this branch{appliedBranchFrom || appliedBranchTo ? ' in this date range' : ''}.
+                                                                {t('empty.noAdjustments')}{appliedBranchFrom || appliedBranchTo ? t('empty.inDateRange') : ''}.
                                                             </td>
                                                         </tr>
                                                     ) : (
@@ -2197,9 +2215,9 @@ export default function StockMovementsSuperAdmin() {
                                                             const pr = row.product ?? {};
                                                             const priceSource =
                                                                 pr.purchasePriceSource === 'last_purchase'
-                                                                    ? 'Last purchase price'
+                                                                    ? t('adj.priceLastPurchase')
                                                                     : pr.purchasePriceSource === 'profile'
-                                                                      ? 'Product profile price'
+                                                                      ? t('adj.priceProfile')
                                                                       : undefined;
                                                             const diffQtyColor =
                                                                 m.diffQty > 0 ? '#059669' : m.diffQty < 0 ? '#b91c1c' : undefined;
@@ -2222,20 +2240,20 @@ export default function StockMovementsSuperAdmin() {
                                                                         {displayCell(row.note)}
                                                                     </td>
                                                                     <td className="table-cell" style={{ fontSize: '0.8125rem' }} title={priceSource}>
-                                                                        SAR {formatSar(m.purchasePrice)}
+                                                                        {t('adj.sar', { amount: formatSar(m.purchasePrice) })}
                                                                         {priceSource ? (
                                                                             <div className="text-muted" style={{ fontSize: '0.7rem', marginTop: 2 }}>
-                                                                                {pr.purchasePriceSource === 'last_purchase' ? 'Last purchase' : 'Profile'}
+                                                                                {pr.purchasePriceSource === 'last_purchase' ? t('adj.priceLastShort') : t('adj.priceProfileShort')}
                                                                             </div>
                                                                         ) : null}
                                                                     </td>
                                                                     <td className="table-cell font-bold">{formatNum(m.beforeQty)}</td>
                                                                     <td className="table-cell font-bold">{formatNum(m.afterQty)}</td>
                                                                     <td className="table-cell" style={{ fontSize: '0.8125rem' }}>
-                                                                        SAR {formatSar(m.valueBefore)}
+                                                                        {t('adj.sar', { amount: formatSar(m.valueBefore) })}
                                                                     </td>
                                                                     <td className="table-cell" style={{ fontSize: '0.8125rem' }}>
-                                                                        SAR {formatSar(m.valueAfter)}
+                                                                        {t('adj.sar', { amount: formatSar(m.valueAfter) })}
                                                                     </td>
                                                                     <td className="table-cell font-bold" style={{ color: diffQtyColor }}>
                                                                         {formatSignedQty(m.diffQty)}
@@ -2260,24 +2278,24 @@ export default function StockMovementsSuperAdmin() {
                     },
                     {
                         id: 'movement-ledger',
-                        label: 'Movement ledger',
+                        label: t('tab.ledger'),
                         panel: (
                             <>
                                 <div className="stock-movements-filter-bar" style={{ marginBottom: 16 }}>
                                     <div className="form-group" style={{ margin: 0 }}>
-                                        <label className="form-label">From date</label>
+                                        <label className="form-label">{t('label.fromDate')}</label>
                                         <input type="date" className="form-input-field" value={ledgerFrom} onChange={(e) => setLedgerFrom(e.target.value)} />
                                     </div>
                                     <div className="form-group" style={{ margin: 0 }}>
-                                        <label className="form-label">To date</label>
+                                        <label className="form-label">{t('label.toDate')}</label>
                                         <input type="date" className="form-input-field" value={ledgerTo} onChange={(e) => setLedgerTo(e.target.value)} />
                                     </div>
                                     <button type="button" className="btn-portal" style={{ padding: '10px 16px', marginBottom: 2 }} onClick={applyLedgerFilters}>
-                                        Apply filters
+                                        {t('btn.applyFilters')}
                                     </button>
                                     {(appliedLedgerFrom || appliedLedgerTo || appliedLedgerSearch || ledgerProductId) ? (
                                         <button type="button" className="btn-secondary" style={{ marginBottom: 2 }} onClick={clearLedgerFilters}>
-                                            Clear filters
+                                            {t('btn.clearFilters')}
                                         </button>
                                     ) : null}
                                 </div>
@@ -2290,7 +2308,7 @@ export default function StockMovementsSuperAdmin() {
                                             <Search className="mc-filter-icon" size={16} />
                                             <input
                                                 type="text"
-                                                placeholder="Search product by name or SKU…"
+                                                placeholder={t('search.ledgerPlaceholder')}
                                                 className="mc-filter-select"
                                                 style={{
                                                     paddingLeft: '40px',
@@ -2347,8 +2365,8 @@ export default function StockMovementsSuperAdmin() {
                                                         setLedgerSuggestOpen(false);
                                                         setLedgerSuggestIndex(-1);
                                                     }}
-                                                    aria-label="Clear search"
-                                                    title="Clear search"
+                                                    aria-label={t('search.clear')}
+                                                    title={t('search.clear')}
                                                     style={{
                                                         position: 'absolute',
                                                         right: 8,
@@ -2375,14 +2393,14 @@ export default function StockMovementsSuperAdmin() {
                                                     id="sm-ledger-inv-search-suggest-list"
                                                     className="mc-inv-search-dropdown"
                                                     role="listbox"
-                                                    aria-label="Matching products"
+                                                    aria-label={t('search.matching')}
                                                     onMouseDown={(ev) => ev.preventDefault()}
                                                 >
                                                     {ledgerSearchSuggestions.length === 0 ? (
                                                         <div className="mc-inv-search-dropdown-empty">
                                                             {selectedBranchId
-                                                                ? 'No matching products — press Apply filters to search by text'
-                                                                : 'No suggestions — pick a branch or press Apply filters to search globally'}
+                                                                ? t('search.noMatchLedgerBranch')
+                                                                : t('search.noMatchLedgerGlobal')}
                                                         </div>
                                                     ) : (
                                                         ledgerSearchSuggestions.map((row, idx) => (
@@ -2407,8 +2425,8 @@ export default function StockMovementsSuperAdmin() {
                                             ) : null}
                                         </div>
                                         <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                                            Use <strong>↑</strong> <strong>↓</strong> and <strong>Enter</strong> to pick a product, then <strong>Apply filters</strong>.
-                                            {ledgerProductId ? ' Filtering by selected product.' : ledgerSearchQuery ? ' Text search runs when filters are applied.' : ''}
+                                            {t('search.ledgerKbd')}
+                                            {ledgerProductId ? t('search.filteringProduct') : ledgerSearchQuery ? t('search.textOnApply') : ''}
                                         </p>
                                     </div>
                                 </div>
@@ -2430,18 +2448,18 @@ export default function StockMovementsSuperAdmin() {
                                     <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 960 }}>
                                         <thead>
                                             <tr className="table-header-row">
-                                                <th className="table-th">When</th>
-                                                <th className="table-th">Workshop</th>
-                                                <th className="table-th">Branch</th>
-                                                <th className="table-th">Product</th>
-                                                <th className="table-th">Kind</th>
-                                                <th className="table-th">IN</th>
-                                                <th className="table-th">OUT</th>
-                                                <th className="table-th">Stock before → after</th>
-                                                <th className="table-th">Balance after</th>
-                                                <th className="table-th">Reference</th>
-                                                <th className="table-th">Note</th>
-                                                <th className="table-th">Staff</th>
+                                                <th className="table-th">{t('th.when')}</th>
+                                                <th className="table-th">{t('th.workshop')}</th>
+                                                <th className="table-th">{t('th.branch')}</th>
+                                                <th className="table-th">{t('th.product')}</th>
+                                                <th className="table-th">{t('th.kind')}</th>
+                                                <th className="table-th">{t('th.in')}</th>
+                                                <th className="table-th">{t('th.out')}</th>
+                                                <th className="table-th">{t('th.stockBeforeAfter')}</th>
+                                                <th className="table-th">{t('th.balanceAfter')}</th>
+                                                <th className="table-th">{t('th.reference')}</th>
+                                                <th className="table-th">{t('th.note')}</th>
+                                                <th className="table-th">{t('th.staff')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -2449,13 +2467,13 @@ export default function StockMovementsSuperAdmin() {
                                                 <tr>
                                                     <td className="table-cell" colSpan={12} style={{ textAlign: 'center', padding: 32 }}>
                                                         <Loader className="animate-spin" size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} />
-                                                        Loading ledger…
+                                                        {t('loading.ledger')}
                                                     </td>
                                                 </tr>
                                             ) : ledgerEntries.length === 0 ? (
                                                 <tr>
                                                     <td className="table-cell" colSpan={12} style={{ textAlign: 'center', padding: 32, color: '#64748b' }}>
-                                                        No ledger rows match these filters.
+                                                        {t('empty.noLedger')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -2534,7 +2552,7 @@ export default function StockMovementsSuperAdmin() {
                                         }}
                                     >
                                         <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
-                                            Ledger: page {ledgerPage} of {ledgerTotalPages} ({ledgerMeta.total} rows)
+                                            {t('page.ledger', { page: ledgerPage, totalPages: ledgerTotalPages, total: ledgerMeta.total })}
                                         </span>
                                         <div style={{ display: 'flex', gap: 8 }}>
                                             <button
@@ -2543,7 +2561,7 @@ export default function StockMovementsSuperAdmin() {
                                                 disabled={ledgerOffset <= 0}
                                                 onClick={() => setLedgerOffset((o) => Math.max(0, o - LEDGER_LIMIT))}
                                             >
-                                                Previous
+                                                {t('btn.previous')}
                                             </button>
                                             <button
                                                 type="button"
@@ -2551,7 +2569,7 @@ export default function StockMovementsSuperAdmin() {
                                                 disabled={ledgerOffset + LEDGER_LIMIT >= ledgerMeta.total}
                                                 onClick={() => setLedgerOffset((o) => o + LEDGER_LIMIT)}
                                             >
-                                                Next
+                                                {t('btn.next')}
                                             </button>
                                         </div>
                                     </div>
@@ -2564,37 +2582,44 @@ export default function StockMovementsSuperAdmin() {
 
             {adjustProduct ? (
                 <Modal
-                    title={`Adjust stock — ${displayCell(adjustProduct.name)}`}
+                    title={t('modal.adjustTitle', { name: displayCell(adjustProduct.name) })}
                     onClose={closeAdjustModal}
                     width="520px"
                 >
                     <div style={{ padding: '4px 0 0' }}>
                         <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#64748b', lineHeight: 1.5 }}>
-                            Branch: <strong>{displayCell(gridMeta.branch)}</strong> · Current stock:{' '}
-                            <strong>{formatNum(adjustProduct.currentQty)}</strong> {displayCell(adjustProduct.unit)}
+                            {t('modal.adjustMeta', {
+                                branch: displayCell(gridMeta.branch),
+                                qty: formatNum(adjustProduct.currentQty),
+                                unit: displayCell(adjustProduct.unit),
+                            })}
                         </p>
                         <div className="form-group">
-                            <label className="form-label">Reason for adjustment</label>
+                            <label className="form-label">{t('modal.reason')}</label>
                             <select
                                 className="form-input-field"
                                 value={adjustReason}
                                 onChange={(e) => setAdjustReason(e.target.value)}
                                 disabled={adjustSaving}
                             >
-                                <option value="">Select a reason…</option>
-                                {INVENTORY_ADJUST_REASON_OPTIONS.map((opt) => (
-                                    <option key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                    </option>
-                                ))}
+                                <option value="">{t('modal.selectReason')}</option>
+                                {INVENTORY_ADJUST_REASON_OPTIONS.map((opt) => {
+                                    const reasonKey = `reason.${opt.value}`;
+                                    const translatedReason = t(reasonKey);
+                                    return (
+                                        <option key={opt.value} value={opt.value}>
+                                            {translatedReason !== reasonKey ? translatedReason : opt.label}
+                                        </option>
+                                    );
+                                })}
                             </select>
                         </div>
                         {adjustReason !== INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY ? (
                             <div className="form-group">
                                 <label className="form-label">
                                     {adjustReason === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY
-                                        ? 'New opening quantity'
-                                        : 'New quantity (current stock)'}
+                                        ? t('modal.newOpeningQty')
+                                        : t('modal.newQty')}
                                 </label>
                                 <input
                                     type="number"
@@ -2608,18 +2633,18 @@ export default function StockMovementsSuperAdmin() {
                             </div>
                         ) : (
                             <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#64748b' }}>
-                                Sets unlimited stock for this product at this branch.
+                                {t('modal.infiniteHint')}
                             </p>
                         )}
                         <div className="form-group">
-                            <label className="form-label">Note (optional)</label>
+                            <label className="form-label">{t('modal.noteOptional')}</label>
                             <textarea
                                 className="form-input-field"
                                 rows={3}
                                 value={adjustNote}
                                 onChange={(e) => setAdjustNote(e.target.value)}
                                 disabled={adjustSaving}
-                                placeholder="Additional details about this adjustment…"
+                                placeholder={t('modal.notePlaceholder')}
                             />
                         </div>
                         {adjustError ? (
@@ -2629,7 +2654,7 @@ export default function StockMovementsSuperAdmin() {
                         ) : null}
                         <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
                             <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={closeAdjustModal} disabled={adjustSaving}>
-                                Cancel
+                                {t('btn.cancel')}
                             </button>
                             <button
                                 type="button"
@@ -2643,7 +2668,7 @@ export default function StockMovementsSuperAdmin() {
                                         (!Number.isFinite(Number(adjustNewQty)) || Number(adjustNewQty) < 0))
                                 }
                             >
-                                {adjustSaving ? 'Saving…' : 'Apply adjustment'}
+                                {adjustSaving ? t('btn.saving') : t('btn.applyAdjustment')}
                             </button>
                         </div>
                     </div>
@@ -2656,13 +2681,14 @@ export default function StockMovementsSuperAdmin() {
                     workshopId={selectedWorkshopId}
                     branchId={selectedBranchId}
                     onClose={() => setBranchMovementProduct(null)}
+                    t={t}
                 />
             ) : null}
         </>
     );
 }
 
-function BranchMovementModal({ product, workshopId, branchId, onClose }) {
+function BranchMovementModal({ product, workshopId, branchId, onClose, t }) {
     const [from, setFrom] = useState('');
     const [to, setTo] = useState('');
     const [appliedFrom, setAppliedFrom] = useState('');
@@ -2687,11 +2713,11 @@ function BranchMovementModal({ product, workshopId, branchId, onClose }) {
             setPayload(unwrapData(res));
         } catch (e) {
             setPayload(null);
-            setError(e?.message || 'Could not load stock history.');
+            setError(e?.message || t('err.loadHistory'));
         } finally {
             setLoading(false);
         }
-    }, [product?.productId, workshopId, branchId, appliedFrom, appliedTo, offset]);
+    }, [product?.productId, workshopId, branchId, appliedFrom, appliedTo, offset, t]);
 
     useEffect(() => {
         fetchData();
@@ -2705,19 +2731,19 @@ function BranchMovementModal({ product, workshopId, branchId, onClose }) {
 
     return (
         <Modal
-            title="Stock changes for this product"
+            title={t('modal.historyTitle')}
             onClose={onClose}
             width="min(1280px, 98vw)"
             footer={
                 <button type="button" className="btn-secondary" onClick={onClose}>
-                    Close
+                    {t('btn.close')}
                 </button>
             }
         >
             <MovementModalBody
                 key={String(product.productId)}
                 title=""
-                scopeLine="This list is only for the workshop and branch you picked on the main screen."
+                scopeLine={t('modal.historyScope')}
                 product={payload?.product ?? { name: product.name, sku: product.sku, unit: product.unit }}
                 loading={loading}
                 error={error}
@@ -2732,6 +2758,7 @@ function BranchMovementModal({ product, workshopId, branchId, onClose }) {
                 onFromChange={setFrom}
                 onToChange={setTo}
                 onApplyDates={applyDates}
+                t={t}
             />
         </Modal>
     );

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Loader2, RefreshCw, FileText, ReceiptText, Search } from 'lucide-react';
 import {
     getSuperAdminReceipts,
@@ -10,6 +11,7 @@ import {
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import { ExportMenu, DateTimeRange } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
+import { rcT } from '../../utils/receiptsI18n';
 
 const PAGE_SIZE = 50;
 const EXPORT_LIMIT = 5000;
@@ -63,10 +65,10 @@ function normalizeInvoiceForModal(invoice) {
 }
 
 /** Build {headers, rows} mirroring the on-screen table — used for PDF/Excel export. */
-function buildReceiptExportRows(list) {
+function buildReceiptExportRows(list, t) {
     const headers = [
-        'Receipt No', 'Payment Date', 'Invoice No', 'Customer',
-        'Workshop', 'Branch', 'Method', 'Total', 'Paid', 'Balance', 'Status',
+        t('th.receiptNo'), t('th.paymentDate'), t('th.invoiceNo'), t('th.customer'),
+        t('th.workshop'), t('th.branch'), t('th.method'), t('th.total'), t('th.paid'), t('th.balance'), t('th.status'),
     ];
     const rows = (list || []).map((r) => {
         const total = Number(r.totalAmount ?? 0);
@@ -74,7 +76,7 @@ function buildReceiptExportRows(list) {
         const balance = r.balance != null ? Number(r.balance) : Math.max(0, total - paid);
         const isPartial = balance > 0.01 && String(r.paymentStatus).toLowerCase() !== 'paid';
         const method = (r.paymentMethod || '—').toString().replace(/_/g, ' ');
-        const via = (r.deferredPaymentMethod || 'Monthly Billing').toString().replace(/_/g, ' ');
+        const via = (r.deferredPaymentMethod || t('monthlyBilling')).toString().replace(/_/g, ' ');
         return [
             r.receiptNo ?? '—',
             formatDate(r.paymentDate ?? r.issuedAt ?? r.invoiceDate),
@@ -82,11 +84,11 @@ function buildReceiptExportRows(list) {
             r.corporateAccountName ?? r.customerName ?? '—',
             r.workshopName ?? '—',
             r.branchName ?? '—',
-            `${method} (via ${via})`,
+            t('methodVia', { method, via }),
             round2(total),
             round2(paid),
             round2(balance),
-            isPartial ? 'Partially Paid' : 'Paid',
+            isPartial ? t('status.partial') : t('status.paid'),
         ];
     });
     return { headers, rows };
@@ -97,6 +99,13 @@ function buildReceiptExportRows(list) {
  * settled (real, non-phantom payments cover the total). Newest settlement first.
  */
 export default function Receipts() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => rcT(locale, key, vars), [locale]);
+
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
@@ -138,14 +147,14 @@ export default function Receipts() {
             setTotal(Number(res?.total) || list.length);
             setSummary(res?.summary ?? null);
         } catch (e) {
-            setError(e?.message || 'Could not load receipts');
+            setError(e?.message || t('err.load'));
             setRows([]);
             setTotal(0);
             setSummary(null);
         } finally {
             setLoading(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo, page]);
+    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo, page, t]);
 
     useEffect(() => { void load(); }, [load]);
 
@@ -160,7 +169,7 @@ export default function Receipts() {
                 const res = await getSuperAdminCorporateCompanies({ workshopId: selectedWorkshopId || undefined });
                 const list = Array.isArray(res?.companies) ? res.companies : [];
                 if (!cancelled) {
-                    setCompanyOptions(list.map((c) => ({ id: String(c.id), name: String(c.companyName || '').trim() || 'Company' })));
+                    setCompanyOptions(list.map((c) => ({ id: String(c.id), name: String(c.companyName || '').trim() || t('fallback.company') })));
                     setSelectedCompanyId('');
                 }
             } catch {
@@ -168,7 +177,7 @@ export default function Receipts() {
             }
         })();
         return () => { cancelled = true; };
-    }, [selectedWorkshopId]);
+    }, [selectedWorkshopId, t]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -185,7 +194,7 @@ export default function Receipts() {
                 if (!cancelled) {
                     setWorkshopOptions(list.map((w) => ({
                         id: String(w.id),
-                        name: String(w.name || '').trim() || 'Workshop',
+                        name: String(w.name || '').trim() || t('fallback.workshop'),
                     })));
                 }
             } catch {
@@ -193,7 +202,7 @@ export default function Receipts() {
             }
         })();
         return () => { cancelled = true; };
-    }, []);
+    }, [t]);
 
     // Branches for the selected workshop.
     useEffect(() => {
@@ -212,7 +221,7 @@ export default function Receipts() {
                 if (!cancelled) {
                     setBranchOptions(list.map((b) => ({
                         id: String(b.id),
-                        name: String(b.name || '').trim() || 'Branch',
+                        name: String(b.name || '').trim() || t('fallback.branch'),
                     })));
                     setSelectedBranchId('');
                 }
@@ -224,7 +233,7 @@ export default function Receipts() {
             }
         })();
         return () => { cancelled = true; };
-    }, [selectedWorkshopId]);
+    }, [selectedWorkshopId, t]);
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -251,20 +260,21 @@ export default function Receipts() {
                 : Array.isArray(res) ? res : [];
             const q = search.trim().toLowerCase();
             const list = q ? all.filter((r) => matchesReceiptSearch(r, q)) : all;
-            const { headers, rows: outRows } = buildReceiptExportRows(list);
-            const subtitle = `${outRows.length} receipt(s)`
-                + (dateFrom || dateTo ? ` · ${dateFrom || '…'} → ${dateTo || '…'}` : '');
+            const { headers, rows: outRows } = buildReceiptExportRows(list, t);
+            const subtitle = (dateFrom || dateTo)
+                ? t('export.subtitleRange', { n: outRows.length, from: dateFrom || '…', to: dateTo || '…' })
+                : t('export.subtitle', { n: outRows.length });
             if (kind === 'pdf') {
-                exportRowsToPdf({ title: 'Receipts', subtitle, headers, rows: outRows, filenameBase: 'receipts' });
+                exportRowsToPdf({ title: t('export.title'), subtitle, headers, rows: outRows, filenameBase: 'receipts' });
             } else {
-                exportRowsToExcel({ sheetName: 'Receipts', headers, rows: outRows, filenameBase: 'receipts' });
+                exportRowsToExcel({ sheetName: t('export.sheet'), headers, rows: outRows, filenameBase: 'receipts' });
             }
         } catch (e) {
-            setError(e?.message || 'Export failed');
+            setError(e?.message || t('err.export'));
         } finally {
             setExporting(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo, search]);
+    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo, search, t]);
 
     // KPIs across ALL pages via the server `summary`; fall back to the visible
     // rows when a client-side search is narrowing the current page.
@@ -294,7 +304,7 @@ export default function Receipts() {
             const inv = raw?.invoice ?? raw?.data?.invoice ?? raw?.data ?? raw;
             setInvoice(normalizeInvoiceForModal(inv));
         } catch (e) {
-            setInvoiceErr(e?.message || 'Could not load invoice');
+            setInvoiceErr(e?.message || t('err.invoice'));
         } finally {
             setInvoiceLoadingId(null);
         }
@@ -323,9 +333,9 @@ export default function Receipts() {
                         <ReceiptText size={19} color="#047857" />
                     </div>
                     <div>
-                        <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>Receipts</h1>
+                        <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>{t('title')}</h1>
                         <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.875rem' }}>
-                            Monthly billing with real payments — paid &amp; partially paid. Filter by workshop / branch.
+                            {t('subtitle')}
                         </p>
                     </div>
                 </div>
@@ -335,6 +345,7 @@ export default function Receipts() {
                         onExcel={() => runExport('excel')}
                         busy={exporting}
                         disabled={loading}
+                        locale={locale}
                     />
                     <button
                         type="button"
@@ -342,40 +353,40 @@ export default function Receipts() {
                         disabled={loading}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid #cbd5e1', background: '#fff', cursor: loading ? 'wait' : 'pointer', fontSize: '0.8125rem', fontWeight: 600 }}
                     >
-                        <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                        <RefreshCw size={14} className={loading ? 'spin' : ''} /> {t('refresh')}
                     </button>
                 </div>
             </header>
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'flex-end' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 200 }}>
-                    <label style={labelStyle}>Workshop</label>
+                    <label style={labelStyle}>{t('label.workshop')}</label>
                     <select value={selectedWorkshopId} onChange={(e) => setSelectedWorkshopId(e.target.value)} style={{ ...inputStyle, minWidth: 200 }}>
-                        <option value="">All workshops</option>
+                        <option value="">{t('all.workshops')}</option>
                         {workshopOptions.map((w) => (
                             <option key={w.id} value={w.id}>{w.name}</option>
                         ))}
                     </select>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 200 }}>
-                    <label style={labelStyle}>Branch</label>
+                    <label style={labelStyle}>{t('label.branch')}</label>
                     <select
                         value={selectedBranchId}
                         onChange={(e) => setSelectedBranchId(e.target.value)}
                         disabled={!selectedWorkshopId}
                         style={{ ...inputStyle, minWidth: 200, opacity: selectedWorkshopId ? 1 : 0.6 }}
-                        title={selectedWorkshopId ? '' : 'Select a workshop first'}
+                        title={selectedWorkshopId ? '' : t('hint.selectWorkshop')}
                     >
-                        <option value="">All branches</option>
+                        <option value="">{t('all.branches')}</option>
                         {branchOptions.map((b) => (
                             <option key={b.id} value={b.id}>{b.name}</option>
                         ))}
                     </select>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 200 }}>
-                    <label style={labelStyle}>Company</label>
+                    <label style={labelStyle}>{t('label.company')}</label>
                     <select value={selectedCompanyId} onChange={(e) => setSelectedCompanyId(e.target.value)} style={{ ...inputStyle, minWidth: 200 }}>
-                        <option value="">All companies</option>
+                        <option value="">{t('all.companies')}</option>
                         {companyOptions.map((c) => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
@@ -387,6 +398,7 @@ export default function Receipts() {
                     onFrom={setDateFrom}
                     onTo={setDateTo}
                     onClear={() => { setDateFrom(''); setDateTo(''); }}
+                    locale={locale}
                 />
                 <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
                     <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
@@ -394,21 +406,21 @@ export default function Receipts() {
                         type="search"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search receipt no, company, invoice no, method, amount…"
+                        placeholder={t('search.placeholder')}
                         style={{ ...inputStyle, width: '100%', paddingLeft: 36 }}
                     />
                 </div>
                 <div style={{ padding: '10px 14px', borderRadius: 10, background: '#f0fdfa', border: '1px solid #99f6e4', display: 'flex', gap: 16, alignItems: 'center' }}>
                     <div>
-                        <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>Receipts</div>
+                        <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>{t('kpi.receipts')}</div>
                         <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#134e4a' }}>{Number(kpiCount).toLocaleString()}</div>
                     </div>
                     <div>
-                        <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>Billed</div>
+                        <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>{t('kpi.billed')}</div>
                         <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#134e4a' }}>{num(totalBilled)}</div>
                     </div>
                     <div>
-                        <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>Collected</div>
+                        <div style={{ fontSize: '0.65rem', color: '#0f766e', fontWeight: 700, textTransform: 'uppercase' }}>{t('kpi.collected')}</div>
                         <div style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#15803d' }}>{num(totalCollected)}</div>
                     </div>
                 </div>
@@ -420,7 +432,7 @@ export default function Receipts() {
 
             {invoiceErr ? (
                 <div style={{ padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 10, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Invoice view failed: {invoiceErr}</span>
+                    <span>{t('invoiceFailed', { msg: invoiceErr })}</span>
                     <button type="button" onClick={() => setInvoiceErr('')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#991b1b', fontWeight: 700 }}>×</button>
                 </div>
             ) : null}
@@ -429,33 +441,34 @@ export default function Receipts() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                     <thead>
                         <tr>
-                            <th style={cellTh}>Receipt No</th>
-                            <th style={cellTh}>Payment Date</th>
-                            <th style={cellTh}>Invoice No</th>
-                            <th style={cellTh}>Customer</th>
-                            <th style={cellTh}>Workshop / Branch</th>
-                            <th style={cellTh}>Method</th>
-                            <th style={{ ...cellTh, textAlign: 'right' }}>Total</th>
-                            <th style={{ ...cellTh, textAlign: 'right' }}>Paid</th>
-                            <th style={{ ...cellTh, textAlign: 'right' }}>Balance</th>
-                            <th style={cellTh}>Status</th>
-                            <th style={{ ...cellTh, textAlign: 'right' }}>Actions</th>
+                            <th style={cellTh}>{t('th.receiptNo')}</th>
+                            <th style={cellTh}>{t('th.paymentDate')}</th>
+                            <th style={cellTh}>{t('th.invoiceNo')}</th>
+                            <th style={cellTh}>{t('th.customer')}</th>
+                            <th style={cellTh}>{t('th.workshopBranch')}</th>
+                            <th style={cellTh}>{t('th.method')}</th>
+                            <th style={{ ...cellTh, textAlign: 'right' }}>{t('th.total')}</th>
+                            <th style={{ ...cellTh, textAlign: 'right' }}>{t('th.paid')}</th>
+                            <th style={{ ...cellTh, textAlign: 'right' }}>{t('th.balance')}</th>
+                            <th style={cellTh}>{t('th.status')}</th>
+                            <th style={{ ...cellTh, textAlign: 'right' }}>{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
-                                <Loader2 size={18} className="spin" /> Loading…
+                                <Loader2 size={18} className="spin" /> {t('loading')}
                             </td></tr>
                         ) : filtered.length === 0 ? (
                             <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
-                                No monthly-billing receipts for the selected filters.
+                                {t('empty')}
                             </td></tr>
                         ) : filtered.map((r) => {
                             const total = Number(r.totalAmount ?? 0);
                             const paid = Number(r.amountPaid ?? total);
                             const balance = r.balance != null ? Number(r.balance) : Math.max(0, total - paid);
                             const isPartial = balance > 0.01 && String(r.paymentStatus).toLowerCase() !== 'paid';
+                            const viaRaw = (r.deferredPaymentMethod || t('monthlyBilling')).toString().replace(/_/g, ' ');
                             return (
                                 <tr key={r.id} style={{ borderTop: '1px solid #f1f5f9' }}>
                                     <td style={{ ...cellTd, whiteSpace: 'nowrap' }}><span style={{ fontWeight: 700, color: '#0f172a' }}>{r.receiptNo ?? '—'}</span></td>
@@ -470,7 +483,7 @@ export default function Receipts() {
                                     </td>
                                     <td style={cellTd}>
                                         <span style={{ textTransform: 'capitalize' }}>{(r.paymentMethod || '—').toString().replace(/_/g, ' ')}</span>
-                                        <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>via {(r.deferredPaymentMethod || 'Monthly Billing').toString().replace(/_/g, ' ')}</div>
+                                        <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{t('via', { method: viaRaw })}</div>
                                     </td>
                                     <td style={{ ...cellTd, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{num(total)}</td>
                                     <td style={{ ...cellTd, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#15803d', fontWeight: 700 }}>{num(paid)}</td>
@@ -486,7 +499,7 @@ export default function Receipts() {
                                             background: isPartial ? '#fef3c7' : '#dcfce7',
                                             color: isPartial ? '#92400e' : '#166534',
                                         }}>
-                                            {isPartial ? 'Partially Paid' : 'Paid'}
+                                            {isPartial ? t('status.partial') : t('status.paid')}
                                         </span>
                                     </td>
                                     <td style={{ ...cellTd, textAlign: 'right' }}>
@@ -496,7 +509,7 @@ export default function Receipts() {
                                             disabled={invoiceLoadingId === String(r.id)}
                                             style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: invoiceLoadingId === String(r.id) ? 'wait' : 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
                                         >
-                                            {invoiceLoadingId === String(r.id) ? <Loader2 size={12} className="spin" /> : <FileText size={12} />} View
+                                            {invoiceLoadingId === String(r.id) ? <Loader2 size={12} className="spin" /> : <FileText size={12} />} {t('view')}
                                         </button>
                                     </td>
                                 </tr>
@@ -512,6 +525,7 @@ export default function Receipts() {
                     rowsThisPage={rows.length}
                     onChange={(next) => setPage(Math.max(1, Math.min(totalPages, next)))}
                     disabled={loading}
+                    t={t}
                 />
             </div>
 
@@ -526,7 +540,7 @@ export default function Receipts() {
 }
 
 /** Bottom-of-table pagination. */
-function PaginationBar({ page, totalPages, total, pageSize, rowsThisPage, onChange, disabled }) {
+function PaginationBar({ page, totalPages, total, pageSize, rowsThisPage, onChange, disabled, t }) {
     if (total === 0) return null;
     const firstRow = (page - 1) * pageSize + 1;
     const lastRow  = (page - 1) * pageSize + rowsThisPage;
@@ -546,14 +560,13 @@ function PaginationBar({ page, totalPages, total, pageSize, rowsThisPage, onChan
     return (
         <div style={{ padding: '12px 14px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                Showing <strong>{firstRow}–{lastRow}</strong> of <strong>{total}</strong>
-                {' '}· page <strong>{page}</strong> of <strong>{totalPages}</strong>
+                {t('page.showing', { from: firstRow, to: lastRow, total, page, pages: totalPages })}
             </div>
             <div style={{ display: 'inline-flex', gap: 6 }}>
-                <button type="button" onClick={() => onChange(1)} disabled={disabled || page === 1} style={btn(!(disabled || page === 1))}>« First</button>
-                <button type="button" onClick={() => onChange(page - 1)} disabled={disabled || page === 1} style={btn(!(disabled || page === 1))}>‹ Prev</button>
-                <button type="button" onClick={() => onChange(page + 1)} disabled={disabled || page >= totalPages} style={btn(!(disabled || page >= totalPages))}>Next ›</button>
-                <button type="button" onClick={() => onChange(totalPages)} disabled={disabled || page >= totalPages} style={btn(!(disabled || page >= totalPages))}>Last »</button>
+                <button type="button" onClick={() => onChange(1)} disabled={disabled || page === 1} style={btn(!(disabled || page === 1))}>{t('page.first')}</button>
+                <button type="button" onClick={() => onChange(page - 1)} disabled={disabled || page === 1} style={btn(!(disabled || page === 1))}>{t('page.prev')}</button>
+                <button type="button" onClick={() => onChange(page + 1)} disabled={disabled || page >= totalPages} style={btn(!(disabled || page >= totalPages))}>{t('page.next')}</button>
+                <button type="button" onClick={() => onChange(totalPages)} disabled={disabled || page >= totalPages} style={btn(!(disabled || page >= totalPages))}>{t('page.last')}</button>
             </div>
         </div>
     );

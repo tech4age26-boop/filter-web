@@ -1,10 +1,12 @@
 import React, { useMemo } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import {
     WS_WAREHOUSE_UNIT_PRESETS,
     WS_WORKSHOP_UNIT_PRESETS,
     formatUomRule,
 } from '../../pages/workshop/workshopUomUtils';
+import { mcT } from '../../utils/masterCatalogI18n';
 
 export const emptyCatalogUom = () => ({
     warehouseUnit: 'Box',
@@ -28,7 +30,14 @@ export function catalogUomFromProduct(product) {
     };
 }
 
-export default function CatalogUomFields({ value, onChange, idPrefix = 'catalog-uom' }) {
+export default function CatalogUomFields({ value, onChange, idPrefix = 'catalog-uom', t: tProp }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = tProp || ((key, vars) => mcT(locale, key, vars));
+
     const rulePreview = useMemo(
         () =>
             formatUomRule(
@@ -43,10 +52,10 @@ export default function CatalogUomFields({ value, onChange, idPrefix = 'catalog-
 
     return (
         <div className="mc-uom-block">
-            <label className="mc-uom-block-label">Unit conversion</label>
+            <label className="mc-uom-block-label">{t('uom.title')}</label>
             <div className="mc-uom-flow">
                 <div className="mc-uom-flow-unit">
-                    <label htmlFor={`${idPrefix}-wh`}>Warehouse unit</label>
+                    <label htmlFor={`${idPrefix}-wh`}>{t('uom.warehouse')}</label>
                     <select
                         id={`${idPrefix}-wh`}
                         value={value.warehouseUnit}
@@ -73,11 +82,11 @@ export default function CatalogUomFields({ value, onChange, idPrefix = 'catalog-
                         onChange={(e) =>
                             onChange({ ...value, conversionFactor: e.target.value })
                         }
-                        aria-label="Conversion factor"
+                        aria-label={t('uom.factor')}
                     />
                 </div>
                 <div className="mc-uom-flow-unit">
-                    <label htmlFor={`${idPrefix}-ws`}>Workshop unit</label>
+                    <label htmlFor={`${idPrefix}-ws`}>{t('uom.workshop')}</label>
                     <select
                         id={`${idPrefix}-ws`}
                         value={value.workshopUnit}
@@ -100,12 +109,20 @@ export default function CatalogUomFields({ value, onChange, idPrefix = 'catalog-
                 </div>
             </div>
             <p className="mc-uom-preview">
-                <span className="mc-uom-preview-label">Rule</span>
+                <span className="mc-uom-preview-label">{t('uom.rule')}</span>
                 <span className="mc-uom-preview-rule">{rulePreview}</span>
             </p>
             <p className="mc-uom-hint">
-                Stock and sales use <strong>{wsUnitLabel}</strong> as the workshop unit. Suppliers
-                and workshops inherit this rule from the master catalog.
+                {t('uom.hint', { unit: wsUnitLabel }).split(wsUnitLabel).map((part, i, arr) =>
+                    i < arr.length - 1 ? (
+                        <React.Fragment key={i}>
+                            {part}
+                            <strong>{wsUnitLabel}</strong>
+                        </React.Fragment>
+                    ) : (
+                        <React.Fragment key={i}>{part}</React.Fragment>
+                    ),
+                )}
             </p>
         </div>
     );

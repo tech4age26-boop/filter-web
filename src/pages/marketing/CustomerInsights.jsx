@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
   RefreshCw,
   Search,
   Users,
 } from 'lucide-react';
 import { marketingGetCustomerInsights } from '../../services/superAdminMarketingApi';
+import { ciT } from '../../utils/customerInsightsI18n';
 import './MarketingUniversal.css';
 
 function toNumber(value, fallback = 0) {
@@ -12,8 +14,8 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function formatSar(value) {
-  return `SAR ${toNumber(value).toLocaleString(undefined, {
+function formatSar(value, locale = 'en') {
+  return `SAR ${toNumber(value).toLocaleString(locale === 'ar' ? 'ar-SA' : undefined, {
     maximumFractionDigits: 0,
   })}`;
 }
@@ -28,14 +30,23 @@ function humanize(value) {
     .join(' ');
 }
 
-function formatMonthLabel(date) {
-  return date.toLocaleDateString('en-US', {
+function translateTypeLabel(t, value) {
+  const raw = String(value || '').trim();
+  if (!raw) return humanize(value);
+  const normalized = raw.toLowerCase().replace(/[-\s]+/g, '_');
+  const key = `type.${normalized}`;
+  const translated = t(key);
+  return translated === key ? humanize(value) : translated;
+}
+
+function formatMonthLabel(date, locale = 'en') {
+  return date.toLocaleDateString(locale === 'ar' ? 'ar-SA' : 'en-US', {
     month: 'short',
     year: '2-digit',
   });
 }
 
-function makeLastMonths(count = 6) {
+function makeLastMonths(count = 6, locale = 'en') {
   const now = new Date();
 
   return Array.from({ length: count }, (_, index) => {
@@ -43,7 +54,7 @@ function makeLastMonths(count = 6) {
 
     return {
       key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      label: formatMonthLabel(d),
+      label: formatMonthLabel(d, locale),
       value: 0,
     };
   });
@@ -115,7 +126,7 @@ function normalizeSummary(payload) {
   };
 }
 
-function normalizeCustomer(row) {
+function normalizeCustomer(row, defaultName = 'Customer') {
   return {
     id: String(row?.id ?? row?.customerId ?? row?.customer_id ?? row?.email ?? row?.phone ?? ''),
     name:
@@ -124,7 +135,7 @@ function normalizeCustomer(row) {
       row?.customer_name ||
       row?.fullName ||
       row?.companyName ||
-      'Customer',
+      defaultName,
     email: row?.email || row?.customerEmail || row?.customer_email || '',
     phone: row?.phone || row?.mobile || row?.customerPhone || row?.customer_phone || '',
     totalSpend: toNumber(
@@ -155,7 +166,7 @@ function normalizeCustomer(row) {
   };
 }
 
-function extractCustomers(payload) {
+function extractCustomers(payload, defaultName = 'Customer') {
   const root = payload?.data || payload || {};
 
   return asArray(root, [
@@ -163,7 +174,7 @@ function extractCustomers(payload) {
     'topCustomers',
     'topReturningCustomers',
     'items',
-  ]).map(normalizeCustomer);
+  ]).map((row) => normalizeCustomer(row, defaultName));
 }
 
 function normalizeGrowthItem(item) {
@@ -184,7 +195,7 @@ function normalizeGrowthItem(item) {
   };
 }
 
-function extractGrowth(payload) {
+function extractGrowth(payload, locale = 'en') {
   const root = payload?.data || payload || {};
 
   const rows = asArray(root, [
@@ -195,7 +206,7 @@ function extractGrowth(payload) {
     'newCustomersByMonth',
   ]).map(normalizeGrowthItem);
 
-  const fallback = makeLastMonths(6);
+  const fallback = makeLastMonths(6, locale);
 
   if (!rows.length) return fallback;
 
@@ -269,7 +280,7 @@ const KpiCard = ({ title, value, sub, tone }) => (
   </section>
 );
 
-const GrowthChart = ({ data }) => {
+const GrowthChart = ({ data, t }) => {
   const width = 980;
   const height = 160;
   const left = 48;
@@ -296,7 +307,7 @@ const GrowthChart = ({ data }) => {
 
   return (
     <section className="ci-chart-card">
-      <h3>New Customer Growth — Last 6 Months</h3>
+      <h3>{t('chart.growthTitle')}</h3>
 
       <svg
         className="ci-chart-svg"
@@ -381,14 +392,22 @@ const GrowthChart = ({ data }) => {
   );
 };
 
-const EmptyCustomers = () => (
+const EmptyCustomers = ({ t }) => (
   <div className="ci-empty-customers">
     <Users size={34} strokeWidth={1.7} />
-    <p>No customers found</p>
+    <p>{t('empty.customers')}</p>
   </div>
 );
 
 export const CustomerInsights = () => {
+  const ctx = useOutletContext() || {};
+  const locale =
+    ctx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => ciT(locale, key, vars), [locale]);
+
   const [summary, setSummary] = useState({
     totalCustomers: 0,
     newThisMonth: 0,
@@ -399,7 +418,7 @@ export const CustomerInsights = () => {
   });
 
   const [customers, setCustomers] = useState([]);
-  const [growth, setGrowth] = useState(makeLastMonths(6));
+  const [growth, setGrowth] = useState(() => makeLastMonths(6, locale));
   const [breakdown, setBreakdown] = useState({
     newCustomers: 0,
     returningCustomers: 0,
@@ -413,7 +432,7 @@ export const CustomerInsights = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const loadInsights = async () => {
+  const loadInsights = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -425,11 +444,11 @@ export const CustomerInsights = () => {
       });
 
       setSummary(normalizeSummary(res));
-      setCustomers(extractCustomers(res));
-      setGrowth(extractGrowth(res));
+      setCustomers(extractCustomers(res, ciT(locale, 'customer.default')));
+      setGrowth(extractGrowth(res, locale));
       setBreakdown(extractBreakdown(res));
     } catch (err) {
-      setError(err?.message || 'Failed to load customer insights.');
+      setError(err?.message || ciT(locale, 'error.load'));
       setSummary({
         totalCustomers: 0,
         newThisMonth: 0,
@@ -439,7 +458,7 @@ export const CustomerInsights = () => {
         averageOrders: 0,
       });
       setCustomers([]);
-      setGrowth(makeLastMonths(6));
+      setGrowth(makeLastMonths(6, locale));
       setBreakdown({
         newCustomers: 0,
         returningCustomers: 0,
@@ -450,11 +469,11 @@ export const CustomerInsights = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [locale]);
 
   useEffect(() => {
     loadInsights();
-  }, []);
+  }, [loadInsights]);
 
   const filteredCustomers = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -501,41 +520,41 @@ export const CustomerInsights = () => {
     <div className="mk-page ci-page">
       <div className="ci-kpi-grid">
         <KpiCard
-          title="Total Customers"
+          title={t('kpi.totalCustomers')}
           value={summary.totalCustomers}
-          sub={`+${summary.newThisMonth || 0} this month`}
+          sub={t('kpi.thisMonth', { count: summary.newThisMonth || 0 })}
           tone="pink"
         />
 
         <KpiCard
-          title="Returning Customers"
+          title={t('kpi.returningCustomers')}
           value={summary.returningCustomers}
-          sub={`${summary.retentionRate || 0}% retention`}
+          sub={t('kpi.retention', { pct: summary.retentionRate || 0 })}
           tone="purple"
         />
 
         <KpiCard
-          title="New This Month"
+          title={t('kpi.newThisMonth')}
           value={summary.newThisMonth}
-          sub="vs last month"
+          sub={t('kpi.vsLastMonth')}
           tone="blue"
         />
 
         <KpiCard
-          title="Avg. Spend / Customer"
-          value={formatSar(summary.averageSpend)}
-          sub="All time"
+          title={t('kpi.avgSpend')}
+          value={formatSar(summary.averageSpend, locale)}
+          sub={t('kpi.allTime')}
           tone="teal"
         />
       </div>
 
       {error ? <div className="mk-error-text">{error}</div> : null}
 
-      <GrowthChart data={growth} />
+      <GrowthChart data={growth} t={t} />
 
       <div className="ci-breakdown-grid">
         <section className="ci-breakdown-card">
-          <h3>New vs Returning</h3>
+          <h3>{t('section.newVsReturning')}</h3>
           {(() => {
             const total =
               breakdown.newCustomers + breakdown.returningCustomers || 1;
@@ -547,27 +566,27 @@ export const CustomerInsights = () => {
                   <div
                     className="ci-nvr-new"
                     style={{ width: `${newPct}%` }}
-                    title={`New ${newPct}%`}
+                    title={t('nvr.newTitle', { pct: newPct })}
                   />
                   <div
                     className="ci-nvr-ret"
                     style={{ width: `${retPct}%` }}
-                    title={`Returning ${retPct}%`}
+                    title={t('nvr.returningTitle', { pct: retPct })}
                   />
                 </div>
                 <div className="ci-nvr-legend">
                   <span>
-                    <i className="ci-dot-new" /> New&nbsp;
+                    <i className="ci-dot-new" /> {t('nvr.new')}&nbsp;
                     <b>{breakdown.newCustomers}</b> ({newPct}%)
                   </span>
                   <span>
-                    <i className="ci-dot-ret" /> Returning&nbsp;
+                    <i className="ci-dot-ret" /> {t('nvr.returning')}&nbsp;
                     <b>{breakdown.returningCustomers}</b> ({retPct}%)
                   </span>
                 </div>
                 <div className="ci-ltv-line">
-                  Lifetime Value / Customer:{' '}
-                  <b>{formatSar(breakdown.ltv)}</b>
+                  {t('ltv.perCustomer')}{' '}
+                  <b>{formatSar(breakdown.ltv, locale)}</b>
                 </div>
               </>
             );
@@ -575,9 +594,9 @@ export const CustomerInsights = () => {
         </section>
 
         <section className="ci-breakdown-card">
-          <h3>Walk-in vs Corporate</h3>
+          <h3>{t('section.walkInVsCorporate')}</h3>
           {breakdown.typeDistribution.length === 0 ? (
-            <div className="ci-bd-empty">No data</div>
+            <div className="ci-bd-empty">{t('empty.data')}</div>
           ) : (
             <div className="ci-type-list">
               {breakdown.typeDistribution.map((row, idx) => (
@@ -589,10 +608,13 @@ export const CustomerInsights = () => {
                         background: TYPE_COLORS[idx % TYPE_COLORS.length],
                       }}
                     />
-                    {humanize(row.type)}
+                    {translateTypeLabel(t, row.type)}
                   </span>
                   <span className="ci-type-meta">
-                    <b>{row.customers}</b> cust · {formatSar(row.revenue)}
+                    {t('meta.custRevenue', {
+                      count: row.customers,
+                      revenue: formatSar(row.revenue, locale),
+                    })}
                   </span>
                 </div>
               ))}
@@ -602,9 +624,9 @@ export const CustomerInsights = () => {
       </div>
 
       <section className="ci-breakdown-card ci-branch-card">
-        <h3>Branch Distribution</h3>
+        <h3>{t('section.branchDistribution')}</h3>
         {breakdown.branchDistribution.length === 0 ? (
-          <div className="ci-bd-empty">No data</div>
+          <div className="ci-bd-empty">{t('empty.data')}</div>
         ) : (
           (() => {
             const maxRev = Math.max(
@@ -618,7 +640,10 @@ export const CustomerInsights = () => {
                     <div className="ci-branch-top">
                       <span>{row.branch}</span>
                       <span>
-                        <b>{formatSar(row.revenue)}</b> · {row.customers} cust
+                        {t('meta.revenueCust', {
+                          revenue: formatSar(row.revenue, locale),
+                          count: row.customers,
+                        })}
                       </span>
                     </div>
                     <div className="ci-branch-track">
@@ -637,7 +662,7 @@ export const CustomerInsights = () => {
 
       <section className="ci-customers-card">
         <div className="ci-customers-header">
-          <h3>All Customers</h3>
+          <h3>{t('section.allCustomers')}</h3>
 
           <div className="ci-customers-actions">
             <label className="ci-search">
@@ -645,7 +670,7 @@ export const CustomerInsights = () => {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search..."
+                placeholder={t('search.placeholder')}
               />
             </label>
 
@@ -654,11 +679,11 @@ export const CustomerInsights = () => {
               value={sortBy}
               onChange={(event) => setSortBy(event.target.value)}
             >
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-              <option value="highest_spend">Highest Spend</option>
-              <option value="most_orders">Most Orders</option>
-              <option value="name">Name A-Z</option>
+              <option value="newest">{t('sort.newest')}</option>
+              <option value="oldest">{t('sort.oldest')}</option>
+              <option value="highest_spend">{t('sort.highestSpend')}</option>
+              <option value="most_orders">{t('sort.mostOrders')}</option>
+              <option value="name">{t('sort.name')}</option>
             </select>
 
             <button
@@ -666,7 +691,7 @@ export const CustomerInsights = () => {
               className="ci-refresh-btn"
               onClick={loadInsights}
               disabled={loading}
-              title="Refresh"
+              title={t('action.refresh')}
             >
               <RefreshCw size={14} className={loading ? 'ci-spin' : ''} />
             </button>
@@ -676,20 +701,20 @@ export const CustomerInsights = () => {
         {loading ? (
           <div className="ci-empty-customers">
             <RefreshCw size={26} className="ci-spin" />
-            <p>Loading customers...</p>
+            <p>{t('empty.loading')}</p>
           </div>
         ) : filteredCustomers.length === 0 ? (
-          <EmptyCustomers />
+          <EmptyCustomers t={t} />
         ) : (
           <div className="ci-table-wrap">
             <table className="ci-table">
               <thead>
                 <tr>
-                  <th>Customer</th>
-                  <th>Contact</th>
-                  <th>Orders</th>
-                  <th>Total Spend</th>
-                  <th>Segment</th>
+                  <th>{t('table.customer')}</th>
+                  <th>{t('table.contact')}</th>
+                  <th>{t('table.orders')}</th>
+                  <th>{t('table.totalSpend')}</th>
+                  <th>{t('table.segment')}</th>
                 </tr>
               </thead>
 
@@ -702,8 +727,8 @@ export const CustomerInsights = () => {
                     </td>
                     <td>{item.phone || '—'}</td>
                     <td>{item.orders}</td>
-                    <td>{formatSar(item.totalSpend)}</td>
-                    <td>{humanize(item.segment)}</td>
+                    <td>{formatSar(item.totalSpend, locale)}</td>
+                    <td>{translateTypeLabel(t, item.segment)}</td>
                   </tr>
                 ))}
               </tbody>

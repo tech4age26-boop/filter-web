@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import SearchableEntityCombobox from '../SearchableEntityCombobox';
 import {
@@ -7,6 +8,17 @@ import {
 } from '../../services/adminWalletApi';
 import { listBudgetWalletAccountsForApproval } from '../../services/budgetWalletApi';
 import { details as fetchApprovalExpenseDetails } from '../../services/approvalsApi';
+import { awT } from '../../utils/adminWalletsI18n';
+
+function useAwLocale() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => awT(locale, key, vars), [locale]);
+    return { locale, t };
+}
 
 function fmt(value) {
     const n = Number(value ?? 0);
@@ -16,20 +28,20 @@ function fmt(value) {
     });
 }
 
-function accountKindLabel(kind, type) {
+function accountKindLabel(kind, type, t) {
     switch (kind) {
         case 'SYSTEM_LOCKER_VAULT':
-            return 'Locker vault';
+            return t('acct.lockerVault');
         case 'SYSTEM_CASHIER_TILL':
-            return 'Cashier till';
+            return t('acct.cashierTill');
         case 'SYSTEM_PETTY_CASH_WALLET':
-            return 'Petty cash';
+            return t('acct.pettyCash');
         default:
-            return String(type || '').toUpperCase() === 'BANK' ? 'Bank account' : 'Cash register';
+            return String(type || '').toUpperCase() === 'BANK' ? t('acct.bank') : t('acct.cash');
     }
 }
 
-function normalizeCash(res) {
+function normalizeCash(res, t) {
     const list = Array.isArray(res?.accounts)
         ? res.accounts
         : Array.isArray(res?.cashAccounts)
@@ -37,20 +49,20 @@ function normalizeCash(res) {
             : [];
     return list.map((a) => ({
         id: String(a.id),
-        name: a.name || a.accountName || `Account ${a.id}`,
+        name: a.name || a.accountName || t('acct.accountFallback', { id: a.id }),
         balance: Number(a.currentBalance ?? a.balance ?? 0),
         branchId: a.branchId != null ? String(a.branchId) : '',
         branchName: a.branchName || a.branch?.name || '',
         kind: a.kind || '',
-        kindLabel: a.kindLabel || accountKindLabel(a.kind, a.type),
+        kindLabel: a.kindLabel || accountKindLabel(a.kind, a.type, t),
         type: a.type || '',
     }));
 }
 
-function defaultLoadCash({ workshopId }) {
+function defaultLoadCash({ workshopId }, t) {
     return listAdminWalletCashAccounts(
         workshopId ? { workshopId } : {},
-    ).then(normalizeCash);
+    ).then((res) => normalizeCash(res, t));
 }
 
 function defaultLoadBudgets({ workshopId, branchId }) {
@@ -95,11 +107,17 @@ export default function WalletApprovalAccountFields({
     expenseRequestId = '',
     currencyCode = 'SAR',
     onChange,
-    loadCashAccounts = defaultLoadCash,
+    loadCashAccounts,
     loadBudgetAccounts = defaultLoadBudgets,
     loadRequesterWalletBalance = defaultLoadRequesterWallet,
     loadExpenseApprovalContext = defaultLoadExpenseApprovalContext,
 }) {
+    const { t } = useAwLocale();
+    const resolveCash = useCallback(
+        (args) => (loadCashAccounts ? loadCashAccounts(args) : defaultLoadCash(args, t)),
+        [loadCashAccounts, t],
+    );
+
     const [cashAccounts, setCashAccounts] = useState([]);
     const [budgetAccounts, setBudgetAccounts] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -124,7 +142,7 @@ export default function WalletApprovalAccountFields({
         && requesterWalletBalance >= amt,
     );
     const needsPayFromAccount = mode === 'fund' || (isExpense && !walletCoversExpense);
-    const displayRequesterName = requesterName || resolvedRequesterName || 'Requester';
+    const displayRequesterName = requesterName || resolvedRequesterName || t('acct.requester');
 
     useEffect(() => {
         if (!isExpense) {
@@ -151,13 +169,13 @@ export default function WalletApprovalAccountFields({
             ? loadRequesterWalletBalance({ userId: requesterUserId, currencyCode })
             : expenseRequestId
                 ? loadExpenseApprovalContext({ expenseRequestId, currencyCode })
-                : Promise.reject(new Error('Could not identify the expense requester'));
+                : Promise.reject(new Error(t('acct.errIdentify')));
 
         loadPromise
             .then(applyWalletResult)
             .catch((err) => {
                 if (!cancelled) {
-                    setWalletError(err?.message || 'Could not load requester wallet balance');
+                    setWalletError(err?.message || t('acct.errWallet'));
                     setRequesterWalletBalance(null);
                     setResolvedRequesterUserId('');
                 }
@@ -174,6 +192,7 @@ export default function WalletApprovalAccountFields({
         currencyCode,
         loadRequesterWalletBalance,
         loadExpenseApprovalContext,
+        t,
     ]);
 
     useEffect(() => {
@@ -184,7 +203,7 @@ export default function WalletApprovalAccountFields({
         setBudgetAccountId('');
         const loaders = [
             needsPayFromAccount || mode === 'fund'
-                ? loadCashAccounts({ workshopId, branchId })
+                ? resolveCash({ workshopId, branchId })
                 : Promise.resolve([]),
             showBudget ? loadBudgetAccounts({ workshopId, branchId }) : Promise.resolve([]),
         ];
@@ -204,7 +223,7 @@ export default function WalletApprovalAccountFields({
                 if (budgetList.length > 0) setBudgetAccountId(String(budgetList[0].id));
             })
             .catch((err) => {
-                if (!cancelled) setLoadError(err?.message || 'Failed to load accounts');
+                if (!cancelled) setLoadError(err?.message || t('acct.errLoad'));
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -216,15 +235,16 @@ export default function WalletApprovalAccountFields({
         showBudget,
         mode,
         needsPayFromAccount,
-        loadCashAccounts,
+        resolveCash,
         loadBudgetAccounts,
+        t,
     ]);
 
     const cashOptions = useMemo(
         () => cashAccounts.map((a) => {
-            const kindLabel = a.kindLabel || accountKindLabel(a.kind, a.type);
+            const kindLabel = a.kindLabel || accountKindLabel(a.kind, a.type, t);
             const branchLabel = a.branchName
-                || (a.kind === 'SYSTEM_LOCKER_VAULT' ? 'Workshop-wide locker' : 'Workshop-wide');
+                || (a.kind === 'SYSTEM_LOCKER_VAULT' ? t('acct.workshopWideLocker') : t('acct.workshopWide'));
             return {
                 id: a.id,
                 label: `${a.name} — SAR ${fmt(a.balance)}`,
@@ -232,19 +252,19 @@ export default function WalletApprovalAccountFields({
                 searchText: [a.name, kindLabel, branchLabel].filter(Boolean).join(' '),
             };
         }),
-        [cashAccounts],
+        [cashAccounts, t],
     );
 
     const budgetOptions = useMemo(
         () => budgetAccounts.map((a) => ({
             id: String(a.id),
-            label: `${a.name} — Remaining SAR ${fmt(a.remainingBalance)}`,
+            label: `${a.name} — ${t('acct.remainingSar', { amount: fmt(a.remainingBalance) })}`,
             subtitle: a.scopeType === 'platform_hq'
-                ? 'Platform HQ budget'
-                : `${a.workshopName || 'Workshop'}${a.branchName ? ` · ${a.branchName}` : ''}`,
+                ? t('acct.hqBudget')
+                : `${a.workshopName || t('budget.workshop')}${a.branchName ? ` · ${a.branchName}` : ''}`,
             searchText: a.name,
         })),
-        [budgetAccounts],
+        [budgetAccounts, t],
     );
 
     const selectedCash = cashAccounts.find((a) => String(a.id) === String(sourceAccountId)) || null;
@@ -262,20 +282,28 @@ export default function WalletApprovalAccountFields({
     if (walletError) {
         blockReason = walletError;
     } else if (isExpense && walletLoading) {
-        blockReason = 'Loading requester wallet balance…';
+        blockReason = t('acct.blockLoadingWallet');
     } else if (!loading && !loadError) {
         if (needsPayFromAccount && cashAccounts.length === 0) {
-            blockReason = 'No payment accounts found for this entity.';
+            blockReason = t('acct.blockNoPay');
         } else if (showBudget && budgetAccounts.length === 0) {
-            blockReason = 'No budget accounts found. Create one in Admin Wallets → Budget Wallet first.';
+            blockReason = t('acct.blockNoBudget');
         } else if (needsPayFromAccount && !sourceAccountId) {
-            blockReason = 'Select a payment account.';
+            blockReason = t('acct.blockSelectPay');
         } else if (showBudget && !budgetAccountId) {
-            blockReason = 'Select a budget account.';
+            blockReason = t('acct.blockSelectBudget');
         } else if (registerShort) {
-            blockReason = `Insufficient balance in ${selectedCash.name} (SAR ${fmt(selectedCash.balance)}) for SAR ${fmt(amt)}.`;
+            blockReason = t('acct.blockRegisterShort', {
+                name: selectedCash.name,
+                balance: fmt(selectedCash.balance),
+                amount: fmt(amt),
+            });
         } else if (budgetShort) {
-            blockReason = `Budget "${selectedBudget.name}" has only SAR ${fmt(selectedBudget.remainingBalance)} remaining for SAR ${fmt(amt)}.`;
+            blockReason = t('acct.blockBudgetShort', {
+                name: selectedBudget.name,
+                remaining: fmt(selectedBudget.remainingBalance),
+                amount: fmt(amt),
+            });
         }
     } else if (loadError) {
         blockReason = loadError;
@@ -330,22 +358,22 @@ export default function WalletApprovalAccountFields({
                     }}
                 >
                     <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                        Requester wallet
+                        {t('acct.requesterWallet')}
                     </p>
                     <p style={{ margin: '6px 0 0', fontSize: '0.875rem', color: '#0f172a' }}>
                         <strong>{displayRequesterName}</strong>
                         {' · '}
                         {walletLoading ? (
-                            <span style={{ color: '#64748b' }}>Loading balance…</span>
+                            <span style={{ color: '#64748b' }}>{t('acct.loadingBalance')}</span>
                         ) : walletError ? (
                             <span style={{ color: '#b91c1c' }}>{walletError}</span>
                         ) : (
                             <>
-                                Balance <strong>SAR {fmt(requesterWalletBalance)}</strong>
+                                {t('acct.balance')} <strong>SAR {fmt(requesterWalletBalance)}</strong>
                                 {amt > 0 ? (
                                     <>
                                         {' '}
-                                        · Expense <strong>SAR {fmt(amt)}</strong>
+                                        · {t('acct.expense')} <strong>SAR {fmt(amt)}</strong>
                                     </>
                                 ) : null}
                             </>
@@ -354,8 +382,8 @@ export default function WalletApprovalAccountFields({
                     {!walletLoading && !walletError && requesterWalletBalance != null ? (
                         <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: walletCoversExpense ? '#15803d' : '#b45309' }}>
                             {walletCoversExpense
-                                ? 'Wallet balance is sufficient — expense will be deducted from the requester wallet.'
-                                : 'Wallet balance is insufficient — select a payment account below to pay from cash / bank / locker.'}
+                                ? t('acct.walletOk')
+                                : t('acct.walletShort')}
                         </p>
                     ) : null}
                 </div>
@@ -364,11 +392,11 @@ export default function WalletApprovalAccountFields({
             {needsPayFromAccount ? (
                 <>
                     <label className="approval-modal-label">
-                        Pay from account <span style={{ color: '#dc2626' }}>*</span>
+                        {t('acct.payFrom')} <span style={{ color: '#dc2626' }}>*</span>
                     </label>
                     {loading ? (
                         <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
-                            <Loader2 size={14} className="spin" /> Loading accounts…
+                            <Loader2 size={14} className="spin" /> {t('acct.loadingAccounts')}
                         </p>
                     ) : loadError ? (
                         <p style={{ color: '#b91c1c', fontSize: '0.875rem' }}>{loadError}</p>
@@ -380,13 +408,13 @@ export default function WalletApprovalAccountFields({
                                 displayText={sourceText}
                                 onDisplayTextChange={setSourceText}
                                 onSelect={(opt) => { setSourceAccountId(opt.id); setSourceText(''); }}
-                                placeholder="Search Bank / Cash / Locker…"
+                                placeholder={t('acct.searchPay')}
                                 entityLabel="account"
                                 disabled={busy}
                             />
                             {selectedCash ? (
                                 <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: registerShort ? '#b91c1c' : '#64748b' }}>
-                                    Closing balance: <strong>SAR {fmt(selectedCash.balance)}</strong>
+                                    {t('acct.closingBalance')} <strong>SAR {fmt(selectedCash.balance)}</strong>
                                 </p>
                             ) : null}
                         </>
@@ -397,11 +425,11 @@ export default function WalletApprovalAccountFields({
             {showBudget ? (
                 <>
                     <label className="approval-modal-label" style={{ marginTop: needsPayFromAccount ? 14 : 0 }}>
-                        Budget account <span style={{ color: '#dc2626' }}>*</span>
+                        {t('acct.budgetAccount')} <span style={{ color: '#dc2626' }}>*</span>
                     </label>
                     {loading ? (
                         <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
-                            <Loader2 size={14} className="spin" /> Loading budget accounts…
+                            <Loader2 size={14} className="spin" /> {t('acct.loadingBudgets')}
                         </p>
                     ) : loadError ? null : (
                         <>
@@ -411,13 +439,13 @@ export default function WalletApprovalAccountFields({
                                 displayText={budgetText}
                                 onDisplayTextChange={setBudgetText}
                                 onSelect={(opt) => { setBudgetAccountId(opt.id); setBudgetText(''); }}
-                                placeholder="Search budget account…"
+                                placeholder={t('acct.searchBudget')}
                                 entityLabel="budget"
                                 disabled={busy}
                             />
                             {selectedBudget ? (
                                 <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: budgetShort ? '#b91c1c' : '#15803d' }}>
-                                    Remaining budget: <strong>SAR {fmt(selectedBudget.remainingBalance)}</strong>
+                                    {t('acct.remainingBudget')} <strong>SAR {fmt(selectedBudget.remainingBalance)}</strong>
                                 </p>
                             ) : null}
                         </>

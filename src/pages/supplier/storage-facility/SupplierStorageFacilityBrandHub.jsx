@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { ArrowLeft, Plus } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
@@ -27,6 +27,12 @@ import StorageBrandBalanceSheetTab from './accounting/StorageBrandBalanceSheetTa
 import { STORAGE_BRAND_ACCOUNTING_TABS } from './accounting/storageFacilityAccountingTabs';
 import StorageFacilityPermissionsPicker from './StorageFacilityPermissionsPicker';
 import { SF_DEFAULT_OPERATOR_PERMISSIONS } from './storageFacilityPermissions';
+import {
+    sfT,
+    SF_OPERATIONS_TAB_KEYS,
+    SF_ADMIN_TAB_KEYS,
+    SF_ACCT_TAB_LABEL_KEYS,
+} from '../../../utils/storageFacilityI18n';
 import '../../../styles/admin/AccountingPage.css';
 
 function readPortalScope(isOwnerFromContext) {
@@ -41,25 +47,15 @@ function readPortalScope(isOwnerFromContext) {
     }
 }
 
-const OPERATIONS_TABS = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'products', label: 'Products' },
-    { id: 'uom', label: 'UOM' },
-    { id: 'movements', label: 'Stock movements' },
-    { id: 'locations', label: 'Inventory locations' },
-    { id: 'transfers', label: 'Transfers' },
-    { id: 'sales_invoices', label: 'Sales invoices' },
-    { id: 'purchase_invoices', label: 'Purchase invoices' },
-    { id: 'ar', label: 'Customers (AR)' },
-    { id: 'ap', label: 'Suppliers (AP)' },
-    { id: 'sales_reps', label: 'Sales reps & performance' },
-    { id: 'sales', label: 'Sales' },
-];
-
-const ADMIN_TABS = [{ id: 'users', label: 'Brand users', ownerOnly: true }];
-
 export default function SupplierStorageFacilityBrandHub({ brandId }) {
     const navigate = useNavigate();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const tr = useCallback((key, vars) => sfT(locale, key, vars), [locale]);
+
     const { routeBase, isOwner: isOwnerFromContext } = useStorageFacilityPortal();
     const sfApi = useStorageFacilityApi();
     const isOwner = readPortalScope(isOwnerFromContext) !== 'storage_brand';
@@ -86,21 +82,23 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
     const [auditEntries, setAuditEntries] = useState([]);
     const [openLedgerAccountId, setOpenLedgerAccountId] = useState(null);
 
-    const visibleAdminTabs = ADMIN_TABS.filter((t) => !t.ownerOnly || isOwner);
+    const visibleAdminTabs = SF_ADMIN_TAB_KEYS.filter((x) => !x.ownerOnly || isOwner);
 
-    function renderTabButton(t) {
-        if (t.type === 'divider') {
-            return <span key={t.id} className="sf-brand-tab-divider" aria-hidden />;
+    function renderTabButton(item) {
+        if (item.type === 'divider') {
+            return <span key={item.id} className="sf-brand-tab-divider" aria-hidden />;
         }
-        const active = tab === t.id;
+        const active = tab === item.id;
+        const labelKey = item.labelKey || SF_ACCT_TAB_LABEL_KEYS[item.id];
+        const label = labelKey ? tr(labelKey) : item.label;
         return (
             <button
-                key={t.id}
+                key={item.id}
                 type="button"
-                onClick={() => setTab(t.id)}
+                onClick={() => setTab(item.id)}
                 className={active ? 'sf-brand-tab sf-brand-tab--active' : 'sf-brand-tab'}
             >
-                {t.label}
+                {label}
             </button>
         );
     }
@@ -128,11 +126,11 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                 setUsers(uRes?.users ?? []);
             }
         } catch (e) {
-            setErr(e?.message || 'Failed to load brand');
+            setErr(e?.message || tr('hub.errLoad'));
         } finally {
             setLoading(false);
         }
-    }, [brandId, isOwner, sfApi]);
+    }, [brandId, isOwner, sfApi, tr]);
 
     useEffect(() => {
         reload();
@@ -160,7 +158,7 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
             });
             await reload();
         } catch (ex) {
-            window.alert(ex?.message || 'Failed');
+            window.alert(ex?.message || tr('hub.user.err'));
         } finally {
             setBusy(false);
         }
@@ -191,23 +189,23 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                 style={{ marginBottom: 12 }}
                 onClick={() => navigate(routeBase)}
             >
-                <ArrowLeft size={14} /> {isOwner ? 'All brands' : 'Back'}
+                <ArrowLeft size={14} /> {isOwner ? tr('hub.backBrands') : tr('hub.back')}
             </button>
 
-            <h2 className="mgr-si-title">{summary?.name ?? 'Storage brand'}</h2>
+            <h2 className="mgr-si-title">{summary?.name ?? tr('hub.titleFallback')}</h2>
             {summary?.locationName ? (
-                <p className="mgr-si-subtitle">Bin: {summary.locationName}</p>
+                <p className="mgr-si-subtitle">{tr('hub.bin', { name: summary.locationName })}</p>
             ) : null}
 
             {err ? <div className="mgr-si-error">{err}</div> : null}
 
             <div className="sf-brand-tab-panel">
                 <div className="sf-brand-tab-row">
-                    {OPERATIONS_TABS.map(renderTabButton)}
+                    {SF_OPERATIONS_TAB_KEYS.map(renderTabButton)}
                     {visibleAdminTabs.map(renderTabButton)}
                 </div>
                 <div className="sf-brand-tab-row sf-brand-tab-row--accounting">
-                    <span className="sf-brand-tab-row-label">Accounting</span>
+                    <span className="sf-brand-tab-row-label">{tr('hub.accounting')}</span>
                     {STORAGE_BRAND_ACCOUNTING_TABS.map(renderTabButton)}
                 </div>
             </div>
@@ -221,17 +219,19 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                     }}
                 >
                     <div className="ws-section" style={{ padding: 16 }}>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Products</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{tr('hub.stat.products')}</div>
                         <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{summary.productCount}</div>
                     </div>
                     <div className="ws-section" style={{ padding: 16 }}>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Qty on hand</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{tr('hub.stat.qty')}</div>
                         <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{summary.totalQty}</div>
                     </div>
                     <div className="ws-section" style={{ padding: 16 }}>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>AR balance</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{tr('hub.stat.ar')}</div>
                         <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#2563eb' }}>
-                            SAR {Number(summary.arBalance || 0).toLocaleString()}
+                            {tr('money.sar', {
+                                amount: Number(summary.arBalance || 0).toLocaleString(),
+                            })}
                         </div>
                     </div>
                 </div>
@@ -239,7 +239,7 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
 
             {tab === 'overview' && auditEntries.length > 0 ? (
                 <div className="ws-section" style={{ marginTop: 16, padding: 16 }}>
-                    <h3 style={{ margin: '0 0 12px', fontSize: '0.9375rem' }}>Recent activity</h3>
+                    <h3 style={{ margin: '0 0 12px', fontSize: '0.9375rem' }}>{tr('hub.activity')}</h3>
                     <ul style={{ margin: 0, padding: 0, listStyle: 'none', fontSize: '0.8125rem' }}>
                         {auditEntries.map((a) => (
                             <li
@@ -377,15 +377,15 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                         style={{ marginBottom: 12 }}
                         onClick={() => setUserModal(true)}
                     >
-                        <Plus size={14} /> Add brand user
+                        <Plus size={14} /> {tr('hub.addUser')}
                     </button>
                     <div className="premium-table mgr-si-table-wrap">
                         <table className="mgr-si-table">
                             <thead>
                                 <tr className="table-header-row">
-                                    <th className="table-th">Name</th>
-                                    <th className="table-th">Email</th>
-                                    <th className="table-th">Role</th>
+                                    <th className="table-th">{tr('hub.th.name')}</th>
+                                    <th className="table-th">{tr('hub.th.email')}</th>
+                                    <th className="table-th">{tr('hub.th.role')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -404,14 +404,14 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
 
             {userModal ? (
                 <Modal
-                    title="Brand portal user"
+                    title={tr('hub.userModal.title')}
                     width="560px"
                     contentClassName="sf-simple-modal"
                     onClose={() => !busy && setUserModal(false)}
                 >
                     <form className="sf-simple-form" onSubmit={addUser}>
                         <div className="sf-form-field">
-                            <label htmlFor="sf-user-name">Full name *</label>
+                            <label htmlFor="sf-user-name">{tr('hub.user.label.name')}</label>
                             <input
                                 id="sf-user-name"
                                 value={newUser.name}
@@ -423,7 +423,7 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                         </div>
                         <div className="sf-form-row-2">
                             <div className="sf-form-field">
-                                <label htmlFor="sf-user-email">Email *</label>
+                                <label htmlFor="sf-user-email">{tr('hub.user.label.email')}</label>
                                 <input
                                     id="sf-user-email"
                                     type="email"
@@ -435,7 +435,7 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                                 />
                             </div>
                             <div className="sf-form-field">
-                                <label htmlFor="sf-user-password">Password *</label>
+                                <label htmlFor="sf-user-password">{tr('hub.user.label.password')}</label>
                                 <input
                                     id="sf-user-password"
                                     type="password"
@@ -448,7 +448,7 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                             </div>
                         </div>
                         <div className="sf-form-field">
-                            <label htmlFor="sf-user-role">Role</label>
+                            <label htmlFor="sf-user-role">{tr('hub.user.label.role')}</label>
                             <select
                                 id="sf-user-role"
                                 value={newUser.role}
@@ -464,12 +464,10 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                                     }));
                                 }}
                             >
-                                <option value="brand_operator">Operator (custom permissions)</option>
-                                <option value="brand_admin">Brand admin (full access)</option>
+                                <option value="brand_operator">{tr('hub.user.role.operator')}</option>
+                                <option value="brand_admin">{tr('hub.user.role.admin')}</option>
                             </select>
-                            <p className="sf-form-field-hint">
-                                Admins can perform all storage facility tasks for this brand.
-                            </p>
+                            <p className="sf-form-field-hint">{tr('hub.user.hint')}</p>
                         </div>
                         {newUser.role === 'brand_operator' ? (
                             <StorageFacilityPermissionsPicker
@@ -487,10 +485,10 @@ export default function SupplierStorageFacilityBrandHub({ brandId }) {
                                 disabled={busy}
                                 onClick={() => setUserModal(false)}
                             >
-                                Cancel
+                                {tr('hub.user.cancel')}
                             </button>
                             <button type="submit" className="mgr-si-btn-new" disabled={busy}>
-                                {busy ? 'Creating…' : 'Create user'}
+                                {busy ? tr('hub.user.creating') : tr('hub.user.create')}
                             </button>
                         </div>
                     </form>

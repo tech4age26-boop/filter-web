@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import StaffChatSuggestionsPortal from './StaffChatSuggestionsPortal';
+import { useStaffAppI18n } from '../../../utils/staffAppI18n';
 
 function mentionTokenAtEnd(text) {
     const match = text.match(/@([^\s@]*)$/);
@@ -16,8 +17,10 @@ export default function StaffChatMentionInput({
     onSend,
     members = [],
     disabled = false,
-    placeholder = 'Type a message… Use @ to privately mention a group member',
+    placeholder,
 }) {
+    const { t } = useStaffAppI18n();
+    const resolvedPlaceholder = placeholder ?? t('mention.placeholder');
     const inputRef = useRef(null);
     const [mentionOpen, setMentionOpen] = useState(false);
     const [mentionQuery, setMentionQuery] = useState('');
@@ -109,7 +112,7 @@ export default function StaffChatMentionInput({
         <div className="staff-chat-mention-input">
             {privateMention && (
                 <p className="staff-chat-mention-input__badge">
-                    Private to <strong>@{privateMention.name}</strong> — only you and they will see this message
+                    {t('mention.privateBadge', { name: privateMention.name })}
                 </p>
             )}
             <div className="staff-chat-mention-input__row">
@@ -127,7 +130,7 @@ export default function StaffChatMentionInput({
                             setMentionQuery(token.query);
                         }
                     }}
-                    placeholder={placeholder}
+                    placeholder={resolvedPlaceholder}
                     disabled={disabled}
                     autoComplete="off"
                 />
@@ -141,7 +144,7 @@ export default function StaffChatMentionInput({
                         setMentionOpen(false);
                     }}
                 >
-                    Send
+                    {t('mention.send')}
                 </button>
             </div>
             <StaffChatSuggestionsPortal
@@ -163,14 +166,14 @@ export default function StaffChatMentionInput({
                         >
                             <span className="staff-chat-member-picker__option-name">{m.name}</span>
                             <span className="staff-chat-member-picker__option-meta">
-                                {[m.role, m.branch].filter(Boolean).join(' · ') || 'Group member'}
+                                {[m.role, m.branch].filter(Boolean).join(' · ') || t('mention.groupMember')}
                             </span>
                         </button>
                     </li>
                 ))}
             </StaffChatSuggestionsPortal>
             {mentionOpen && !disabled && mentionQuery && suggestions.length === 0 && (
-                <p className="staff-chat-mention-input__empty">No matching group members for @{mentionQuery}</p>
+                <p className="staff-chat-mention-input__empty">{t('mention.noMatch', { query: mentionQuery })}</p>
             )}
         </div>
     );

@@ -1,25 +1,29 @@
 import { CornerUpLeft, X } from 'lucide-react';
 import { isWalletChatMessage, walletMessagePreview } from './PlatformChatWalletMessage';
+import { pcT } from '../../utils/platformChatI18n';
 
-export function getMessageReplyPreview(message) {
+export function getMessageReplyPreview(message, t) {
+    const translate = t || ((key) => pcT('en', key));
     if (!message) return '';
     if (message.preview) return message.preview;
-    if (message.type === 'voice' || message.fileUrl) return 'Voice message';
-    if (isWalletChatMessage(message)) return walletMessagePreview(message);
+    if (message.type === 'voice' || message.fileUrl) return translate('reply.voice');
+    if (isWalletChatMessage(message)) return walletMessagePreview(message, translate);
     return String(message.content || '').replace(/\s+/g, ' ').trim().slice(0, 180);
 }
 
-export function buildReplyTarget(message) {
+export function buildReplyTarget(message, t) {
+    const translate = t || ((key) => pcT('en', key));
     return {
         id: String(message.id),
         senderId: String(message.senderId),
-        senderName: message.senderName || 'User',
+        senderName: message.senderName || translate('reply.user'),
         type: message.type,
-        preview: getMessageReplyPreview(message),
+        preview: getMessageReplyPreview(message, translate),
     };
 }
 
-export function PlatformChatReplyQuote({ reply, isSelf, onJump }) {
+export function PlatformChatReplyQuote({ reply, isSelf, onJump, locale = 'en', t: tProp }) {
+    const t = tProp || ((key, vars) => pcT(locale, key, vars));
     if (!reply) return null;
 
     const handleClick = () => {
@@ -31,15 +35,16 @@ export function PlatformChatReplyQuote({ reply, isSelf, onJump }) {
             type="button"
             className={`platform-chat-reply-quote${isSelf ? ' is-self' : ''}`}
             onClick={handleClick}
-            title="Jump to quoted message"
+            title={t('reply.jump')}
         >
-            <span className="platform-chat-reply-quote-name">{reply.senderName || 'User'}</span>
-            <span className="platform-chat-reply-quote-text">{reply.preview || 'Message'}</span>
+            <span className="platform-chat-reply-quote-name">{reply.senderName || t('reply.user')}</span>
+            <span className="platform-chat-reply-quote-text">{reply.preview || t('reply.message')}</span>
         </button>
     );
 }
 
-export function PlatformChatReplyComposerBar({ replyTarget, onClear }) {
+export function PlatformChatReplyComposerBar({ replyTarget, onClear, locale = 'en', t: tProp }) {
+    const t = tProp || ((key, vars) => pcT(locale, key, vars));
     if (!replyTarget) return null;
 
     return (
@@ -48,17 +53,17 @@ export function PlatformChatReplyComposerBar({ replyTarget, onClear }) {
             <div className="platform-chat-reply-compose-body">
                 <span className="platform-chat-reply-compose-label">
                     <CornerUpLeft size={14} aria-hidden />
-                    Replying to {replyTarget.senderName || 'User'}
+                    {t('reply.replyingTo', { name: replyTarget.senderName || t('reply.user') })}
                 </span>
                 <span className="platform-chat-reply-compose-preview">
-                    {replyTarget.preview || 'Message'}
+                    {replyTarget.preview || t('reply.message')}
                 </span>
             </div>
             <button
                 type="button"
                 className="platform-chat-reply-compose-close"
                 onClick={onClear}
-                aria-label="Cancel reply"
+                aria-label={t('reply.cancel')}
             >
                 <X size={18} />
             </button>

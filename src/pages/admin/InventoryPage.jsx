@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, NavLink, useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Package, FileText, TrendingUp, TrendingDown, Minus, Search, Folder, Layers, ChevronDown, Loader } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -7,6 +7,7 @@ import MasterCatalog from '../../components/admin/MasterCatalog';
 import StockMovementsSuperAdmin from '../../components/admin/StockMovementsSuperAdmin';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/InventoryPage.css';
+import { smT, SM_INV_SUB_LABEL_KEYS } from '../../utils/stockMovementsI18n';
 import { getProducts, getServices, createProduct, createService, updateProduct, updateService } from '../../services/superAdminApi';
 import {
     findFirstNegativeMoneyField,
@@ -49,6 +50,8 @@ export default function InventoryPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const { hasPermission } = useAuth();
+    const outletCtx = useOutletContext() || {};
+    const locale = outletCtx.locale || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
     const visibleSubTabs = SUB_TABS.filter((t) => hasPermission(t.permission));
     const normalizedSubTab =
         subTab && subTab.replace(/\s+/g, '-').toLowerCase() !== subTab
@@ -288,13 +291,13 @@ export default function InventoryPage() {
     return (
         <div className="inventory-page module-container">
             <div className="inventory-sub-nav">
-                {visibleSubTabs.map((t) => (
+                {visibleSubTabs.map((tab) => (
                     <NavLink
-                        key={t.path}
-                        to={`/admin/inventory/${t.path}`}
-                        className={() => `inventory-sub-tab ${isInventorySubTabActive(t.path) ? 'active' : ''}`}
+                        key={tab.path}
+                        to={`/admin/inventory/${tab.path}`}
+                        className={() => `inventory-sub-tab ${isInventorySubTabActive(tab.path) ? 'active' : ''}`}
                     >
-                        {t.label}
+                        {smT(locale, SM_INV_SUB_LABEL_KEYS[tab.path] || tab.label)}
                     </NavLink>
                 ))}
             </div>

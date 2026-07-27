@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
     ArrowLeft,
     Building2,
@@ -22,6 +23,7 @@ import {
     formatLedgerTypeShort,
 } from '../../utils/corporateArLedgerExport';
 import { startOfMonthISO, todayISO } from '../../pages/admin/saAccountingDateRange';
+import { cbT } from '../../utils/corporateBillingI18n';
 import '../../styles/admin/AccountingPage.css';
 
 function fmt(n) {
@@ -31,9 +33,9 @@ function fmt(n) {
     });
 }
 
-function fmtCell(v) {
+function fmtCell(v, t) {
     if (v == null || v === '') return '—';
-    return `SAR ${fmt(v)}`;
+    return t('money.sar', { amount: fmt(v) });
 }
 
 function dateToIsoStart(dateStr) {
@@ -48,14 +50,31 @@ function dateToIsoEnd(dateStr) {
     return Number.isNaN(d.getTime()) ? '' : d.toISOString();
 }
 
-function billStatusLabel(status) {
-    if (status === 'paid') return 'Paid';
-    if (status === 'awaiting_approval') return 'Awaiting approval';
-    if (status === 'rejected') return 'Rejected';
-    return 'Pending payment';
+function billStatusLabel(status, t) {
+    if (status === 'paid') return t('status.paid');
+    if (status === 'awaiting_approval') return t('status.awaiting');
+    if (status === 'rejected') return t('status.rejected');
+    return t('status.pending');
+}
+
+function BilingualTh({ primaryKey, secondaryKey, t, style }) {
+    return (
+        <th style={style}>
+            <div>{t(primaryKey)}</div>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>{t(secondaryKey)}</div>
+        </th>
+    );
 }
 
 export default function CorporateBillingSection() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => cbT(locale, key, vars), [locale]);
+    const isAr = locale === 'ar';
+
     const [search, setSearch] = useState('');
     const [customers, setCustomers] = useState([]);
     const [customersLoading, setCustomersLoading] = useState(true);
@@ -100,17 +119,17 @@ export default function CorporateBillingSection() {
         } catch (e) {
             setCustomers([]);
             setListSummary(null);
-            setCustomersError(e?.message || 'Could not load corporate customers.');
+            setCustomersError(e?.message || t('err.loadCustomers'));
         } finally {
             setCustomersLoading(false);
         }
-    }, [search]);
+    }, [search, t]);
 
     const loadLedger = useCallback(async () => {
         if (!selectedAccountId) return;
         if (dateFrom && dateTo && dateFrom > dateTo) {
             setLedger(null);
-            setLedgerError('From date must be on or before To date.');
+            setLedgerError(t('err.dateOrder'));
             return;
         }
         setLedgerLoading(true);
@@ -125,11 +144,11 @@ export default function CorporateBillingSection() {
             setLedger(res);
         } catch (e) {
             setLedger(null);
-            setLedgerError(e?.message || 'Could not load ledger.');
+            setLedgerError(e?.message || t('err.loadLedger'));
         } finally {
             setLedgerLoading(false);
         }
-    }, [selectedAccountId, dateFrom, dateTo]);
+    }, [selectedAccountId, dateFrom, dateTo, t]);
 
     const loadGeneratedBills = useCallback(async () => {
         if (!selectedAccountId) return;
@@ -139,11 +158,11 @@ export default function CorporateBillingSection() {
             setGeneratedBills(res?.bills ?? []);
         } catch (e) {
             setGeneratedBills([]);
-            setError(e?.message || 'Could not load generated bills.');
+            setError(e?.message || t('err.loadBills'));
         } finally {
             setBillsLoading(false);
         }
-    }, [selectedAccountId]);
+    }, [selectedAccountId, t]);
 
     const openBillDetail = useCallback(async (billId) => {
         if (!billId) {
@@ -158,11 +177,11 @@ export default function CorporateBillingSection() {
             setBillDetail(res?.bill ?? null);
         } catch (e) {
             setBillDetail(null);
-            setError(e?.message || 'Could not load bill detail.');
+            setError(e?.message || t('err.loadBill'));
         } finally {
             setBillDetailLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         if (!selectedAccountId) loadCustomers();
@@ -203,10 +222,10 @@ export default function CorporateBillingSection() {
             dateFrom,
             dateTo,
             generatedAt: ledger.generatedAt
-                ? new Date(ledger.generatedAt).toLocaleString()
-                : new Date().toLocaleString(),
+                ? new Date(ledger.generatedAt).toLocaleString(isAr ? 'ar-SA' : undefined)
+                : new Date().toLocaleString(isAr ? 'ar-SA' : undefined),
         };
-    }, [ledger, dateFrom, dateTo]);
+    }, [ledger, dateFrom, dateTo, isAr]);
 
     const openAccount = (corporateAccountId) => {
         if (!corporateAccountId) return;
@@ -245,7 +264,7 @@ export default function CorporateBillingSection() {
             setInvoiceModalData(invoice);
             setInvoiceModalOpen(true);
         } catch (e) {
-            setError(e?.message || 'Could not open invoice PDF.');
+            setError(e?.message || t('err.openInvoice'));
         } finally {
             setInvoiceLoadingId('');
         }
@@ -262,7 +281,7 @@ export default function CorporateBillingSection() {
             });
         } catch (e) {
             console.error(e);
-            setError(e?.message || 'PDF export failed.');
+            setError(e?.message || t('err.pdfExport'));
         } finally {
             setPdfExporting(false);
         }
@@ -271,7 +290,7 @@ export default function CorporateBillingSection() {
     const handleGenerateBill = async () => {
         if (!selectedAccountId || !generateDueDate.trim()) return;
         if (!dateFrom || !dateTo) {
-            setError('Select From and To dates before generating a bill.');
+            setError(t('err.selectDates'));
             return;
         }
         setGenerating(true);
@@ -291,10 +310,10 @@ export default function CorporateBillingSection() {
                 await openBillDetail(res.bill.id);
             }
             if (res?.bill?.billNo) {
-                alert(`Bill generated and sent to corporate portal: ${res.bill.billNo}`);
+                alert(t('alert.generated', { no: res.bill.billNo }));
             }
         } catch (e) {
-            setError(e?.message || 'Failed to generate bill.');
+            setError(e?.message || t('err.generate'));
         } finally {
             setGenerating(false);
         }
@@ -316,7 +335,7 @@ export default function CorporateBillingSection() {
             });
         } catch (e) {
             console.error(e);
-            setError(e?.message || 'Bill PDF export failed.');
+            setError(e?.message || t('err.billPdf'));
         } finally {
             setBillPdfExporting(false);
         }
@@ -325,14 +344,20 @@ export default function CorporateBillingSection() {
     const billLedger = billDetail?.ledgerStatement;
     const billLedgerLines = billLedger?.lines ?? [];
     const billSum = billLedger?.summary ?? billDetail?.kpis ?? {};
+
+    const thPair = (enKey, arKey) =>
+        isAr
+            ? { primaryKey: enKey, secondaryKey: arKey }
+            : { primaryKey: enKey, secondaryKey: arKey };
+
     if (!selectedAccountId) {
         return (
             <div className="corporate-ar-page">
                 <header className="corporate-billing-header corporate-ar-header">
                     <div>
-                        <h1 className="corporate-billing-title">Corporate Billing</h1>
+                        <h1 className="corporate-billing-title">{t('page.title')}</h1>
                         <p className="corporate-billing-subtitle">
-                            Select a corporate account to view the AR ledger statement
+                            {t('page.subtitle')}
                         </p>
                     </div>
                 </header>
@@ -343,7 +368,7 @@ export default function CorporateBillingSection() {
                             <Search size={16} />
                             <input
                                 type="text"
-                                placeholder="Search company, VAT, contact…"
+                                placeholder={t('search.placeholder')}
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && loadCustomers()}
@@ -356,7 +381,7 @@ export default function CorporateBillingSection() {
                         onClick={loadCustomers}
                         disabled={customersLoading}
                     >
-                        <RefreshCw size={16} style={{ marginRight: 6 }} /> Refresh
+                        <RefreshCw size={16} style={{ marginRight: 6 }} /> {t('btn.refresh')}
                     </button>
                 </div>
 
@@ -365,15 +390,15 @@ export default function CorporateBillingSection() {
                         <div className="cash-bank-stat-card cash-bank-stat-card--muted">
                             <div className="cash-bank-stat-icon"><Building2 size={22} /></div>
                             <div>
-                                <p className="cash-bank-stat-label">Corporate Customers</p>
+                                <p className="cash-bank-stat-label">{t('stat.customers')}</p>
                                 <p className="cash-bank-stat-value">{listSummary.count}</p>
                             </div>
                         </div>
                         <div className="cash-bank-stat-card">
                             <div className="cash-bank-stat-icon"><Users size={22} /></div>
                             <div>
-                                <p className="cash-bank-stat-label">Total Due Balance</p>
-                                <p className="cash-bank-stat-value">SAR {fmt(listSummary.totalDue)}</p>
+                                <p className="cash-bank-stat-label">{t('stat.totalDue')}</p>
+                                <p className="cash-bank-stat-value">{t('money.sar', { amount: fmt(listSummary.totalDue) })}</p>
                             </div>
                         </div>
                     </div>
@@ -387,23 +412,23 @@ export default function CorporateBillingSection() {
                     <table className="ws-table" style={{ width: '100%' }}>
                         <thead>
                             <tr>
-                                <th>Company</th>
-                                <th>VAT No.</th>
-                                <th>Contact</th>
-                                <th>Workshop</th>
-                                <th style={{ textAlign: 'right' }}>Due Balance</th>
+                                <th>{t('th.company')}</th>
+                                <th>{t('th.vat')}</th>
+                                <th>{t('th.contact')}</th>
+                                <th>{t('th.workshop')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('th.dueBalance')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {customersLoading ? (
                                 <tr>
                                     <td colSpan={5} className="table-cell table-empty">
-                                        <Loader size={18} className="spin" /> Loading…
+                                        <Loader size={18} className="spin" /> {t('loading')}
                                     </td>
                                 </tr>
                             ) : customers.length === 0 ? (
                                 <tr>
-                                    <td colSpan={5} className="table-cell table-empty">No corporate accounts.</td>
+                                    <td colSpan={5} className="table-cell table-empty">{t('empty.accounts')}</td>
                                 </tr>
                             ) : (
                                 customers.map((c) => (
@@ -425,7 +450,7 @@ export default function CorporateBillingSection() {
                                         </td>
                                         <td className="table-cell">{c.workshopName}</td>
                                         <td className="table-cell" style={{ textAlign: 'right', fontWeight: 700 }}>
-                                            SAR {fmt(c.dueBalance)}
+                                            {t('money.sar', { amount: fmt(c.dueBalance) })}
                                         </td>
                                     </tr>
                                 ))
@@ -439,28 +464,39 @@ export default function CorporateBillingSection() {
 
     const corp = ledger?.corporateAccount;
     const sum = ledger?.summary ?? {};
-    const displayName = corp?.companyName || selectedCustomer?.companyName || 'Corporate Billing';
+    const displayName = corp?.companyName || selectedCustomer?.companyName || t('fallback.title');
+
+    const billKpis = [
+        ['kpi.opening', billSum.openingBalance],
+        ['kpi.invoices', billSum.totalInvoiceAmount],
+        ['kpi.receipts', billSum.totalReceipts],
+        ['kpi.discounts', billSum.totalDiscounts],
+        ['kpi.returns', billSum.totalSalesReturns],
+        ['kpi.closing', billSum.closingBalance],
+    ];
 
     return (
         <div className="corporate-ar-page corporate-billing-detail">
             <header className="corporate-ar-header">
                 <button type="button" className="corporate-billing-back-btn cash-bank-register-back" onClick={backToList}>
-                    <ArrowLeft size={18} /> Back to corporate list
+                    <ArrowLeft size={18} /> {t('btn.back')}
                 </button>
                 <div>
                     <h2 className="cash-bank-title corporate-billing-title" style={{ margin: 0 }}>
                         {displayName}
                     </h2>
                     <p className="cash-bank-desc corporate-billing-detail-sub" style={{ margin: '4px 0 0' }}>
-                        VAT: {corp?.vatNumber || selectedCustomer?.vatNumber || '—'} ·{' '}
-                        {corp?.workshopName || selectedCustomer?.workshopName || '—'}
+                        {t('label.vat', {
+                            vat: corp?.vatNumber || selectedCustomer?.vatNumber || '—',
+                            workshop: corp?.workshopName || selectedCustomer?.workshopName || '—',
+                        })}
                     </p>
                 </div>
             </header>
 
             <div className="cash-bank-register-filters corporate-billing-detail-actions">
                 <label className="cash-bank-register-field billing-date-field">
-                    <span>From</span>
+                    <span>{t('label.from')}</span>
                     <input
                         type="date"
                         value={dateFrom}
@@ -469,7 +505,7 @@ export default function CorporateBillingSection() {
                     />
                 </label>
                 <label className="cash-bank-register-field billing-date-field">
-                    <span>To</span>
+                    <span>{t('label.to')}</span>
                     <input
                         type="date"
                         value={dateTo}
@@ -478,7 +514,7 @@ export default function CorporateBillingSection() {
                     />
                 </label>
                 <button type="button" className="btn-portal-outline" onClick={loadLedger} disabled={ledgerLoading}>
-                    <RefreshCw size={16} style={{ marginRight: 6 }} /> Apply
+                    <RefreshCw size={16} style={{ marginRight: 6 }} /> {t('btn.apply')}
                 </button>
                 <button
                     type="button"
@@ -489,7 +525,7 @@ export default function CorporateBillingSection() {
                         setGenerateOpen(true);
                     }}
                 >
-                    <FileText size={16} style={{ marginRight: 6 }} /> Generate Bill
+                    <FileText size={16} style={{ marginRight: 6 }} /> {t('btn.generateBill')}
                 </button>
                 <button
                     type="button"
@@ -500,7 +536,7 @@ export default function CorporateBillingSection() {
                         setBillDetail(null);
                     }}
                 >
-                    <FileText size={16} style={{ marginRight: 6 }} /> Generated Bills
+                    <FileText size={16} style={{ marginRight: 6 }} /> {t('btn.generatedBills')}
                 </button>
                 {viewMode === 'statement' ? (
                     <>
@@ -511,7 +547,7 @@ export default function CorporateBillingSection() {
                             onClick={handleExportPdf}
                         >
                             <FileText size={16} style={{ marginRight: 6 }} />
-                            {pdfExporting ? 'Generating…' : 'Download PDF'}
+                            {pdfExporting ? t('btn.generating') : t('btn.downloadPdf')}
                         </button>
                         <button
                             type="button"
@@ -525,7 +561,7 @@ export default function CorporateBillingSection() {
                                 })
                             }
                         >
-                            <FileSpreadsheet size={16} style={{ marginRight: 6 }} /> Download Excel
+                            <FileSpreadsheet size={16} style={{ marginRight: 6 }} /> {t('btn.downloadExcel')}
                         </button>
                     </>
                 ) : null}
@@ -537,7 +573,7 @@ export default function CorporateBillingSection() {
                     className={`btn-portal-outline ${viewMode === 'statement' ? 'active' : ''}`}
                     onClick={() => setViewMode('statement')}
                 >
-                    Account Statement
+                    {t('btn.statement')}
                 </button>
                 <button
                     type="button"
@@ -548,7 +584,7 @@ export default function CorporateBillingSection() {
                         setBillDetail(null);
                     }}
                 >
-                    Generated Bills
+                    {t('btn.generatedBills')}
                 </button>
             </div>
 
@@ -560,7 +596,7 @@ export default function CorporateBillingSection() {
 
             {dueDate && viewMode === 'statement' && (
                 <p className="billing-due-date-banner">
-                    Bill due date: <strong>{dueDate}</strong>
+                    {t('label.dueBanner')} <strong>{dueDate}</strong>
                 </p>
             )}
 
@@ -570,24 +606,24 @@ export default function CorporateBillingSection() {
                         <table className="ws-table" style={{ width: '100%' }}>
                             <thead>
                                 <tr>
-                                    <th>Bill No.</th>
-                                    <th>Period</th>
-                                    <th>Due Date</th>
-                                    <th>Status</th>
-                                    <th style={{ textAlign: 'right' }}>Balance Due</th>
-                                    <th>Created</th>
+                                    <th>{t('th.billNo')}</th>
+                                    <th>{t('th.period')}</th>
+                                    <th>{t('th.dueDate')}</th>
+                                    <th>{t('th.status')}</th>
+                                    <th style={{ textAlign: 'right' }}>{t('th.dueBalance')}</th>
+                                    <th>{t('th.created')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {billsLoading ? (
                                     <tr>
                                         <td colSpan={6} className="table-cell table-empty">
-                                            <Loader size={18} className="spin" /> Loading bills…
+                                            <Loader size={18} className="spin" /> {t('loading.bills')}
                                         </td>
                                     </tr>
                                 ) : generatedBills.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="table-cell table-empty">No generated bills yet.</td>
+                                        <td colSpan={6} className="table-cell table-empty">{t('empty.bills')}</td>
                                     </tr>
                                 ) : (
                                     generatedBills.map((b) => (
@@ -599,12 +635,14 @@ export default function CorporateBillingSection() {
                                             <td className="table-cell cell-main-text">{b.billNo}</td>
                                             <td className="table-cell">{b.periodStartDate} — {b.periodEndDate}</td>
                                             <td className="table-cell">{b.dueDate}</td>
-                                            <td className="table-cell">{billStatusLabel(b.status)}</td>
+                                            <td className="table-cell">{billStatusLabel(b.status, t)}</td>
                                             <td className="table-cell" style={{ textAlign: 'right', fontWeight: 700 }}>
-                                                SAR {fmt(b.kpis?.balance)}
+                                                {t('money.sar', { amount: fmt(b.kpis?.balance) })}
                                             </td>
                                             <td className="table-cell">
-                                                {b.createdAt ? new Date(b.createdAt).toLocaleString() : '—'}
+                                                {b.createdAt
+                                                    ? new Date(b.createdAt).toLocaleString(isAr ? 'ar-SA' : undefined)
+                                                    : '—'}
                                             </td>
                                         </tr>
                                     ))
@@ -616,7 +654,7 @@ export default function CorporateBillingSection() {
                     {selectedBillId && (
                         <div style={{ marginBottom: 16 }}>
                             {billDetailLoading ? (
-                                <p className="table-cell table-empty"><Loader size={18} className="spin" /> Loading bill…</p>
+                                <p className="table-cell table-empty"><Loader size={18} className="spin" /> {t('loading.bill')}</p>
                             ) : billDetail ? (
                                 <>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 12 }}>
@@ -624,7 +662,7 @@ export default function CorporateBillingSection() {
                                             {billDetail.billNo}
                                         </h3>
                                         <span className="billing-due-date-banner" style={{ margin: 0 }}>
-                                            Due: <strong>{billDetail.dueDate}</strong>
+                                            {t('label.due')} <strong>{billDetail.dueDate}</strong>
                                         </span>
                                         <button
                                             type="button"
@@ -633,23 +671,18 @@ export default function CorporateBillingSection() {
                                             onClick={handleExportBillPdf}
                                         >
                                             <FileText size={16} style={{ marginRight: 6 }} />
-                                            {billPdfExporting ? 'Generating…' : 'Download Bill PDF'}
+                                            {billPdfExporting ? t('btn.generating') : t('btn.downloadBillPdf')}
                                         </button>
                                     </div>
 
                                     <div className="cash-bank-stats cash-bank-register-kpis billing-stats">
-                                        {[
-                                            ['Opening', billSum.openingBalance],
-                                            ['Invoices', billSum.totalInvoiceAmount],
-                                            ['Receipts', billSum.totalReceipts],
-                                            ['Discounts', billSum.totalDiscounts],
-                                            ['Returns', billSum.totalSalesReturns],
-                                            ['Closing', billSum.closingBalance],
-                                        ].map(([label, val]) => (
-                                            <div key={label} className="cash-bank-stat-card billing-stat-card">
+                                        {billKpis.map(([labelKey, val]) => (
+                                            <div key={labelKey} className="cash-bank-stat-card billing-stat-card">
                                                 <div>
-                                                    <p className="cash-bank-stat-label billing-stat-label">{label}</p>
-                                                    <p className="cash-bank-stat-value billing-stat-val">SAR {fmt(val)}</p>
+                                                    <p className="cash-bank-stat-label billing-stat-label">{t(labelKey)}</p>
+                                                    <p className="cash-bank-stat-value billing-stat-val">
+                                                        {t('money.sar', { amount: fmt(val) })}
+                                                    </p>
                                                 </div>
                                             </div>
                                         ))}
@@ -659,28 +692,30 @@ export default function CorporateBillingSection() {
                                         <table className="ws-table" style={{ width: '100%', minWidth: 1200 }}>
                                             <thead>
                                                 <tr>
-                                                    <th>Date</th>
-                                                    <th>Inv No.</th>
-                                                    <th>Vehicle No.</th>
-                                                    <th>Products &amp; Services</th>
-                                                    <th>Type</th>
-                                                    <th style={{ textAlign: 'right' }}>Excl VAT</th>
-                                                    <th style={{ textAlign: 'right' }}>VAT</th>
-                                                    <th style={{ textAlign: 'right' }}>Discounts</th>
-                                                    <th style={{ textAlign: 'right' }}>Incl VAT</th>
-                                                    <th style={{ textAlign: 'right' }}>Returns</th>
-                                                    <th style={{ textAlign: 'right' }}>Receipts</th>
-                                                    <th style={{ textAlign: 'right' }}>Balance</th>
+                                                    <th>{t('th.date')}</th>
+                                                    <th>{t('th.invNo')}</th>
+                                                    <th>{t('th.vehicle')}</th>
+                                                    <th>{t('th.products')}</th>
+                                                    <th>{t('th.type')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.exclVatShort')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.vat15')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.discounts')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.inclVatShort')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.returns')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.receipts')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.balance')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 <tr className="cash-bank-register-opening-row">
-                                                    <td colSpan={11}><strong>Opening balance</strong></td>
-                                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(billSum.openingBalance)}</td>
+                                                    <td colSpan={11}><strong>{t('label.openingBalance')}</strong></td>
+                                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                                                        {t('money.sar', { amount: fmt(billSum.openingBalance) })}
+                                                    </td>
                                                 </tr>
                                                 {billLedgerLines.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={12} className="table-cell table-empty">No ledger lines in snapshot.</td>
+                                                        <td colSpan={12} className="table-cell table-empty">{t('empty.ledgerLines')}</td>
                                                     </tr>
                                                 ) : (
                                                     billLedgerLines.map((row) => (
@@ -697,27 +732,36 @@ export default function CorporateBillingSection() {
                                                             </td>
                                                             <td>{row.vehicleNo}</td>
                                                             <td style={{ maxWidth: 240 }}>
-                                                                <div>{row.productsServicesEn ?? row.productsServices}</div>
-                                                                {row.productsServicesAr ? (
+                                                                <div>{isAr ? (row.productsServicesAr || row.productsServicesEn || row.productsServices) : (row.productsServicesEn ?? row.productsServices)}</div>
+                                                                {!isAr && row.productsServicesAr ? (
                                                                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, direction: 'rtl', textAlign: 'left' }}>
                                                                         {row.productsServicesAr}
                                                                     </div>
                                                                 ) : null}
+                                                                {isAr && (row.productsServicesEn ?? row.productsServices) && row.productsServicesAr ? (
+                                                                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                                                                        {row.productsServicesEn ?? row.productsServices}
+                                                                    </div>
+                                                                ) : null}
                                                             </td>
                                                             <td>{formatLedgerTypeShort(row.type)}</td>
-                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceExclVat)}</td>
-                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.vat15)}</td>
-                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.salesDiscounts)}</td>
-                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceInclusiveVat)}</td>
-                                                            <td style={{ textAlign: 'right', color: '#DC2626' }}>{fmtCell(row.salesReturns)}</td>
-                                                            <td style={{ textAlign: 'right', color: '#059669' }}>{fmtCell(row.receipts)}</td>
-                                                            <td style={{ textAlign: 'right', fontWeight: 600 }}>SAR {fmt(row.runningBalance)}</td>
+                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceExclVat, t)}</td>
+                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.vat15, t)}</td>
+                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.salesDiscounts, t)}</td>
+                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceInclusiveVat, t)}</td>
+                                                            <td style={{ textAlign: 'right', color: '#DC2626' }}>{fmtCell(row.salesReturns, t)}</td>
+                                                            <td style={{ textAlign: 'right', color: '#059669' }}>{fmtCell(row.receipts, t)}</td>
+                                                            <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                                                                {t('money.sar', { amount: fmt(row.runningBalance) })}
+                                                            </td>
                                                         </tr>
                                                     ))
                                                 )}
                                                 <tr className="cash-bank-register-closing-row">
-                                                    <td colSpan={11}><strong>Closing balance</strong></td>
-                                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(billSum.closingBalance)}</td>
+                                                    <td colSpan={11}><strong>{t('label.closingBalance')}</strong></td>
+                                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                                                        {t('money.sar', { amount: fmt(billSum.closingBalance) })}
+                                                    </td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -732,8 +776,8 @@ export default function CorporateBillingSection() {
             <div className="cash-bank-stats cash-bank-register-kpis billing-stats">
                 <div className="cash-bank-stat-card cash-bank-stat-card--muted billing-stat-card">
                     <div>
-                        <p className="cash-bank-stat-label billing-stat-label">Opening Balance</p>
-                        <p className="cash-bank-stat-value billing-stat-val">SAR {fmt(sum.openingBalance)}</p>
+                        <p className="cash-bank-stat-label billing-stat-label">{t('stat.opening')}</p>
+                        <p className="cash-bank-stat-value billing-stat-val">{t('money.sar', { amount: fmt(sum.openingBalance) })}</p>
                     </div>
                 </div>
                 <button
@@ -742,8 +786,8 @@ export default function CorporateBillingSection() {
                     onClick={() => setLedgerFilter((f) => (f === 'invoices' ? 'all' : 'invoices'))}
                 >
                     <div>
-                        <p className="cash-bank-stat-label billing-stat-label">Total Invoice Amount</p>
-                        <p className="cash-bank-stat-value billing-stat-val">SAR {fmt(sum.totalInvoiceAmount)}</p>
+                        <p className="cash-bank-stat-label billing-stat-label">{t('stat.invoices')}</p>
+                        <p className="cash-bank-stat-value billing-stat-val">{t('money.sar', { amount: fmt(sum.totalInvoiceAmount) })}</p>
                     </div>
                 </button>
                 <button
@@ -752,8 +796,8 @@ export default function CorporateBillingSection() {
                     onClick={() => setLedgerFilter((f) => (f === 'receipts' ? 'all' : 'receipts'))}
                 >
                     <div>
-                        <p className="cash-bank-stat-label billing-stat-label">Total Receipts</p>
-                        <p className="cash-bank-stat-value billing-stat-val">SAR {fmt(sum.totalReceipts)}</p>
+                        <p className="cash-bank-stat-label billing-stat-label">{t('stat.receipts')}</p>
+                        <p className="cash-bank-stat-value billing-stat-val">{t('money.sar', { amount: fmt(sum.totalReceipts) })}</p>
                     </div>
                 </button>
                 <button
@@ -762,8 +806,8 @@ export default function CorporateBillingSection() {
                     onClick={() => setLedgerFilter((f) => (f === 'discounts' ? 'all' : 'discounts'))}
                 >
                     <div>
-                        <p className="cash-bank-stat-label billing-stat-label">Discounts</p>
-                        <p className="cash-bank-stat-value billing-stat-val">SAR {fmt(sum.totalDiscounts)}</p>
+                        <p className="cash-bank-stat-label billing-stat-label">{t('stat.discounts')}</p>
+                        <p className="cash-bank-stat-value billing-stat-val">{t('money.sar', { amount: fmt(sum.totalDiscounts) })}</p>
                     </div>
                 </button>
                 <button
@@ -772,8 +816,8 @@ export default function CorporateBillingSection() {
                     onClick={() => setLedgerFilter((f) => (f === 'returns' ? 'all' : 'returns'))}
                 >
                     <div>
-                        <p className="cash-bank-stat-label billing-stat-label">Sales Returns</p>
-                        <p className="cash-bank-stat-value billing-stat-val">SAR {fmt(sum.totalSalesReturns)}</p>
+                        <p className="cash-bank-stat-label billing-stat-label">{t('stat.returns')}</p>
+                        <p className="cash-bank-stat-value billing-stat-val">{t('money.sar', { amount: fmt(sum.totalSalesReturns) })}</p>
                     </div>
                 </button>
                 <button
@@ -782,52 +826,60 @@ export default function CorporateBillingSection() {
                     onClick={() => setLedgerFilter('all')}
                 >
                     <div>
-                        <p className="cash-bank-stat-label billing-stat-label">Closing Balance</p>
-                        <p className="cash-bank-stat-value billing-stat-val">SAR {fmt(sum.closingBalance)}</p>
+                        <p className="cash-bank-stat-label billing-stat-label">{t('stat.closing')}</p>
+                        <p className="cash-bank-stat-value billing-stat-val">{t('money.sar', { amount: fmt(sum.closingBalance) })}</p>
                     </div>
                 </button>
             </div>
 
             <p className="cash-bank-desc" style={{ margin: '0 0 8px' }}>
-                Period: {dateFrom} — {dateTo}
-                {ledger?.generatedAt ? ` · Generated ${new Date(ledger.generatedAt).toLocaleString()}` : ''}
+                {t('label.period', { from: dateFrom, to: dateTo })}
+                {ledger?.generatedAt
+                    ? t('label.generated', {
+                        when: new Date(ledger.generatedAt).toLocaleString(isAr ? 'ar-SA' : undefined),
+                    })
+                    : ''}
             </p>
 
             <section className="premium-table cash-bank-table corporate-ar-ledger-table corporate-billing-ledger-table">
                 <table className="ws-table" style={{ width: '100%', minWidth: 1200 }}>
                     <thead>
                         <tr>
-                            <th><div>Date</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>التاريخ</div></th>
-                            <th><div>Inv No.</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>رقم الفاتورة</div></th>
-                            <th><div>Vehicle No.</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>رقم المركبة</div></th>
-                            <th><div>Products &amp; Services</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>المنتجات والخدمات</div></th>
-                            <th><div>Type</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>النوع</div></th>
-                            <th style={{ textAlign: 'right' }}><div>Inv Excl VAT</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>بدون ضريبة</div></th>
-                            <th style={{ textAlign: 'right' }}><div>VAT 15%</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>ضريبة 15%</div></th>
-                            <th style={{ textAlign: 'right' }}><div>Discounts</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>الخصومات</div></th>
-                            <th style={{ textAlign: 'right' }}><div>INV Incl VAT</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>شامل الضريبة</div></th>
-                            <th style={{ textAlign: 'right' }}><div>Returns</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>المرتجعات</div></th>
-                            <th style={{ textAlign: 'right' }}><div>Receipts</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>المقبوضات</div></th>
-                            <th style={{ textAlign: 'right' }}><div>Balance</div><div style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>الرصيد</div></th>
+                            <BilingualTh {...thPair('th.date', 'th.dateAr')} t={t} />
+                            <BilingualTh {...thPair('th.invNo', 'th.invNoAr')} t={t} />
+                            <BilingualTh {...thPair('th.vehicle', 'th.vehicleAr')} t={t} />
+                            <BilingualTh {...thPair('th.products', 'th.productsAr')} t={t} />
+                            <BilingualTh {...thPair('th.type', 'th.typeAr')} t={t} />
+                            <BilingualTh {...thPair('th.exclVat', 'th.exclVatAr')} t={t} style={{ textAlign: 'right' }} />
+                            <BilingualTh {...thPair('th.vat15', 'th.vat15Ar')} t={t} style={{ textAlign: 'right' }} />
+                            <BilingualTh {...thPair('th.discounts', 'th.discountsAr')} t={t} style={{ textAlign: 'right' }} />
+                            <BilingualTh {...thPair('th.inclVat', 'th.inclVatAr')} t={t} style={{ textAlign: 'right' }} />
+                            <BilingualTh {...thPair('th.returns', 'th.returnsAr')} t={t} style={{ textAlign: 'right' }} />
+                            <BilingualTh {...thPair('th.receipts', 'th.receiptsAr')} t={t} style={{ textAlign: 'right' }} />
+                            <BilingualTh {...thPair('th.balance', 'th.balanceAr')} t={t} style={{ textAlign: 'right' }} />
                         </tr>
                     </thead>
                     <tbody>
                         {ledgerLoading ? (
                             <tr>
                                 <td colSpan={12} className="table-cell table-empty">
-                                    <Loader size={18} className="spin" /> Loading ledger…
+                                    <Loader size={18} className="spin" /> {t('loading.ledger')}
                                 </td>
                             </tr>
                         ) : (
                             <>
                                 <tr className="cash-bank-register-opening-row">
-                                    <td colSpan={11}><strong>Opening balance</strong></td>
-                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(sum.openingBalance)}</td>
+                                    <td colSpan={11}><strong>{t('label.openingBalance')}</strong></td>
+                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                                        {t('money.sar', { amount: fmt(sum.openingBalance) })}
+                                    </td>
                                 </tr>
                                 {filteredLines.length === 0 ? (
                                     <tr>
                                         <td colSpan={12} className="table-cell table-empty">
-                                            No lines in this period{ledgerFilter !== 'all' ? ` (${ledgerFilter})` : ''}.
+                                            {ledgerFilter !== 'all'
+                                                ? t('empty.periodFilter', { filter: ledgerFilter })
+                                                : t('empty.period')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -845,8 +897,12 @@ export default function CorporateBillingSection() {
                                             </td>
                                             <td>{row.vehicleNo}</td>
                                             <td style={{ maxWidth: 240 }}>
-                                                <div>{row.productsServicesEn ?? row.productsServices}</div>
-                                                {row.productsServicesAr ? (
+                                                <div>
+                                                    {isAr
+                                                        ? (row.productsServicesAr || row.productsServicesEn || row.productsServices)
+                                                        : (row.productsServicesEn ?? row.productsServices)}
+                                                </div>
+                                                {!isAr && row.productsServicesAr ? (
                                                     <div
                                                         style={{
                                                             fontSize: 12,
@@ -859,21 +915,30 @@ export default function CorporateBillingSection() {
                                                         {row.productsServicesAr}
                                                     </div>
                                                 ) : null}
+                                                {isAr && (row.productsServicesEn ?? row.productsServices) && row.productsServicesAr ? (
+                                                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                                                        {row.productsServicesEn ?? row.productsServices}
+                                                    </div>
+                                                ) : null}
                                             </td>
                                             <td>{formatLedgerTypeShort(row.type)}</td>
-                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceExclVat)}</td>
-                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.vat15)}</td>
-                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.salesDiscounts)}</td>
-                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceInclusiveVat)}</td>
-                                            <td style={{ textAlign: 'right', color: '#DC2626' }}>{fmtCell(row.salesReturns)}</td>
-                                            <td style={{ textAlign: 'right', color: '#059669' }}>{fmtCell(row.receipts)}</td>
-                                            <td style={{ textAlign: 'right', fontWeight: 600 }}>SAR {fmt(row.runningBalance)}</td>
+                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceExclVat, t)}</td>
+                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.vat15, t)}</td>
+                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.salesDiscounts, t)}</td>
+                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceInclusiveVat, t)}</td>
+                                            <td style={{ textAlign: 'right', color: '#DC2626' }}>{fmtCell(row.salesReturns, t)}</td>
+                                            <td style={{ textAlign: 'right', color: '#059669' }}>{fmtCell(row.receipts, t)}</td>
+                                            <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                                                {t('money.sar', { amount: fmt(row.runningBalance) })}
+                                            </td>
                                         </tr>
                                     ))
                                 )}
                                 <tr className="cash-bank-register-closing-row">
-                                    <td colSpan={11}><strong>Closing balance</strong></td>
-                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(sum.closingBalance)}</td>
+                                    <td colSpan={11}><strong>{t('label.closingBalance')}</strong></td>
+                                    <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                                        {t('money.sar', { amount: fmt(sum.closingBalance) })}
+                                    </td>
                                 </tr>
                             </>
                         )}
@@ -885,12 +950,12 @@ export default function CorporateBillingSection() {
 
             {generateOpen && (
                 <Modal
-                    title="Generate Monthly Bill"
+                    title={t('modal.title')}
                     onClose={() => setGenerateOpen(false)}
                     footer={
                         <>
                             <button type="button" className="btn-secondary" onClick={() => setGenerateOpen(false)}>
-                                Cancel
+                                {t('btn.cancel')}
                             </button>
                             <button
                                 type="button"
@@ -900,22 +965,22 @@ export default function CorporateBillingSection() {
                             >
                                 {generating ? (
                                     <>
-                                        <Loader size={14} className="spin" /> Generating…
+                                        <Loader size={14} className="spin" /> {t('btn.generating')}
                                     </>
                                 ) : (
-                                    'Generate Bill'
+                                    t('btn.generateBill')
                                 )}
                             </button>
                         </>
                     }
                 >
                     <p style={{ marginTop: 0, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
-                        Period: <strong>{dateFrom} — {dateTo}</strong>
+                        {t('modal.period')} <strong>{dateFrom} — {dateTo}</strong>
                         <br />
-                        Company: <strong>{displayName}</strong>
+                        {t('modal.company')} <strong>{displayName}</strong>
                     </p>
                     <div className="form-group">
-                        <label className="form-label">Due Date *</label>
+                        <label className="form-label">{t('modal.dueDate')}</label>
                         <input
                             type="date"
                             className="form-input-field"

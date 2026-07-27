@@ -3,9 +3,11 @@ import { RefreshCw } from 'lucide-react';
 import { getStaffAppOverview } from '../../../services/staffAppApi';
 import { branchScopeParams } from '../../../services/workshopStaffApi';
 import { useStaffAppScope, staffAppQueryParams } from '../../../context/StaffAppScopeContext';
+import { useStaffAppI18n } from '../../../utils/staffAppI18n';
 
 export default function StaffAppOverview({ selectedBranchId = 'all', onNavigate }) {
     const scope = useStaffAppScope();
+    const { locale, t } = useStaffAppI18n();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -19,40 +21,45 @@ export default function StaffAppOverview({ selectedBranchId = 'all', onNavigate 
             );
             setData(res?.data ?? res);
         } catch (e) {
-            setError(e?.message || 'Could not load overview.');
+            setError(e?.message || t('overview.errLoad'));
             setData(null);
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId, scope]);
+    }, [selectedBranchId, scope, t]);
 
     useEffect(() => { load(); }, [load]);
 
     const stats = data?.counts ?? data ?? {};
 
     const cards = [
-        { key: 'pendingApprovals', label: 'Pending approvals', tab: 'approvals' },
-        { key: 'openRequests', label: 'Open requests', tab: 'sap-requests' },
-        { key: 'walletFloat', label: 'Total wallet float (SAR)', tab: 'my-petty-cash', format: (v) => Number(v || 0).toLocaleString('en-SA', { minimumFractionDigits: 2 }) },
-        { key: 'appUsers', label: 'App users', tab: 'employees' },
-        { key: 'pendingLeave', label: 'Pending leave', tab: 'sap-leave' },
-        { key: 'openTasks', label: 'Open tasks', tab: 'sap-tasks' },
+        { key: 'pendingApprovals', labelKey: 'overview.pendingApprovals', tab: 'approvals' },
+        { key: 'openRequests', labelKey: 'overview.openRequests', tab: 'sap-requests' },
+        {
+            key: 'walletFloat',
+            labelKey: 'overview.walletFloat',
+            tab: 'my-petty-cash',
+            format: (v) => Number(v || 0).toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-SA', { minimumFractionDigits: 2 }),
+        },
+        { key: 'appUsers', labelKey: 'overview.appUsers', tab: 'employees' },
+        { key: 'pendingLeave', labelKey: 'overview.pendingLeave', tab: 'sap-leave' },
+        { key: 'openTasks', labelKey: 'overview.openTasks', tab: 'sap-tasks' },
     ];
 
     return (
         <div>
             <div className="staff-app-toolbar">
-                <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>Staff App Overview</h2>
+                <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>{t('overview.title')}</h2>
                 <button type="button" className="staff-app-btn" onClick={load} disabled={loading}>
-                    <RefreshCw size={14} style={{ verticalAlign: 'middle' }} /> Refresh
+                    <RefreshCw size={14} style={{ verticalAlign: 'middle' }} /> {t('common.refresh')}
                 </button>
             </div>
             {error && <p style={{ color: '#b91c1c', marginBottom: 12 }}>{error}</p>}
             {loading && !data ? (
-                <p className="staff-app-empty">Loading…</p>
+                <p className="staff-app-empty">{t('common.loading')}</p>
             ) : (
                 <div className="staff-app-card-grid">
-                    {cards.map(({ key, label, tab, format }) => {
+                    {cards.map(({ key, labelKey, tab, format }) => {
                         const raw = stats[key] ?? 0;
                         const display = format ? format(raw) : String(raw);
                         return (
@@ -60,10 +67,10 @@ export default function StaffAppOverview({ selectedBranchId = 'all', onNavigate 
                                 key={key}
                                 type="button"
                                 className="staff-app-stat-card"
-                                style={{ cursor: 'pointer', textAlign: 'left' }}
+                                style={{ cursor: 'pointer', textAlign: locale === 'ar' ? 'right' : 'left' }}
                                 onClick={() => onNavigate?.(tab)}
                             >
-                                <h3>{label}</h3>
+                                <h3>{t(labelKey)}</h3>
                                 <p>{display}</p>
                             </button>
                         );
@@ -71,7 +78,7 @@ export default function StaffAppOverview({ selectedBranchId = 'all', onNavigate 
                 </div>
             )}
             <p style={{ marginTop: 16, fontSize: '0.8125rem', color: '#666' }}>
-                Manage outdoor staff, wallets, approvals, and Flutter app workflows from this section.
+                {t('overview.hint')}
             </p>
         </div>
     );

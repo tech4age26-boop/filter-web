@@ -4,6 +4,7 @@ import Modal from '../Modal';
 import WalletApprovalAccountFields from '../admin/WalletApprovalAccountFields';
 import { getRequesterWalletBalance, listAdminWallets } from '../../services/adminWalletApi';
 import { formatSar } from './PlatformChatWalletMessage';
+import { pcT } from '../../utils/platformChatI18n';
 import '../../styles/admin/PlatformChatWallet.css';
 
 function isExpenseTarget(target) {
@@ -25,7 +26,10 @@ export default function PlatformChatWalletActionModals({
     onApproveDone,
     onRejectDone,
     onError,
+    locale = 'en',
+    t: tProp,
 }) {
+    const t = tProp || ((key, vars) => pcT(locale, key, vars));
     const [busy, setBusy] = useState(false);
     const [acct, setAcct] = useState({ blocked: true, loading: true });
     const [approveRemarks, setApproveRemarks] = useState('');
@@ -45,7 +49,7 @@ export default function PlatformChatWalletActionModals({
         && payload.fundSourceType === 'wallet'
         && payload.sourceUserId;
     const requesterUserId = payload.requesterUserId ?? '';
-    const requesterName = payload.requesterName || 'Requester';
+    const requesterName = payload.requesterName || t('modal.requester');
     const amt = Number(payload.amount ?? 0);
 
     useEffect(() => {
@@ -115,11 +119,11 @@ export default function PlatformChatWalletActionModals({
     );
     const walletBlockReason = !approveIsExpense && fundSourceType === 'wallet'
         ? (walletUsersLoading
-            ? 'Loading wallet users…'
+            ? t('modal.loadingWalletUsers')
             : !(lockedWalletPeer ? payload.sourceUserId : sourceUserId)
-                ? 'Select a source wallet user.'
+                ? t('modal.selectSourceWallet')
                 : (sourceUserBalance != null && amt > 0 && sourceUserBalance < amt)
-                    ? `Insufficient balance in source wallet (SAR ${formatBalance(sourceUserBalance)}).`
+                    ? t('modal.insufficientBalance', { amount: formatBalance(sourceUserBalance) })
                     : '')
         : '';
 
@@ -161,7 +165,7 @@ export default function PlatformChatWalletActionModals({
             onApproveDone?.(res);
             onCloseApprove();
         } catch (err) {
-            const message = err?.message || 'Could not approve request';
+            const message = err?.message || t('modal.errApprove');
             setApproveError(message);
             onError?.(message);
         } finally {
@@ -180,7 +184,7 @@ export default function PlatformChatWalletActionModals({
             onRejectDone?.(res);
             onCloseReject();
         } catch (err) {
-            onError?.(err?.message || 'Could not reject request');
+            onError?.(err?.message || t('modal.errReject'));
         } finally {
             setBusy(false);
         }
@@ -202,14 +206,14 @@ export default function PlatformChatWalletActionModals({
         <>
             {approveTarget && (
                 <Modal
-                    title={approveIsExpense ? 'Approve expense request' : 'Approve fund request'}
+                    title={approveIsExpense ? t('modal.approveExpense') : t('modal.approveFund')}
                     onClose={busy ? undefined : onCloseApprove}
                     width={500}
                     disableClose={busy}
                     footer={(
                         <>
                             <button type="button" className="pc-wallet-modal-cancel" disabled={busy} onClick={onCloseApprove}>
-                                Cancel
+                                {t('modal.cancel')}
                             </button>
                             <button
                                 type="button"
@@ -218,7 +222,7 @@ export default function PlatformChatWalletActionModals({
                                 onClick={confirmApprove}
                             >
                                 {busy ? <Loader2 size={14} className="spin" /> : <Check size={16} />}
-                                Approve
+                                {t('modal.approve')}
                             </button>
                         </>
                     )}
@@ -229,16 +233,15 @@ export default function PlatformChatWalletActionModals({
                         </div>
                     ) : null}
                     <p className="pc-wallet-modal-lead">
-                        Approve <strong>{payload.requestNumber}</strong> for{' '}
-                        <strong>SAR {formatSar(payload.amount)}</strong>
+                        {t('modal.approveLead', { ref: payload.requestNumber, amount: formatSar(payload.amount) })}
                         {!approveIsExpense && fundSourceType === 'wallet'
-                            ? <> — credit <strong>{requesterName}</strong>&apos;s wallet from another admin wallet.</>
+                            ? <>{t('modal.approveLeadWallet', { name: requesterName })}</>
                             : null}
                     </p>
 
                     {!approveIsExpense && !lockedWalletPeer ? (
                         <div style={{ marginBottom: 12 }}>
-                            <span className="pc-wallet-field-label">Funding source</span>
+                            <span className="pc-wallet-field-label">{t('modal.fundingSource')}</span>
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
                                 <button
                                     type="button"
@@ -246,7 +249,7 @@ export default function PlatformChatWalletActionModals({
                                     disabled={busy}
                                     onClick={() => setFundSourceType('external')}
                                 >
-                                    Cash / Bank
+                                    {t('modal.cashBank')}
                                 </button>
                                 <button
                                     type="button"
@@ -254,7 +257,7 @@ export default function PlatformChatWalletActionModals({
                                     disabled={busy}
                                     onClick={() => setFundSourceType('wallet')}
                                 >
-                                    Deduct from another wallet
+                                    {t('modal.deductWallet')}
                                 </button>
                             </div>
                         </div>
@@ -274,22 +277,22 @@ export default function PlatformChatWalletActionModals({
                             {lockedWalletPeer ? (
                                 <>
                                     <p style={{ margin: '0 0 6px' }}>
-                                        <strong>From your wallet</strong>
+                                        <strong>{t('modal.fromYourWallet')}</strong>
                                     </p>
                                     <p style={{ margin: '0 0 6px' }}>
-                                        <strong>To:</strong> {requesterName}
+                                        <strong>{t('modal.to')}</strong> {requesterName}
                                     </p>
                                     <p style={{ margin: 0, color: '#64748b' }}>
-                                        This will debit your wallet and credit the requester. GL posts between employee petty cash funds.
+                                        {t('modal.peerDebitHint')}
                                     </p>
                                 </>
                             ) : (
                                 <>
                                     <p style={{ margin: '0 0 8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                                        Wallet transfer
+                                        {t('modal.walletTransfer')}
                                     </p>
                                     <p style={{ margin: '0 0 6px' }}>
-                                        <strong>From wallet:</strong>{' '}
+                                        <strong>{t('modal.fromWallet')}</strong>{' '}
                                         <select
                                             className="pc-wallet-field"
                                             style={{ marginTop: 6, width: '100%' }}
@@ -298,11 +301,11 @@ export default function PlatformChatWalletActionModals({
                                             disabled={busy || walletUsersLoading}
                                         >
                                             <option value="">
-                                                {walletUsersLoading ? 'Loading…' : 'Select source wallet user'}
+                                                {walletUsersLoading ? t('modal.loadingEllipsis') : t('modal.selectSourceUser')}
                                             </option>
                                             {walletUsers.map((u) => (
                                                 <option key={u.id} value={u.id}>
-                                                    {u.name || u.email || `User ${u.id}`}
+                                                    {u.name || u.email || t('modal.userN', { id: u.id })}
                                                     {u.wallet?.balance != null
                                                         ? ` — SAR ${formatBalance(u.wallet.balance)}`
                                                         : ''}
@@ -311,11 +314,11 @@ export default function PlatformChatWalletActionModals({
                                         </select>
                                     </p>
                                     <p style={{ margin: 0, fontSize: '0.875rem' }}>
-                                        <strong>To wallet:</strong> {requesterName}
+                                        <strong>{t('modal.toWallet')}</strong> {requesterName}
                                     </p>
                                     {sourceUserBalance != null ? (
                                         <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                                            Source balance after transfer: SAR {formatBalance(Math.max(0, sourceUserBalance - amt))}
+                                            {t('modal.sourceBalanceAfter', { amount: formatBalance(Math.max(0, sourceUserBalance - amt)) })}
                                         </p>
                                     ) : null}
                                 </>
@@ -325,11 +328,11 @@ export default function PlatformChatWalletActionModals({
 
                     {approveIsExpense && proofUrl ? (
                         <div style={{ marginBottom: 12 }}>
-                            <span className="pc-wallet-field-label">Expense proof</span>
+                            <span className="pc-wallet-field-label">{t('modal.expenseProof')}</span>
                             <a href={proofUrl} target="_blank" rel="noopener noreferrer">
                                 <img
                                     src={proofUrl}
-                                    alt="Expense proof"
+                                    alt={t('modal.expenseProof')}
                                     style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 8, marginTop: 6 }}
                                 />
                             </a>
@@ -360,7 +363,7 @@ export default function PlatformChatWalletActionModals({
                         />
                     ) : null}
 
-                    <label className="pc-wallet-field-label">Remarks (optional)</label>
+                    <label className="pc-wallet-field-label">{t('modal.remarks')}</label>
                     <textarea
                         className="pc-wallet-field"
                         rows={2}
@@ -372,14 +375,14 @@ export default function PlatformChatWalletActionModals({
 
             {rejectTarget && (
                 <Modal
-                    title={rejectIsExpense ? 'Reject expense request' : 'Reject fund request'}
+                    title={rejectIsExpense ? t('modal.rejectExpense') : t('modal.rejectFund')}
                     onClose={busy ? undefined : onCloseReject}
                     width={440}
                     disableClose={busy}
                     footer={(
                         <>
                             <button type="button" className="pc-wallet-modal-cancel" disabled={busy} onClick={onCloseReject}>
-                                Cancel
+                                {t('modal.cancel')}
                             </button>
                             <button
                                 type="button"
@@ -388,18 +391,18 @@ export default function PlatformChatWalletActionModals({
                                 onClick={confirmReject}
                             >
                                 {busy ? <Loader2 size={14} className="spin" /> : <X size={16} />}
-                                Reject
+                                {t('modal.reject')}
                             </button>
                         </>
                     )}
                 >
-                    <label className="pc-wallet-field-label">Reason *</label>
+                    <label className="pc-wallet-field-label">{t('modal.reason')}</label>
                     <textarea
                         className="pc-wallet-field"
                         rows={3}
                         value={rejectReason}
                         onChange={(e) => setRejectReason(e.target.value)}
-                        placeholder="Why is this being rejected?"
+                        placeholder={t('modal.rejectPlaceholder')}
                     />
                 </Modal>
             )}

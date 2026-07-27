@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useOutletContext } from 'react-router-dom';
 import { Building2, GitBranch } from 'lucide-react';
 import { getWorkshops, getBranches, getPlatformHqInfo } from '../../services/superAdminApi';
 import { STAFF_APP_SLUG_TO_TAB, STAFF_APP_TAB_SLUG } from '../workshop/staff-app/constants';
 import StaffAppPage from '../workshop/staff-app/StaffAppPage';
 import { StaffAppScopeProvider } from '../../context/StaffAppScopeContext';
+import { resolveStaffAppLocale, staffAppT } from '../../utils/staffAppI18n';
 import '../workshop/staff-app/StaffApp.css';
 
 function normalizeWorkshops(payload) {
@@ -31,6 +32,10 @@ function normalizeBranches(payload) {
 export default function AdminStaffAppPage() {
     const navigate = useNavigate();
     const { subTab } = useParams();
+    const outletCtx = useOutletContext() || {};
+    const locale = resolveStaffAppLocale(undefined, outletCtx.locale);
+    const t = useCallback((key, vars) => staffAppT(locale, key, vars), [locale]);
+
     const [workshops, setWorkshops] = useState([]);
     const [workshopId, setWorkshopId] = useState('');
     const [branches, setBranches] = useState([]);
@@ -82,7 +87,7 @@ export default function AdminStaffAppPage() {
                 const list = normalizeBranches(res).map((b) => ({
                     ...b,
                     id: b.id ?? b._id,
-                    name: b.name ?? b.branchName ?? 'Branch',
+                    name: b.name ?? b.branchName ?? t('admin.branchFallback'),
                 }));
                 if (!cancelled) setBranches(list);
             } catch {
@@ -90,12 +95,12 @@ export default function AdminStaffAppPage() {
             }
         })();
         return () => { cancelled = true; };
-    }, [workshopId]);
+    }, [workshopId, t]);
 
     const workshopName = useMemo(() => {
         const w = workshops.find((x) => String(x.id ?? x._id) === String(workshopId));
-        return w?.name ?? w?.workshopName ?? 'Workshop';
-    }, [workshops, workshopId]);
+        return w?.name ?? w?.workshopName ?? t('admin.workshopFallback');
+    }, [workshops, workshopId, t]);
 
     const onNavigate = useCallback(
         (tabId) => {
@@ -106,7 +111,7 @@ export default function AdminStaffAppPage() {
     );
 
     return (
-        <div className="admin-staff-app-root" style={{ padding: '0 0 24px' }}>
+        <div className="admin-staff-app-root" style={{ padding: '0 0 24px' }} dir={locale === 'ar' ? 'rtl' : undefined}>
             <div
                 className="staff-app-toolbar"
                 style={{
@@ -117,7 +122,7 @@ export default function AdminStaffAppPage() {
                 }}
             >
                 <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>
-                    Staff App Management
+                    {t('admin.title')}
                 </h2>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.875rem' }}>
                     <Building2 size={16} />
@@ -130,13 +135,14 @@ export default function AdminStaffAppPage() {
                         disabled={loadingWorkshops}
                         style={{ minWidth: 220, padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb' }}
                     >
-                        <option value="">Select workshop…</option>
+                        <option value="">{t('admin.selectWorkshop')}</option>
                         {workshops.map((w) => {
                             const id = String(w.id ?? w._id ?? '');
                             const isHq = Boolean(w.isPlatformHq);
+                            const name = w.name ?? w.workshopName ?? id;
                             const label = isHq
-                                ? `${w.name ?? w.workshopName ?? id} (Platform HQ — My Books)`
-                                : (w.name ?? w.workshopName ?? id);
+                                ? t('admin.platformHq', { name })
+                                : name;
                             return (
                                 <option key={id} value={id}>
                                     {label}
@@ -153,7 +159,7 @@ export default function AdminStaffAppPage() {
                         disabled={!workshopId}
                         style={{ minWidth: 160, padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb' }}
                     >
-                        <option value="all">All branches</option>
+                        <option value="all">{t('admin.allBranches')}</option>
                         {branches.map((b) => (
                             <option key={String(b.id)} value={String(b.id)}>
                                 {b.name}
@@ -165,12 +171,12 @@ export default function AdminStaffAppPage() {
 
             {!workshopId ? (
                 <p className="staff-app-empty">
-                    {loadingWorkshops ? 'Loading workshops…' : 'Select a workshop to manage staff app settings.'}
+                    {loadingWorkshops ? t('admin.loadingWorkshops') : t('admin.selectWorkshopHint')}
                 </p>
             ) : (
-                <StaffAppScopeProvider workshopId={workshopId}>
+                <StaffAppScopeProvider workshopId={workshopId} locale={locale}>
                     <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: '0 0 12px' }}>
-                        Managing <strong>{workshopName}</strong> — same tools as Workshop Portal → Staff App Management.
+                        {t('admin.managing', { name: workshopName })}
                     </p>
                     <StaffAppPage
                         activeTab={activeTab}
@@ -178,6 +184,7 @@ export default function AdminStaffAppPage() {
                         branches={branches}
                         workshopId={workshopId}
                         onNavigate={onNavigate}
+                        locale={locale}
                     />
                 </StaffAppScopeProvider>
             )}

@@ -1,5 +1,7 @@
 import React from 'react';
+import { useOutletContext } from 'react-router-dom';
 import ApprovalPageShell from './ApprovalPageShell';
+import { mcT } from '../../utils/masterCatalogI18n';
 
 /**
  * Full-page shell for Master Catalog create/edit/import screens (replaces modals).
@@ -7,16 +9,23 @@ import ApprovalPageShell from './ApprovalPageShell';
 export default function MasterCatalogShell({
     title,
     onClose,
-    backLabel = 'Back to Master Catalog',
+    backLabel,
     children,
     footer = null,
     backDisabled = false,
     className = '',
 }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const resolvedBack = backLabel ?? mcT(locale, 'shell.back');
+
     return (
         <ApprovalPageShell
             onBack={onClose}
-            backLabel={backLabel}
+            backLabel={resolvedBack}
             backDisabled={backDisabled}
             footer={footer}
         >

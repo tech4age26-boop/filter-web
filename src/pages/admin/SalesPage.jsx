@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { useParams, NavLink } from 'react-router-dom';
-import { Plus, ChevronDown, Calendar, Search, Lightbulb, Trash2 } from 'lucide-react';
+import React, { useCallback, useState } from 'react';
+import { useParams, NavLink, useOutletContext } from 'react-router-dom';
+import { ChevronDown, Calendar, Search, Lightbulb, Trash2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import SalesReports from './SalesReports';
@@ -11,16 +11,17 @@ import CorporateTransactions from './CorporateTransactions';
 import SalesReturnsPage from './SalesReturnsPage';
 import Receipts from './Receipts';
 import { useAuth } from '../../context/AuthContext';
+import { salesT, SALES_SUB_LABEL_KEYS } from '../../utils/salesI18n';
 import '../../styles/admin/SalesPage.css';
 
 const SUB_TABS = [
-    { path: 'sales-reports',              label: 'Sales Reports',                 permission: 'sales.sales-reports.view' },
-    { path: 'sales-orders',                label: 'Sales Orders',                  permission: 'sales.sales-orders.view' },
-    { path: 'workshop-sales',              label: 'Workshop Sales',                permission: 'sales.workshop-sales.view' },
-    { path: 'suppliers-warehouse-sales',   label: 'Suppliers & Warehouse Sales',   permission: 'sales.suppliers-warehouse-sales.view' },
-    { path: 'corporate-transactions',      label: 'Corporate Transactions',        permission: 'sales.corporate-transactions.view' },
-    { path: 'sales-returns',               label: 'Sales Returns',                 permission: 'sales.sales-returns.view' },
-    { path: 'receipts',                    label: 'Receipts',                      permission: 'sales.receipts.view' },
+    { path: 'sales-reports',              labelKey: 'sub.reports',    permission: 'sales.sales-reports.view' },
+    { path: 'sales-orders',                labelKey: 'sub.orders',     permission: 'sales.sales-orders.view' },
+    { path: 'workshop-sales',              labelKey: 'sub.workshop',   permission: 'sales.workshop-sales.view' },
+    { path: 'suppliers-warehouse-sales',   labelKey: 'sub.suppliers',  permission: 'sales.suppliers-warehouse-sales.view' },
+    { path: 'corporate-transactions',      labelKey: 'sub.corporate',  permission: 'sales.corporate-transactions.view' },
+    { path: 'sales-returns',               labelKey: 'sub.returns',    permission: 'sales.sales-returns.view' },
+    { path: 'receipts',                    labelKey: 'sub.receipts',   permission: 'sales.receipts.view' },
 ];
 
 const EMPTY_INVOICE = {
@@ -50,7 +51,14 @@ const EMPTY_INVOICE = {
 export default function SalesPage() {
     const { subTab } = useParams();
     const { hasPermission } = useAuth();
-    const visibleSubTabs = SUB_TABS.filter((t) => hasPermission(t.permission));
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => salesT(locale, key, vars), [locale]);
+
+    const visibleSubTabs = SUB_TABS.filter((tab) => hasPermission(tab.permission));
     const activeSub = subTab || 'sales-reports';
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [invoiceData, setInvoiceData] = useState(EMPTY_INVOICE);
@@ -106,107 +114,104 @@ export default function SalesPage() {
 
     const InvoiceModalContent = () => (
         <div className="invoice-form-container">
-            {/* Header Row 1 */}
             <div className="form-grid-three">
                 <div className="form-group">
-                    <label className="form-label-inv">Invoice Number</label>
+                    <label className="form-label-inv">{t('inv.number')}</label>
                     <input type="text" className="form-input-inv" value={invoiceData.invNo} readOnly style={{ borderColor: '#FFD700', backgroundColor: '#FBFBFE' }} />
                 </div>
                 <div className="form-group">
-                    <label className="form-label-inv">Invoice Date</label>
+                    <label className="form-label-inv">{t('inv.date')}</label>
                     <div className="input-with-icon">
                         <input type="date" className="form-input-inv" value={invoiceData.invDate} onChange={(e) => setInvoiceData({ ...invoiceData, invDate: e.target.value })} />
                         <Calendar size={16} className="input-icon-right" />
                     </div>
                 </div>
                 <div className="form-group">
-                    <label className="form-label-inv">Due Date</label>
+                    <label className="form-label-inv">{t('inv.dueDate')}</label>
                     <div className="due-date-row">
                         <div className="select-wrapper-inv" style={{ width: '80px' }}>
                             <select className="form-input-inv" value={invoiceData.dueDateType} onChange={(e) => setInvoiceData({ ...invoiceData, dueDateType: e.target.value })}>
-                                <option>Net</option>
-                                <option>Fixed</option>
+                                <option value="Net">{t('inv.opt.net')}</option>
+                                <option value="Fixed">{t('inv.opt.fixed')}</option>
                             </select>
                             <ChevronDown size={14} className="select-icon-inv" />
                         </div>
                         <input type="text" className="form-input-inv" style={{ width: '60px' }} value={invoiceData.dueDateValue} onChange={(e) => setInvoiceData({ ...invoiceData, dueDateValue: e.target.value })} />
-                        <span className="unit-label">days</span>
+                        <span className="unit-label">{t('inv.days')}</span>
                     </div>
                     <span className="due-date-hint">Due: 2026-04-05</span>
                 </div>
             </div>
 
-            {/* Header Row 2 */}
             <div className="form-grid-three">
                 <div className="form-group">
-                    <label className="form-label-inv">Workshop Branch *</label>
+                    <label className="form-label-inv">{t('inv.branch')}</label>
                     <div className="select-wrapper-inv">
                         <select className="form-input-inv" value={invoiceData.branch} onChange={(e) => setInvoiceData({ ...invoiceData, branch: e.target.value })}>
-                            <option>Select branch</option>
+                            <option value="Select branch">{t('inv.opt.selectBranch')}</option>
                             <option>Petromin Services</option>
                         </select>
                         <ChevronDown size={14} className="select-icon-inv" />
                     </div>
                 </div>
                 <div className="form-group">
-                    <label className="form-label-inv">Customer</label>
+                    <label className="form-label-inv">{t('inv.customer')}</label>
                     <div className="select-wrapper-inv">
                         <select className="form-input-inv" value={invoiceData.customer} onChange={(e) => setInvoiceData({ ...invoiceData, customer: e.target.value })}>
-                            <option>Select customer</option>
+                            <option value="Select customer">{t('inv.opt.selectCustomer')}</option>
                             <option>Safa Makkah</option>
                         </select>
                         <ChevronDown size={14} className="select-icon-inv" />
                     </div>
                 </div>
                 <div className="form-group">
-                    <label className="form-label-inv">Customer Mobile</label>
-                    <input type="text" className="form-input-inv" placeholder="05XXXXXXXX" value={invoiceData.customerMobile} onChange={(e) => setInvoiceData({ ...invoiceData, customerMobile: e.target.value })} />
+                    <label className="form-label-inv">{t('inv.mobile')}</label>
+                    <input type="text" className="form-input-inv" placeholder={t('inv.ph.mobile')} value={invoiceData.customerMobile} onChange={(e) => setInvoiceData({ ...invoiceData, customerMobile: e.target.value })} />
                 </div>
             </div>
 
-            {/* Header Row 3 */}
             <div className="form-grid-three">
                 <div className="form-group">
-                    <label className="form-label-inv">Vehicle Plate</label>
-                    <input type="text" className="form-input-inv" placeholder="ABC 1234" value={invoiceData.vehiclePlate} onChange={(e) => setInvoiceData({ ...invoiceData, vehiclePlate: e.target.value })} />
+                    <label className="form-label-inv">{t('inv.plate')}</label>
+                    <input type="text" className="form-input-inv" placeholder={t('inv.ph.plate')} value={invoiceData.vehiclePlate} onChange={(e) => setInvoiceData({ ...invoiceData, vehiclePlate: e.target.value })} />
                 </div>
                 <div className="form-group">
-                    <label className="form-label-inv">Payment Method</label>
+                    <label className="form-label-inv">{t('inv.payMethod')}</label>
                     <div className="select-wrapper-inv">
                         <select className="form-input-inv" value={invoiceData.paymentMethod} onChange={(e) => setInvoiceData({ ...invoiceData, paymentMethod: e.target.value })}>
-                            <option>Cash</option>
-                            <option>Bank Card</option>
+                            <option value="Cash">{t('inv.opt.cash')}</option>
+                            <option value="Bank Card">{t('inv.opt.card')}</option>
                         </select>
                         <ChevronDown size={14} className="select-icon-inv" />
                     </div>
                 </div>
                 <div className="form-group">
-                    <label className="form-label-inv">Payment Status</label>
+                    <label className="form-label-inv">{t('inv.payStatus')}</label>
                     <div className="select-wrapper-inv">
                         <select className="form-input-inv" value={invoiceData.paymentStatus} onChange={(e) => setInvoiceData({ ...invoiceData, paymentStatus: e.target.value })}>
-                            <option>Unpaid</option>
-                            <option>Paid</option>
+                            <option value="Unpaid">{t('inv.opt.unpaid')}</option>
+                            <option value="Paid">{t('inv.opt.paid')}</option>
                         </select>
                         <ChevronDown size={14} className="select-icon-inv" />
                     </div>
                 </div>
             </div>
 
-            <div className="line-items-label">Line Items (Services & Products)</div>
+            <div className="line-items-label">{t('inv.lineItems')}</div>
 
             <div className="line-items-table-wrapper">
                 <table className="line-items-table">
                     <thead>
                         <tr>
-                            <th style={{ width: '25%' }}>Item</th>
-                            <th>UOM</th>
-                            <th>Qty</th>
-                            <th>Unit price</th>
-                            <th>Total</th>
-                            <th>Tax Code</th>
-                            <th>Tax Amt</th>
-                            <th>Grand Total</th>
-                            <th>Last Sale Price</th>
+                            <th style={{ width: '25%' }}>{t('inv.th.item')}</th>
+                            <th>{t('inv.th.uom')}</th>
+                            <th>{t('inv.th.qty')}</th>
+                            <th>{t('inv.th.unitPrice')}</th>
+                            <th>{t('inv.th.total')}</th>
+                            <th>{t('inv.th.taxCode')}</th>
+                            <th>{t('inv.th.taxAmt')}</th>
+                            <th>{t('inv.th.grand')}</th>
+                            <th>{t('inv.th.lastSale')}</th>
                             <th style={{ width: '40px' }}></th>
                         </tr>
                     </thead>
@@ -216,7 +221,7 @@ export default function SalesPage() {
                                 <td>
                                     <div className="item-search-box">
                                         <Search size={14} className="search-inline-icon" />
-                                        <input type="text" className="table-input" placeholder="Search product to add" value={item.item} onChange={(e) => updateItem(item.id, 'item', e.target.value)} />
+                                        <input type="text" className="table-input" placeholder={t('inv.ph.search')} value={item.item} onChange={(e) => updateItem(item.id, 'item', e.target.value)} />
                                     </div>
                                 </td>
                                 <td><input type="text" className="table-input" value={item.uom} onChange={(e) => updateItem(item.id, 'uom', e.target.value)} /></td>
@@ -244,48 +249,48 @@ export default function SalesPage() {
                     </tbody>
                 </table>
                 <div className="table-actions-row">
-                    <button type="button" className="btn-add-line" onClick={addLine}>+ Add line</button>
+                    <button type="button" className="btn-add-line" onClick={addLine}>{t('inv.addLine')}</button>
                 </div>
             </div>
 
             <div className="tip-box">
                 <Lightbulb size={14} className="tip-icon" />
-                <span>Tip: Type to search, use ↑↓ arrows, Enter to select. Price fields support math (e.g. 120*2)</span>
+                <span>{t('inv.tip')}</span>
             </div>
 
             <div className="options-row">
                 <label className="checkbox-item">
                     <input type="checkbox" checked={invoiceData.showLineNo} onChange={(e) => setInvoiceData({ ...invoiceData, showLineNo: e.target.checked })} />
-                    <span>Column — Line number</span>
+                    <span>{t('inv.col.lineNo')}</span>
                 </label>
                 <label className="checkbox-item">
                     <input type="checkbox" checked={invoiceData.showDesc} onChange={(e) => setInvoiceData({ ...invoiceData, showDesc: e.target.checked })} />
-                    <span>Column — Description</span>
+                    <span>{t('inv.col.desc')}</span>
                 </label>
                 <label className="checkbox-item">
                     <input type="checkbox" checked={invoiceData.showDiscount} onChange={(e) => setInvoiceData({ ...invoiceData, showDiscount: e.target.checked })} />
-                    <span>Column — Discount</span>
+                    <span>{t('inv.col.discount')}</span>
                 </label>
                 <label className="checkbox-item">
                     <input type="checkbox" checked={invoiceData.isTaxInclusive} onChange={(e) => setInvoiceData({ ...invoiceData, isTaxInclusive: e.target.checked })} />
-                    <span>Amounts are tax inclusive</span>
+                    <span>{t('inv.taxInclusive')}</span>
                 </label>
             </div>
 
             <div className="invoice-footer-grid">
                 <div className="footer-left">
                     <div className="form-group-horiz">
-                        <label>Freight / Other Charges (SAR)</label>
+                        <label>{t('inv.freight')}</label>
                         <input type="number" className="form-input-inv small-input" value={invoiceData.freightCharges} onChange={(e) => setInvoiceData({ ...invoiceData, freightCharges: e.target.value })} />
                     </div>
                     <div className="form-group-horiz mt-20">
-                        <label>Invoice Discount:</label>
+                        <label>{t('inv.discount')}</label>
                         <div className="discount-group">
                             <input type="number" className="form-input-inv small-input" value={invoiceData.discountValue} onChange={(e) => setInvoiceData({ ...invoiceData, discountValue: e.target.value })} />
                             <div className="select-wrapper-inv" style={{ width: '100px' }}>
                                 <select className="form-input-inv" value={invoiceData.discountType} onChange={(e) => setInvoiceData({ ...invoiceData, discountType: e.target.value })}>
-                                    <option>Fixed (S..</option>
-                                    <option>Percentage</option>
+                                    <option value="Fixed (S..">{t('inv.opt.fixedDisc')}</option>
+                                    <option value="Percentage">{t('inv.opt.pctDisc')}</option>
                                 </select>
                                 <ChevronDown size={14} className="select-icon-inv" />
                             </div>
@@ -296,24 +301,24 @@ export default function SalesPage() {
                 <div className="footer-right">
                     <div className="summary-card">
                         <div className="summary-row">
-                            <span>Subtotal:</span>
-                            <span>SAR {totals.subtotal.toFixed(2)}</span>
+                            <span>{t('inv.subtotal')}</span>
+                            <span>{t('money.sar', { amount: totals.subtotal.toFixed(2) })}</span>
                         </div>
                         <div className="summary-row">
-                            <span>Total Tax (VAT):</span>
-                            <span>SAR {totals.totalTax.toFixed(2)}</span>
+                            <span>{t('inv.totalTax')}</span>
+                            <span>{t('money.sar', { amount: totals.totalTax.toFixed(2) })}</span>
                         </div>
                         <div className="summary-row grand-total-row">
-                            <span>Grand Total:</span>
-                            <span className="grand-total-val">SAR {totals.grandTotal.toFixed(2)}</span>
+                            <span>{t('inv.grandTotal')}</span>
+                            <span className="grand-total-val">{t('money.sar', { amount: totals.grandTotal.toFixed(2) })}</span>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div className="notes-section">
-                <label className="form-label-inv">Notes</label>
-                <textarea className="form-input-inv notes-area" placeholder="Internal notes" value={invoiceData.notes} onChange={(e) => setInvoiceData({ ...invoiceData, notes: e.target.value })} />
+                <label className="form-label-inv">{t('inv.notes')}</label>
+                <textarea className="form-input-inv notes-area" placeholder={t('inv.ph.notes')} value={invoiceData.notes} onChange={(e) => setInvoiceData({ ...invoiceData, notes: e.target.value })} />
             </div>
         </div>
     );
@@ -321,9 +326,9 @@ export default function SalesPage() {
     return (
         <div className="sales-page module-container">
             <div className="sales-sub-nav">
-                {visibleSubTabs.map((t) => (
-                    <NavLink key={t.path} to={`/admin/sales/${t.path}`} className={({ isActive }) => `sales-sub-tab ${isActive ? 'active' : ''}`}>
-                        {t.label}
+                {visibleSubTabs.map((tab) => (
+                    <NavLink key={tab.path} to={`/admin/sales/${tab.path}`} className={({ isActive }) => `sales-sub-tab ${isActive ? 'active' : ''}`}>
+                        {t(SALES_SUB_LABEL_KEYS[tab.path] || tab.labelKey)}
                     </NavLink>
                 ))}
             </div>
@@ -344,13 +349,13 @@ export default function SalesPage() {
             <AnimatePresence>
                 {isModalOpen && (
                     <Modal
-                        title="New Sales Invoice"
+                        title={t('inv.modalTitle')}
                         onClose={() => setIsModalOpen(false)}
                         className="invoice-modal-mega"
                         footer={
                             <div className="modal-footer-actions">
-                                <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>Cancel</button>
-                                <button type="button" className="btn-submit-inv" onClick={handleCreateInvoice}>Create Invoice</button>
+                                <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>{t('inv.cancel')}</button>
+                                <button type="button" className="btn-submit-inv" onClick={handleCreateInvoice}>{t('inv.create')}</button>
                             </div>
                         }
                     >

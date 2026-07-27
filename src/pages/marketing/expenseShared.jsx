@@ -1,4 +1,9 @@
 import { ChevronDown } from 'lucide-react';
+import {
+  mktExpCategoryLabel,
+  mktExpStatusLabel,
+  mktExpT,
+} from '../../utils/marketingExpensesI18n';
 
 export const categoryOptions = [
   'social_media_ads',
@@ -70,18 +75,18 @@ export function extractExpenses(payload) {
   return rows.map(normalizeExpense);
 }
 
-export function normalizeCampaign(row) {
+export function normalizeCampaign(row, locale = 'en') {
   const id = String(row.id || row._id || '');
   const name =
     row.campaignName ||
     row.name ||
     row.title ||
     row.campaign_name ||
-    'Untitled Campaign';
+    mktExpT(locale, 'campaign.untitled');
   return { id, name };
 }
 
-export function extractCampaigns(payload) {
+export function extractCampaigns(payload, locale = 'en') {
   const rows = Array.isArray(payload)
     ? payload
     : Array.isArray(payload?.campaigns)
@@ -96,7 +101,7 @@ export function extractCampaigns(payload) {
               ? payload.data.items
               : [];
 
-  return rows.map(normalizeCampaign).filter((item) => item.id);
+  return rows.map((row) => normalizeCampaign(row, locale)).filter((item) => item.id);
 }
 
 export function humanize(value) {
@@ -115,11 +120,11 @@ export function formatSar(value) {
   return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} SAR`;
 }
 
-export function formatDate(value) {
+export function formatDate(value, locale = 'en') {
   if (!value) return '—';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString();
+  return d.toLocaleDateString(locale === 'ar' ? 'ar-SA' : undefined);
 }
 
 function normalizeStatus(value) {
@@ -131,7 +136,7 @@ export function canEditExpense(status) {
   return ['draft', 'pending_approval', 'rejected'].includes(value);
 }
 
-export const ExpenseStatus = ({ status }) => {
+export const ExpenseStatus = ({ status, locale = 'en' }) => {
   const value = normalizeStatus(status) || 'pending_approval';
   const classNameMap = {
     draft: 'mk-status-draft',
@@ -142,12 +147,12 @@ export const ExpenseStatus = ({ status }) => {
   };
   return (
     <span className={`mk-status ${classNameMap[value] || 'mk-status-pending'}`}>
-      {humanize(value)}
+      {mktExpStatusLabel(locale, value)}
     </span>
   );
 };
 
-export const SelectField = ({ value, onChange, options, placeholder }) => (
+export const SelectField = ({ value, onChange, options, placeholder, locale = 'en' }) => (
   <div className="mkp-select-wrap">
     <select
       className="mkp-select"
@@ -159,7 +164,7 @@ export const SelectField = ({ value, onChange, options, placeholder }) => (
         if (typeof option === 'string') {
           return (
             <option key={option} value={option}>
-              {humanize(option)}
+              {mktExpCategoryLabel(locale, option)}
             </option>
           );
         }

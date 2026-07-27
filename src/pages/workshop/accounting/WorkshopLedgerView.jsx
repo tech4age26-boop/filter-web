@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Book, Filter, RefreshCw, Search } from 'lucide-react';
 import { getAccountLedger, getAccountsList } from '../../../services/ledgerApi';
+import { accT } from '../../../utils/accountingI18n';
 import '../../../styles/admin/AccountingPage.css';
 
 const fmt = (n) => {
@@ -10,6 +12,13 @@ const fmt = (n) => {
 };
 
 export default function WorkshopLedgerView() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
+
     const [accounts, setAccounts] = useState([]);
     const [accountId, setAccountId] = useState('');
     const [search, setSearch] = useState('');
@@ -29,11 +38,11 @@ export default function WorkshopLedgerView() {
             accountsRef.current = list;
             setAccounts(list);
         } catch (e) {
-            setError(e?.message || 'Could not load accounts.');
+            setError(e?.message || t('ledger.loadAccountsFailed'));
         } finally {
             setLoadingAccounts(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => { loadAccounts(); }, [loadAccounts]);
 
@@ -61,11 +70,11 @@ export default function WorkshopLedgerView() {
             });
             setLedger(res);
         } catch (e) {
-            setError(e?.message || 'Could not load ledger.');
+            setError(e?.message || t('ledger.loadFailed'));
         } finally {
             setLoadingLedger(false);
         }
-    }, [accountId, dateFrom, dateTo]);
+    }, [accountId, dateFrom, dateTo, t]);
 
     useEffect(() => { loadLedger(); }, [loadLedger]);
 
@@ -80,9 +89,9 @@ export default function WorkshopLedgerView() {
     return (
         <div className="accounting-page module-container">
             <header className="cash-bank-header">
-                <h2 className="cash-bank-title"><Book size={20} style={{ marginRight: 8 }} />General Ledger</h2>
+                <h2 className="cash-bank-title"><Book size={20} style={{ marginRight: 8 }} />{t('ledger.title')}</h2>
                 <p className="cash-bank-desc">
-                    Pick a COA account to see every journal line touching it, with a running balance.
+                    {t('ledger.desc')}
                 </p>
             </header>
 
@@ -99,7 +108,7 @@ export default function WorkshopLedgerView() {
                 border: '1px solid #E2E8F0',
             }}>
                 <div>
-                    <label className="form-label">Search accounts</label>
+                    <label className="form-label">{t('ledger.searchAccounts')}</label>
                     <div style={{ position: 'relative' }}>
                         <Search size={14} style={{ position: 'absolute', top: 12, left: 10, color: '#94A3B8' }} />
                         <input
@@ -107,15 +116,15 @@ export default function WorkshopLedgerView() {
                             className="form-input-field"
                             style={{ paddingLeft: 30 }}
                             value={search}
-                            placeholder="Code or name…"
+                            placeholder={t('ledger.searchPh')}
                             onChange={(e) => setSearch(e.target.value)}
                         />
                     </div>
                 </div>
                 <div>
-                    <label className="form-label">Account *</label>
+                    <label className="form-label">{t('ledger.account')}</label>
                     <select className="form-input-field" value={accountId} onChange={(e) => setAccountId(e.target.value)} disabled={loadingAccounts}>
-                        <option value="">{loadingAccounts ? 'Loading…' : 'Select account'}</option>
+                        <option value="">{loadingAccounts ? t('loading') : t('ledger.selectAccount')}</option>
                         {filtered.map((a) => (
                             <option key={a.id} value={a.id}>
                                 {a.code} · {a.name}
@@ -124,16 +133,16 @@ export default function WorkshopLedgerView() {
                     </select>
                 </div>
                 <div>
-                    <label className="form-label">From</label>
+                    <label className="form-label">{t('date.from')}</label>
                     <input type="date" className="form-input-field" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
                 </div>
                 <div>
-                    <label className="form-label">To</label>
+                    <label className="form-label">{t('date.to')}</label>
                     <input type="date" className="form-input-field" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                     <button type="button" className="btn-portal" onClick={loadLedger} disabled={loadingLedger}>
-                        <Filter size={14} style={{ marginRight: 6 }} /> Apply
+                        <Filter size={14} style={{ marginRight: 6 }} /> {t('date.apply')}
                     </button>
                 </div>
             </section>
@@ -146,17 +155,17 @@ export default function WorkshopLedgerView() {
                             <p className="cash-bank-stat-label">{ledger.account.code} · {ledger.account.name}</p>
                             <p className="cash-bank-stat-value">SAR {fmt(ledger.closingRunningBalance)}</p>
                             <p className="cash-bank-stat-meta">
-                                {ledger.account.type} · normal {ledger.account.normalBalance}
-                                {ledger.truncated ? ` · showing last ${ledger.returnedLines} of ${ledger.totalLines}` : ''}
+                                {ledger.account.type} · {t('ledger.meta.normal')} {ledger.account.normalBalance}
+                                {ledger.truncated ? ` · ${t('ledger.meta.showing', { returned: ledger.returnedLines, total: ledger.totalLines })}` : ''}
                             </p>
                         </div>
                     </div>
                     <div className="cash-bank-stat-card">
                         <div className="cash-bank-stat-icon"><RefreshCw size={24} /></div>
                         <div>
-                            <p className="cash-bank-stat-label">Period Movement</p>
-                            <p className="cash-bank-stat-value">DR SAR {fmt(totals.debit)}</p>
-                            <p className="cash-bank-stat-meta">CR SAR {fmt(totals.credit)}</p>
+                            <p className="cash-bank-stat-label">{t('ledger.periodMovement')}</p>
+                            <p className="cash-bank-stat-value">{t('ledger.dr', { n: fmt(totals.debit) })}</p>
+                            <p className="cash-bank-stat-meta">{t('ledger.cr', { n: fmt(totals.credit) })}</p>
                         </div>
                     </div>
                 </div>
@@ -165,28 +174,28 @@ export default function WorkshopLedgerView() {
             <section className="premium-table cash-bank-table">
                 <header style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0' }}>
                     <strong>
-                        {loadingLedger ? 'Loading…' :
-                            ledger?.lines?.length ? `${ledger.returnedLines} lines` : 'No data'}
+                        {loadingLedger ? t('loading') :
+                            ledger?.lines?.length ? t('ledger.lines', { n: ledger.returnedLines }) : t('ledger.noData')}
                     </strong>
                 </header>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Date</th>
-                            <th className="table-th">Entry #</th>
-                            <th className="table-th">Type</th>
-                            <th className="table-th">Description</th>
-                            <th className="table-th">Source</th>
-                            <th className="table-th" style={{ textAlign: 'right' }}>Debit</th>
-                            <th className="table-th" style={{ textAlign: 'right' }}>Credit</th>
-                            <th className="table-th" style={{ textAlign: 'right' }}>Running Balance</th>
+                            <th className="table-th">{t('ledger.th.date')}</th>
+                            <th className="table-th">{t('ledger.th.entryNo')}</th>
+                            <th className="table-th">{t('ledger.th.type')}</th>
+                            <th className="table-th">{t('ledger.th.description')}</th>
+                            <th className="table-th">{t('ledger.th.source')}</th>
+                            <th className="table-th" style={{ textAlign: 'right' }}>{t('ledger.th.debit')}</th>
+                            <th className="table-th" style={{ textAlign: 'right' }}>{t('ledger.th.credit')}</th>
+                            <th className="table-th" style={{ textAlign: 'right' }}>{t('ledger.th.running')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {!accountId ? (
-                            <tr><td colSpan={8} className="table-cell table-empty">Pick an account to view its ledger.</td></tr>
+                            <tr><td colSpan={8} className="table-cell table-empty">{t('ledger.pickAccount')}</td></tr>
                         ) : (ledger?.lines ?? []).length === 0 ? (
-                            <tr><td colSpan={8} className="table-cell table-empty">No ledger entries for the selected period.</td></tr>
+                            <tr><td colSpan={8} className="table-cell table-empty">{t('ledger.noEntries')}</td></tr>
                         ) : ledger.lines.map((l) => (
                             <tr key={l.id}>
                                 <td className="table-cell">{new Date(l.date).toLocaleDateString()}</td>

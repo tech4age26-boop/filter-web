@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useOutletContext } from 'react-router-dom';
 import { Plus, Shield, X, Wallet, Landmark, Banknote, Settings, Trash2, Calendar, FileText, ArrowLeftRight, Search, Filter, CreditCard, DollarSign, Book, CheckCircle, Eye, Printer, AlertTriangle, ChevronDown, ShoppingCart, Zap, Users, UserPlus, Clock, Activity, Coins, BookOpen, Save, Percent, Calculator, RefreshCw } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import AccountDetailModal from '../../components/AccountDetailModal';
 import WorkshopCOAView from '../../components/accounting/WorkshopCOAView';
 import { apiFetch } from '../../services/api';
+import { accT } from '../../utils/accountingI18n';
 import {
   listWorkshopCashBankAccounts,
   createWorkshopCashBankAccount,
@@ -45,7 +46,12 @@ import CashBankRegisterPanel from '../../components/accounting/CashBankRegisterP
 import { useHqAdminBooksScope } from '../../hooks/useHqAdminBooksScope';
 import '../../styles/admin/AccountingPage.css';
 
-const CASH_BANK_TABS = ['All Accounts', 'Cash', 'Bank', 'Petty Cash'];
+const CASH_BANK_TABS = [
+  { id: 'all', labelKey: 'cb.tab.all' },
+  { id: 'cash', labelKey: 'cb.tab.cash' },
+  { id: 'bank', labelKey: 'cb.tab.bank' },
+  { id: 'petty', labelKey: 'cb.tab.petty' },
+];
 
 function uiCashBankTypeToApi(ui) {
   if (ui === 'Bank') return 'BANK';
@@ -60,32 +66,43 @@ function apiCashBankTypeToUi(api) {
   return 'Cash';
 }
 
+function cashBankTypeLabelKey(typeUi) {
+  if (typeUi === 'Bank') return 'cb.tab.bank';
+  if (typeUi === 'Petty Cash') return 'cb.tab.petty';
+  return 'cb.tab.cash';
+}
+
+function cashBankKindLabelKey(kind) {
+  if (kind === 'SYSTEM_CASHIER_TILL') return 'cb.kind.cashierTill';
+  if (kind === 'SYSTEM_LOCKER_VAULT') return 'cb.kind.lockerVault';
+  if (kind === 'SYSTEM_PETTY_CASH_WALLET') return 'cb.kind.pettyWallet';
+  return 'cb.kind.operating';
+}
+
 function normalizeWorkshopCashBankRow(raw) {
   const coa = raw.coaAccount;
   const coaLink = coa ? `${coa.code} · ${coa.name}` : '—';
   const linked = Array.isArray(raw.linkedPosTerminals) ? raw.linkedPosTerminals : [];
   const posTerminalId = linked[0]?.id != null ? String(linked[0].id) : '';
-  const posLinkLabel = linked.length
-    ? linked.map((t) => `${t.branchName || '—'}: ${t.label || t.terminalCode || ''}`).join(' · ')
-    : 'Shared';
+  const posShared = linked.length === 0;
+  const posLinkLabel = posShared
+    ? ''
+    : linked.map((t) => `${t.branchName || '—'}: ${t.label || t.terminalCode || ''}`).join(' · ');
   const kind = String(raw.kind || 'OPERATING');
   const isSystem = kind !== 'OPERATING';
-  let kindLabel = 'Operating';
-  if (kind === 'SYSTEM_CASHIER_TILL') kindLabel = 'Cashier Till (system)';
-  else if (kind === 'SYSTEM_LOCKER_VAULT') kindLabel = 'Locker Vault (system)';
-  else if (kind === 'SYSTEM_PETTY_CASH_WALLET') kindLabel = 'Petty Cash Wallet (system)';
   return {
     id: String(raw.id),
     name: raw.name || '',
     type: apiCashBankTypeToUi(raw.type),
-    apiType: raw.type,
+    apiType: String(raw.type || 'CASH').toUpperCase(),
     branch: raw.branch?.name ?? '—',
     branchId: raw.branchId ? String(raw.branchId) : '',
     kind,
-    kindLabel,
+    kindKey: cashBankKindLabelKey(kind),
     isSystem,
     coaLink,
     coaAccountId: raw.coaAccountId != null ? String(raw.coaAccountId) : (coa?.id != null ? String(coa.id) : ''),
+    posShared,
     posLinkLabel,
     posTerminalId,
     openingBalance: Number(raw.openingBalance ?? 0),
@@ -298,6 +315,12 @@ function buildRowsFromVoucherPool(makeBlank, pool, count = 2) {
 
 function TransactionEntryView({ branches = [] }) {
     const { isAdminHqBooks } = useHqAdminBooksScope();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
     const [activeTab, setActiveTab] = useState('Payments');
     const [paymentsRows, setPaymentsRows] = useState(() => buildRowsFromVoucherPool(blankPaymentRow, ['PE0001', 'PE0002']));
     const [receiptsRows, setReceiptsRows] = useState(() => buildRowsFromVoucherPool(blankReceiptRow, ['RV0001', 'RV0002']));
@@ -342,9 +365,9 @@ function TransactionEntryView({ branches = [] }) {
             setPayeesByCustomer(cust?.payees ?? []);
         } catch (e) {
             console.error('Failed to load accounting lookups', e);
-            setError(e?.message || 'Failed to load lookups');
+            setError(e?.message || t('tx.err.lookups'));
         }
-    }, []);
+    }, [t]);
 
     const reloadVoucherPreviews = useCallback(async (rowCount = 2) => {
         try {
@@ -485,9 +508,9 @@ function TransactionEntryView({ branches = [] }) {
 
     const handleSavePayments = async () => {
         setError(''); setOkMsg('');
-        if (!paidFromAccountId) { setError('Select a Paid From account first.'); return; }
+        if (!paidFromAccountId) { setError(t('tx.err.paidFrom')); return; }
         const valid = paymentsRows.filter((r) => Number(r.amount) > 0 && r.accountId);
-        if (!valid.length) { setError('Add at least one row with an amount and account.'); return; }
+        if (!valid.length) { setError(t('tx.err.row')); return; }
         setSaving(true);
         try {
             const res = await createAcctPayments({
@@ -507,7 +530,7 @@ function TransactionEntryView({ branches = [] }) {
                     notes: r.notes || undefined,
                 })),
             });
-            setOkMsg(`Saved ${res?.saved ?? valid.length} payment(s) — total SAR ${(res?.total ?? 0).toFixed(2)}`);
+            setOkMsg(t('tx.ok.payments', { n: res?.saved ?? valid.length, total: (res?.total ?? 0).toFixed(2) }));
             await reloadRecent('Payments');
             await reloadLookups();
             const { pePool } = await reloadVoucherPreviews(1);
@@ -517,7 +540,7 @@ function TransactionEntryView({ branches = [] }) {
                 setPaymentsRows(buildRowsFromVoucherPool(blankPaymentRow, peVoucherPool, 1));
             }
         } catch (e) {
-            setError(e?.message || 'Failed to save payments');
+            setError(e?.message || t('tx.err.savePay'));
         } finally {
             setSaving(false);
         }
@@ -525,9 +548,9 @@ function TransactionEntryView({ branches = [] }) {
 
     const handleSaveReceipts = async () => {
         setError(''); setOkMsg('');
-        if (!paidFromAccountId) { setError('Select a Received Into account first.'); return; }
+        if (!paidFromAccountId) { setError(t('tx.err.receivedInto')); return; }
         const valid = receiptsRows.filter((r) => Number(r.amount) > 0 && r.accountId);
-        if (!valid.length) { setError('Add at least one row with an amount and account.'); return; }
+        if (!valid.length) { setError(t('tx.err.row')); return; }
         setSaving(true);
         try {
             const res = await createAcctReceipts({
@@ -547,7 +570,7 @@ function TransactionEntryView({ branches = [] }) {
                     notes: r.notes || undefined,
                 })),
             });
-            setOkMsg(`Saved ${res?.saved ?? valid.length} receipt(s) — total SAR ${(res?.total ?? 0).toFixed(2)}`);
+            setOkMsg(t('tx.ok.receipts', { n: res?.saved ?? valid.length, total: (res?.total ?? 0).toFixed(2) }));
             await reloadRecent('Receipts');
             await reloadLookups();
             const { rvPool } = await reloadVoucherPreviews(1);
@@ -557,7 +580,7 @@ function TransactionEntryView({ branches = [] }) {
                 setReceiptsRows(buildRowsFromVoucherPool(blankReceiptRow, rvVoucherPool, 1));
             }
         } catch (e) {
-            setError(e?.message || 'Failed to save receipts');
+            setError(e?.message || t('tx.err.saveRcpt'));
         } finally {
             setSaving(false);
         }
@@ -566,8 +589,11 @@ function TransactionEntryView({ branches = [] }) {
     const handlePostJournal = async () => {
         setError(''); setOkMsg('');
         const lines = journalEntryRows.filter((r) => r.accountId && (Number(r.debit) > 0 || Number(r.credit) > 0));
-        if (lines.length < 2) { setError('A journal entry needs at least 2 lines with an account and amount.'); return; }
-        if (!journalTotals.isBalanced) { setError(`Debits (${journalTotals.debit}) must equal credits (${journalTotals.credit}).`); return; }
+        if (lines.length < 2) { setError(t('tx.err.jeLines')); return; }
+        if (!journalTotals.isBalanced) {
+            setError(t('tx.err.jeBalance', { debit: journalTotals.debit, credit: journalTotals.credit }));
+            return;
+        }
         setSaving(true);
         try {
             const res = await createAcctJournalEntry({
@@ -583,19 +609,29 @@ function TransactionEntryView({ branches = [] }) {
             });
             setJournalEntryRows([blankJournalRow(0), blankJournalRow(1)]);
             setJournalMemo('');
-            setOkMsg(`Posted ${res?.entry?.entryNumber || 'journal entry'} — Dr ${res?.entry?.totalDebit?.toFixed?.(2) ?? journalTotals.debit} / Cr ${res?.entry?.totalCredit?.toFixed?.(2) ?? journalTotals.credit}`);
+            setOkMsg(t('tx.ok.journal', {
+                code: res?.entry?.entryNumber || t('tx.tab.journal'),
+                dr: res?.entry?.totalDebit?.toFixed?.(2) ?? journalTotals.debit,
+                cr: res?.entry?.totalCredit?.toFixed?.(2) ?? journalTotals.credit,
+            }));
             await reloadRecent('Journal Entry');
         } catch (e) {
-            setError(e?.message || 'Failed to post journal entry');
+            setError(e?.message || t('tx.err.postJe'));
         } finally {
             setSaving(false);
         }
     };
 
-    const paidFromLabel = activeTab === 'Receipts' ? 'Received Into Account' : 'Paid From Account';
+    const paidFromLabel = activeTab === 'Receipts' ? t('tx.receivedInto') : t('tx.paidFrom');
     const cashBankPlaceholder = activeTab === 'Receipts'
-        ? 'Select Cash / Bank to deposit into'
-        : 'Select Cash / Bank / Petty Cash';
+        ? t('tx.selectDeposit')
+        : t('tx.selectCb');
+    const tabLabel =
+        activeTab === 'Payments'
+            ? t('tx.tab.payments')
+            : activeTab === 'Receipts'
+              ? t('tx.tab.receipts')
+              : t('tx.tab.journal');
 
     const renderPayeeSelect = (row, update) => {
         const options = payeeOptionsForType(row.type);
@@ -604,7 +640,7 @@ function TransactionEntryView({ branches = [] }) {
                 <input
                     type="text"
                     className="table-input-field"
-                    placeholder="Payee name"
+                    placeholder={t('tx.payeeNamePh')}
                     value={row.payeeName}
                     onChange={(e) => update(row.id, { payeeName: e.target.value, payeeId: '' })}
                 />
@@ -620,7 +656,7 @@ function TransactionEntryView({ branches = [] }) {
                     update(row.id, { payeeId: pid, payeeName: opt?.name ?? '' });
                 }}
             >
-                <option value="">Select {row.type.toLowerCase()}</option>
+                <option value="">{t('tx.selectPayee', { type: t(`tx.payee.${row.type}`).toLowerCase() })}</option>
                 {options.map((o) => (
                     <option key={o.id} value={o.id}>{o.name}{o.sublabel ? ` — ${o.sublabel}` : ''}</option>
                 ))}
@@ -634,7 +670,7 @@ function TransactionEntryView({ branches = [] }) {
             value={row.accountId}
             onChange={(e) => update(row.id, { accountId: e.target.value })}
         >
-            <option value="">Select account…</option>
+            <option value="">{t('tx.selectAccount')}</option>
             {options.map((o) => (
                 <option key={o.id} value={o.id}>{o.label}</option>
             ))}
@@ -650,11 +686,9 @@ function TransactionEntryView({ branches = [] }) {
         <div className="transaction-entry-view">
             <header className="trans-entry-header">
                 <div>
-                    <h2 className="trans-entry-title">Transaction Entry</h2>
+                    <h2 className="trans-entry-title">{t('tx.title')}</h2>
                     <p className="trans-entry-subtitle">
-                        {isAdminHqBooks
-                            ? 'HQ Transaction Hub — record payments, receipts, and journal entries for Platform HQ books.'
-                            : 'Record payments, receipts, and journal entries'}
+                        {isAdminHqBooks ? t('tx.sub.hq') : t('tx.sub.ws')}
                     </p>
                 </div>
             </header>
@@ -662,7 +696,7 @@ function TransactionEntryView({ branches = [] }) {
             <div className="trans-entry-form-header">
                 <div className="form-row-grid-trans">
                     <div className="form-group">
-                        <label className="form-label">Date *</label>
+                        <label className="form-label">{t('tx.date')}</label>
                         <div className="input-with-icon">
                             <input
                                 type="date"
@@ -674,13 +708,13 @@ function TransactionEntryView({ branches = [] }) {
                     </div>
                     {!isAdminHqBooks ? (
                     <div className="form-group">
-                        <label className="form-label">Branch</label>
+                        <label className="form-label">{t('tx.branch')}</label>
                         <select
                             className="form-input-field"
                             value={headerBranchId}
                             onChange={(e) => setHeaderBranchId(e.target.value)}
                         >
-                            <option value="">All branches</option>
+                            <option value="">{t('tx.allBranches')}</option>
                             {branches.map((b) => (
                                 <option key={b.id} value={b.id}>{b.name}</option>
                             ))}
@@ -688,11 +722,11 @@ function TransactionEntryView({ branches = [] }) {
                     </div>
                     ) : null}
                     <div className="form-group">
-                        <label className="form-label">General Note</label>
+                        <label className="form-label">{t('tx.note')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Optional note for all entries"
+                            placeholder={t('tx.notePh')}
                             value={generalNote}
                             onChange={(e) => setGeneralNote(e.target.value)}
                         />
@@ -725,19 +759,19 @@ function TransactionEntryView({ branches = [] }) {
                     className={`trans-tab-item ${activeTab === 'Payments' ? 'active' : ''}`}
                     onClick={() => { setActiveTab('Payments'); setError(''); setOkMsg(''); }}
                 >
-                    <Banknote size={16} /> Payments
+                    <Banknote size={16} /> {t('tx.tab.payments')}
                 </button>
                 <button
                     className={`trans-tab-item ${activeTab === 'Receipts' ? 'active' : ''}`}
                     onClick={() => { setActiveTab('Receipts'); setError(''); setOkMsg(''); }}
                 >
-                    <FileText size={16} /> Receipts
+                    <FileText size={16} /> {t('tx.tab.receipts')}
                 </button>
                 <button
                     className={`trans-tab-item ${activeTab === 'Journal Entry' ? 'active' : ''}`}
                     onClick={() => { setActiveTab('Journal Entry'); setError(''); setOkMsg(''); }}
                 >
-                    <ArrowLeftRight size={16} /> Journal Entry
+                    <ArrowLeftRight size={16} /> {t('tx.tab.journal')}
                 </button>
             </div>
 
@@ -745,21 +779,21 @@ function TransactionEntryView({ branches = [] }) {
                 {activeTab === 'Journal Entry' && (
                     <div className="journal-memo-container">
                         <div className="journal-id-badge">
-                            Journal Entry • <small>{journalTotals.isBalanced ? 'Balanced' : `Diff SAR ${(parseFloat(journalTotals.debit) - parseFloat(journalTotals.credit)).toFixed(2)}`}</small>
-                            {' '}• <span className="memo-help">Tab on Credit field adds new line</span>
+                            {t('tx.tab.journal')} • <small>{journalTotals.isBalanced ? t('tx.je.balanced') : t('tx.je.diff', { n: (parseFloat(journalTotals.debit) - parseFloat(journalTotals.credit)).toFixed(2) })}</small>
+                            {' '}• <span className="memo-help">{t('tx.je.tabHelp')}</span>
                         </div>
                         <input
                             type="text"
                             className="journal-memo-input"
-                            placeholder="Journal entry description / memo"
+                            placeholder={t('tx.je.memoPh')}
                             value={journalMemo}
                             onChange={(e) => setJournalMemo(e.target.value)}
                         />
                     </div>
                 )}
                 <div className="trans-table-header-info">
-                    {activeTab === 'Payments' && <span>Payments — Dr: Payable/Expense | Cr: Cash/Bank - <small>Tab on last field adds new row automatically</small></span>}
-                    {activeTab === 'Receipts' && <span>Receipts — Dr: Cash/Bank | Cr: Receivable/Revenue <small>— Tab on last field adds new row automatically</small></span>}
+                    {activeTab === 'Payments' && <span>{t('tx.hint.payments')}</span>}
+                    {activeTab === 'Receipts' && <span>{t('tx.hint.receipts')}</span>}
                     {activeTab === 'Journal Entry' && null}
                 </div>
                 <div className="premium-table-container">
@@ -767,22 +801,22 @@ function TransactionEntryView({ branches = [] }) {
                         <thead>
                             {activeTab === 'Journal Entry' ? (
                                 <tr>
-                                    <th style={{ width: '25%' }}>Account</th>
-                                    <th>Line Description</th>
-                                    <th style={{ width: '150px' }}>Debit (SAR)</th>
-                                    <th style={{ width: '150px' }}>Credit (SAR)</th>
+                                    <th style={{ width: '25%' }}>{t('tx.th.account')}</th>
+                                    <th>{t('tx.th.lineDesc')}</th>
+                                    <th style={{ width: '150px' }}>{t('tx.th.debit')}</th>
+                                    <th style={{ width: '150px' }}>{t('tx.th.credit')}</th>
                                     <th style={{ width: '50px' }}></th>
                                 </tr>
                             ) : (
                                 <tr>
-                                    <th style={{ width: '120px' }}>Voucher #</th>
-                                    <th style={{ width: '150px' }}>Date</th>
-                                    <th style={{ width: '150px' }}>Type</th>
-                                    <th>{activeTab === 'Payments' ? 'Payee (To)' : 'Received From'}</th>
-                                    <th>{activeTab === 'Payments' ? 'Account Dr — Payable/Expense' : 'Account Cr — Receivable/Revenue'}</th>
-                                    <th style={{ width: '120px' }}>Amount (SAR)</th>
-                                    <th>Reference</th>
-                                    <th>Notes</th>
+                                    <th style={{ width: '120px' }}>{t('tx.th.voucher')}</th>
+                                    <th style={{ width: '150px' }}>{t('tx.th.date')}</th>
+                                    <th style={{ width: '150px' }}>{t('tx.th.type')}</th>
+                                    <th>{activeTab === 'Payments' ? t('tx.th.payeeTo') : t('tx.th.receivedFrom')}</th>
+                                    <th>{activeTab === 'Payments' ? t('tx.th.accountDr') : t('tx.th.accountCr')}</th>
+                                    <th style={{ width: '120px' }}>{t('tx.th.amount')}</th>
+                                    <th>{t('tx.th.ref')}</th>
+                                    <th>{t('tx.th.notes')}</th>
                                     <th style={{ width: '50px' }}></th>
                                 </tr>
                             )}
@@ -1917,6 +1951,12 @@ function PurchasesView({ taxes }) {
 }
 function CashBankView({ branches = [] }) {
     const { isAdminHqBooks } = useHqAdminBooksScope();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const registerTypeParam = String(searchParams.get('registerType') || '').toUpperCase();
@@ -1938,7 +1978,7 @@ function CashBankView({ branches = [] }) {
         }, { replace: true });
     }, [setSearchParams]);
 
-    const [accountTab, setAccountTab] = useState('All Accounts');
+    const [accountTab, setAccountTab] = useState('all');
     const [accounts, setAccounts] = useState([]);
     const [accountsLoading, setAccountsLoading] = useState(false);
     const [accountsError, setAccountsError] = useState('');
@@ -1981,11 +2021,11 @@ function CashBankView({ branches = [] }) {
             setAccounts(list.map(normalizeWorkshopCashBankRow));
         } catch (e) {
             setAccounts([]);
-            setAccountsError(e?.message || 'Could not load cash & bank accounts.');
+            setAccountsError(e?.message || t('cb.err.load'));
         } finally {
             setAccountsLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const loadPosTerminals = useCallback(async () => {
         try {
@@ -2023,8 +2063,8 @@ function CashBankView({ branches = [] }) {
     );
 
     const visibleAccounts = useMemo(() => {
-        if (accountTab === 'All Accounts') return accounts;
-        const want = accountTab === 'Cash' ? 'CASH' : accountTab === 'Bank' ? 'BANK' : 'PETTY_CASH';
+        if (accountTab === 'all') return accounts;
+        const want = accountTab === 'cash' ? 'CASH' : accountTab === 'bank' ? 'BANK' : 'PETTY_CASH';
         return accounts.filter((a) => a.apiType === want);
     }, [accounts, accountTab]);
 
@@ -2072,11 +2112,11 @@ function CashBankView({ branches = [] }) {
         setSaveError('');
         const name = newAccountName.trim();
         if (!name) {
-            setSaveError('Account name is required.');
+            setSaveError(t('cb.err.name'));
             return;
         }
         if (!String(newAccountBranchId).trim()) {
-            setSaveError('Select a branch.');
+            setSaveError(t('cb.err.branch'));
             return;
         }
         setSaving(true);
@@ -2095,7 +2135,7 @@ function CashBankView({ branches = [] }) {
             await loadAccounts();
             closeCashBankNewModal();
         } catch (e) {
-            setSaveError(e?.message || 'Could not create account.');
+            setSaveError(e?.message || t('cb.err.create'));
         } finally {
             setSaving(false);
         }
@@ -2134,11 +2174,11 @@ function CashBankView({ branches = [] }) {
         if (!editingAccount) return;
         const name = (editingAccount.name || '').trim();
         if (!name) {
-            setSaveError('Account name is required.');
+            setSaveError(t('cb.err.name'));
             return;
         }
         if (!String(editingAccount.branchId || '').trim()) {
-            setSaveError('Select a branch.');
+            setSaveError(t('cb.err.branch'));
             return;
         }
         setSaving(true);
@@ -2160,7 +2200,7 @@ function CashBankView({ branches = [] }) {
             await loadAccounts();
             closeEditModal();
         } catch (e) {
-            setSaveError(e?.message || 'Could not save changes.');
+            setSaveError(e?.message || t('cb.err.save'));
         } finally {
             setSaving(false);
         }
@@ -2174,16 +2214,16 @@ function CashBankView({ branches = [] }) {
     const handleInternalTransfer = async () => {
         setXferError('');
         if (!xferFromId || !xferToId) {
-            setXferError('Select both source and destination accounts.');
+            setXferError(t('cb.xfer.err.both'));
             return;
         }
         if (xferFromId === xferToId) {
-            setXferError('Source and destination must be different.');
+            setXferError(t('cb.xfer.err.diff'));
             return;
         }
         const amt = Number(xferAmount);
         if (!Number.isFinite(amt) || amt <= 0) {
-            setXferError('Enter a valid amount greater than zero.');
+            setXferError(t('cb.xfer.err.amount'));
             return;
         }
         setXferSubmitting(true);
@@ -2199,7 +2239,7 @@ function CashBankView({ branches = [] }) {
             setXferNote('');
             await loadAccounts();
         } catch (e) {
-            setXferError(e?.message || 'Transfer failed.');
+            setXferError(e?.message || t('cb.xfer.err.failed'));
         } finally {
             setXferSubmitting(false);
         }
@@ -2215,11 +2255,9 @@ function CashBankView({ branches = [] }) {
         ) : (
         <div className="cash-bank-view">
             <header className="cash-bank-header">
-                <h2 className="cash-bank-title">Cash, Bank & Petty Cash</h2>
+                <h2 className="cash-bank-title">{t('cb.title')}</h2>
                 <p className="cash-bank-desc">
-                    {isAdminHqBooks
-                        ? 'Manage Platform HQ registers and balances. Each account is linked automatically to Chart of Accounts (Current Asset). Use internal transfer to move funds between HQ registers — not tied to workshop branches.'
-                        : 'Manage registers and balances. Each account is linked automatically to Chart of Accounts (Current Asset). Optionally link a register to one SoftPOS terminal for settlements, or keep it shared. Use internal transfer to move funds between registers.'}
+                    {isAdminHqBooks ? t('cb.desc.hq') : t('cb.desc.ws')}
                 </p>
             </header>
             {accountsError ? (
@@ -2231,44 +2269,51 @@ function CashBankView({ branches = [] }) {
                 <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Banknote size={24} /></div>
                     <div>
-                        <p className="cash-bank-stat-label">Cash on Hand</p>
+                        <p className="cash-bank-stat-label">{t('cb.stat.cash')}</p>
                         <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.cash)}</p>
-                        <p className="cash-bank-stat-meta">{stats.nCash} accounts</p>
+                        <p className="cash-bank-stat-meta">{t('cb.stat.accounts', { n: stats.nCash })}</p>
                     </div>
                 </div>
                 <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Landmark size={24} /></div>
                     <div>
-                        <p className="cash-bank-stat-label">Bank Balance</p>
+                        <p className="cash-bank-stat-label">{t('cb.stat.bank')}</p>
                         <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.bank)}</p>
-                        <p className="cash-bank-stat-meta">{stats.nBank} accounts</p>
+                        <p className="cash-bank-stat-meta">{t('cb.stat.accounts', { n: stats.nBank })}</p>
                     </div>
                 </div>
                 <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Wallet size={24} /></div>
                     <div>
-                        <p className="cash-bank-stat-label">Petty Cash</p>
+                        <p className="cash-bank-stat-label">{t('cb.stat.petty')}</p>
                         <p className="cash-bank-stat-value">SAR {formatSarAmount(stats.petty)}</p>
-                        <p className="cash-bank-stat-meta">{stats.nPetty} accounts</p>
+                        <p className="cash-bank-stat-meta">{t('cb.stat.accounts', { n: stats.nPetty })}</p>
                     </div>
                 </div>
             </div>
             <div className="cash-bank-tabs">
-                {CASH_BANK_TABS.map((t) => (
-                    <button key={t} type="button" className={`cash-bank-tab ${accountTab === t ? 'active' : ''}`} onClick={() => setAccountTab(t)}>{t}</button>
+                {CASH_BANK_TABS.map((tab) => (
+                    <button
+                        key={tab.id}
+                        type="button"
+                        className={`cash-bank-tab ${accountTab === tab.id ? 'active' : ''}`}
+                        onClick={() => setAccountTab(tab.id)}
+                    >
+                        {t(tab.labelKey)}
+                    </button>
                 ))}
             </div>
             <div className="cash-bank-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <button type="button" className="btn-portal" onClick={openNewAccountModal}><Plus size={16} /> New Account</button>
+                <button type="button" className="btn-portal" onClick={openNewAccountModal}><Plus size={16} /> {t('cb.newAccount')}</button>
                 <button
                     type="button"
                     className="btn-portal-outline"
                     disabled={accountsLoading}
                     onClick={() => loadAccounts()}
-                    title="Reload list"
+                    title={t('cb.reloadList')}
                 >
                     <RefreshCw size={16} style={{ marginRight: 6, opacity: accountsLoading ? 0.5 : 1 }} />
-                    Refresh
+                    {t('cb.refresh')}
                 </button>
                 <button
                     type="button"
@@ -2287,10 +2332,10 @@ function CashBankView({ branches = [] }) {
                             setMigratingV3(false);
                         }
                     }}
-                    title="Provision system registers (Locker Vault, Cashier Tills, Petty Cash Wallets) and sync balances with the GL."
+                    title={t('cb.migrateTitle')}
                 >
                     <Zap size={16} style={{ marginRight: 6 }} />
-                    {migratingV3 ? 'Migrating…' : 'Run cash-flow migration'}
+                    {migratingV3 ? t('cb.migrating') : t('cb.migrate')}
                 </button>
             </div>
             {migrationMsg && !isAdminHqBooks ? (
@@ -2309,23 +2354,23 @@ function CashBankView({ branches = [] }) {
             >
                 <h3 className="cash-bank-title" style={{ fontSize: '1.05rem', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <ArrowLeftRight size={20} aria-hidden />
-                    Internal fund transfer
+                    {t('cb.xfer.title')}
                 </h3>
                 <p className="form-help-text" style={{ marginBottom: 12 }}>
-                    Move SAR between two registers in this workshop. Records a debit on the source and a credit on the destination (same reference).
+                    {t('cb.xfer.desc')}
                 </p>
                 {xferError ? (
                     <p className="form-help-text" style={{ color: '#B45309', marginBottom: 10 }} role="alert">{xferError}</p>
                 ) : null}
                 <div className="modal-form-grid" style={{ alignItems: 'end' }}>
                     <div className="form-group">
-                        <label className="form-label">From account *</label>
+                        <label className="form-label">{t('cb.xfer.from')}</label>
                         <select
                             className="form-input-field"
                             value={xferFromId}
                             onChange={(e) => setXferFromId(e.target.value)}
                         >
-                            <option value="">Select source</option>
+                            <option value="">{t('cb.xfer.selectSource')}</option>
                             {accounts.map((acc) => (
                                 <option key={acc.id} value={acc.id}>
                                     {acc.name} — {acc.branch} (SAR {formatSarAmount(acc.currentBalance)})
@@ -2334,13 +2379,13 @@ function CashBankView({ branches = [] }) {
                         </select>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">To account *</label>
+                        <label className="form-label">{t('cb.xfer.to')}</label>
                         <select
                             className="form-input-field"
                             value={xferToId}
                             onChange={(e) => setXferToId(e.target.value)}
                         >
-                            <option value="">Select destination</option>
+                            <option value="">{t('cb.xfer.selectDest')}</option>
                             {accounts.map((acc) => (
                                 <option key={acc.id} value={acc.id}>
                                     {acc.name} — {acc.branch} (SAR {formatSarAmount(acc.currentBalance)})
@@ -2349,7 +2394,7 @@ function CashBankView({ branches = [] }) {
                         </select>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Amount (SAR) *</label>
+                        <label className="form-label">{t('cb.xfer.amount')}</label>
                         <input
                             type="number"
                             className="form-input-field"
@@ -2360,7 +2405,7 @@ function CashBankView({ branches = [] }) {
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Date *</label>
+                        <label className="form-label">{t('cb.xfer.date')}</label>
                         <input
                             type="date"
                             className="form-input-field"
@@ -2369,11 +2414,11 @@ function CashBankView({ branches = [] }) {
                         />
                     </div>
                     <div className="form-group form-group-full">
-                        <label className="form-label">Note (optional)</label>
+                        <label className="form-label">{t('cb.xfer.note')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="e.g. Cash moved to main safe"
+                            placeholder={t('cb.xfer.notePh')}
                             value={xferNote}
                             onChange={(e) => setXferNote(e.target.value)}
                         />
@@ -2385,7 +2430,7 @@ function CashBankView({ branches = [] }) {
                             disabled={xferSubmitting || accounts.length < 2}
                             onClick={handleInternalTransfer}
                         >
-                            {xferSubmitting ? 'Transferring…' : 'Transfer funds'}
+                            {xferSubmitting ? t('cb.xfer.submitting') : t('cb.xfer.submit')}
                         </button>
                     </div>
                 </div>
@@ -2403,10 +2448,10 @@ function CashBankView({ branches = [] }) {
                     }}
                 >
                     <h3 className="cash-bank-title" style={{ fontSize: '1.05rem', margin: '0 0 8px' }}>
-                        Branch default operating registers
+                        {t('cb.defaults.title')}
                     </h3>
                     <p className="form-help-text" style={{ marginBottom: 12 }}>
-                        Pin the operating cash and bank register used at each branch for POS card sales, locker bank deposits, and other direct-to-operating postings. Leave blank to use the legacy fallback.
+                        {t('cb.defaults.desc')}
                     </p>
                     {branchDefaultsMsg ? (
                         <p className="form-help-text" style={{ color: '#0E7C66', margin: '0 0 8px' }}>{branchDefaultsMsg}</p>
@@ -2422,7 +2467,7 @@ function CashBankView({ branches = [] }) {
                                         <label className="form-label" style={{ fontSize: '0.85rem' }}>{b.name}</label>
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Default cash</label>
+                                        <label className="form-label">{t('cb.defaults.cash')}</label>
                                         <select
                                             className="form-input-field"
                                             value={dCash}
@@ -2431,14 +2476,14 @@ function CashBankView({ branches = [] }) {
                                                 [bid]: { ...(cur[bid] || {}), defaultCashAccountId: e.target.value },
                                             }))}
                                         >
-                                            <option value="">— None (use fallback) —</option>
+                                            <option value="">{t('cb.defaults.none')}</option>
                                             {accounts.filter((a) => a.apiType === 'CASH' && a.kind === 'OPERATING' && (!a.branchId || String(a.branchId) === bid)).map((a) => (
                                                 <option key={a.id} value={a.id}>{a.name}</option>
                                             ))}
                                         </select>
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Default bank</label>
+                                        <label className="form-label">{t('cb.defaults.bank')}</label>
                                         <select
                                             className="form-input-field"
                                             value={dBank}
@@ -2447,7 +2492,7 @@ function CashBankView({ branches = [] }) {
                                                 [bid]: { ...(cur[bid] || {}), defaultBankAccountId: e.target.value },
                                             }))}
                                         >
-                                            <option value="">— None (use fallback) —</option>
+                                            <option value="">{t('cb.defaults.none')}</option>
                                             {accounts.filter((a) => a.apiType === 'BANK' && a.kind === 'OPERATING' && (!a.branchId || String(a.branchId) === bid)).map((a) => (
                                                 <option key={a.id} value={a.id}>{a.name}</option>
                                             ))}
@@ -2484,46 +2529,52 @@ function CashBankView({ branches = [] }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Account</th>
-                            <th className="table-th">Kind</th>
-                            <th className="table-th">Type</th>
-                            {!isAdminHqBooks ? <th className="table-th">Branch</th> : null}
-                            {!isAdminHqBooks ? <th className="table-th">POS / SoftPOS</th> : null}
-                            <th className="table-th">COA Link</th>
-                            <th className="table-th">Opening Balance</th>
-                            <th className="table-th">Current Balance</th>
-                            <th className="table-th">Status</th>
-                            <th className="table-th">Actions</th>
+                            <th className="table-th">{t('cb.th.account')}</th>
+                            <th className="table-th">{t('cb.th.kind')}</th>
+                            <th className="table-th">{t('cb.th.type')}</th>
+                            {!isAdminHqBooks ? <th className="table-th">{t('cb.th.branch')}</th> : null}
+                            {!isAdminHqBooks ? <th className="table-th">{t('cb.th.pos')}</th> : null}
+                            <th className="table-th">{t('cb.th.coa')}</th>
+                            <th className="table-th">{t('cb.th.opening')}</th>
+                            <th className="table-th">{t('cb.th.current')}</th>
+                            <th className="table-th">{t('cb.th.status')}</th>
+                            <th className="table-th">{t('cb.th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {accountsLoading ? (
                             <tr>
-                                <td colSpan={isAdminHqBooks ? 8 : 10} className="table-cell table-empty">Loading accounts…</td>
+                                <td colSpan={isAdminHqBooks ? 8 : 10} className="table-cell table-empty">{t('cb.loading')}</td>
                             </tr>
                         ) : visibleAccounts.length === 0 ? (
                             <tr>
-                                <td colSpan={isAdminHqBooks ? 8 : 10} className="table-cell table-empty">No accounts found</td>
+                                <td colSpan={isAdminHqBooks ? 8 : 10} className="table-cell table-empty">{t('cb.empty')}</td>
                             </tr>
                         ) : (
                             visibleAccounts.map((a) => (
                                 <tr key={a.id}>
                                     <td className="table-cell cell-main-text">{a.name}</td>
                                     <td className="table-cell">
-                                        <span className={`status-badge ${a.isSystem ? 'status-pending' : 'status-completed'}`}>{a.kindLabel}</span>
+                                        <span className={`status-badge ${a.isSystem ? 'status-pending' : 'status-completed'}`}>{t(a.kindKey)}</span>
                                     </td>
-                                    <td className="table-cell">{a.type}</td>
+                                    <td className="table-cell">{t(cashBankTypeLabelKey(a.type))}</td>
                                     {!isAdminHqBooks ? <td className="table-cell">{a.branch}</td> : null}
-                                    {!isAdminHqBooks ? <td className="table-cell">{a.posLinkLabel}</td> : null}
+                                    {!isAdminHqBooks ? (
+                                        <td className="table-cell">{a.posShared ? t('cb.shared') : a.posLinkLabel}</td>
+                                    ) : null}
                                     <td className="table-cell">{a.coaLink}</td>
                                     <td className="table-cell">SAR {formatSarAmount(a.openingBalance)}</td>
                                     <td className="table-cell">SAR {formatSarAmount(a.currentBalance)}</td>
-                                    <td className="table-cell"><span className="status-badge status-completed">{a.status}</span></td>
+                                    <td className="table-cell">
+                                        <span className="status-badge status-completed">
+                                            {a.status === 'inactive' ? t('cb.status.inactive') : t('cb.status.active')}
+                                        </span>
+                                    </td>
                                     <td className="table-cell">
                                         {a.isSystem ? (
-                                            <span className="form-help-text" title="System registers cannot be edited from this UI — their balance is driven by GL.">System</span>
+                                            <span className="form-help-text" title={t('cb.systemTitle')}>{t('cb.system')}</span>
                                         ) : (
-                                            <button type="button" className="btn-edit-zone" onClick={() => openEdit(a)}>Edit</button>
+                                            <button type="button" className="btn-edit-zone" onClick={() => openEdit(a)}>{t('cb.edit')}</button>
                                         )}
                                     </td>
                                 </tr>
@@ -2537,12 +2588,12 @@ function CashBankView({ branches = [] }) {
             <AnimatePresence>
                 {newAccountOpen && (
                     <Modal
-                        title="New Cash / Bank Account"
+                        title={t('cb.modal.newTitle')}
                         onClose={closeCashBankNewModal}
                         footer={
                             <>
-                                <button type="button" className="btn-secondary" onClick={closeCashBankNewModal} disabled={saving}>Cancel</button>
-                                <button type="button" className="btn-submit btn-dark" onClick={handleSaveNew} disabled={saving}>{saving ? 'Creating…' : 'Create Account'}</button>
+                                <button type="button" className="btn-secondary" onClick={closeCashBankNewModal} disabled={saving}>{t('cb.modal.cancel')}</button>
+                                <button type="button" className="btn-submit btn-dark" onClick={handleSaveNew} disabled={saving}>{saving ? t('cb.modal.creating') : t('cb.modal.create')}</button>
                             </>
                         }
                     >
@@ -2551,35 +2602,35 @@ function CashBankView({ branches = [] }) {
                                 <p className="form-group form-group-full form-help-text" style={{ color: '#B45309' }} role="alert">{saveError}</p>
                             ) : null}
                             <div className="form-group">
-                                <label className="form-label">Account Name *</label>
+                                <label className="form-label">{t('cb.field.name')}</label>
                                 <input
                                     type="text"
                                     className="form-input-field"
-                                    placeholder="e.g. Main Cash"
+                                    placeholder={t('cb.field.namePh')}
                                     value={newAccountName}
                                     onChange={(e) => setNewAccountName(e.target.value)}
                                 />
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Type *</label>
+                                <label className="form-label">{t('cb.field.type')}</label>
                                 <select
                                     className="form-input-field"
                                     value={newAccountType}
                                     onChange={(e) => setNewAccountType(e.target.value)}
                                 >
-                                    <option value="Cash">Cash</option>
-                                    <option value="Bank">Bank</option>
-                                    <option value="Petty Cash">Petty Cash</option>
+                                    <option value="Cash">{t('cb.tab.cash')}</option>
+                                    <option value="Bank">{t('cb.tab.bank')}</option>
+                                    <option value="Petty Cash">{t('cb.tab.petty')}</option>
                                 </select>
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Branch *</label>
+                                <label className="form-label">{t('cb.field.branch')}</label>
                                 <select
                                     className="form-input-field"
                                     value={newAccountBranchId}
                                     onChange={(e) => setNewAccountBranchId(e.target.value)}
                                 >
-                                    <option value="">Select branch</option>
+                                    <option value="">{t('cb.field.selectBranch')}</option>
                                     {branches.map((b) => (
                                         <option key={String(b.id)} value={String(b.id)}>
                                             {b.name}
@@ -2594,14 +2645,14 @@ function CashBankView({ branches = [] }) {
                                 ) : null}
                             </div>
                             <div className="form-group form-group-full">
-                                <label className="form-label">SoftPOS link (optional)</label>
+                                <label className="form-label">{t('cb.field.softpos')}</label>
                                 <select
                                     className="form-input-field"
                                     value={newPosTerminalId}
                                     onChange={(e) => setNewPosTerminalId(e.target.value)}
                                     disabled={!newAccountBranchId}
                                 >
-                                    <option value="">Shared register — not tied to one terminal</option>
+                                    <option value="">{t('cb.field.sharedRegister')}</option>
                                     {terminalsForSelectedNewBranch.map((t) => (
                                         <option key={String(t.id)} value={String(t.id)}>
                                             {t.branchName}: {t.label}
@@ -2621,7 +2672,7 @@ function CashBankView({ branches = [] }) {
                                 ) : null}
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Opening Balance (SAR)</label>
+                                <label className="form-label">{t('cb.field.opening')}</label>
                                 <input
                                     type="number"
                                     className="form-input-field"
@@ -2630,24 +2681,24 @@ function CashBankView({ branches = [] }) {
                                 />
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Opening balance date</label>
+                                <label className="form-label">{t('cb.field.openingDate')}</label>
                                 <input
                                     type="date"
                                     className="form-input-field"
                                     value={cashBankOpeningBalanceDate}
                                     onChange={(e) => setCashBankOpeningBalanceDate(e.target.value)}
                                 />
-                                <p className="form-help-text">For your records only — not sent to the server yet.</p>
+                                <p className="form-help-text">{t('cb.field.openingDateHelp')}</p>
                             </div>
                             <div className="form-group form-group-full">
-                                <label className="form-label">Status</label>
+                                <label className="form-label">{t('cb.field.status')}</label>
                                 <select
                                     className="form-input-field"
                                     value={newAccountStatus}
                                     onChange={(e) => setNewAccountStatus(e.target.value)}
                                 >
-                                    <option value="active">Active</option>
-                                    <option value="inactive">Inactive</option>
+                                    <option value="active">{t('cb.status.active')}</option>
+                                    <option value="inactive">{t('cb.status.inactive')}</option>
                                 </select>
                             </div>
                         </div>
@@ -2656,12 +2707,12 @@ function CashBankView({ branches = [] }) {
 
                 {editAccountOpen && editingAccount && (
                     <Modal
-                        title="Edit Account"
+                        title={t('cb.modal.editTitle')}
                         onClose={closeEditModal}
                         footer={
                             <>
-                                <button type="button" className="btn-secondary" onClick={closeEditModal} disabled={saving}>Cancel</button>
-                                <button type="button" className="btn-submit" onClick={handleSaveEdit} disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
+                                <button type="button" className="btn-secondary" onClick={closeEditModal} disabled={saving}>{t('cb.modal.cancel')}</button>
+                                <button type="button" className="btn-submit" onClick={handleSaveEdit} disabled={saving}>{saving ? t('cb.modal.saving') : t('cb.modal.save')}</button>
                             </>
                         }
                     >
@@ -2669,17 +2720,17 @@ function CashBankView({ branches = [] }) {
                             <p className="form-help-text" style={{ color: '#B45309', marginBottom: 12 }} role="alert">{saveError}</p>
                         ) : null}
                         <div className="form-group">
-                            <label className="form-label">Account Name</label>
+                            <label className="form-label">{t('cb.field.nameEdit')}</label>
                             <input type="text" className="form-input-field" value={editingAccount.name} onChange={(e) => setEditingAccount((p) => ({ ...p, name: e.target.value }))} />
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Type</label>
+                            <label className="form-label">{t('cb.field.typeEdit')}</label>
                             <select className="form-input-field" value={editingAccount.type} onChange={(e) => setEditingAccount((p) => ({ ...p, type: e.target.value }))}>
-                                <option value="Cash">Cash</option><option value="Bank">Bank</option><option value="Petty Cash">Petty Cash</option>
+                                <option value="Cash">{t('cb.tab.cash')}</option><option value="Bank">{t('cb.tab.bank')}</option><option value="Petty Cash">{t('cb.tab.petty')}</option>
                             </select>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Branch *</label>
+                            <label className="form-label">{t('cb.field.branch')}</label>
                             <select
                                 className="form-input-field"
                                 value={editingAccount.branchId != null ? String(editingAccount.branchId) : ''}
@@ -2693,14 +2744,14 @@ function CashBankView({ branches = [] }) {
                                             branch: name || p.branch || '',
                                         };
                                         const stillOk = posTerminals.some(
-                                            (t) => String(t.branchId) === String(id) && String(t.id) === String(p.posTerminalId),
+                                            (term) => String(term.branchId) === String(id) && String(term.id) === String(p.posTerminalId),
                                         );
                                         if (!stillOk) next.posTerminalId = '';
                                         return next;
                                     });
                                 }}
                             >
-                                <option value="">Select branch</option>
+                                <option value="">{t('cb.field.selectBranch')}</option>
                                 {branches.map((b) => (
                                     <option key={String(b.id)} value={String(b.id)}>
                                         {b.name}
@@ -2709,14 +2760,14 @@ function CashBankView({ branches = [] }) {
                             </select>
                         </div>
                         <div className="form-group form-group-full">
-                            <label className="form-label">SoftPOS link</label>
+                            <label className="form-label">{t('cb.field.softposEdit')}</label>
                             <select
                                 className="form-input-field"
                                 value={editingAccount.posTerminalId != null ? String(editingAccount.posTerminalId) : ''}
                                 onChange={(e) => setEditingAccount((p) => ({ ...p, posTerminalId: e.target.value }))}
                                 disabled={!editingAccount.branchId}
                             >
-                                <option value="">Shared register — not tied to one terminal</option>
+                                <option value="">{t('cb.field.sharedRegister')}</option>
                                 {terminalsForEditBranch.map((t) => (
                                     <option key={String(t.id)} value={String(t.id)}>
                                         {t.branchName}: {t.label}
@@ -2731,18 +2782,18 @@ function CashBankView({ branches = [] }) {
                             </p>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">COA link (read-only)</label>
+                            <label className="form-label">{t('cb.field.coaReadonly')}</label>
                             <input type="text" className="form-input-field" readOnly value={editingAccount.coaLink || '—'} />
-                            <p className="form-help-text">Created automatically with this register; shown in Chart of Accounts.</p>
+                            <p className="form-help-text">{t('cb.field.coaHelp')}</p>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Opening Balance (SAR)</label>
+                            <label className="form-label">{t('cb.field.opening')}</label>
                             <input type="number" className="form-input-field" value={editingAccount.openingBalance} onChange={(e) => setEditingAccount((p) => ({ ...p, openingBalance: e.target.value }))} />
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Status</label>
+                            <label className="form-label">{t('cb.field.status')}</label>
                             <select className="form-input-field" value={editingAccount.status} onChange={(e) => setEditingAccount((p) => ({ ...p, status: e.target.value }))}>
-                                <option value="active">Active</option><option value="inactive">Inactive</option>
+                                <option value="active">{t('cb.status.active')}</option><option value="inactive">{t('cb.status.inactive')}</option>
                             </select>
                         </div>
                     </Modal>
@@ -2972,6 +3023,12 @@ function ExpensesView() {
 
 function GeneralJournalView() {
     const { isAdminHqBooks } = useHqAdminBooksScope();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
     const [viewJEOpen, setViewJEOpen] = useState(false);
     const [selectedJE, setSelectedJE] = useState(null);
     const [entries, setEntries] = useState([]);
@@ -2979,14 +3036,14 @@ function GeneralJournalView() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
-    const [typeFilter, setTypeFilter] = useState('All Types');
+    const [typeFilter, setTypeFilter] = useState('');
 
     const reload = useCallback(async () => {
         setLoading(true); setError('');
         try {
             const params = { limit: 200 };
             if (search) params.q = search;
-            if (typeFilter && typeFilter !== 'All Types') params.type = typeFilter;
+            if (typeFilter) params.type = typeFilter;
             const res = await listAcctJournalEntries(params);
             setEntries(res?.entries ?? []);
             setSummary({
@@ -2996,12 +3053,12 @@ function GeneralJournalView() {
                 totalDebit: Number(res?.summary?.totalDebit ?? 0),
             });
         } catch (e) {
-            setError(e?.message || 'Failed to load journal entries');
+            setError(e?.message || t('gj.loadFailed'));
             setEntries([]);
         } finally {
             setLoading(false);
         }
-    }, [search, typeFilter]);
+    }, [search, typeFilter, t]);
 
     useEffect(() => { reload(); }, [reload]);
 
@@ -3040,7 +3097,7 @@ function GeneralJournalView() {
         printWindow.document.write(`
             <html>
                 <head>
-                    <title>Journal Voucher - ${je.code}</title>
+                    <title>${t('gj.print.title', { code: je.code })}</title>
                     <style>
                         body { font-family: 'Poppins', sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }
                         .voucher-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; }
@@ -3079,42 +3136,42 @@ function GeneralJournalView() {
                 <body>
                     <div class="voucher-header">
                         <div class="company-info">
-                            <h1>Filter Pos Panels</h1>
-                            <p>Premium Automotive Services Portal</p>
+                            <h1>${t('gj.print.company')}</h1>
+                            <p>${t('gj.print.tagline')}</p>
                         </div>
                         <div class="voucher-title-box">
-                            <h2 class="voucher-title">Journal Voucher</h2>
+                            <h2 class="voucher-title">${t('gj.print.voucher')}</h2>
                             <div class="voucher-id">${je.code}</div>
                         </div>
                     </div>
 
                     <div class="details-grid">
                         <div class="detail-item">
-                            <span class="detail-label">Entry Date</span>
+                            <span class="detail-label">${t('gj.print.entryDate')}</span>
                             <span class="detail-value">${je.date}</span>
                         </div>
                         <div class="detail-item">
-                            <span class="detail-label">Entry Type</span>
+                            <span class="detail-label">${t('gj.print.entryType')}</span>
                             <span class="detail-value">${je.type}</span>
                         </div>
                         <div class="detail-item">
-                            <span class="detail-label">Status</span>
+                            <span class="detail-label">${t('gj.print.status')}</span>
                             <span class="detail-value">${je.status}</span>
                         </div>
                     </div>
 
                     <div class="description-box">
-                        <span class="detail-label">Description / Memo</span>
+                        <span class="detail-label">${t('gj.print.descMemo')}</span>
                         <p class="description-text">${je.description}</p>
                     </div>
 
                     <table>
                         <thead>
                             <tr>
-                                <th>Account Name</th>
-                                <th>Description</th>
-                                <th class="text-right">Debit (SAR)</th>
-                                <th class="text-right">Credit (SAR)</th>
+                                <th>${t('gj.print.accountName')}</th>
+                                <th>${t('gj.print.description')}</th>
+                                <th class="text-right">${t('gj.print.debitSar')}</th>
+                                <th class="text-right">${t('gj.print.creditSar')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -3129,7 +3186,7 @@ function GeneralJournalView() {
                         </tbody>
                         <tfoot>
                             <tr class="totals-row">
-                                <td colspan="2">Totals</td>
+                                <td colspan="2">${t('gj.print.totals')}</td>
                                 <td class="text-right debit-color">${je.totalDebit}</td>
                                 <td class="text-right credit-color">${je.totalCredit}</td>
                             </tr>
@@ -3137,8 +3194,8 @@ function GeneralJournalView() {
                     </table>
 
                     <div class="footer-signatures">
-                        <div class="sig-line">Prepared By</div>
-                        <div class="sig-line">Approved By</div>
+                        <div class="sig-line">${t('gj.print.preparedBy')}</div>
+                        <div class="sig-line">${t('gj.print.approvedBy')}</div>
                     </div>
 
                     <script>
@@ -3155,11 +3212,9 @@ function GeneralJournalView() {
     return (
         <div className="general-journal-view">
             <header className="journal-header">
-                <h2 className="journal-title">General Journal</h2>
+                <h2 className="journal-title">{t('gj.title')}</h2>
                 <p className="journal-subtitle">
-                    {isAdminHqBooks
-                        ? 'Platform HQ general journal — entries recorded via Transaction Entry'
-                        : 'General journal transaction log — entries recorded via Transaction Entry'}
+                    {isAdminHqBooks ? t('gj.sub.hq') : t('gj.sub.ws')}
                 </p>
             </header>
 
@@ -3169,7 +3224,7 @@ function GeneralJournalView() {
                         <div className="jr-stat-icon icon-purple"><Book size={18} /></div>
                     </div>
                     <div className="jr-stat-info">
-                        <span className="jr-stat-label">Total Entries</span>
+                        <span className="jr-stat-label">{t('gj.stat.totalEntries')}</span>
                         <span className="jr-stat-value">{summary.totalEntries}</span>
                     </div>
                 </div>
@@ -3178,7 +3233,7 @@ function GeneralJournalView() {
                         <div className="jr-stat-icon icon-green-light"><CheckCircle size={18} /></div>
                     </div>
                     <div className="jr-stat-info">
-                        <span className="jr-stat-label">Posted / Balanced</span>
+                        <span className="jr-stat-label">{t('gj.stat.postedBalanced')}</span>
                         <span className="jr-stat-value">{summary.postedCount} / {summary.balancedCount}</span>
                     </div>
                 </div>
@@ -3187,7 +3242,7 @@ function GeneralJournalView() {
                         <div className="jr-stat-icon icon-blue-light"><FileText size={18} /></div>
                     </div>
                     <div className="jr-stat-info">
-                        <span className="jr-stat-label">Total Debit</span>
+                        <span className="jr-stat-label">{t('gj.stat.totalDebit')}</span>
                         <span className="jr-stat-value">SAR {fmtMoney(summary.totalDebit)}</span>
                     </div>
                 </div>
@@ -3198,7 +3253,7 @@ function GeneralJournalView() {
                     <Search size={18} className="search-icon" />
                     <input
                         type="text"
-                        placeholder="Search entry # or description..."
+                        placeholder={t('gj.searchPh')}
                         className="jr-search-input"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
@@ -3210,26 +3265,26 @@ function GeneralJournalView() {
                         value={typeFilter}
                         onChange={(e) => setTypeFilter(e.target.value)}
                     >
-                        <option>All Types</option>
-                        <option value="counter_closing">Counter closing (variance)</option>
-                        <option value="locker_pickup">Locker pickup (cashier → locker)</option>
-                        <option value="locker_bank_deposit">Locker → bank deposit</option>
-                        <option value="locker_petty_cash_issue">Locker → cashier petty cash</option>
-                        <option value="petty_cash_replenishment">Petty cash replenishment</option>
-                        <option value="petty_cash_expense">Petty cash expense</option>
-                        <option value="internal_transfer">Cash/Bank internal transfer</option>
-                        <option value="sales">Sales (invoice)</option>
-                        <option>General</option>
-                        <option>Payment</option>
-                        <option>Receipt</option>
-                        <option>OpeningBalance</option>
-                        <option>PurchaseInvoice</option>
-                        <option>Sales</option>
-                        <option>POS</option>
-                        <option>Commission</option>
+                        <option value="">{t('gj.allTypes')}</option>
+                        <option value="counter_closing">{t('gj.type.counterClosing')}</option>
+                        <option value="locker_pickup">{t('gj.type.lockerPickup')}</option>
+                        <option value="locker_bank_deposit">{t('gj.type.lockerBank')}</option>
+                        <option value="locker_petty_cash_issue">{t('gj.type.lockerPetty')}</option>
+                        <option value="petty_cash_replenishment">{t('gj.type.pettyReplenish')}</option>
+                        <option value="petty_cash_expense">{t('gj.type.pettyExpense')}</option>
+                        <option value="internal_transfer">{t('gj.type.internalXfer')}</option>
+                        <option value="sales">{t('gj.type.salesInvoice')}</option>
+                        <option value="General">{t('gj.type.general')}</option>
+                        <option value="Payment">{t('gj.type.payment')}</option>
+                        <option value="Receipt">{t('gj.type.receipt')}</option>
+                        <option value="OpeningBalance">{t('gj.type.openingBalance')}</option>
+                        <option value="PurchaseInvoice">{t('gj.type.purchaseInvoice')}</option>
+                        <option value="Sales">{t('gj.type.sales')}</option>
+                        <option value="POS">{t('gj.type.pos')}</option>
+                        <option value="Commission">{t('gj.type.commission')}</option>
                     </select>
                     <button className="btn-date-range" onClick={reload}>
-                        <RefreshCw size={16} /> Refresh
+                        <RefreshCw size={16} /> {t('gj.refresh')}
                     </button>
                 </div>
             </div>
@@ -3242,23 +3297,23 @@ function GeneralJournalView() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Entry #</th>
-                            <th className="table-th">Date</th>
-                            <th className="table-th">Type</th>
-                            <th className="table-th">Description</th>
-                            <th className="table-th text-center">Lines</th>
-                            <th className="table-th">Total Dr</th>
-                            <th className="table-th">Total Cr</th>
-                            <th className="table-th text-center">Balanced</th>
-                            <th className="table-th">Status</th>
-                            <th className="table-th">Actions</th>
+                            <th className="table-th">{t('gj.th.entryNo')}</th>
+                            <th className="table-th">{t('gj.th.date')}</th>
+                            <th className="table-th">{t('gj.th.type')}</th>
+                            <th className="table-th">{t('gj.th.description')}</th>
+                            <th className="table-th text-center">{t('gj.th.lines')}</th>
+                            <th className="table-th">{t('gj.th.totalDr')}</th>
+                            <th className="table-th">{t('gj.th.totalCr')}</th>
+                            <th className="table-th text-center">{t('gj.th.balanced')}</th>
+                            <th className="table-th">{t('gj.th.status')}</th>
+                            <th className="table-th">{t('gj.th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={10} className="table-cell table-empty">Loading entries…</td></tr>
+                            <tr><td colSpan={10} className="table-cell table-empty">{t('gj.loading')}</td></tr>
                         ) : entries.length === 0 ? (
-                            <tr><td colSpan={10} className="table-cell table-empty">No journal entries yet</td></tr>
+                            <tr><td colSpan={10} className="table-cell table-empty">{t('gj.empty')}</td></tr>
                         ) : (
                             entries.map((e) => (
                                 <tr key={e.id} className="table-row">
@@ -3277,8 +3332,8 @@ function GeneralJournalView() {
                                     <td className="table-cell"><span className="badge-status-posted">{(e.status || '').toUpperCase()}</span></td>
                                     <td className="table-cell">
                                         <div className="jr-action-btns">
-                                            <button className="jr-action-btn" onClick={() => handleViewJE(e)} title="View"><Eye size={16} /></button>
-                                            <button className="jr-action-btn" onClick={() => handlePrintJE(toPrintShape(e))} title="Print"><Printer size={16} /></button>
+                                            <button className="jr-action-btn" onClick={() => handleViewJE(e)} title={t('gj.view')}><Eye size={16} /></button>
+                                            <button className="jr-action-btn" onClick={() => handlePrintJE(toPrintShape(e))} title={t('gj.print')}><Printer size={16} /></button>
                                         </div>
                                     </td>
                                 </tr>
@@ -3291,12 +3346,12 @@ function GeneralJournalView() {
             <AnimatePresence>
                 {viewJEOpen && selectedJE && (
                     <Modal
-                        title={`Journal Entry — ${selectedJE.code}`}
+                        title={t('gj.modal.title', { code: selectedJE.code })}
                         onClose={() => setViewJEOpen(false)}
                         footer={
                             <div className="je-modal-footer">
                                 <button className="btn-je-delete" onClick={() => setViewJEOpen(false)}>
-                                    <Trash2 size={16} /> Delete
+                                    <Trash2 size={16} /> {t('gj.modal.delete')}
                                 </button>
                             </div>
                         }
@@ -3304,46 +3359,46 @@ function GeneralJournalView() {
                         <div className="je-detail-modal">
                             <div className="je-detail-grid">
                                 <div className="je-detail-field">
-                                    <span className="je-field-label">Entry #</span>
+                                    <span className="je-field-label">{t('gj.modal.entryNo')}</span>
                                     <span className="je-field-value">{selectedJE.code}</span>
                                 </div>
                                 <div className="je-detail-field">
-                                    <span className="je-field-label">Date</span>
+                                    <span className="je-field-label">{t('gj.modal.date')}</span>
                                     <span className="je-field-value">{selectedJE.date}</span>
                                 </div>
                                 <div className="je-detail-field">
-                                    <span className="je-field-label">Type</span>
+                                    <span className="je-field-label">{t('gj.modal.type')}</span>
                                     <span className="je-field-value">{selectedJE.type}</span>
                                 </div>
                                 <div className="je-detail-field">
-                                    <span className="je-field-label">Status</span>
+                                    <span className="je-field-label">{t('gj.modal.status')}</span>
                                     <span className="je-field-value font-bold">{selectedJE.status}</span>
                                 </div>
                                 <div className="je-detail-field">
-                                    <span className="je-field-label">Total Debit</span>
+                                    <span className="je-field-label">{t('gj.modal.totalDebit')}</span>
                                     <span className="je-field-value">{selectedJE.totalDebit}</span>
                                 </div>
                                 <div className="je-detail-field">
-                                    <span className="je-field-label">Total Credit</span>
+                                    <span className="je-field-label">{t('gj.modal.totalCredit')}</span>
                                     <span className="je-field-value">{selectedJE.totalCredit}</span>
                                 </div>
                             </div>
 
                             <div className="je-detail-desc-box">
-                                <span className="je-field-label">Description</span>
+                                <span className="je-field-label">{t('gj.modal.description')}</span>
                                 <p className="je-field-value">{selectedJE.description}</p>
                             </div>
 
                             <div className="je-lines-section">
-                                <h4 className="je-section-title">Journal Lines</h4>
+                                <h4 className="je-section-title">{t('gj.modal.lines')}</h4>
                                 <div className="je-lines-table-container">
                                     <table className="je-lines-table">
                                         <thead>
                                             <tr>
-                                                <th>Account</th>
-                                                <th>Description</th>
-                                                <th className="text-right">Debit (SAR)</th>
-                                                <th className="text-right">Credit (SAR)</th>
+                                                <th>{t('gj.modal.account')}</th>
+                                                <th>{t('gj.modal.description')}</th>
+                                                <th className="text-right">{t('gj.modal.debitSar')}</th>
+                                                <th className="text-right">{t('gj.modal.creditSar')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -3358,7 +3413,7 @@ function GeneralJournalView() {
                                         </tbody>
                                         <tfoot>
                                             <tr className="je-totals-row">
-                                                <td colSpan="2">Totals</td>
+                                                <td colSpan="2">{t('gj.modal.totals')}</td>
                                                 <td className="text-right color-green-dark">SAR {selectedJE.totalDebit.replace('SAR ', '')}</td>
                                                 <td className="text-right color-blue-dark">SAR {selectedJE.totalCredit.replace('SAR ', '')}</td>
                                             </tr>

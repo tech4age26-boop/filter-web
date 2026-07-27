@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import {
-    Activity,
     ArrowLeftRight,
     BookOpen,
     Calendar,
@@ -33,6 +32,7 @@ import {
     unwrapWorkshopEmployeesList,
     workshopStaffSelectValue,
 } from '../../../services/workshopStaffApi';
+import { accT } from '../../../utils/accountingI18n';
 import WorkshopSalaryTab from './WorkshopSalaryTab';
 import WorkshopEmployeeLedgerTab from './WorkshopEmployeeLedgerTab';
 import '../../../styles/admin/AccountingPage.css';
@@ -44,6 +44,21 @@ const fmt = (n) => {
 };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const ADV_TABS = [
+    { id: 'By Employee', labelKey: 'adv.tab.byEmployee' },
+    { id: 'Advances', labelKey: 'adv.tab.advances' },
+    { id: 'Salary', labelKey: 'adv.tab.salary' },
+    { id: 'Employee Ledger', labelKey: 'adv.tab.employeeLedger' },
+];
+
+const ADV_FILTERS = [
+    { id: 'All', labelKey: 'adv.filter.all' },
+    { id: 'Pending', labelKey: 'adv.filter.pending' },
+    { id: 'Approved', labelKey: 'adv.filter.approved' },
+    { id: 'Repaid', labelKey: 'adv.filter.repaid' },
+    { id: 'Rejected', labelKey: 'adv.filter.rejected' },
+];
 
 const makeAdvanceRow = () => ({
     id: Date.now() + Math.random(),
@@ -59,6 +74,13 @@ const makeAdvanceRow = () => ({
 });
 
 export default function WorkshopAdvances({ branches = [], selectedBranchId = 'all' }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
+
     const [activeTab, setActiveTab] = useState('By Employee');
     const [filter, setFilter] = useState('All');
     const [branchFilter, setBranchFilter] = useState(
@@ -136,11 +158,11 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             );
             setCashBankAccounts(cb?.accounts ?? cb?.items ?? []);
         } catch (e) {
-            setError(e?.message || 'Failed to load advances');
+            setError(e?.message || t('adv.err.load'));
         } finally {
             setLoading(false);
         }
-    }, [branchParams, filter, search]);
+    }, [branchParams, filter, search, t]);
 
     useEffect(() => {
         refresh();
@@ -194,7 +216,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
 
     const submitAdvance = async () => {
         if (!advanceForm.userId || !advanceForm.payFromAccountId || !advanceForm.amount) {
-            setError('Employee, amount, and pay-from account are required.');
+            setError(t('adv.err.required'));
             return;
         }
         setSubmitting(true);
@@ -222,7 +244,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             });
             await refresh();
         } catch (e) {
-            setError(e?.message || 'Could not pay advance');
+            setError(e?.message || t('adv.err.pay'));
         } finally {
             setSubmitting(false);
         }
@@ -233,7 +255,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             .filter((r) => r.userId && Number(r.amount) > 0 && r.payFromAccountId)
             .map((r) => ({
                 employeeId: String(r.userId),
-                employeeName: r.employeeName || 'Employee',
+                employeeName: r.employeeName || t('adv.defaultEmployee'),
                 amount: Number(r.amount || 0),
                 date: r.date,
                 payFromAccountId: r.payFromAccountId,
@@ -248,33 +270,35 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             setBulkAdvanceRows([makeAdvanceRow()]);
             await refresh();
         } catch (e) {
-            setError(e?.message || 'Could not pay bulk advances');
+            setError(e?.message || t('adv.err.bulk'));
         } finally {
             setSubmitting(false);
         }
     };
 
     const controlAccount = stats.controlAccount;
+    const controlCode = controlAccount?.code ?? '1250';
 
     return (
         <div className="advances-view">
             <header className="advances-header">
                 <div className="adv-header-left">
-                    <h2 className="adv-title">Employee Salary Advances</h2>
+                    <h2 className="adv-title">{t('adv.title')}</h2>
                     <p className="adv-desc">
-                        Branch-wise employee advances linked to{' '}
-                        <strong>{controlAccount?.code ?? '1250'} Salary Advances</strong> control account
+                        {t('adv.descPrefix')}{' '}
+                        <strong>{controlCode} {t('adv.controlName')}</strong>
+                        {t('adv.descSuffix') ? ` ${t('adv.descSuffix')}` : ''}
                     </p>
                 </div>
                 <div className="adv-header-actions">
                     <button type="button" className="btn-adv-action btn-bulk-advances" onClick={() => setBulkAdvanceOpen(true)}>
-                        <Users size={16} /> Bulk Advances
+                        <Users size={16} /> {t('adv.bulk')}
                     </button>
                     <button type="button" className="btn-adv-action btn-pay-advance btn-primary-adv" onClick={() => setPayAdvanceOpen(true)}>
-                        <Plus size={16} /> Pay Advance
+                        <Plus size={16} /> {t('adv.pay')}
                     </button>
                     <button type="button" className="btn-portal-outline" onClick={refresh} disabled={loading}>
-                        <RefreshCw size={14} style={{ marginRight: 6 }} /> Refresh
+                        <RefreshCw size={14} style={{ marginRight: 6 }} /> {t('btn.refresh')}
                     </button>
                 </div>
             </header>
@@ -299,19 +323,19 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                             <div style={{ fontWeight: 700, color: '#0C4A6E' }}>
                                 {controlAccount.code} — {controlAccount.name}
                                 <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: '#0369A1', background: '#E0F2FE', padding: '2px 8px', borderRadius: 999 }}>
-                                    System control account
+                                    {t('adv.systemControl')}
                                 </span>
                             </div>
                             <div style={{ fontSize: 13, color: '#64748B' }}>
-                                Assets → Other Current Assets · GL balance updates when advances are paid
+                                {t('adv.controlPath')}
                             </div>
                         </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 12, color: '#64748B' }}>Control account balance</div>
+                        <div style={{ fontSize: 12, color: '#64748B' }}>{t('adv.controlBalance')}</div>
                         <div style={{ fontSize: 20, fontWeight: 800, color: '#0C4A6E' }}>SAR {fmt(controlAccount.balance)}</div>
                         <Link to="/workshop/accounting/chart-of-accounts" style={{ fontSize: 12, color: '#0284C7' }}>
-                            View in Chart of Accounts →
+                            {t('adv.viewCoa')}
                         </Link>
                     </div>
                 </div>
@@ -321,21 +345,21 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                 <div className="adv-stat-card">
                     <div className="adv-stat-icon-wrapper icon-blue"><Wallet size={20} /></div>
                     <div className="adv-stat-info">
-                        <span className="adv-stat-label">Total Advances Paid</span>
+                        <span className="adv-stat-label">{t('adv.stat.totalPaid')}</span>
                         <span className="adv-stat-value">SAR {fmt(stats.totalAdvancesPaid)}</span>
                     </div>
                 </div>
                 <div className="adv-stat-card">
                     <div className="adv-stat-icon-wrapper icon-red"><DollarSign size={20} /></div>
                     <div className="adv-stat-info">
-                        <span className="adv-stat-label">Outstanding Balance</span>
+                        <span className="adv-stat-label">{t('adv.stat.outstanding')}</span>
                         <span className="adv-stat-value text-red">SAR {fmt(stats.outstandingBalance)}</span>
                     </div>
                 </div>
                 <div className="adv-stat-card">
                     <div className="adv-stat-icon-wrapper icon-orange"><Clock size={20} /></div>
                     <div className="adv-stat-info">
-                        <span className="adv-stat-label">Pending Advances</span>
+                        <span className="adv-stat-label">{t('adv.stat.pending')}</span>
                         <span className="adv-stat-value">{stats.pendingCount || 0}</span>
                     </div>
                 </div>
@@ -343,14 +367,14 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
 
             <div className="adv-tabs-row">
                 <div className="adv-pills">
-                    {['By Employee', 'Advances', 'Salary', 'Employee Ledger'].map((tab) => (
+                    {ADV_TABS.map((tab) => (
                         <button
-                            key={tab}
+                            key={tab.id}
                             type="button"
-                            className={`adv-pill ${activeTab === tab ? 'active' : ''}`}
-                            onClick={() => setActiveTab(tab)}
+                            className={`adv-pill ${activeTab === tab.id ? 'active' : ''}`}
+                            onClick={() => setActiveTab(tab.id)}
                         >
-                            {tab}
+                            {t(tab.labelKey)}
                         </button>
                     ))}
                 </div>
@@ -361,7 +385,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                     <Search className="search-icon" size={16} />
                     <input
                         type="text"
-                        placeholder="Search by employee, branch, or reason..."
+                        placeholder={t('adv.searchPh')}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
@@ -369,7 +393,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                 {branches.length > 0 ? (
                     <div className="ps-select-wrapper" style={{ minWidth: 180 }}>
                         <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
-                            <option value="">All branches</option>
+                            <option value="">{t('adv.allBranches')}</option>
                             {branches.map((b) => (
                                 <option key={String(b.id)} value={String(b.id)}>
                                     {b.name}
@@ -381,14 +405,14 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                 ) : null}
                 {activeTab === 'Advances' ? (
                     <div className="adv-status-filters">
-                        {['All', 'Pending', 'Approved', 'Repaid', 'Rejected'].map((f) => (
+                        {ADV_FILTERS.map((f) => (
                             <button
-                                key={f}
+                                key={f.id}
                                 type="button"
-                                className={`adv-status-btn ${filter === f ? 'active' : ''}`}
-                                onClick={() => setFilter(f)}
+                                className={`adv-status-btn ${filter === f.id ? 'active' : ''}`}
+                                onClick={() => setFilter(f.id)}
                             >
-                                {f}
+                                {t(f.labelKey)}
                             </button>
                         ))}
                     </div>
@@ -402,7 +426,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             ) : null}
 
             {loading ? (
-                <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Loading...</div>
+                <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>{t('loading')}</div>
             ) : activeTab === 'Salary' ? (
                 <WorkshopSalaryTab branchFilter={branchFilter} branches={branches} />
             ) : activeTab === 'Employee Ledger' ? (
@@ -414,7 +438,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             ) : activeTab === 'By Employee' ? (
                 <section className="premium-table advances-table">
                     {filteredOverviewBranches.length === 0 ? (
-                        <div style={{ padding: 32, textAlign: 'center', color: '#94A3B8' }}>No employees found</div>
+                        <div style={{ padding: 32, textAlign: 'center', color: '#94A3B8' }}>{t('adv.noEmployees')}</div>
                     ) : (
                         filteredOverviewBranches.map((branch) => (
                             <div key={branch.branchId || branch.branchName} style={{ marginBottom: 24 }}>
@@ -435,18 +459,20 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                     <Building2 size={16} />
                                     {branch.branchName}
                                     <span style={{ fontWeight: 500, color: '#64748B', fontSize: 13 }}>
-                                        ({branch.employees.length} employee{branch.employees.length !== 1 ? 's' : ''})
+                                        {branch.employees.length === 1
+                                            ? t('adv.employeeCount', { n: branch.employees.length })
+                                            : t('adv.employeeCountPlural', { n: branch.employees.length })}
                                     </span>
                                 </div>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #E2E8F0', borderRadius: '0 0 12px 12px' }}>
                                     <thead>
                                         <tr className="table-header-row">
-                                            <th className="table-th">EMPLOYEE</th>
-                                            <th className="table-th">TYPE</th>
-                                            <th className="table-th">ADVANCES</th>
-                                            <th className="table-th">TOTAL PAID</th>
-                                            <th className="table-th">OUTSTANDING</th>
-                                            <th className="table-th">LATEST</th>
+                                            <th className="table-th">{t('adv.th.employee')}</th>
+                                            <th className="table-th">{t('adv.th.type')}</th>
+                                            <th className="table-th">{t('adv.th.advances')}</th>
+                                            <th className="table-th">{t('adv.th.totalPaid')}</th>
+                                            <th className="table-th">{t('adv.th.outstanding')}</th>
+                                            <th className="table-th">{t('adv.th.latest')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -473,20 +499,20 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr className="table-header-row">
-                                <th className="table-th">DATE</th>
-                                <th className="table-th">BRANCH</th>
-                                <th className="table-th">EMPLOYEE</th>
-                                <th className="table-th">REASON</th>
-                                <th className="table-th">PAID FROM</th>
-                                <th className="table-th">AMOUNT</th>
-                                <th className="table-th">REPAID</th>
-                                <th className="table-th">BALANCE</th>
-                                <th className="table-th">STATUS</th>
+                                <th className="table-th">{t('adv.th.date')}</th>
+                                <th className="table-th">{t('adv.th.branch')}</th>
+                                <th className="table-th">{t('adv.th.employee')}</th>
+                                <th className="table-th">{t('adv.th.reason')}</th>
+                                <th className="table-th">{t('adv.th.paidFrom')}</th>
+                                <th className="table-th">{t('adv.th.amount')}</th>
+                                <th className="table-th">{t('adv.th.repaid')}</th>
+                                <th className="table-th">{t('adv.th.balance')}</th>
+                                <th className="table-th">{t('adv.th.status')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {filteredAdvances.length === 0 ? (
-                                <tr><td colSpan={9} className="table-cell table-empty">No advances found</td></tr>
+                                <tr><td colSpan={9} className="table-cell table-empty">{t('adv.noAdvances')}</td></tr>
                             ) : (
                                 filteredAdvances.map((a) => (
                                     <tr key={a.id} className="table-row">
@@ -494,7 +520,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                         <td className="table-cell">{a.branchName || '—'}</td>
                                         <td className="table-cell" style={{ fontWeight: 700 }}>{a.employeeName}</td>
                                         <td className="table-cell">{a.reason || '—'}</td>
-                                        <td className="table-cell">{a.payFromAccountName || (a.payFromAccountId ? '—' : 'Petty cash')}</td>
+                                        <td className="table-cell">{a.payFromAccountName || (a.payFromAccountId ? '—' : t('adv.pettyCash'))}</td>
                                         <td className="table-cell" style={{ fontWeight: 700 }}>SAR {fmt(a.amount)}</td>
                                         <td className="table-cell">SAR {fmt(a.repaidAmount)}</td>
                                         <td className="table-cell">SAR {fmt(a.balance)}</td>
@@ -514,22 +540,22 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             <AnimatePresence>
                 {payAdvanceOpen && (
                     <Modal
-                        title={<div className="ps-modal-title"><ArrowLeftRight className="ps-title-icon" size={18} /><span>Pay Salary Advance</span></div>}
+                        title={<div className="ps-modal-title"><ArrowLeftRight className="ps-title-icon" size={18} /><span>{t('adv.modal.payTitle')}</span></div>}
                         onClose={() => setPayAdvanceOpen(false)}
                         width="500px"
                         contentClassName="modal-content-advance"
                         footer={
                             <div className="ps-modal-footer">
-                                <button type="button" className="btn-ps-cancel" onClick={() => setPayAdvanceOpen(false)}>Cancel</button>
+                                <button type="button" className="btn-ps-cancel" onClick={() => setPayAdvanceOpen(false)}>{t('adv.modal.cancel')}</button>
                                 <button type="button" className="btn-ps-pay" disabled={submitting} onClick={submitAdvance}>
-                                    Pay & Post to {controlAccount?.code ?? '1250'}
+                                    {t('adv.modal.payPost', { code: controlCode })}
                                 </button>
                             </div>
                         }
                     >
                         <div className="ps-form">
                             <div className="ps-field">
-                                <label>Employee *</label>
+                                <label>{t('adv.field.employee')}</label>
                                 <div className="ps-select-wrapper">
                                     <select
                                         value={advanceForm.employeeSelectKey}
@@ -538,7 +564,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                             setAdvanceForm((p) => ({ ...p, ...picked }));
                                         }}
                                     >
-                                        <option value="">Select employee</option>
+                                        <option value="">{t('adv.field.selectEmployee')}</option>
                                         {payableEmployees.map((e) => {
                                             const selectKey = workshopStaffSelectValue(e);
                                             return (
@@ -553,11 +579,11 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                             </div>
                             <div className="ps-row">
                                 <div className="ps-field">
-                                    <label>Amount (SAR) *</label>
+                                    <label>{t('adv.field.amount')}</label>
                                     <input type="number" value={advanceForm.amount} onChange={(e) => setAdvanceForm((p) => ({ ...p, amount: e.target.value }))} placeholder="0.00" />
                                 </div>
                                 <div className="ps-field">
-                                    <label>Date *</label>
+                                    <label>{t('adv.field.date')}</label>
                                     <div className="ps-date-input">
                                         <input type="date" value={advanceForm.date} onChange={(e) => setAdvanceForm((p) => ({ ...p, date: e.target.value }))} />
                                         <Calendar size={16} />
@@ -565,10 +591,10 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                 </div>
                             </div>
                             <div className="ps-field">
-                                <label>Pay From (Cash / Bank) *</label>
+                                <label>{t('adv.field.payFrom')}</label>
                                 <div className="ps-select-wrapper">
                                     <select value={advanceForm.payFromAccountId} onChange={(e) => setAdvanceForm((p) => ({ ...p, payFromAccountId: e.target.value }))}>
-                                        <option value="">Select account</option>
+                                        <option value="">{t('adv.field.selectAccount')}</option>
                                         {cashBankAccounts.map((a) => (
                                             <option key={String(a.id)} value={String(a.id)}>{a.name}</option>
                                         ))}
@@ -577,11 +603,11 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                 </div>
                             </div>
                             <div className="ps-field">
-                                <label>Reason</label>
-                                <textarea value={advanceForm.reason} onChange={(e) => setAdvanceForm((p) => ({ ...p, reason: e.target.value }))} placeholder="Purpose of advance..." rows={3} />
+                                <label>{t('adv.field.reason')}</label>
+                                <textarea value={advanceForm.reason} onChange={(e) => setAdvanceForm((p) => ({ ...p, reason: e.target.value }))} placeholder={t('adv.field.reasonPh')} rows={3} />
                             </div>
                             <p className="form-help-text" style={{ fontSize: 12, color: '#64748B' }}>
-                                Posts Dr employee receivable (under {controlAccount?.code ?? '1250'}) · Cr pay-from account
+                                {t('adv.help.post', { code: controlCode })}
                             </p>
                         </div>
                     </Modal>
@@ -589,26 +615,26 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
 
                 {bulkAdvanceOpen && (
                     <Modal
-                        title={<div className="ps-modal-title"><Users className="ps-title-icon" size={18} /><span>Bulk Pay Advances</span></div>}
+                        title={<div className="ps-modal-title"><Users className="ps-title-icon" size={18} /><span>{t('adv.modal.bulkTitle')}</span></div>}
                         onClose={() => setBulkAdvanceOpen(false)}
                         width="1100px"
                         contentClassName="modal-content-bulk"
                         footer={
                             <div className="ps-modal-footer">
-                                <button type="button" className="btn-ps-cancel" onClick={() => setBulkAdvanceOpen(false)}>Cancel</button>
+                                <button type="button" className="btn-ps-cancel" onClick={() => setBulkAdvanceOpen(false)}>{t('adv.modal.cancel')}</button>
                                 <button type="button" className="btn-ps-pay btn-gold" disabled={submitting} onClick={submitBulkAdvances}>
-                                    Pay {bulkAdvanceRows.length} Advance(s)
+                                    {t('adv.modal.payN', { n: bulkAdvanceRows.length })}
                                 </button>
                             </div>
                         }
                     >
                         <div className="bulk-form">
                             <div className="bulk-table-header">
-                                <div className="bulk-col-emp">Employee *</div>
-                                <div className="bulk-col-amt">Amount *</div>
-                                <div className="bulk-col-date">Date *</div>
-                                <div className="bulk-col-from">Pay From *</div>
-                                <div className="bulk-col-reason">Reason</div>
+                                <div className="bulk-col-emp">{t('adv.bulk.employee')}</div>
+                                <div className="bulk-col-amt">{t('adv.bulk.amount')}</div>
+                                <div className="bulk-col-date">{t('adv.bulk.date')}</div>
+                                <div className="bulk-col-from">{t('adv.bulk.payFrom')}</div>
+                                <div className="bulk-col-reason">{t('adv.bulk.reason')}</div>
                                 <div className="bulk-col-actions" />
                             </div>
                             <div className="bulk-table-rows">
@@ -624,7 +650,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                                     setBulkAdvanceRows(x);
                                                 }}
                                             >
-                                                <option value="">Select...</option>
+                                                <option value="">{t('adv.field.select')}</option>
                                                 {payableEmployees.map((e) => {
                                                     const selectKey = workshopStaffSelectValue(e);
                                                     return (
@@ -647,7 +673,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                         </div>
                                         <div className="ps-select-wrapper bulk-col-from">
                                             <select value={row.payFromAccountId} onChange={(e) => { const x = [...bulkAdvanceRows]; x[idx].payFromAccountId = e.target.value; setBulkAdvanceRows(x); }}>
-                                                <option value="">Select...</option>
+                                                <option value="">{t('adv.field.select')}</option>
                                                 {cashBankAccounts.map((a) => (
                                                     <option key={String(a.id)} value={String(a.id)}>{a.name}</option>
                                                 ))}
@@ -655,7 +681,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                             <ChevronDown size={14} className="ps-select-icon" />
                                         </div>
                                         <div className="bulk-col-reason">
-                                            <input type="text" value={row.reason} onChange={(e) => { const x = [...bulkAdvanceRows]; x[idx].reason = e.target.value; setBulkAdvanceRows(x); }} placeholder="Reason..." />
+                                            <input type="text" value={row.reason} onChange={(e) => { const x = [...bulkAdvanceRows]; x[idx].reason = e.target.value; setBulkAdvanceRows(x); }} placeholder={t('adv.field.reasonShortPh')} />
                                         </div>
                                         <div className="bulk-col-actions">
                                             <button type="button" className="btn-row-remove" onClick={() => setBulkAdvanceRows(bulkAdvanceRows.length > 1 ? bulkAdvanceRows.filter((r) => r.id !== row.id) : bulkAdvanceRows)}>
@@ -666,7 +692,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                 ))}
                             </div>
                             <button type="button" className="btn-add-row" onClick={() => setBulkAdvanceRows([...bulkAdvanceRows, makeAdvanceRow()])}>
-                                <Plus size={14} /> Add Row
+                                <Plus size={14} /> {t('adv.bulk.addRow')}
                             </button>
                         </div>
                     </Modal>

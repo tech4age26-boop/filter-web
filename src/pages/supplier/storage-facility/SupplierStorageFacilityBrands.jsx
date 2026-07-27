@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { ArrowLeft, Plus, Boxes, ChevronRight } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
@@ -7,10 +7,18 @@ import {
     useStorageFacilityApi,
     useStorageFacilityPortal,
 } from './StorageFacilityPortalContext';
+import { sfT } from '../../../utils/storageFacilityI18n';
 import '../../../styles/admin/AccountingPage.css';
 
 export default function SupplierStorageFacilityBrands() {
     const navigate = useNavigate();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sfT(locale, key, vars), [locale]);
+
     const { routeBase, parentRoute, supplierName, isOwner } = useStorageFacilityPortal();
     const sfApi = useStorageFacilityApi();
     const [rows, setRows] = useState([]);
@@ -34,12 +42,12 @@ export default function SupplierStorageFacilityBrands() {
             const res = await sfApi.listStorageBrands();
             setRows(Array.isArray(res?.brands) ? res.brands : []);
         } catch (e) {
-            setErr(e?.message || 'Failed to load brands');
+            setErr(e?.message || t('brands.errLoad'));
             setRows([]);
         } finally {
             setLoading(false);
         }
-    }, [sfApi]);
+    }, [sfApi, t]);
 
     useEffect(() => {
         load();
@@ -65,7 +73,7 @@ export default function SupplierStorageFacilityBrands() {
             setForm({ name: '', code: '', contactPerson: '', email: '', mobile: '' });
             await load();
         } catch (ex) {
-            window.alert(ex?.message || 'Could not create brand');
+            window.alert(ex?.message || t('brands.errCreate'));
         } finally {
             setSaving(false);
         }
@@ -88,26 +96,22 @@ export default function SupplierStorageFacilityBrands() {
                     style={{ marginBottom: 12 }}
                     onClick={() => navigate(parentRoute)}
                 >
-                    <ArrowLeft size={14} /> All suppliers
+                    <ArrowLeft size={14} /> {t('brands.backSuppliers')}
                 </button>
             ) : null}
 
             <header className="mgr-si-header">
                 <div className="mgr-si-header-top">
                     <h2 className="mgr-si-title" style={{ margin: 0 }}>
-                        {supplierName ? supplierName : 'Storage Facility'}
+                        {supplierName ? supplierName : t('brands.titleFallback')}
                     </h2>
                     {isOwner ? (
                         <button type="button" className="mgr-si-btn-new" onClick={() => setModalOpen(true)}>
-                            <Plus size={16} /> Add brand
+                            <Plus size={16} /> {t('brands.add')}
                         </button>
                     ) : null}
                 </div>
-                <p className="mgr-si-subtitle">
-                    Sub-warehouses for brands (Castrol, Shell, Fuchs, etc.). Each brand has isolated
-                    products, stock, movements, and AR. Withdrawal invoices can map stock into your main
-                    warehouse catalog.
-                </p>
+                <p className="mgr-si-subtitle">{t('brands.subtitle')}</p>
             </header>
 
             {err ? <div className="mgr-si-error">{err}</div> : null}
@@ -115,7 +119,7 @@ export default function SupplierStorageFacilityBrands() {
             <div style={{ marginBottom: 16 }}>
                 <input
                     className="mgr-si-search-input"
-                    placeholder="Search brands…"
+                    placeholder={t('brands.search')}
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
                     style={{ maxWidth: 360 }}
@@ -131,11 +135,11 @@ export default function SupplierStorageFacilityBrands() {
                     <table className="mgr-si-table">
                         <thead>
                             <tr className="table-header-row">
-                                <th className="table-th">Brand</th>
-                                <th className="table-th">Products</th>
-                                <th className="table-th">Total qty</th>
-                                <th className="table-th">AR balance</th>
-                                <th className="table-th">Users</th>
+                                <th className="table-th">{t('brands.th.brand')}</th>
+                                <th className="table-th">{t('brands.th.products')}</th>
+                                <th className="table-th">{t('brands.th.qty')}</th>
+                                <th className="table-th">{t('brands.th.ar')}</th>
+                                <th className="table-th">{t('brands.th.users')}</th>
                                 <th className="table-th" />
                             </tr>
                         </thead>
@@ -151,7 +155,7 @@ export default function SupplierStorageFacilityBrands() {
                                                 display: 'block',
                                             }}
                                         />
-                                        No storage brands yet. Add Castrol, Shell, or any lessee.
+                                        {t('brands.empty')}
                                     </td>
                                 </tr>
                             ) : (
@@ -166,7 +170,9 @@ export default function SupplierStorageFacilityBrands() {
                                         <td className="table-cell">{b.productCount}</td>
                                         <td className="table-cell">{b.totalQty}</td>
                                         <td className="table-cell mgr-si-cell-balance">
-                                            SAR {Number(b.arBalance || 0).toLocaleString()}
+                                            {t('money.sar', {
+                                                amount: Number(b.arBalance || 0).toLocaleString(),
+                                            })}
                                         </td>
                                         <td className="table-cell">{b.userCount}</td>
                                         <td className="table-cell">
@@ -181,21 +187,21 @@ export default function SupplierStorageFacilityBrands() {
             </div>
 
             {modalOpen ? (
-                <Modal title="Add storage brand" onClose={() => !saving && setModalOpen(false)}>
+                <Modal title={t('brands.modal.title')} onClose={() => !saving && setModalOpen(false)}>
                     <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         <label>
-                            Brand name *
+                            {t('brands.label.name')}
                             <input
                                 className="mgr-si-search-input"
                                 style={{ width: '100%', marginTop: 4 }}
                                 value={form.name}
                                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                                placeholder="e.g. Castrol"
+                                placeholder={t('brands.ph.name')}
                                 required
                             />
                         </label>
                         <label>
-                            Code
+                            {t('brands.label.code')}
                             <input
                                 className="mgr-si-search-input"
                                 style={{ width: '100%', marginTop: 4 }}
@@ -204,7 +210,7 @@ export default function SupplierStorageFacilityBrands() {
                             />
                         </label>
                         <label>
-                            Contact
+                            {t('brands.label.contact')}
                             <input
                                 className="mgr-si-search-input"
                                 style={{ width: '100%', marginTop: 4 }}
@@ -215,7 +221,7 @@ export default function SupplierStorageFacilityBrands() {
                             />
                         </label>
                         <button type="submit" className="mgr-si-btn-new" disabled={saving}>
-                            {saving ? 'Saving…' : 'Create brand'}
+                            {saving ? t('brands.btn.saving') : t('brands.btn.create')}
                         </button>
                     </form>
                 </Modal>

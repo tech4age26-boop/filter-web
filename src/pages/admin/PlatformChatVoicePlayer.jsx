@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 import { fetchPlatformChatVoiceBlob } from '../../services/platformChatApi';
+import { pcT } from '../../utils/platformChatI18n';
 
 function formatAudioTime(sec) {
     if (!Number.isFinite(sec) || sec < 0) return '0:00';
@@ -29,7 +30,10 @@ export default function PlatformChatVoicePlayer({
     isSelf = false,
     className = '',
     onPlayed,
+    locale = 'en',
+    t: tProp,
 }) {
+    const t = tProp || ((key, vars) => pcT(locale, key, vars));
     const audioRef = useRef(null);
     const [src, setSrc] = useState(null);
     const [error, setError] = useState(false);
@@ -139,11 +143,11 @@ export default function PlatformChatVoicePlayer({
     }, [src]);
 
     if (error) {
-        return <span className="pc-voice-player pc-voice-player--error">Voice unavailable</span>;
+        return <span className="pc-voice-player pc-voice-player--error">{t('voice.unavailable')}</span>;
     }
 
     if (loading) {
-        return <span className="pc-voice-player pc-voice-player--loading">Loading…</span>;
+        return <span className="pc-voice-player pc-voice-player--loading">{t('voice.loading')}</span>;
     }
 
     const displayTime = playing || current > 0 ? formatAudioTime(current) : formatAudioTime(duration);
@@ -157,7 +161,7 @@ export default function PlatformChatVoicePlayer({
                 type="button"
                 className="pc-voice-player__play"
                 onClick={togglePlay}
-                aria-label={playing ? 'Pause voice message' : 'Play voice message'}
+                aria-label={playing ? t('voice.pauseMsg') : t('voice.playMsg')}
             >
                 {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
             </button>

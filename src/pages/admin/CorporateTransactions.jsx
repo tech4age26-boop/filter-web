@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Loader2, RefreshCw, FileText, ChevronLeft, ChevronRight, Printer } from 'lucide-react';
 import '../../styles/admin/SalesOrders.css';
 import Modal from '../../components/Modal';
@@ -16,16 +17,19 @@ import {
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import { ExportMenu, DateTimeRange } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
+import { ctT } from '../../utils/corporateTransactionsI18n';
 
 // Upper bound for the one-shot "export everything matching the filters" fetch.
 const EXPORT_LIMIT = 5000;
 const round2 = (n) => Number(Number(n ?? 0).toFixed(2));
 
-const num = (v) =>
-    `SAR ${Number(v ?? 0).toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    })}`;
+const num = (v, t) =>
+    t('money.sar', {
+        amount: Number(v ?? 0).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }),
+    });
 
 function formatDate(raw) {
     if (!raw) return '—';
@@ -64,18 +68,18 @@ function formatStatusLabel(status) {
         .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function orderTypeLabel(source) {
+function orderTypeLabel(source, t) {
     const src = String(source ?? '').toLowerCase();
-    if (src === 'walk_in_corporate') return 'Walk-in Corporate';
-    if (src === 'corporate_app') return 'Corporate Booking';
-    return 'Corporate';
+    if (src === 'walk_in_corporate') return t('orderType.walkIn');
+    if (src === 'corporate_app') return t('orderType.booking');
+    return t('orderType.corporate');
 }
 
 /** Build {headers, rows} mirroring the on-screen table — used for PDF/Excel export. */
-function buildCorporateExportRows(list) {
+function buildCorporateExportRows(list, t) {
     const headers = [
-        'Invoice Date', 'Invoice No', 'Customer', 'Order Type',
-        'Workshop', 'Branch', 'Status', 'Invoice Amount', 'Receipt Amount', 'Balance',
+        t('th.invoiceDate'), t('th.invoiceNo'), t('th.customer'), t('th.orderType'),
+        t('filter.workshop'), t('filter.branch'), t('th.status'), t('th.invoiceAmount'), t('th.receiptAmount'), t('th.balance'),
     ];
     const rows = (list || []).map((r) => {
         const total = Number(r.totalAmount ?? r.grandTotal ?? 0);
@@ -85,12 +89,12 @@ function buildCorporateExportRows(list) {
         const realBalance = r.realBalance != null ? Number(r.realBalance) : Number(r.balance ?? 0);
         const realStatus = String(r.realPaymentStatus ?? r.paymentStatus ?? '').toLowerCase();
         const statusLabel = realStatus === 'paid' || realBalance <= 0.01
-            ? 'Paid'
-            : realStatus === 'partial' || realPaid > 0.01 ? 'Partially Paid' : 'Not Paid';
+            ? t('status.paid')
+            : realStatus === 'partial' || realPaid > 0.01 ? t('status.partial') : t('status.notPaid');
         const src = String(r.orderSource ?? '').toLowerCase();
         const orderType = src === 'walk_in_corporate'
-            ? 'Walk-in Corporate'
-            : src === 'corporate_app' ? 'Corporate Booking' : 'Corporate';
+            ? t('orderType.walkIn')
+            : src === 'corporate_app' ? t('orderType.booking') : t('orderType.corporate');
         return [
             formatDate(r.invoiceDate ?? r.invoice_date ?? r.createdAt),
             r.invoiceNo ?? r.invoice_no ?? '—',
@@ -131,6 +135,13 @@ function normalizeInvoiceForModal(invoice) {
 }
 
 export default function CorporateTransactions() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => ctT(locale, key, vars), [locale]);
+
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1); // 1-indexed for display convenience
@@ -197,14 +208,14 @@ export default function CorporateTransactions() {
             setTotal(Number(res?.total) || list.length);
             setSummary(res?.summary ?? null);
         } catch (e) {
-            setError(e?.message || 'Could not load invoices');
+            setError(e?.message || t('err.load'));
             setRows([]);
             setTotal(0);
             setSummary(null);
         } finally {
             setLoading(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo, debouncedSearch, page]);
+    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo, debouncedSearch, page, t]);
 
     useEffect(() => {
         void load();
@@ -224,7 +235,7 @@ export default function CorporateTransactions() {
                 const res = await getSuperAdminCorporateCompanies({ workshopId: selectedWorkshopId || undefined });
                 const list = Array.isArray(res?.companies) ? res.companies : [];
                 if (!cancelled) {
-                    setCompanyOptions(list.map((c) => ({ id: String(c.id), name: String(c.companyName || '').trim() || 'Company' })));
+                    setCompanyOptions(list.map((c) => ({ id: String(c.id), name: String(c.companyName || '').trim() || t('fallback.company') })));
                     setSelectedCompanyId('');
                 }
             } catch {
@@ -232,7 +243,7 @@ export default function CorporateTransactions() {
             }
         })();
         return () => { cancelled = true; };
-    }, [selectedWorkshopId]);
+    }, [selectedWorkshopId, t]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -251,7 +262,7 @@ export default function CorporateTransactions() {
                             : [];
                 if (!cancelled) {
                     setWorkshopOptions(
-                        list.map((w) => ({ id: String(w.id), name: String(w.name || '').trim() || 'Workshop' })),
+                        list.map((w) => ({ id: String(w.id), name: String(w.name || '').trim() || t('fallback.workshop') })),
                     );
                 }
             } catch {
@@ -261,7 +272,7 @@ export default function CorporateTransactions() {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [t]);
 
     // Branches for the selected workshop.
     useEffect(() => {
@@ -281,7 +292,7 @@ export default function CorporateTransactions() {
                         : [];
                 if (!cancelled) {
                     setBranchOptions(
-                        list.map((b) => ({ id: String(b.id), name: String(b.name || '').trim() || 'Branch' })),
+                        list.map((b) => ({ id: String(b.id), name: String(b.name || '').trim() || t('fallback.branch') })),
                     );
                     setSelectedBranchId('');
                 }
@@ -295,7 +306,7 @@ export default function CorporateTransactions() {
         return () => {
             cancelled = true;
         };
-    }, [selectedWorkshopId]);
+    }, [selectedWorkshopId, t]);
 
     // Export the FULL filtered set (not just the current page): one bounded
     // re-fetch with the active filters (including server-side search).
@@ -318,20 +329,20 @@ export default function CorporateTransactions() {
             const all = Array.isArray(res?.invoices) ? res.invoices
                 : Array.isArray(res?.items) ? res.items
                 : Array.isArray(res) ? res : [];
-            const { headers, rows: outRows } = buildCorporateExportRows(all);
-            const subtitle = `${outRows.length} row(s)`
+            const { headers, rows: outRows } = buildCorporateExportRows(all, t);
+            const subtitle = t('export.rows', { n: outRows.length })
                 + (dateFrom || dateTo ? ` · ${dateFrom || '…'} → ${dateTo || '…'}` : '');
             if (kind === 'pdf') {
-                exportRowsToPdf({ title: 'Corporate Transactions', subtitle, headers, rows: outRows, filenameBase: 'corporate-transactions' });
+                exportRowsToPdf({ title: t('export.title'), subtitle, headers, rows: outRows, filenameBase: 'corporate-transactions' });
             } else {
-                exportRowsToExcel({ sheetName: 'Corporate Transactions', headers, rows: outRows, filenameBase: 'corporate-transactions' });
+                exportRowsToExcel({ sheetName: t('export.sheet'), headers, rows: outRows, filenameBase: 'corporate-transactions' });
             }
         } catch (e) {
-            setError(e?.message || 'Export failed');
+            setError(e?.message || t('err.export'));
         } finally {
             setExporting(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo, debouncedSearch]);
+    }, [selectedWorkshopId, selectedBranchId, selectedCompanyId, dateFrom, dateTo, debouncedSearch, t]);
 
     // KPI totals — server `summary` spans ALL pages for the active filters + search.
     const { totalBilled, totalCollected, totalOutstanding, kpiCount } = useMemo(() => {
@@ -375,11 +386,11 @@ export default function CorporateTransactions() {
                     : res;
             setDetailData(payload && typeof payload === 'object' ? payload : null);
         } catch (e) {
-            setDetailError(e?.message || 'Could not load transaction details');
+            setDetailError(e?.message || t('err.detail'));
         } finally {
             setDetailLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const closeDetails = useCallback(() => {
         setDetailRow(null);
@@ -398,7 +409,7 @@ export default function CorporateTransactions() {
             const inv = raw?.invoice ?? raw?.data?.invoice ?? raw?.data ?? raw;
             setInvoice(normalizeInvoiceForModal(inv));
         } catch (e) {
-            setInvoiceErr(e?.message || 'Could not load invoice');
+            setInvoiceErr(e?.message || t('err.invoice'));
         } finally {
             setInvoiceLoading(false);
         }
@@ -421,10 +432,10 @@ export default function CorporateTransactions() {
             <header style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                 <div>
                     <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>
-                        Corporate Transactions
+                        {t('page.title')}
                     </h1>
                     <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.875rem' }}>
-                        All invoices across workshops — paid, unpaid, partial, and overdue. Filter by workshop / branch.
+                        {t('page.subtitle')}
                     </p>
                 </div>
                 <div style={{ display: 'inline-flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -433,6 +444,7 @@ export default function CorporateTransactions() {
                         onExcel={() => runExport('excel')}
                         busy={exporting}
                         disabled={loading}
+                        locale={locale}
                     />
                     <button
                         type="button"
@@ -451,21 +463,21 @@ export default function CorporateTransactions() {
                             fontWeight: 600,
                         }}
                     >
-                        <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                        <RefreshCw size={14} className={loading ? 'spin' : ''} /> {t('btn.refresh')}
                     </button>
                 </div>
             </header>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-                <KpiCard label="Invoices" value={loading ? '—' : Number(kpiCount).toLocaleString()} accent="#0f172a" />
-                <KpiCard label="Total Billed" value={loading ? '—' : num(totalBilled)} accent="#0f172a" />
-                <KpiCard label="Collected" value={loading ? '—' : num(totalCollected)} accent="#15803d" />
-                <KpiCard label="Outstanding" value={loading ? '—' : num(totalOutstanding)} accent={totalOutstanding > 0 ? '#b91c1c' : '#15803d'} />
+                <KpiCard label={t('kpi.invoices')} value={loading ? '—' : Number(kpiCount).toLocaleString()} accent="#0f172a" />
+                <KpiCard label={t('kpi.totalBilled')} value={loading ? '—' : num(totalBilled, t)} accent="#0f172a" />
+                <KpiCard label={t('kpi.collected')} value={loading ? '—' : num(totalCollected, t)} accent="#15803d" />
+                <KpiCard label={t('kpi.outstanding')} value={loading ? '—' : num(totalOutstanding, t)} accent={totalOutstanding > 0 ? '#b91c1c' : '#15803d'} />
             </div>
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'flex-end' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 200 }}>
-                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Workshop</label>
+                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>{t('filter.workshop')}</label>
                     <select
                         value={selectedWorkshopId}
                         onChange={(e) => setSelectedWorkshopId(e.target.value)}
@@ -478,14 +490,14 @@ export default function CorporateTransactions() {
                             minWidth: 200,
                         }}
                     >
-                        <option value="">All workshops</option>
+                        <option value="">{t('filter.allWorkshops')}</option>
                         {workshopOptions.map((w) => (
                             <option key={w.id} value={w.id}>{w.name}</option>
                         ))}
                     </select>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 200 }}>
-                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Branch</label>
+                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>{t('filter.branch')}</label>
                     <select
                         value={selectedBranchId}
                         onChange={(e) => setSelectedBranchId(e.target.value)}
@@ -499,16 +511,16 @@ export default function CorporateTransactions() {
                             minWidth: 200,
                             opacity: selectedWorkshopId ? 1 : 0.6,
                         }}
-                        title={selectedWorkshopId ? '' : 'Select a workshop first'}
+                        title={selectedWorkshopId ? '' : t('filter.selectWorkshopFirst')}
                     >
-                        <option value="">All branches</option>
+                        <option value="">{t('filter.allBranches')}</option>
                         {branchOptions.map((b) => (
                             <option key={b.id} value={b.id}>{b.name}</option>
                         ))}
                     </select>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 200 }}>
-                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Company</label>
+                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>{t('filter.company')}</label>
                     <select
                         value={selectedCompanyId}
                         onChange={(e) => setSelectedCompanyId(e.target.value)}
@@ -521,7 +533,7 @@ export default function CorporateTransactions() {
                             minWidth: 200,
                         }}
                     >
-                        <option value="">All companies</option>
+                        <option value="">{t('filter.allCompanies')}</option>
                         {companyOptions.map((c) => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
@@ -533,12 +545,13 @@ export default function CorporateTransactions() {
                     onFrom={setDateFrom}
                     onTo={setDateTo}
                     onClear={() => { setDateFrom(''); setDateTo(''); }}
+                    locale={locale}
                 />
                 <input
                     type="search"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search company, invoice no, method, amount…"
+                    placeholder={t('search.placeholder')}
                     style={{
                         flex: 1,
                         minWidth: 240,
@@ -558,7 +571,7 @@ export default function CorporateTransactions() {
 
             {invoiceErr ? (
                 <div style={{ padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 10, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Invoice view failed: {invoiceErr}</span>
+                    <span>{t('err.invoiceView', { msg: invoiceErr })}</span>
                     <button type="button" onClick={() => setInvoiceErr('')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#991b1b', fontWeight: 700 }}>×</button>
                 </div>
             ) : null}
@@ -571,6 +584,7 @@ export default function CorporateTransactions() {
                     cellTd={cellTd}
                     detailLoadingId={detailLoading ? String(detailRow?.id ?? '') : ''}
                     onOpenDetails={openDetails}
+                    t={t}
                 />
                 <PaginationBar
                     page={page}
@@ -580,6 +594,7 @@ export default function CorporateTransactions() {
                     rowsThisPage={rows.length}
                     onChange={(next) => setPage(Math.max(1, Math.min(totalPages, next)))}
                     disabled={loading}
+                    t={t}
                 />
             </div>
 
@@ -592,6 +607,7 @@ export default function CorporateTransactions() {
                     invoiceLoading={invoiceLoading}
                     onClose={closeDetails}
                     onViewInvoice={openTaxInvoice}
+                    t={t}
                 />
             ) : null}
 
@@ -635,20 +651,20 @@ function KpiCard({ label, value, accent = '#0f172a' }) {
  *    balance ≈ 0            → Paid (green)
  *    paid > 0 & balance > 0 → Partially Paid (amber)
  *    paid ≈ 0               → Not Paid (red)  */
-function PaidStatusBadge({ paid = 0, balance = 0 }) {
+function PaidStatusBadge({ paid = 0, balance = 0, t }) {
     const EPS = 0.01;
     const p = Number(paid) || 0;
     const b = Number(balance) || 0;
     let label;
     let style;
     if (b <= EPS) {
-        label = 'Paid';
+        label = t('status.paid');
         style = { bg: '#dcfce7', fg: '#166534' };          // green
     } else if (p > EPS) {
-        label = 'Partially Paid';
+        label = t('status.partial');
         style = { bg: '#fef3c7', fg: '#92400e' };          // amber
     } else {
-        label = 'Not Paid';
+        label = t('status.notPaid');
         style = { bg: '#fef2f2', fg: '#991b1b' };          // red
     }
     return (
@@ -675,17 +691,17 @@ function PaidStatusBadge({ paid = 0, balance = 0 }) {
  *  This page is filtered server-side to corporate orders only, so any other
  *  source value falls back to a generic "Corporate" label as a defensive
  *  catch-all (shouldn't appear in normal use). */
-function OrderTypeBadge({ row }) {
+function OrderTypeBadge({ row, t }) {
     const src = String(row.orderSource ?? '').toLowerCase();
 
-    let label = 'Corporate';
+    let label = t('orderType.corporate');
     let style = { bg: '#ecfeff', fg: '#155e75' }; // cyan default
 
     if (src === 'walk_in_corporate') {
-        label = 'Walk-in Corporate';
+        label = t('orderType.walkIn');
         style = { bg: '#ecfeff', fg: '#155e75' }; // cyan
     } else if (src === 'corporate_app') {
-        label = 'Corporate Booking';
+        label = t('orderType.booking');
         style = { bg: '#f5f3ff', fg: '#6b21a8' }; // purple
     }
 
@@ -704,31 +720,31 @@ function OrderTypeBadge({ row }) {
     );
 }
 
-function InvoicesTable({ loading, filtered, cellTh, cellTd, detailLoadingId, onOpenDetails }) {
+function InvoicesTable({ loading, filtered, cellTh, cellTd, detailLoadingId, onOpenDetails, t }) {
     return (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
             <thead>
                 <tr>
-                    <th style={cellTh}>Invoice Date</th>
-                    <th style={cellTh}>Invoice No</th>
-                    <th style={cellTh}>Customer</th>
-                    <th style={cellTh}>Order Type</th>
-                    <th style={cellTh}>Workshop / Branch</th>
-                    <th style={cellTh}>Status</th>
-                    <th style={{ ...cellTh, textAlign: 'right' }}>Invoice amount</th>
-                    <th style={{ ...cellTh, textAlign: 'right' }}>Receipt Amount</th>
-                    <th style={{ ...cellTh, textAlign: 'right' }}>Balance</th>
-                    <th style={{ ...cellTh, textAlign: 'right' }}>Actions</th>
+                    <th style={cellTh}>{t('th.invoiceDate')}</th>
+                    <th style={cellTh}>{t('th.invoiceNo')}</th>
+                    <th style={cellTh}>{t('th.customer')}</th>
+                    <th style={cellTh}>{t('th.orderType')}</th>
+                    <th style={cellTh}>{t('th.workshopBranch')}</th>
+                    <th style={cellTh}>{t('th.status')}</th>
+                    <th style={{ ...cellTh, textAlign: 'right' }}>{t('th.invoiceAmount')}</th>
+                    <th style={{ ...cellTh, textAlign: 'right' }}>{t('th.receiptAmount')}</th>
+                    <th style={{ ...cellTh, textAlign: 'right' }}>{t('th.balance')}</th>
+                    <th style={{ ...cellTh, textAlign: 'right' }}>{t('th.actions')}</th>
                 </tr>
             </thead>
             <tbody>
                 {loading ? (
                     <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
-                        <Loader2 size={18} className="spin" /> Loading…
+                        <Loader2 size={18} className="spin" /> {t('loading')}
                     </td></tr>
                 ) : filtered.length === 0 ? (
                     <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
-                        No invoiced corporate orders for the selected filters.
+                        {t('empty')}
                     </td></tr>
                 ) : filtered.map((r) => {
                     const total = Number(r.totalAmount ?? r.grandTotal ?? 0);
@@ -752,15 +768,15 @@ function InvoicesTable({ loading, filtered, cellTh, cellTd, detailLoadingId, onO
                                         ?? '—'}
                                 </div>
                             </td>
-                            <td style={cellTd}><OrderTypeBadge row={r} /></td>
+                            <td style={cellTd}><OrderTypeBadge row={r} t={t} /></td>
                             <td style={cellTd}>
                                 <div>{r.workshopName ?? r.workshop?.name ?? '—'}</div>
                                 <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{r.branchName ?? r.branch?.name ?? '—'}</div>
                             </td>
-                            <td style={cellTd}><PaidStatusBadge paid={realPaid} balance={realBalance} /></td>
-                            <td style={{ ...cellTd, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{num(total)}</td>
-                            <td style={{ ...cellTd, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#15803d' }}>{num(realPaid)}</td>
-                            <td style={{ ...cellTd, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: realBalance > 0 ? '#b91c1c' : '#94a3b8' }}>{num(realBalance)}</td>
+                            <td style={cellTd}><PaidStatusBadge paid={realPaid} balance={realBalance} t={t} /></td>
+                            <td style={{ ...cellTd, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{num(total, t)}</td>
+                            <td style={{ ...cellTd, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#15803d' }}>{num(realPaid, t)}</td>
+                            <td style={{ ...cellTd, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: realBalance > 0 ? '#b91c1c' : '#94a3b8' }}>{num(realBalance, t)}</td>
                             <td style={{ ...cellTd, textAlign: 'right' }}>
                                 <button
                                     type="button"
@@ -768,7 +784,7 @@ function InvoicesTable({ loading, filtered, cellTh, cellTd, detailLoadingId, onO
                                     disabled={detailLoadingId === String(r.id)}
                                     style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: detailLoadingId === String(r.id) ? 'wait' : 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
                                 >
-                                    {detailLoadingId === String(r.id) ? <Loader2 size={12} className="spin" /> : <FileText size={12} />} View
+                                    {detailLoadingId === String(r.id) ? <Loader2 size={12} className="spin" /> : <FileText size={12} />} {t('btn.view')}
                                 </button>
                             </td>
                         </tr>
@@ -788,6 +804,7 @@ function CorporateTransactionDetailsModal({
     invoiceLoading,
     onClose,
     onViewInvoice,
+    t,
 }) {
     const total = Number(row?.totalAmount ?? data?.totalAmount ?? 0);
     const realPaid = row?.realPaid != null
@@ -797,9 +814,14 @@ function CorporateTransactionDetailsModal({
         ? Number(row.realBalance)
         : Number(row?.balance ?? 0);
 
+    const invNo = data?.invoiceNo || row?.invoiceNo;
+    const modalTitle = invNo
+        ? t('modal.titleWithNo', { no: invNo })
+        : t('modal.title');
+
     return (
         <Modal
-            title={`Corporate transaction${data?.invoiceNo || row?.invoiceNo ? ` — ${data?.invoiceNo ?? row?.invoiceNo}` : ''}`}
+            title={modalTitle}
             onClose={onClose}
             width="min(1100px, 98vw)"
             contentClassName="ws-modal-order-details"
@@ -813,31 +835,31 @@ function CorporateTransactionDetailsModal({
                     <div className="ws-report-table-wrapper">
                         <table className="ws-table">
                             <tbody>
-                                <tr><th>INVOICE NO</th><td>{data.invoiceNo ?? row?.invoiceNo ?? '—'}</td></tr>
+                                <tr><th>{t('modal.invoiceNo')}</th><td>{data.invoiceNo ?? row?.invoiceNo ?? '—'}</td></tr>
                                 <tr>
-                                    <th>INVOICE DATE</th>
+                                    <th>{t('modal.invoiceDate')}</th>
                                     <td>{formatDateTime(data.issuedAt ?? data.invoiceDate ?? row?.invoiceDate)}</td>
                                 </tr>
                                 <tr>
-                                    <th>CORPORATE ACCOUNT</th>
+                                    <th>{t('modal.corporateAccount')}</th>
                                     <td>{row?.corporateAccountName ?? data.customer?.name ?? '—'}</td>
                                 </tr>
                                 <tr>
-                                    <th>ORDER TYPE</th>
-                                    <td>{orderTypeLabel(data.salesOrder?.source ?? row?.orderSource)}</td>
+                                    <th>{t('modal.orderType')}</th>
+                                    <td>{orderTypeLabel(data.salesOrder?.source ?? row?.orderSource, t)}</td>
                                 </tr>
-                                <tr><th>WORKSHOP</th><td>{data.workshopName ?? row?.workshopName ?? '—'}</td></tr>
-                                <tr><th>BRANCH</th><td>{data.branchName ?? row?.branchName ?? '—'}</td></tr>
-                                <tr><th>ORDER #</th><td>{data.salesOrder?.id ?? row?.salesOrderId ?? '—'}</td></tr>
-                                <tr><th>ORDER STATUS</th><td>{formatStatusLabel(data.salesOrder?.status ?? row?.orderStatus)}</td></tr>
+                                <tr><th>{t('modal.workshop')}</th><td>{data.workshopName ?? row?.workshopName ?? '—'}</td></tr>
+                                <tr><th>{t('modal.branch')}</th><td>{data.branchName ?? row?.branchName ?? '—'}</td></tr>
+                                <tr><th>{t('modal.orderNo')}</th><td>{data.salesOrder?.id ?? row?.salesOrderId ?? '—'}</td></tr>
+                                <tr><th>{t('modal.orderStatus')}</th><td>{formatStatusLabel(data.salesOrder?.status ?? row?.orderStatus)}</td></tr>
                                 <tr>
-                                    <th>ORDER CREATED</th>
+                                    <th>{t('modal.orderCreated')}</th>
                                     <td>{formatDateTime(data.salesOrder?.createdAt)}</td>
                                 </tr>
-                                <tr><th>CUSTOMER</th><td>{data.customer?.name ?? '—'}</td></tr>
-                                <tr><th>PHONE</th><td>{data.customer?.mobile ?? row?.customerMobile ?? '—'}</td></tr>
+                                <tr><th>{t('modal.customer')}</th><td>{data.customer?.name ?? '—'}</td></tr>
+                                <tr><th>{t('modal.phone')}</th><td>{data.customer?.mobile ?? row?.customerMobile ?? '—'}</td></tr>
                                 <tr>
-                                    <th>VEHICLE</th>
+                                    <th>{t('modal.vehicle')}</th>
                                     <td>
                                         {data.vehicle?.plateNo ?? row?.plateNo ?? '—'}
                                         {data.vehicle && (data.vehicle.make || data.vehicle.model || data.vehicle.year)
@@ -845,34 +867,34 @@ function CorporateTransactionDetailsModal({
                                             : ''}
                                     </td>
                                 </tr>
-                                <tr><th>SUBTOTAL</th><td>SAR {toNumber(data.subtotal).toLocaleString()}</td></tr>
-                                <tr><th>VAT</th><td>SAR {toNumber(data.vatAmount).toLocaleString()}</td></tr>
-                                <tr><th>DISCOUNT</th><td>SAR {toNumber(data.discountAmount).toLocaleString()}</td></tr>
+                                <tr><th>{t('modal.subtotal')}</th><td>{t('money.sar', { amount: toNumber(data.subtotal).toLocaleString() })}</td></tr>
+                                <tr><th>{t('modal.vat')}</th><td>{t('money.sar', { amount: toNumber(data.vatAmount).toLocaleString() })}</td></tr>
+                                <tr><th>{t('modal.discount')}</th><td>{t('money.sar', { amount: toNumber(data.discountAmount).toLocaleString() })}</td></tr>
                                 <tr>
-                                    <th>TOTAL</th>
-                                    <td className="ws-font-bold">SAR {toNumber(data.totalAmount).toLocaleString()}</td>
+                                    <th>{t('modal.total')}</th>
+                                    <td className="ws-font-bold">{t('money.sar', { amount: toNumber(data.totalAmount).toLocaleString() })}</td>
                                 </tr>
                                 <tr>
-                                    <th>COLLECTED</th>
-                                    <td style={{ color: '#15803d', fontWeight: 700 }}>SAR {realPaid.toLocaleString()}</td>
+                                    <th>{t('modal.collected')}</th>
+                                    <td style={{ color: '#15803d', fontWeight: 700 }}>{t('money.sar', { amount: realPaid.toLocaleString() })}</td>
                                 </tr>
                                 <tr>
-                                    <th>BALANCE</th>
+                                    <th>{t('modal.balance')}</th>
                                     <td style={{ color: realBalance > 0 ? '#b91c1c' : '#64748b', fontWeight: 700 }}>
-                                        SAR {realBalance.toLocaleString()}
+                                        {t('money.sar', { amount: realBalance.toLocaleString() })}
                                     </td>
                                 </tr>
                                 <tr>
-                                    <th>PAYMENT STATUS</th>
-                                    <td><PaidStatusBadge paid={realPaid} balance={realBalance} /></td>
+                                    <th>{t('modal.paymentStatus')}</th>
+                                    <td><PaidStatusBadge paid={realPaid} balance={realBalance} t={t} /></td>
                                 </tr>
                                 <tr>
-                                    <th>PAYMENT METHOD</th>
+                                    <th>{t('modal.paymentMethod')}</th>
                                     <td>{(data.deferredPaymentMethod ?? row?.deferredPaymentMethod ?? '—').toString().replace(/_/g, ' ')}</td>
                                 </tr>
                                 {data.createdBy ? (
                                     <tr>
-                                        <th>CREATED BY</th>
+                                        <th>{t('modal.createdBy')}</th>
                                         <td>
                                             {data.createdBy.name ?? data.createdBy.email ?? '—'}
                                             {data.createdBy.userType ? ` · ${formatStatusLabel(data.createdBy.userType)}` : ''}
@@ -885,16 +907,16 @@ function CorporateTransactionDetailsModal({
 
                     {Array.isArray(data.lineItems) && data.lineItems.length > 0 ? (
                         <div className="ws-report-table-wrapper" style={{ marginTop: 16 }}>
-                            <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Line items</p>
+                            <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('modal.lineItems')}</p>
                             <div className="ws-order-details-table-scroll">
                                 <table className="ws-table">
                                     <thead>
                                         <tr>
-                                            <th>Item</th>
-                                            <th>Department</th>
-                                            <th>Qty</th>
-                                            <th>Unit price</th>
-                                            <th>Line total</th>
+                                            <th>{t('modal.th.item')}</th>
+                                            <th>{t('modal.th.department')}</th>
+                                            <th>{t('modal.th.qty')}</th>
+                                            <th>{t('modal.th.unitPrice')}</th>
+                                            <th>{t('modal.th.lineTotal')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -915,13 +937,13 @@ function CorporateTransactionDetailsModal({
 
                     {Array.isArray(data.payments) && data.payments.length > 0 ? (
                         <div className="ws-report-table-wrapper" style={{ marginTop: 16 }}>
-                            <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Payments</p>
+                            <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('modal.payments')}</p>
                             <table className="ws-table">
                                 <thead>
                                     <tr>
-                                        <th>Method</th>
-                                        <th>Amount (SAR)</th>
-                                        <th>Paid at</th>
+                                        <th>{t('modal.th.method')}</th>
+                                        <th>{t('modal.th.amount')}</th>
+                                        <th>{t('modal.th.paidAt')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -959,7 +981,7 @@ function CorporateTransactionDetailsModal({
                                 fontWeight: 700,
                             }}
                         >
-                            Close
+                            {t('btn.close')}
                         </button>
                         <button
                             type="button"
@@ -980,19 +1002,19 @@ function CorporateTransactionDetailsModal({
                             }}
                         >
                             {invoiceLoading ? <Loader2 size={14} className="spin" /> : <Printer size={14} />}
-                            View invoice
+                            {t('btn.viewInvoice')}
                         </button>
                     </div>
                 </div>
             ) : (
-                <div style={{ color: '#64748b' }}>No details available.</div>
+                <div style={{ color: '#64748b' }}>{t('empty.details')}</div>
             )}
         </Modal>
     );
 }
 
 /** Bottom-of-table pagination: Prev / page indicator / Next + summary. */
-function PaginationBar({ page, totalPages, total, pageSize, rowsThisPage, onChange, disabled }) {
+function PaginationBar({ page, totalPages, total, pageSize, rowsThisPage, onChange, disabled, t }) {
     if (total === 0) return null;
     const firstRow = (page - 1) * pageSize + 1;
     const lastRow  = (page - 1) * pageSize + rowsThisPage;
@@ -1020,8 +1042,13 @@ function PaginationBar({ page, totalPages, total, pageSize, rowsThisPage, onChan
             gap: 12,
         }}>
             <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                Showing <strong>{firstRow}–{lastRow}</strong> of <strong>{total}</strong>
-                {' '}· page <strong>{page}</strong> of <strong>{totalPages}</strong>
+                {t('pagination.showing', {
+                    first: firstRow,
+                    last: lastRow,
+                    total,
+                    page,
+                    totalPages,
+                })}
             </div>
             <div style={{ display: 'inline-flex', gap: 6 }}>
                 <button
@@ -1030,7 +1057,7 @@ function PaginationBar({ page, totalPages, total, pageSize, rowsThisPage, onChan
                     disabled={disabled || page === 1}
                     style={btn(!(disabled || page === 1))}
                 >
-                    « First
+                    {t('pagination.first')}
                 </button>
                 <button
                     type="button"
@@ -1038,7 +1065,7 @@ function PaginationBar({ page, totalPages, total, pageSize, rowsThisPage, onChan
                     disabled={disabled || page === 1}
                     style={btn(!(disabled || page === 1))}
                 >
-                    <ChevronLeft size={12} /> Prev
+                    <ChevronLeft size={12} /> {t('pagination.prev')}
                 </button>
                 <button
                     type="button"
@@ -1046,7 +1073,7 @@ function PaginationBar({ page, totalPages, total, pageSize, rowsThisPage, onChan
                     disabled={disabled || page >= totalPages}
                     style={btn(!(disabled || page >= totalPages))}
                 >
-                    Next <ChevronRight size={12} />
+                    {t('pagination.next')} <ChevronRight size={12} />
                 </button>
                 <button
                     type="button"
@@ -1054,7 +1081,7 @@ function PaginationBar({ page, totalPages, total, pageSize, rowsThisPage, onChan
                     disabled={disabled || page >= totalPages}
                     style={btn(!(disabled || page >= totalPages))}
                 >
-                    Last »
+                    {t('pagination.last')}
                 </button>
             </div>
         </div>

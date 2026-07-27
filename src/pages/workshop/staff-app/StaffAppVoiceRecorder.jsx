@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Mic, Square } from 'lucide-react';
+import { useStaffAppI18n } from '../../../utils/staffAppI18n';
 
 /**
  * Browser voice recorder — encodes short clips as data URLs for chat voice messages.
  */
 export default function StaffAppVoiceRecorder({ onRecorded, onRecordedBlob, disabled = false }) {
+    const { t } = useStaffAppI18n();
     const [recording, setRecording] = useState(false);
     const [seconds, setSeconds] = useState(0);
     const mediaRef = useRef(null);
@@ -51,7 +53,7 @@ export default function StaffAppVoiceRecorder({ onRecorded, onRecordedBlob, disa
             setSeconds(0);
             timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
         } catch (e) {
-            const msg = e?.message || 'Microphone access denied';
+            const msg = e?.message || t('voice.micDenied');
             if (onRecordedBlob) {
                 onRecordedBlob(null, null, msg);
             } else {
@@ -76,7 +78,7 @@ export default function StaffAppVoiceRecorder({ onRecorded, onRecordedBlob, disa
             className={`staff-chat-voice-btn${recording ? ' is-recording' : ''}`}
             onClick={recording ? stopRecording : startRecording}
             disabled={disabled}
-            title={recording ? 'Stop recording' : 'Record voice message'}
+            title={recording ? t('voice.stop') : t('voice.record')}
         >
             {recording ? <Square size={16} /> : <Mic size={16} />}
             {recording ? ` ${seconds}s` : ''}

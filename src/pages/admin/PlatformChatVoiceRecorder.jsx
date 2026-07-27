@@ -4,6 +4,7 @@ import {
     formatRecTime,
     VOICE_REC_PAUSE_SUPPORTED,
 } from '../../utils/platformChatVoiceRecorderUtils';
+import { pcT } from '../../utils/platformChatI18n';
 
 export { formatRecTime, VOICE_REC_PAUSE_SUPPORTED };
 
@@ -34,7 +35,10 @@ export default function PlatformChatVoiceRecorder({
     onActiveChange,
     onRecordedBlob,
     variant = 'mic',
+    locale = 'en',
+    t: tProp,
 }) {
+    const t = tProp || ((key, vars) => pcT(locale, key, vars));
     const [seconds, setSeconds] = useState(0);
     const [paused, setPaused] = useState(false);
     const [hasAudio, setHasAudio] = useState(false);
@@ -146,7 +150,7 @@ export default function PlatformChatVoiceRecorder({
             startTimer();
         } catch (e) {
             resetLocalState();
-            onRecordedBlob?.(null, null, e?.message || 'Microphone access denied');
+            onRecordedBlob?.(null, null, e?.message || t('voice.micDenied'));
             onActiveChange?.(false);
         }
     };
@@ -162,8 +166,8 @@ export default function PlatformChatVoiceRecorder({
                     type="button"
                     className="pc-voice-rec__discard"
                     onClick={() => finishRecording(false)}
-                    title="Cancel recording"
-                    aria-label="Cancel recording"
+                    title={t('voice.cancel')}
+                    aria-label={t('voice.cancel')}
                 >
                     <Trash2 size={20} />
                 </button>
@@ -181,8 +185,8 @@ export default function PlatformChatVoiceRecorder({
                             type="button"
                             className="pc-voice-rec__pause"
                             onClick={resumeRecording}
-                            title="Resume recording"
-                            aria-label="Resume recording"
+                            title={t('voice.resume')}
+                            aria-label={t('voice.resume')}
                         >
                             <Play size={20} />
                         </button>
@@ -191,8 +195,8 @@ export default function PlatformChatVoiceRecorder({
                             type="button"
                             className="pc-voice-rec__pause"
                             onClick={pauseRecording}
-                            title="Pause recording"
-                            aria-label="Pause recording"
+                            title={t('voice.pause')}
+                            aria-label={t('voice.pause')}
                         >
                             <Pause size={20} />
                         </button>
@@ -203,8 +207,8 @@ export default function PlatformChatVoiceRecorder({
                     className="pc-voice-rec__send"
                     onClick={() => finishRecording(true)}
                     disabled={disabled || !hasAudio}
-                    title="Send voice message"
-                    aria-label="Send voice message"
+                    title={t('voice.send')}
+                    aria-label={t('voice.send')}
                 >
                     <Send size={20} />
                 </button>
@@ -218,8 +222,8 @@ export default function PlatformChatVoiceRecorder({
             className="pc-composer-action pc-composer-action--mic"
             onClick={startRecording}
             disabled={disabled}
-            title="Record voice message"
-            aria-label="Record voice message"
+            title={t('voice.record')}
+            aria-label={t('voice.record')}
         >
             <Mic size={22} />
         </button>

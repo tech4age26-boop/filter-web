@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import {
     BookOpen,
     CheckCircle,
@@ -14,17 +14,19 @@ import {
     marketingMatureReferralCommission,
     marketingPayReferralCommission,
 } from '../../services/superAdminMarketingApi';
+import { commT } from '../../utils/commissionsI18n';
 import '../../styles/admin/ReferralCommissionsPage.css';
 
-const fmt = (n) =>
-    new Intl.NumberFormat('en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
-        Number(n || 0),
-    );
+const fmt = (n, locale) =>
+    new Intl.NumberFormat(locale === 'ar' ? 'ar-SA' : 'en-SA', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(Number(n || 0));
 
-const fmtDate = (d) => {
-    if (!d) return '—';
+const fmtDate = (d, locale, dash) => {
+    if (!d) return dash;
     try {
-        return new Date(d).toLocaleDateString('en-GB', {
+        return new Date(d).toLocaleDateString(locale === 'ar' ? 'ar-SA' : 'en-GB', {
             day: '2-digit',
             month: 'short',
             year: 'numeric',
@@ -34,11 +36,11 @@ const fmtDate = (d) => {
     }
 };
 
-function normalizeCommission(row) {
+function normalizeCommission(row, dash) {
     return {
         id: String(row.id ?? ''),
         referralId: String(row.referralId ?? row.referrerId ?? ''),
-        referrerName: row.referrerName ?? row.referrer_name ?? row.referrer ?? '—',
+        referrerName: row.referrerName ?? row.referrer_name ?? row.referrer ?? dash,
         status: String(row.status ?? 'pending').toLowerCase(),
         amount: Number(row.amount ?? 0),
         currencyCode: row.currencyCode ?? row.currency_code ?? 'SAR',
@@ -49,17 +51,17 @@ function normalizeCommission(row) {
     };
 }
 
-function StatCard({ label, value, icon: Icon, tone }) {
+function StatCard({ label, value, icon: Icon, tone, locale }) {
     const tones = {
         amber: { bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' },
         green: { bg: '#F0FDF4', color: '#16A34A', border: '#BBF7D0' },
         indigo: { bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
     };
-    const t = tones[tone] || tones.indigo;
+    const toneStyle = tones[tone] || tones.indigo;
     return (
         <div
             className="stat-card"
-            style={{ borderColor: t.border, background: '#fff' }}
+            style={{ borderColor: toneStyle.border, background: '#fff' }}
         >
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div
@@ -67,8 +69,8 @@ function StatCard({ label, value, icon: Icon, tone }) {
                         width: 44,
                         height: 44,
                         borderRadius: 10,
-                        background: t.bg,
-                        color: t.color,
+                        background: toneStyle.bg,
+                        color: toneStyle.color,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -78,11 +80,17 @@ function StatCard({ label, value, icon: Icon, tone }) {
                 </div>
                 <div>
                     <span className="stat-label">{label}</span>
-                    <span className="stat-value">SAR {fmt(value)}</span>
+                    <span className="stat-value">SAR {fmt(value, locale)}</span>
                 </div>
             </div>
         </div>
     );
+}
+
+function statusLabel(t, status) {
+    const key = `status.${status}`;
+    const translated = t(key);
+    return translated === key ? status : translated;
 }
 
 /**
@@ -90,6 +98,14 @@ function StatCard({ label, value, icon: Icon, tone }) {
  * and HQ GL (Referral Commission Expense / Payable).
  */
 export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => commT(locale, key, vars), [locale]);
+    const dash = t('emdash');
+
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
@@ -146,14 +162,18 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
                 listRes?.data?.commissions ??
                 listRes?.items ??
                 [];
-            setRows(Array.isArray(list) ? list.map(normalizeCommission) : []);
+            setRows(
+                Array.isArray(list)
+                    ? list.map((row) => normalizeCommission(row, dash))
+                    : [],
+            );
         } catch (e) {
-            setError(e?.message || 'Failed to load referral commissions');
+            setError(e?.message || t('err.load'));
             setRows([]);
         } finally {
             setLoading(false);
         }
-    }, [hqWorkshopId, statusFilter]);
+    }, [hqWorkshopId, statusFilter, t, dash]);
 
     useEffect(() => {
         reload();
@@ -171,7 +191,7 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
             await marketingMatureReferralCommission(id);
             await reload();
         } catch (e) {
-            setError(e?.message || 'Could not mature commission');
+            setError(e?.message || t('err.mature'));
         } finally {
             setActionId('');
         }
@@ -184,7 +204,7 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
             await marketingPayReferralCommission(id, { payFrom: 'cash' });
             await reload();
         } catch (e) {
-            setError(e?.message || 'Could not pay commission');
+            setError(e?.message || t('err.pay'));
         } finally {
             setActionId('');
         }
@@ -196,16 +216,17 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
         ['matured', 'approved', 'available'].includes(status);
 
     return (
-        <div className="commissions-page">
+        <div className="commissions-page" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
             <header className="commissions-header">
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
                     <div>
-                        <h2 className="commissions-title">Referral Commission</h2>
+                        <h2 className="commissions-title">{t('title')}</h2>
                         <p className="commissions-subtitle">
-                            Platform HQ referrer payouts — posts to Chart of Accounts (
-                            <strong>6610 Referral Commission Expense</strong> /{' '}
-                            <strong>2210 Referral Commission Payable</strong>). Aligned with Referrer
-                            Portal APIs for future self-service.
+                            {t('subtitle.before')}
+                            <strong>{t('subtitle.expense')}</strong>
+                            {t('subtitle.mid')}
+                            <strong>{t('subtitle.payable')}</strong>
+                            {t('subtitle.after')}
                         </p>
                     </div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -214,14 +235,14 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
                             className="btn-portal-outline"
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                         >
-                            <Users size={14} /> Referrer Management
+                            <Users size={14} /> {t('btn.referrerMgmt')}
                         </Link>
                         <Link
                             to="/referral-management"
                             className="btn-portal-outline"
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                         >
-                            <ExternalLink size={14} /> Referral Portal
+                            <ExternalLink size={14} /> {t('btn.referralPortal')}
                         </Link>
                         <button
                             type="button"
@@ -229,7 +250,7 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
                             onClick={reload}
                             disabled={loading}
                         >
-                            <RefreshCw size={14} style={{ marginRight: 6 }} /> Refresh
+                            <RefreshCw size={14} style={{ marginInlineEnd: 6 }} /> {t('btn.refresh')}
                         </button>
                     </div>
                 </div>
@@ -249,8 +270,7 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
             >
                 <BookOpen size={18} color="#2563EB" style={{ flexShrink: 0, marginTop: 2 }} />
                 <p style={{ margin: 0, fontSize: 13, color: '#1E40AF', lineHeight: 1.5 }}>
-                    Mature pending commissions to accrue expense & payable on HQ books. Pay clears
-                    payable against HQ cash/bank. Same records power the Referrer Portal when launched.
+                    {t('hint.books')}
                 </p>
             </div>
 
@@ -260,22 +280,25 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
 
             <div className="commissions-stats" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
                 <StatCard
-                    label="Pending"
+                    label={t('stat.pending')}
                     value={summary.pendingCommission}
                     icon={Clock}
                     tone="amber"
+                    locale={locale}
                 />
                 <StatCard
-                    label="Available to pay"
+                    label={t('stat.available')}
                     value={summary.availableCommission}
                     icon={CheckCircle}
                     tone="green"
+                    locale={locale}
                 />
                 <StatCard
-                    label="Paid"
+                    label={t('stat.paid')}
                     value={summary.paidCommission}
                     icon={BookOpen}
                     tone="indigo"
+                    locale={locale}
                 />
             </div>
 
@@ -286,10 +309,10 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
                     onChange={(e) => setStatusFilter(e.target.value)}
                     style={{ minWidth: 160 }}
                 >
-                    <option value="all">All statuses</option>
-                    <option value="pending">Pending</option>
-                    <option value="matured">Matured / available</option>
-                    <option value="paid">Paid</option>
+                    <option value="all">{t('filter.all')}</option>
+                    <option value="pending">{t('filter.pending')}</option>
+                    <option value="matured">{t('filter.matured')}</option>
+                    <option value="paid">{t('filter.paid')}</option>
                 </select>
             </div>
 
@@ -297,41 +320,41 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
                 <table className="commissions-table">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Referrer</th>
-                            <th>Description</th>
-                            <th>Amount</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th>{t('th.date')}</th>
+                            <th>{t('th.referrer')}</th>
+                            <th>{t('th.description')}</th>
+                            <th>{t('th.amount')}</th>
+                            <th>{t('th.status')}</th>
+                            <th>{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
                                 <td colSpan={6} style={{ textAlign: 'center', padding: 32 }}>
-                                    Loading…
+                                    {t('loading')}
                                 </td>
                             </tr>
                         ) : filteredRows.length === 0 ? (
                             <tr>
                                 <td colSpan={6} style={{ textAlign: 'center', padding: 48, color: '#6B7280' }}>
-                                    No referral commission records yet.
+                                    {t('empty')}
                                 </td>
                             </tr>
                         ) : (
                             filteredRows.map((row) => (
                                 <tr key={row.id}>
-                                    <td>{fmtDate(row.createdAt)}</td>
+                                    <td>{fmtDate(row.createdAt, locale, dash)}</td>
                                     <td style={{ fontWeight: 600 }}>{row.referrerName}</td>
-                                    <td>{row.description || '—'}</td>
+                                    <td>{row.description || dash}</td>
                                     <td style={{ fontWeight: 700 }}>
-                                        {row.currencyCode} {fmt(row.amount)}
+                                        {row.currencyCode} {fmt(row.amount, locale)}
                                     </td>
                                     <td>
                                         <span
                                             className={`status-badge ${row.status === 'paid' ? 'paid' : 'accrued'}`}
                                         >
-                                            {row.status}
+                                            {statusLabel(t, row.status)}
                                         </span>
                                     </td>
                                     <td>
@@ -343,7 +366,7 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
                                                     disabled={actionId === row.id}
                                                     onClick={() => handleMature(row.id)}
                                                 >
-                                                    Mature
+                                                    {t('btn.mature')}
                                                 </button>
                                             ) : null}
                                             {canPay(row.status) ? (
@@ -353,7 +376,7 @@ export default function HqReferralCommissionsPanel({ hqWorkshopId }) {
                                                     disabled={actionId === row.id}
                                                     onClick={() => handlePay(row.id)}
                                                 >
-                                                    Pay
+                                                    {t('btn.pay')}
                                                 </button>
                                             ) : null}
                                         </div>

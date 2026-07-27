@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import {
     Plus,
     Pencil,
@@ -28,6 +28,7 @@ import {
     getBranches,
 } from '../../services/superAdminApi';
 import { parseEmployeesRoute, employeesRoutes, EMPLOYEES_BASE } from '../../utils/employeesRoutes';
+import { empT, EMP_ROLE_TAB_KEYS } from '../../utils/employeesI18n';
 
 const EMPTY_FORM = {
     name: '',
@@ -41,12 +42,6 @@ const EMPTY_FORM = {
     commissionPercent: '0',
     isActive: true,
 };
-
-const ROLE_TABS = [
-    { id: 'all', label: 'All' },
-    { id: 'cashier', label: 'Cashiers' },
-    { id: 'technician', label: 'Technicians' },
-];
 
 function pickArray(res, keys = []) {
     if (Array.isArray(res)) return res;
@@ -69,12 +64,12 @@ function inferRole(emp) {
 }
 
 /** Human-readable duty label — DB stores workshop | on_call | both */
-function formatTechnicianTypeLabel(value) {
+function formatTechnicianTypeLabel(value, t) {
     const key = String(value ?? '').trim().toLowerCase();
     if (!key) return '';
-    if (key === 'workshop') return 'Workshop';
-    if (key === 'on_call' || key === 'oncall') return 'On call';
-    if (key === 'both') return 'Workshop & on-call';
+    if (key === 'workshop') return t('techType.workshop');
+    if (key === 'on_call' || key === 'oncall') return t('techType.onCall');
+    if (key === 'both') return t('techType.both');
     return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -128,17 +123,17 @@ function SelectField({ value, onChange, disabled, children, className = '' }) {
     );
 }
 
-function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions = [], branchOptions = [] }) {
+function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions = [], branchOptions = [], t }) {
     const set = (field) => (e) => onChange(field, e.target.value);
     const isTechnician = values.role === 'technician';
 
     return (
         <div className="employees-form-layout">
             <section className="employees-form-section">
-                <h2 className="employees-form-section-title">Assignment</h2>
+                <h2 className="employees-form-section-title">{t('section.assignment')}</h2>
                 <div className="employees-form-grid employees-form-grid--3">
                     <div className="form-group">
-                        <label className="form-label">Workshop *</label>
+                        <label className="form-label">{t('label.workshop')}</label>
                         <SelectField
                             value={values.workshopId}
                             onChange={(e) => {
@@ -147,7 +142,7 @@ function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions 
                             }}
                             disabled={isEdit}
                         >
-                            <option value="">Select workshop</option>
+                            <option value="">{t('opt.selectWorkshop')}</option>
                             {workshopOptions.map((w) => (
                                 <option key={w.id} value={w.id}>
                                     {w.name}
@@ -156,13 +151,13 @@ function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions 
                         </SelectField>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Branch *</label>
+                        <label className="form-label">{t('label.branch')}</label>
                         <SelectField
                             value={values.branchId}
                             onChange={set('branchId')}
                             disabled={!values.workshopId}
                         >
-                            <option value="">Select branch</option>
+                            <option value="">{t('opt.selectBranch')}</option>
                             {branchOptions.map((b) => (
                                 <option key={b.id} value={b.id}>
                                     {b.name}
@@ -171,44 +166,44 @@ function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions 
                         </SelectField>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Role *</label>
+                        <label className="form-label">{t('label.role')}</label>
                         <SelectField value={values.role} onChange={set('role')} disabled={isEdit}>
-                            <option value="cashier">Cashier</option>
-                            <option value="technician">Technician</option>
+                            <option value="cashier">{t('role.cashier')}</option>
+                            <option value="technician">{t('role.technician')}</option>
                         </SelectField>
                     </div>
                 </div>
             </section>
 
             <section className="employees-form-section">
-                <h2 className="employees-form-section-title">Profile</h2>
+                <h2 className="employees-form-section-title">{t('section.profile')}</h2>
                 <div className="employees-form-grid employees-form-grid--4">
                     <div className="form-group span-2">
-                        <label className="form-label">Full name *</label>
+                        <label className="form-label">{t('label.name')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Employee name"
+                            placeholder={t('ph.name')}
                             value={values.name}
                             onChange={set('name')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Mobile *</label>
+                        <label className="form-label">{t('label.mobile')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="05XXXXXXXX"
+                            placeholder={t('ph.mobile')}
                             value={values.mobile}
                             onChange={set('mobile')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Email {isTechnician ? '' : '*'}</label>
+                        <label className="form-label">{isTechnician ? t('label.email') : t('label.emailReq')}</label>
                         <input
                             type="email"
                             className="form-input-field"
-                            placeholder="email@example.com"
+                            placeholder={t('ph.email')}
                             autoComplete="off"
                             value={values.email}
                             onChange={set('email')}
@@ -219,20 +214,20 @@ function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions 
 
             {isTechnician ? (
                 <section className="employees-form-section">
-                    <h2 className="employees-form-section-title">Technician settings</h2>
+                    <h2 className="employees-form-section-title">{t('section.tech')}</h2>
                     <div className="employees-form-grid employees-form-grid--3">
                         <div className="form-group">
-                            <label className="form-label">Technician type</label>
+                            <label className="form-label">{t('label.techType')}</label>
                             <SelectField value={values.technicianType} onChange={set('technicianType')}>
-                                <option value="workshop">Workshop</option>
-                                <option value="on_call">On call</option>
+                                <option value="workshop">{t('techType.workshop')}</option>
+                                <option value="on_call">{t('techType.onCall')}</option>
                                 {values.technicianType === 'both' ? (
-                                    <option value="both">Workshop & on-call</option>
+                                    <option value="both">{t('techType.both')}</option>
                                 ) : null}
                             </SelectField>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Commission %</label>
+                            <label className="form-label">{t('label.commission')}</label>
                             <input
                                 type="number"
                                 min="0"
@@ -243,29 +238,29 @@ function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions 
                             />
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Status</label>
+                            <label className="form-label">{t('label.status')}</label>
                             <SelectField
                                 value={values.isActive ? 'active' : 'inactive'}
                                 onChange={(e) => onChange('isActive', e.target.value === 'active')}
                             >
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
+                                <option value="active">{t('status.active')}</option>
+                                <option value="inactive">{t('status.inactive')}</option>
                             </SelectField>
                         </div>
                     </div>
                 </section>
             ) : (
                 <section className="employees-form-section">
-                    <h2 className="employees-form-section-title">Status</h2>
+                    <h2 className="employees-form-section-title">{t('section.status')}</h2>
                     <div className="employees-form-grid employees-form-grid--3">
                         <div className="form-group">
-                            <label className="form-label">Status</label>
+                            <label className="form-label">{t('label.status')}</label>
                             <SelectField
                                 value={values.isActive ? 'active' : 'inactive'}
                                 onChange={(e) => onChange('isActive', e.target.value === 'active')}
                             >
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
+                                <option value="active">{t('status.active')}</option>
+                                <option value="inactive">{t('status.inactive')}</option>
                             </SelectField>
                         </div>
                     </div>
@@ -273,14 +268,18 @@ function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions 
             )}
 
             <section className="employees-form-section">
-                <h2 className="employees-form-section-title">{isEdit ? 'Reset password' : 'Portal login'}</h2>
+                <h2 className="employees-form-section-title">
+                    {isEdit ? t('section.resetPassword') : t('section.portal')}
+                </h2>
                 <div className="employees-form-grid employees-form-grid--3">
                     <div className="form-group">
-                        <label className="form-label">{isEdit ? 'New password' : 'Password *'}</label>
+                        <label className="form-label">
+                            {isEdit ? t('label.newPassword') : t('label.password')}
+                        </label>
                         <input
                             type="password"
                             className="form-input-field"
-                            placeholder={isEdit ? 'Leave blank to keep current' : 'Login password'}
+                            placeholder={isEdit ? t('ph.passwordKeep') : t('ph.password')}
                             autoComplete="new-password"
                             value={values.password}
                             onChange={set('password')}
@@ -288,9 +287,7 @@ function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions 
                     </div>
                 </div>
                 {!isEdit ? (
-                    <p className="employees-form-hint">
-                        Login credentials can be shared with the employee after creation.
-                    </p>
+                    <p className="employees-form-hint">{t('hint.credentials')}</p>
                 ) : null}
             </section>
         </div>
@@ -300,6 +297,13 @@ function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions 
 export default function EmployeesPage() {
     const navigate = useNavigate();
     const location = useLocation();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => empT(locale, key, vars), [locale]);
+
     const route = parseEmployeesRoute(location.pathname);
     const pageMode = Boolean(route);
 
@@ -519,19 +523,19 @@ export default function EmployeesPage() {
 
     const handleSaveCreate = async () => {
         if (!form.name.trim() || !form.workshopId || !form.branchId) {
-            window.alert('Workshop, branch, and name are required.');
+            window.alert(t('err.requiredFields'));
             return;
         }
         if (!form.mobile.trim()) {
-            window.alert('Mobile is required.');
+            window.alert(t('err.mobile'));
             return;
         }
         if (form.role === 'cashier' && !form.email.trim()) {
-            window.alert('Email is required for cashiers.');
+            window.alert(t('err.emailCashier'));
             return;
         }
         if (!form.password.trim()) {
-            window.alert('Password is required.');
+            window.alert(t('err.password'));
             return;
         }
 
@@ -561,7 +565,7 @@ export default function EmployeesPage() {
             await reloadEmployees();
             goBack();
         } catch (err) {
-            window.alert(err?.message || 'Could not create employee');
+            window.alert(err?.message || t('err.create'));
         } finally {
             setSaving(false);
         }
@@ -569,7 +573,7 @@ export default function EmployeesPage() {
 
     const handleSaveEdit = async () => {
         if (!form.name.trim()) {
-            window.alert('Name is required.');
+            window.alert(t('err.name'));
             return;
         }
         setSaving(true);
@@ -595,7 +599,7 @@ export default function EmployeesPage() {
             await reloadEmployees();
             goBack();
         } catch (err) {
-            window.alert(err?.message || 'Could not save changes');
+            window.alert(err?.message || t('err.save'));
         } finally {
             setSaving(false);
         }
@@ -604,34 +608,32 @@ export default function EmployeesPage() {
     if (route?.screen === 'create') {
         return (
             <EmployeesPageShell
-                title="Add Employee"
+                title={t('create.title')}
                 onClose={goBack}
                 footer={
                     <>
                         <button type="button" className="btn-secondary" onClick={goBack}>
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button type="button" className="btn-submit" onClick={handleSaveCreate} disabled={saving}>
                             {saving ? (
                                 <>
-                                    <Loader size={14} className="spin" /> Creating…
+                                    <Loader size={14} className="spin" /> {t('btn.creating')}
                                 </>
                             ) : (
-                                'Create Employee'
+                                t('btn.create')
                             )}
                         </button>
                     </>
                 }
             >
-                <p className="employees-form-lead">
-                    Add a cashier or technician to a workshop branch. They receive portal login for POS or
-                    technician apps.
-                </p>
+                <p className="employees-form-lead">{t('create.lead')}</p>
                 <EmployeeFormFields
                     values={form}
                     onChange={onFormField}
                     workshopOptions={approvedWorkshopOptions}
                     branchOptions={formBranchOptions}
+                    t={t}
                 />
             </EmployeesPageShell>
         );
@@ -640,20 +642,20 @@ export default function EmployeesPage() {
     if (route?.screen === 'edit') {
         return (
             <EmployeesPageShell
-                title="Edit Employee"
+                title={t('edit.title')}
                 onClose={goBack}
                 footer={
                     <>
                         <button type="button" className="btn-secondary" onClick={goBack}>
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button type="button" className="btn-submit" onClick={handleSaveEdit} disabled={saving || editLoading}>
                             {saving ? (
                                 <>
-                                    <Loader size={14} className="spin" /> Saving…
+                                    <Loader size={14} className="spin" /> {t('btn.saving')}
                                 </>
                             ) : (
-                                'Save Changes'
+                                t('btn.save')
                             )}
                         </button>
                     </>
@@ -661,13 +663,17 @@ export default function EmployeesPage() {
             >
                 {editLoading ? (
                     <div className="table-empty">
-                        <Loader size={18} className="spin" /> Loading employee…
+                        <Loader size={18} className="spin" /> {t('loading')}
                     </div>
                 ) : (
                     <>
                         <p className="employees-form-lead">
-                            Update profile, branch assignment, and status for this{' '}
-                            {editMeta.role === 'technician' ? 'technician' : 'cashier'}.
+                            {t('edit.lead', {
+                                role:
+                                    editMeta.role === 'technician'
+                                        ? t('role.technician')
+                                        : t('role.cashier'),
+                            })}
                         </p>
                         <EmployeeFormFields
                             values={form}
@@ -675,6 +681,7 @@ export default function EmployeesPage() {
                             isEdit
                             workshopOptions={approvedWorkshopOptions}
                             branchOptions={formBranchOptions}
+                            t={t}
                         />
                     </>
                 )}
@@ -686,17 +693,15 @@ export default function EmployeesPage() {
         <div className="employees-page module-container">
             <header className="employees-page-header">
                 <div className="employees-page-header-text">
-                    <h1 className="employees-title">Employees</h1>
-                    <p className="employees-subtitle">
-                        Cashiers and technicians across all workshops
-                    </p>
+                    <h1 className="employees-title">{t('page.title')}</h1>
+                    <p className="employees-subtitle">{t('page.subtitle')}</p>
                 </div>
                 <button
                     type="button"
                     className="btn-portal employees-header-add"
                     onClick={() => navigate(employeesRoutes.create())}
                 >
-                    <Plus size={16} /> Add Employee
+                    <Plus size={16} /> {t('btn.add')}
                 </button>
             </header>
 
@@ -706,7 +711,7 @@ export default function EmployeesPage() {
                         <Users size={18} />
                     </span>
                     <div>
-                        <p className="employees-stat-label">Total</p>
+                        <p className="employees-stat-label">{t('stat.total')}</p>
                         <p className="employees-stat-value">{total}</p>
                     </div>
                 </div>
@@ -715,7 +720,7 @@ export default function EmployeesPage() {
                         <UserCheck size={18} />
                     </span>
                     <div>
-                        <p className="employees-stat-label">Active</p>
+                        <p className="employees-stat-label">{t('stat.active')}</p>
                         <p className="employees-stat-value">{activeCount}</p>
                     </div>
                 </div>
@@ -724,7 +729,7 @@ export default function EmployeesPage() {
                         <Wrench size={18} />
                     </span>
                     <div>
-                        <p className="employees-stat-label">Technicians</p>
+                        <p className="employees-stat-label">{t('stat.technicians')}</p>
                         <p className="employees-stat-value">{technicianCount}</p>
                     </div>
                 </div>
@@ -733,7 +738,7 @@ export default function EmployeesPage() {
                         <Building2 size={18} />
                     </span>
                     <div>
-                        <p className="employees-stat-label">Cashiers</p>
+                        <p className="employees-stat-label">{t('stat.cashiers')}</p>
                         <p className="employees-stat-value">{cashierCount}</p>
                     </div>
                 </div>
@@ -744,23 +749,23 @@ export default function EmployeesPage() {
                     <Search size={16} />
                     <input
                         type="text"
-                        placeholder="Search name, mobile, email…"
+                        placeholder={t('search.placeholder')}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
 
-                <div className="employees-segment" role="tablist" aria-label="Filter by role">
-                    {ROLE_TABS.map((t) => (
+                <div className="employees-segment" role="tablist" aria-label={t('filter.roleAria')}>
+                    {EMP_ROLE_TAB_KEYS.map((tab) => (
                         <button
-                            key={t.id}
+                            key={tab.id}
                             type="button"
                             role="tab"
-                            aria-selected={roleFilter === t.id}
-                            className={`employees-segment-btn ${roleFilter === t.id ? 'active' : ''}`}
-                            onClick={() => setRoleFilter(t.id)}
+                            aria-selected={roleFilter === tab.id}
+                            className={`employees-segment-btn ${roleFilter === tab.id ? 'active' : ''}`}
+                            onClick={() => setRoleFilter(tab.id)}
                         >
-                            {t.label}
+                            {t(tab.labelKey)}
                         </button>
                     ))}
                 </div>
@@ -774,7 +779,7 @@ export default function EmployeesPage() {
                         }}
                         className="employees-filter-select"
                     >
-                        <option value="">All workshops</option>
+                        <option value="">{t('filter.allWorkshops')}</option>
                         {approvedWorkshopOptions.map((w) => (
                             <option key={w.id} value={w.id}>
                                 {w.name}
@@ -788,7 +793,7 @@ export default function EmployeesPage() {
                         disabled={!workshopFilter}
                         className="employees-filter-select"
                     >
-                        <option value="">All branches</option>
+                        <option value="">{t('filter.allBranches')}</option>
                         {branchOptions.map((b) => (
                             <option key={b.id} value={b.id}>
                                 {b.name}
@@ -802,12 +807,12 @@ export default function EmployeesPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Employee</th>
-                            <th className="table-th">Role</th>
-                            <th className="table-th">Workshop</th>
-                            <th className="table-th">Branch</th>
-                            <th className="table-th">Commission</th>
-                            <th className="table-th">Status</th>
+                            <th className="table-th">{t('th.employee')}</th>
+                            <th className="table-th">{t('th.role')}</th>
+                            <th className="table-th">{t('th.workshop')}</th>
+                            <th className="table-th">{t('th.branch')}</th>
+                            <th className="table-th">{t('th.commission')}</th>
+                            <th className="table-th">{t('th.status')}</th>
                             <th className="table-th" />
                         </tr>
                     </thead>
@@ -822,8 +827,8 @@ export default function EmployeesPage() {
                             <tr>
                                 <td colSpan={7} className="table-cell table-empty employees-empty">
                                     <Users size={40} strokeWidth={1.25} />
-                                    <p>No employees found</p>
-                                    <span>Try adjusting filters or add a new employee.</span>
+                                    <p>{t('empty.title')}</p>
+                                    <span>{t('empty.hint')}</span>
                                 </td>
                             </tr>
                         ) : (
@@ -847,11 +852,13 @@ export default function EmployeesPage() {
                                             <span
                                                 className={`employees-role-badge employees-role-badge--${role}`}
                                             >
-                                                {role === 'technician' ? 'Technician' : 'Cashier'}
+                                                {role === 'technician'
+                                                    ? t('role.technician')
+                                                    : t('role.cashier')}
                                             </span>
                                             {role === 'technician' && emp.technicianType ? (
                                                 <span className="employees-tech-type">
-                                                    {formatTechnicianTypeLabel(emp.technicianType)}
+                                                    {formatTechnicianTypeLabel(emp.technicianType, t)}
                                                 </span>
                                             ) : null}
                                         </td>
@@ -866,14 +873,16 @@ export default function EmployeesPage() {
                                                         : 'status-warning'
                                                 }`}
                                             >
-                                                {emp.status}
+                                                {emp.status === 'active'
+                                                    ? t('status.active')
+                                                    : t('status.inactive')}
                                             </span>
                                         </td>
                                         <td className="table-cell employees-actions-cell">
                                             <button
                                                 type="button"
                                                 className="btn-edit-icon"
-                                                title="Edit"
+                                                title={t('btn.edit')}
                                                 onClick={() =>
                                                     navigate(employeesRoutes.edit(emp.id), {
                                                         state: { employee: emp, role },

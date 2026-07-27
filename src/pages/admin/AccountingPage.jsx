@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useParams, NavLink, useNavigate, Link } from 'react-router-dom';
+import { useParams, NavLink, useNavigate, Link, useOutletContext } from 'react-router-dom';
 import {
     Building2,
     Store,
@@ -46,6 +46,7 @@ import {
 } from './saAccountingDateRange';
 import { buildHqCoaNavigationUrl } from './hqCoaAccountRouting';
 import { isMonitorBooksScope, useMonitorAccountIndex } from './useMonitorAccountIndex';
+import { accT, ACC_TAB_LABEL_KEYS } from '../../utils/accountingI18n';
 import '../../styles/admin/AccountingPage.css';
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -53,18 +54,18 @@ import '../../styles/admin/AccountingPage.css';
  * ──────────────────────────────────────────────────────────────────────── */
 
 const MONITOR_TABS = [
-    { path: 'chart-of-accounts', label: 'Chart of Accounts' },
-    { path: 'trial-balance', label: 'Trial Balance' },
-    { path: 'pl', label: 'Profit & Loss' },
-    { path: 'balance-sheet', label: 'Balance Sheet' },
-    { path: 'ledger', label: 'Ledger' },
-    { path: 'journal-entries', label: 'Journal Entries' },
-    { path: 'payments', label: 'Payments' },
-    { path: 'receipts', label: 'Receipts' },
-    { path: 'activity', label: 'Activity Log' },
-    { path: 'workshop-commissions', label: 'Workshop Commissions' },
-    { path: 'salary-payroll', label: 'Salary & Payroll' },
-    { path: 'employee-ledger', label: 'Employee Ledger' },
+    { path: 'chart-of-accounts', labelKey: 'tab.coa' },
+    { path: 'trial-balance', labelKey: 'tab.tb' },
+    { path: 'pl', labelKey: 'tab.pl' },
+    { path: 'balance-sheet', labelKey: 'tab.bs' },
+    { path: 'ledger', labelKey: 'tab.ledger' },
+    { path: 'journal-entries', labelKey: 'tab.journal' },
+    { path: 'payments', labelKey: 'tab.payments' },
+    { path: 'receipts', labelKey: 'tab.receipts' },
+    { path: 'activity', labelKey: 'tab.activity' },
+    { path: 'workshop-commissions', labelKey: 'tab.workshopCommissions' },
+    { path: 'salary-payroll', labelKey: 'tab.salaryPayroll' },
+    { path: 'employee-ledger', labelKey: 'tab.employeeLedger' },
 ];
 
 const fmt = (n) =>
@@ -181,7 +182,18 @@ function printElement(node, title) {
 }
 
 /* ── Scope selector bar ─────────────────────────────────────────────────── */
-function ScopeBar({ scope, setScope, workshops, suppliers, hqWorkshopId, loading, onRefresh, onProvisionHq, provisioning }) {
+function ScopeBar({
+    scope,
+    setScope,
+    workshops,
+    suppliers,
+    hqWorkshopId,
+    loading,
+    onRefresh,
+    onProvisionHq,
+    provisioning,
+    t,
+}) {
     const branches = useMemo(() => {
         const w = workshops.find((x) => String(x.id) === String(scope.workshopId));
         return w?.branches || [];
@@ -216,19 +228,19 @@ function ScopeBar({ scope, setScope, workshops, suppliers, hqWorkshopId, loading
                     className={`sa-acc-scope-pill ${scope.type === 'workshop' ? 'active' : ''}`}
                     onClick={() => setType('workshop')}
                 >
-                    <Building2 size={15} /> Workshop
+                    <Building2 size={15} /> {t('scope.workshop')}
                 </button>
                 <button
                     className={`sa-acc-scope-pill ${scope.type === 'supplier' ? 'active' : ''}`}
                     onClick={() => setType('supplier')}
                 >
-                    <Truck size={15} /> Supplier
+                    <Truck size={15} /> {t('scope.supplier')}
                 </button>
                 <button
                     className={`sa-acc-scope-pill ${scope.type === 'hq' ? 'active' : ''}`}
                     onClick={() => setType('hq')}
                 >
-                    <Landmark size={15} /> HQ (My Books)
+                    <Landmark size={15} /> {t('scope.hq')}
                 </button>
             </div>
 
@@ -242,7 +254,7 @@ function ScopeBar({ scope, setScope, workshops, suppliers, hqWorkshopId, loading
                                 setScope((s) => ({ ...s, workshopId: e.target.value, branchId: '' }))
                             }
                         >
-                            <option value="">Select workshop…</option>
+                            <option value="">{t('scope.selectWorkshop')}</option>
                             {workshops
                                 .filter((w) => !w.isPlatformHq)
                                 .map((w) => (
@@ -257,7 +269,7 @@ function ScopeBar({ scope, setScope, workshops, suppliers, hqWorkshopId, loading
                             onChange={(e) => setScope((s) => ({ ...s, branchId: e.target.value }))}
                             disabled={!scope.workshopId}
                         >
-                            <option value="">All branches</option>
+                            <option value="">{t('scope.allBranches')}</option>
                             {branches.map((b) => (
                                 <option key={b.id} value={b.id}>
                                     {b.name}
@@ -273,7 +285,7 @@ function ScopeBar({ scope, setScope, workshops, suppliers, hqWorkshopId, loading
                         value={scope.supplierId || ''}
                         onChange={(e) => setScope((s) => ({ ...s, supplierId: e.target.value }))}
                     >
-                        <option value="">Select supplier…</option>
+                        <option value="">{t('scope.selectSupplier')}</option>
                         {suppliers.map((s) => (
                             <option key={s.id} value={s.id}>
                                 {s.name}
@@ -285,16 +297,16 @@ function ScopeBar({ scope, setScope, workshops, suppliers, hqWorkshopId, loading
                 {scope.type === 'hq' && (
                     hqWorkshopId ? (
                         <span className="sa-acc-hq-note">
-                            Platform HQ — your own books (full editing enabled).
+                            {t('scope.hqNote')}
                         </span>
                     ) : (
                         <button className="sa-acc-btn" onClick={onProvisionHq} disabled={provisioning}>
-                            {provisioning ? 'Setting up…' : 'Set up HQ books'}
+                            {provisioning ? t('scope.settingUp') : t('scope.setupHq')}
                         </button>
                     )
                 )}
 
-                <button className="sa-acc-icon-btn" onClick={onRefresh} title="Refresh" disabled={loading}>
+                <button className="sa-acc-icon-btn" onClick={onRefresh} title={t('scope.refresh')} disabled={loading}>
                     <RefreshCw size={15} className={loading ? 'spin' : ''} />
                     </button>
             </div>
@@ -302,7 +314,7 @@ function ScopeBar({ scope, setScope, workshops, suppliers, hqWorkshopId, loading
             <div className="sa-acc-readonly-flag">
                 {scope.type === 'hq' && hqWorkshopId ? null : (
                     <span className="sa-acc-readonly-badge">
-                        <Lock size={13} /> Read-only monitoring
+                        <Lock size={13} /> {t('scope.readonly')}
                     </span>
                 )}
             </div>
@@ -311,7 +323,7 @@ function ScopeBar({ scope, setScope, workshops, suppliers, hqWorkshopId, loading
 }
 
 /* ── Generic state helpers ──────────────────────────────────────────────── */
-function useScopedData(loader, deps) {
+function useScopedData(loader, deps, failMsg = 'Failed to load') {
     const [state, setState] = useState({ loading: true, error: '', data: null });
     const reload = useCallback(() => {
         let alive = true;
@@ -319,7 +331,7 @@ function useScopedData(loader, deps) {
         Promise.resolve()
             .then(loader)
             .then((data) => alive && setState({ loading: false, error: '', data }))
-            .catch((e) => alive && setState({ loading: false, error: e?.message || 'Failed to load', data: null }));
+            .catch((e) => alive && setState({ loading: false, error: e?.message || failMsg, data: null }));
         return () => {
             alive = false;
         };
@@ -329,13 +341,13 @@ function useScopedData(loader, deps) {
     return { ...state, reload };
 }
 
-function ScopeEmpty({ scope }) {
+function ScopeEmpty({ scope, t }) {
     const need =
         scope.type === 'supplier'
-            ? 'Select a supplier to view its books.'
+            ? t('empty.selectSupplier')
             : scope.type === 'hq'
-              ? 'The Platform HQ entity has not been set up yet (Phase 2).'
-              : 'Select a workshop to view its books.';
+              ? t('empty.hqNotSetup')
+              : t('empty.selectWorkshop');
     return (
         <div className="sa-acc-empty">
             <Search size={28} />
@@ -344,8 +356,8 @@ function ScopeEmpty({ scope }) {
     );
 }
 
-function Loading() {
-    return <div className="sa-acc-empty"><RefreshCw size={22} className="spin" /><p>Loading…</p></div>;
+function Loading({ t }) {
+    return <div className="sa-acc-empty"><RefreshCw size={22} className="spin" /><p>{t('loading')}</p></div>;
 }
 function ErrorBox({ msg }) {
     return (
@@ -356,16 +368,16 @@ function ErrorBox({ msg }) {
     );
 }
 
-function ReportToolbar({ title, onCsv, onPrint }) {
+function ReportToolbar({ title, onCsv, onPrint, t }) {
     return (
         <div className="sa-acc-report-toolbar">
             <h3>{title}</h3>
             <div className="sa-acc-report-actions">
                 <button className="sa-acc-btn" onClick={onCsv}>
-                    <Download size={14} /> CSV
+                    <Download size={14} /> {t('btn.csv')}
                 </button>
                 <button className="sa-acc-btn" onClick={onPrint}>
-                    <Printer size={14} /> Print
+                    <Printer size={14} /> {t('btn.print')}
                         </button>
                 </div>
                         </div>
@@ -380,23 +392,24 @@ function MonitorDateRangeBar({
     onApply,
     onClear,
     hint = '',
+    t,
 }) {
     return (
         <div className="sa-acc-date-bar">
             <div className="sa-acc-date-fields">
                 <label className="sa-acc-date-field">
-                    <span>From</span>
+                    <span>{t('date.from')}</span>
                     <input type="date" value={draftFrom} onChange={(e) => onDraftFromChange(e.target.value)} />
                 </label>
                 <label className="sa-acc-date-field">
-                    <span>To</span>
+                    <span>{t('date.to')}</span>
                     <input type="date" value={draftTo} onChange={(e) => onDraftToChange(e.target.value)} />
                 </label>
                 <button type="button" className="sa-acc-btn sa-acc-btn--primary" onClick={onApply}>
-                    Apply
+                    {t('date.apply')}
                                     </button>
                 <button type="button" className="sa-acc-btn" onClick={onClear}>
-                    Clear
+                    {t('date.clear')}
                 </button>
             </div>
             {hint ? <p className="sa-acc-date-hint">{hint}</p> : null}
@@ -420,7 +433,7 @@ function clickableRowProps(canOpen, url, navigate) {
     };
 }
 
-function HqChartOfAccountsPanel({ scope, dateRange }) {
+function HqChartOfAccountsPanel({ scope, dateRange, t }) {
     const buildLedgerUrl = useCallback(
         (account) => buildHqCoaNavigationUrl(account, dateRange),
         [dateRange],
@@ -428,13 +441,7 @@ function HqChartOfAccountsPanel({ scope, dateRange }) {
 
     return (
         <div className="sa-acc-panel">
-            <p className="sa-acc-coa-hint">
-                Create and edit HQ accounts below. Click a detail (sub) account row to open its register or ledger.
-                <strong> [1110]</strong> corporate AR control · <strong>[1300]</strong> BNPL settlement ·
-                <strong> [1320]</strong> SoftPOS HQ settlement · <strong>[1330]</strong> marketing wallet ·
-                <strong> [1250]</strong> salary advances · <strong>[2210]</strong> referral commissions ·
-                cash/bank detail accounts open Cash &amp; Bank. Heading accounts show rolled-up child totals.
-            </p>
+            <p className="sa-acc-coa-hint">{t('coa.hint')}</p>
             <WorkshopCOAManager
                 readOnly={false}
                 dateRange={dateRange}
@@ -453,12 +460,12 @@ function HqWorkshopBooksPanel({ hqWorkshopId }) {
     );
 }
 
-function HqActivityLogPanel({ dateRange }) {
+function HqActivityLogPanel({ dateRange, t }) {
     return (
         <div className="sa-acc-panel" style={{ padding: 0 }}>
             <WorkshopTransactionsLog
-                title="Activity Log"
-                subtitle="Cash, bank, and petty cash movements on Platform HQ books."
+                title={t('report.activity')}
+                subtitle={t('report.activitySub')}
                 branches={[]}
                 selectedBranchId="all"
                 initialDateFrom={dateRange?.dateFrom || ''}
@@ -469,12 +476,13 @@ function HqActivityLogPanel({ dateRange }) {
 }
 
 /* ── Chart of Accounts ──────────────────────────────────────────────────── */
-function ChartOfAccountsTab({ scope, dateRange, accountIndex }) {
+function ChartOfAccountsTab({ scope, dateRange, accountIndex, t }) {
     const navigate = useNavigate();
     const isSupplier = scope.type === 'supplier';
     const isMonitorScope = isMonitorBooksScope(scope);
     const scopeReady = isSupplier ? !!scope.supplierId : scope.type === 'hq' ? !!scope.hqWorkshopId : !!scope.workshopId;
     const ref = useRef(null);
+    const failMsg = t('empty.failed');
 
     const { loading, error, data } = useScopedData(async () => {
         if (!scopeReady) return [];
@@ -494,17 +502,18 @@ function ChartOfAccountsTab({ scope, dateRange, accountIndex }) {
         scope.hqWorkshopId,
         dateRange?.dateFrom,
         dateRange?.dateTo,
-    ]);
+        failMsg,
+    ], failMsg);
 
-    if (!scopeReady) return <ScopeEmpty scope={scope} />;
-    if (loading) return <Loading />;
+    if (!scopeReady) return <ScopeEmpty scope={scope} t={t} />;
+    if (loading) return <Loading t={t} />;
     if (error) return <ErrorBox msg={error} />;
 
     const rows = Array.isArray(data) ? data : [];
     const csv = () =>
         downloadCsv(
             'chart-of-accounts.csv',
-            ['Code', 'Name', 'Type', 'Sub Type', 'Closing Debit', 'Closing Credit'],
+            [t('th.code'), t('th.name'), t('th.type'), t('th.subType'), t('th.closingDebit'), t('th.closingCredit')],
             rows.map((r) => [
                 r.code,
                 r.name,
@@ -517,25 +526,25 @@ function ChartOfAccountsTab({ scope, dateRange, accountIndex }) {
 
     return (
         <div className="sa-acc-panel">
-            <ReportToolbar title="Chart of Accounts" onCsv={csv} onPrint={() => printElement(ref.current, 'Chart of Accounts')} />
+            <ReportToolbar title={t('report.coa')} onCsv={csv} onPrint={() => printElement(ref.current, t('report.coa'))} t={t} />
             {isMonitorScope ? (
-                <p className="sa-acc-coa-hint">Click any account row to open its ledger statement.</p>
+                <p className="sa-acc-coa-hint">{t('coa.clickRow')}</p>
             ) : null}
             <div ref={ref}>
                 <table className="sa-acc-table">
                     <thead>
                         <tr>
-                            <th>Code</th>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Sub Type</th>
-                            <th className="num">Closing Debit</th>
-                            <th className="num">Closing Credit</th>
+                            <th>{t('th.code')}</th>
+                            <th>{t('th.name')}</th>
+                            <th>{t('th.type')}</th>
+                            <th>{t('th.subType')}</th>
+                            <th className="num">{t('th.closingDebit')}</th>
+                            <th className="num">{t('th.closingCredit')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {rows.length === 0 && (
-                            <tr><td colSpan={6} className="sa-acc-td-empty">No accounts found.</td></tr>
+                            <tr><td colSpan={6} className="sa-acc-td-empty">{t('empty.noAccounts')}</td></tr>
                         )}
                         {rows.map((r) => {
                             const link = monitorRowLink(scope, accountIndex, dateRange, r);
@@ -567,12 +576,13 @@ function ChartOfAccountsTab({ scope, dateRange, accountIndex }) {
 }
 
 /* ── Trial Balance ──────────────────────────────────────────────────────── */
-function TrialBalanceTab({ scope, dateRange, accountIndex }) {
+function TrialBalanceTab({ scope, dateRange, accountIndex, t }) {
     const navigate = useNavigate();
     const isSupplier = scope.type === 'supplier';
     const isMonitorScope = isMonitorBooksScope(scope);
     const scopeReady = isSupplier ? !!scope.supplierId : scope.type === 'hq' ? !!scope.hqWorkshopId : !!scope.workshopId;
     const ref = useRef(null);
+    const failMsg = t('empty.failed');
 
     const { loading, error, data } = useScopedData(async () => {
         if (!scopeReady) return null;
@@ -586,10 +596,11 @@ function TrialBalanceTab({ scope, dateRange, accountIndex }) {
         scope.hqWorkshopId,
         dateRange?.dateFrom,
         dateRange?.dateTo,
-    ]);
+        failMsg,
+    ], failMsg);
 
-    if (!scopeReady) return <ScopeEmpty scope={scope} />;
-    if (loading) return <Loading />;
+    if (!scopeReady) return <ScopeEmpty scope={scope} t={t} />;
+    if (loading) return <Loading t={t} />;
     if (error) return <ErrorBox msg={error} />;
 
     const rows = data?.accounts || [];
@@ -598,28 +609,28 @@ function TrialBalanceTab({ scope, dateRange, accountIndex }) {
     const csv = () =>
         downloadCsv(
             'trial-balance.csv',
-            ['Code', 'Name', 'Type', 'Debit', 'Credit'],
+            [t('th.code'), t('th.name'), t('th.type'), t('th.debit'), t('th.credit')],
             [
                 ...rows.map((r) => [r.code, r.name, r.type, fmt(r.debitBalance), fmt(r.creditBalance)]),
-                ['', '', 'TOTAL', fmt(totalD), fmt(totalC)],
+                ['', '', t('total'), fmt(totalD), fmt(totalC)],
             ],
         );
 
     return (
         <div className="sa-acc-panel">
-            <ReportToolbar title="Trial Balance" onCsv={csv} onPrint={() => printElement(ref.current, 'Trial Balance')} />
+            <ReportToolbar title={t('report.tb')} onCsv={csv} onPrint={() => printElement(ref.current, t('report.tb'))} t={t} />
             {isMonitorScope ? (
-                <p className="sa-acc-coa-hint">Click any account row to open its ledger statement for this period.</p>
+                <p className="sa-acc-coa-hint">{t('coa.clickRowPeriod')}</p>
             ) : null}
             <div ref={ref}>
                 <table className="sa-acc-table">
                     <thead>
                         <tr>
-                            <th>Code</th>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th className="num">Debit</th>
-                            <th className="num">Credit</th>
+                            <th>{t('th.code')}</th>
+                            <th>{t('th.name')}</th>
+                            <th>{t('th.type')}</th>
+                            <th className="num">{t('th.debit')}</th>
+                            <th className="num">{t('th.credit')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -645,14 +656,14 @@ function TrialBalanceTab({ scope, dateRange, accountIndex }) {
                             );
                         })}
                         <tr className="tot">
-                            <td colSpan={3}>Total</td>
+                            <td colSpan={3}>{t('totalLabel')}</td>
                             <td className="num">{fmt(totalD)}</td>
                             <td className="num">{fmt(totalC)}</td>
                                 </tr>
                     </tbody>
                 </table>
                 {data && data.isBalanced === false && (
-                    <p className="sa-acc-warn"><AlertTriangle size={13} /> Out of balance by {fmt(Math.abs(totalD - totalC))}</p>
+                    <p className="sa-acc-warn"><AlertTriangle size={13} /> {t('empty.outOfBalance', { amount: fmt(Math.abs(totalD - totalC)) })}</p>
                 )}
                         </div>
         </div>
@@ -660,12 +671,13 @@ function TrialBalanceTab({ scope, dateRange, accountIndex }) {
 }
 
 /* ── Profit & Loss ──────────────────────────────────────────────────────── */
-function PLTab({ scope, dateRange, accountIndex }) {
+function PLTab({ scope, dateRange, accountIndex, t }) {
     const navigate = useNavigate();
     const isSupplier = scope.type === 'supplier';
     const isMonitorScope = isMonitorBooksScope(scope);
     const scopeReady = isSupplier ? !!scope.supplierId : scope.type === 'hq' ? !!scope.hqWorkshopId : !!scope.workshopId;
     const ref = useRef(null);
+    const failMsg = t('empty.failed');
 
     const { loading, error, data } = useScopedData(async () => {
         if (!scopeReady) return null;
@@ -679,10 +691,11 @@ function PLTab({ scope, dateRange, accountIndex }) {
         scope.hqWorkshopId,
         dateRange?.dateFrom,
         dateRange?.dateTo,
-    ]);
+        failMsg,
+    ], failMsg);
 
-    if (!scopeReady) return <ScopeEmpty scope={scope} />;
-    if (loading) return <Loading />;
+    if (!scopeReady) return <ScopeEmpty scope={scope} t={t} />;
+    if (loading) return <Loading t={t} />;
     if (error) return <ErrorBox msg={error} />;
 
     const section = (title, items, total) => (
@@ -706,40 +719,40 @@ function PLTab({ scope, dateRange, accountIndex }) {
                     </tr>
                 );
             })}
-            <tr className="sa-acc-subtotal"><td>Total {title}</td><td className="num">{fmt(total)}</td></tr>
+            <tr className="sa-acc-subtotal"><td>{t('totalSection', { title })}</td><td className="num">{fmt(total)}</td></tr>
         </>
     );
 
     const csv = () =>
         downloadCsv(
             'profit-and-loss.csv',
-            ['Section', 'Account', 'Amount'],
+            [t('th.section'), t('th.account'), t('th.amount')],
             [
-                ...(data?.revenue || []).map((i) => ['Revenue', i.name, fmt(i.amount)]),
-                ...(data?.costOfGoodsSold || []).map((i) => ['COGS', i.name, fmt(i.amount)]),
-                ...(data?.operatingExpenses || []).map((i) => ['Operating Expenses', i.name, fmt(i.amount)]),
-                ...(data?.otherIncome || []).map((i) => ['Other Income', i.name, fmt(i.amount)]),
-                ...(data?.otherExpenses || []).map((i) => ['Other Expenses', i.name, fmt(i.amount)]),
-                ['', 'NET INCOME', fmt(data?.netIncome ?? 0)],
+                ...(data?.revenue || []).map((i) => [t('csv.revenue'), i.name, fmt(i.amount)]),
+                ...(data?.costOfGoodsSold || []).map((i) => [t('csv.cogs'), i.name, fmt(i.amount)]),
+                ...(data?.operatingExpenses || []).map((i) => [t('csv.opex'), i.name, fmt(i.amount)]),
+                ...(data?.otherIncome || []).map((i) => [t('csv.otherIncome'), i.name, fmt(i.amount)]),
+                ...(data?.otherExpenses || []).map((i) => [t('csv.otherExpenses'), i.name, fmt(i.amount)]),
+                ['', t('netIncome'), fmt(data?.netIncome ?? 0)],
             ],
         );
 
     return (
         <div className="sa-acc-panel">
-            <ReportToolbar title="Profit & Loss" onCsv={csv} onPrint={() => printElement(ref.current, 'Profit & Loss')} />
+            <ReportToolbar title={t('report.pl')} onCsv={csv} onPrint={() => printElement(ref.current, t('report.pl'))} t={t} />
             {isMonitorScope ? (
-                <p className="sa-acc-coa-hint">Click any account line to open its ledger statement for this period.</p>
+                <p className="sa-acc-coa-hint">{t('coa.clickLinePeriod')}</p>
             ) : null}
             <div ref={ref}>
                 <table className="sa-acc-table">
                     <tbody>
-                        {section('Revenue', data?.revenue, data?.totalRevenue)}
-                        {section('Cost of Goods Sold', data?.costOfGoodsSold, data?.totalCOGS)}
-                        <tr className="sa-acc-subtotal"><td>Gross Profit</td><td className="num">{fmt(data?.grossProfit)}</td></tr>
-                        {section('Operating Expenses', data?.operatingExpenses, data?.totalOperatingExpenses)}
-                        {section('Other Income', data?.otherIncome, data?.totalOtherIncome)}
-                        {section('Other Expenses', data?.otherExpenses, data?.totalOtherExpenses)}
-                        <tr className="tot"><td>Net Income</td><td className="num">{fmt(data?.netIncome)}</td></tr>
+                        {section(t('section.revenue'), data?.revenue, data?.totalRevenue)}
+                        {section(t('section.cogs'), data?.costOfGoodsSold, data?.totalCOGS)}
+                        <tr className="sa-acc-subtotal"><td>{t('section.grossProfit')}</td><td className="num">{fmt(data?.grossProfit)}</td></tr>
+                        {section(t('section.opex'), data?.operatingExpenses, data?.totalOperatingExpenses)}
+                        {section(t('section.otherIncome'), data?.otherIncome, data?.totalOtherIncome)}
+                        {section(t('section.otherExpenses'), data?.otherExpenses, data?.totalOtherExpenses)}
+                        <tr className="tot"><td>{t('section.netIncome')}</td><td className="num">{fmt(data?.netIncome)}</td></tr>
                     </tbody>
                 </table>
                             </div>
@@ -748,12 +761,13 @@ function PLTab({ scope, dateRange, accountIndex }) {
 }
 
 /* ── Balance Sheet ──────────────────────────────────────────────────────── */
-function BalanceSheetTab({ scope, dateRange, accountIndex }) {
+function BalanceSheetTab({ scope, dateRange, accountIndex, t }) {
     const navigate = useNavigate();
     const isSupplier = scope.type === 'supplier';
     const isMonitorScope = isMonitorBooksScope(scope);
     const scopeReady = isSupplier ? !!scope.supplierId : scope.type === 'hq' ? !!scope.hqWorkshopId : !!scope.workshopId;
     const ref = useRef(null);
+    const failMsg = t('empty.failed');
 
     const { loading, error, data } = useScopedData(async () => {
         if (!scopeReady) return null;
@@ -766,10 +780,11 @@ function BalanceSheetTab({ scope, dateRange, accountIndex }) {
         scope.supplierId,
         scope.hqWorkshopId,
         dateRange?.dateTo,
-    ]);
+        failMsg,
+    ], failMsg);
 
-    if (!scopeReady) return <ScopeEmpty scope={scope} />;
-    if (loading) return <Loading />;
+    if (!scopeReady) return <ScopeEmpty scope={scope} t={t} />;
+    if (loading) return <Loading t={t} />;
     if (error) return <ErrorBox msg={error} />;
 
     const a = data?.assets || {};
@@ -801,45 +816,44 @@ function BalanceSheetTab({ scope, dateRange, accountIndex }) {
     return (
         <div className="sa-acc-panel">
             <ReportToolbar
-                title="Balance Sheet"
+                title={t('report.bs')}
                 onCsv={() =>
                     downloadCsv(
                         'balance-sheet.csv',
-                        ['Section', 'Account', 'Amount'],
+                        [t('th.section'), t('th.account'), t('th.amount')],
                         [
-                            ...[...(a.current || []), ...(a.fixed || []), ...(a.other || [])].map((i) => ['Assets', i.name, fmt(i.amount)]),
-                            ...[...(l.current || []), ...(l.longTerm || []), ...(l.other || [])].map((i) => ['Liabilities', i.name, fmt(i.amount)]),
-                            ...(eq.accounts || []).map((i) => ['Equity', i.name, fmt(i.amount)]),
+                            ...[...(a.current || []), ...(a.fixed || []), ...(a.other || [])].map((i) => [t('section.assets'), i.name, fmt(i.amount)]),
+                            ...[...(l.current || []), ...(l.longTerm || []), ...(l.other || [])].map((i) => [t('section.liabilities'), i.name, fmt(i.amount)]),
+                            ...(eq.accounts || []).map((i) => [t('section.equity'), i.name, fmt(i.amount)]),
                         ],
                     )
                 }
-                onPrint={() => printElement(ref.current, 'Balance Sheet')}
+                onPrint={() => printElement(ref.current, t('report.bs'))}
+                t={t}
             />
             {isMonitorScope ? (
-                <p className="sa-acc-coa-hint">
-                    Click any account line to open its ledger statement. Balance sheet uses the &quot;To&quot; date as as-of.
-                </p>
+                <p className="sa-acc-coa-hint">{t('bs.clickHint')}</p>
             ) : null}
             <div ref={ref} className="sa-acc-bs-grid">
                 <table className="sa-acc-table">
-                    <thead><tr><th>Assets</th><th className="num">Amount</th></tr></thead>
+                    <thead><tr><th>{t('section.assets')}</th><th className="num">{t('th.amount')}</th></tr></thead>
                     <tbody>
                         {group('cur', a.current)}
                         {group('fix', a.fixed)}
                         {group('oth', a.other)}
-                        <tr className="tot"><td>Total Assets</td><td className="num">{fmt(a.totalAssets)}</td></tr>
+                        <tr className="tot"><td>{t('section.totalAssets')}</td><td className="num">{fmt(a.totalAssets)}</td></tr>
                     </tbody>
                 </table>
                 <table className="sa-acc-table">
-                    <thead><tr><th>Liabilities & Equity</th><th className="num">Amount</th></tr></thead>
+                    <thead><tr><th>{t('section.liabEquity')}</th><th className="num">{t('th.amount')}</th></tr></thead>
                     <tbody>
                         {group('lc', l.current)}
                         {group('ll', l.longTerm)}
                         {group('lo', l.other)}
-                        <tr className="sa-acc-subtotal"><td>Total Liabilities</td><td className="num">{fmt(l.totalLiabilities)}</td></tr>
+                        <tr className="sa-acc-subtotal"><td>{t('section.totalLiabilities')}</td><td className="num">{fmt(l.totalLiabilities)}</td></tr>
                         {group('eq', eq.accounts)}
-                        <tr className="sa-acc-subtotal"><td>Total Equity</td><td className="num">{fmt(eq.totalEquity)}</td></tr>
-                        <tr className="tot"><td>Total Liab. & Equity</td><td className="num">{fmt(data?.totalLiabilitiesAndEquity)}</td></tr>
+                        <tr className="sa-acc-subtotal"><td>{t('section.totalEquity')}</td><td className="num">{fmt(eq.totalEquity)}</td></tr>
+                        <tr className="tot"><td>{t('section.totalLiabEquity')}</td><td className="num">{fmt(data?.totalLiabilitiesAndEquity)}</td></tr>
                     </tbody>
                 </table>
                             </div>
@@ -848,11 +862,12 @@ function BalanceSheetTab({ scope, dateRange, accountIndex }) {
 }
 
 /* ── Ledger ─────────────────────────────────────────────────────────────── */
-function LedgerTab({ scope, dateRange }) {
+function LedgerTab({ scope, dateRange, t }) {
     const isSupplier = scope.type === 'supplier';
     const scopeReady = isSupplier ? !!scope.supplierId : scope.type === 'hq' ? !!scope.hqWorkshopId : !!scope.workshopId;
     const [accountId, setAccountId] = useState('');
     const ref = useRef(null);
+    const failMsg = t('empty.failed');
 
     const accountsState = useScopedData(async () => {
         if (!scopeReady) return [];
@@ -872,7 +887,8 @@ function LedgerTab({ scope, dateRange }) {
         scope.hqWorkshopId,
         dateRange?.dateFrom,
         dateRange?.dateTo,
-    ]);
+        failMsg,
+    ], failMsg);
 
     const ledgerParams = useMemo(() => {
         if (isSupplier) {
@@ -895,9 +911,10 @@ function LedgerTab({ scope, dateRange }) {
         scope.hqWorkshopId,
         accountId,
         ledgerParams,
-    ]);
+        failMsg,
+    ], failMsg);
 
-    if (!scopeReady) return <ScopeEmpty scope={scope} />;
+    if (!scopeReady) return <ScopeEmpty scope={scope} t={t} />;
 
     const accounts = Array.isArray(accountsState.data) ? accountsState.data : [];
     const led = ledgerState.data || {};
@@ -908,7 +925,7 @@ function LedgerTab({ scope, dateRange }) {
         <div className="sa-acc-panel">
             <div className="sa-acc-report-toolbar">
                 <select className="sa-acc-select" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                    <option value="">Select an account…</option>
+                    <option value="">{t('empty.selectAccount')}</option>
                     {accounts.map((a) => (
                         <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
                     ))}
@@ -920,7 +937,7 @@ function LedgerTab({ scope, dateRange }) {
                             onClick={() =>
                                 downloadCsv(
                                     'ledger.csv',
-                                    ['Date', 'Entry', 'Description', 'Debit', 'Credit', 'Balance'],
+                                    [t('th.date'), t('th.entry'), t('th.description'), t('th.debit'), t('th.credit'), t('th.balance')],
                                     lines.map((x) => [
                                         fmtDate(x.date),
                                         x.entryNumber || x.reference || '',
@@ -932,18 +949,18 @@ function LedgerTab({ scope, dateRange }) {
                                 )
                             }
                         >
-                            <Download size={14} /> CSV
+                            <Download size={14} /> {t('btn.csv')}
                         </button>
-                        <button className="sa-acc-btn" onClick={() => printElement(ref.current, 'Ledger')}>
-                            <Printer size={14} /> Print
+                        <button className="sa-acc-btn" onClick={() => printElement(ref.current, t('report.ledger'))}>
+                            <Printer size={14} /> {t('btn.print')}
                         </button>
                         </div>
                 )}
                         </div>
             {!accountId ? (
-                <div className="sa-acc-empty"><p>Pick an account to view its ledger.</p></div>
+                <div className="sa-acc-empty"><p>{t('empty.pickAccount')}</p></div>
             ) : ledgerState.loading ? (
-                <Loading />
+                <Loading t={t} />
             ) : ledgerState.error ? (
                 <ErrorBox msg={ledgerState.error} />
             ) : (
@@ -951,8 +968,8 @@ function LedgerTab({ scope, dateRange }) {
                     <table className="sa-acc-table">
                         <thead>
                             <tr>
-                                <th>Date</th><th>Entry</th><th>Description</th>
-                                <th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th>
+                                <th>{t('th.date')}</th><th>{t('th.entry')}</th><th>{t('th.description')}</th>
+                                <th className="num">{t('th.debit')}</th><th className="num">{t('th.credit')}</th><th className="num">{t('th.balance')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -960,14 +977,14 @@ function LedgerTab({ scope, dateRange }) {
                                 <tr className="sa-acc-ledger-opening">
                                     <td>—</td>
                                     <td>—</td>
-                                    <td>Opening balance</td>
+                                    <td>{t('empty.openingBalance')}</td>
                                     <td className="num">—</td>
                                     <td className="num">—</td>
                                     <td className="num">{fmt(openingBalance)}</td>
                                 </tr>
                             )}
                             {lines.length === 0 && (
-                                <tr><td colSpan={6} className="sa-acc-td-empty">No ledger lines in this period.</td></tr>
+                                <tr><td colSpan={6} className="sa-acc-td-empty">{t('empty.noLedgerLines')}</td></tr>
                             )}
                             {lines.map((x, i) => (
                                 <tr key={x.id || i}>
@@ -988,7 +1005,7 @@ function LedgerTab({ scope, dateRange }) {
 }
 
 /* ── HQ manual Journal Entry modal (HQ scope only) ──────────────────────── */
-function HqJournalEntryModal({ scope, onClose, onPosted }) {
+function HqJournalEntryModal({ scope, onClose, onPosted, t }) {
     const [accounts, setAccounts] = useState([]);
     const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [description, setDescription] = useState('');
@@ -1022,7 +1039,7 @@ function HqJournalEntryModal({ scope, onClose, onPosted }) {
     const submit = async () => {
         setErr('');
         if (!balanced) {
-            setErr('Entry must be balanced (debits = credits, > 0).');
+            setErr(t('je.balanced'));
             return;
         }
         setSaving(true);
@@ -1042,7 +1059,7 @@ function HqJournalEntryModal({ scope, onClose, onPosted }) {
             onPosted?.();
             onClose();
         } catch (e) {
-            setErr(e?.message || 'Failed to post entry');
+            setErr(e?.message || t('je.failed'));
         } finally {
             setSaving(false);
         }
@@ -1051,19 +1068,19 @@ function HqJournalEntryModal({ scope, onClose, onPosted }) {
     return (
         <div className="sa-acc-modal-overlay" onClick={onClose}>
             <div className="sa-acc-modal" onClick={(e) => e.stopPropagation()}>
-                <h3>New HQ Journal Entry</h3>
+                <h3>{t('je.newHq')}</h3>
                 <div className="sa-acc-modal-row">
-                    <label>Date<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
-                    <label className="grow">Description<input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Memo" /></label>
+                    <label>{t('th.date')}<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
+                    <label className="grow">{t('je.description')}<input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('je.memo')} /></label>
                                 </div>
                 <table className="sa-acc-table">
-                    <thead><tr><th>Account</th><th className="num">Debit</th><th className="num">Credit</th><th /></tr></thead>
+                    <thead><tr><th>{t('th.account')}</th><th className="num">{t('th.debit')}</th><th className="num">{t('th.credit')}</th><th /></tr></thead>
                     <tbody>
                         {lines.map((l, i) => (
                             <tr key={i}>
                                 <td>
                                     <select value={l.accountId} onChange={(e) => setLine(i, { accountId: e.target.value })}>
-                                        <option value="">Select…</option>
+                                        <option value="">{t('je.select')}</option>
                                         {accounts.map((a) => (
                                             <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
                                         ))}
@@ -1074,15 +1091,15 @@ function HqJournalEntryModal({ scope, onClose, onPosted }) {
                                 <td><button className="sa-acc-btn" onClick={() => removeLine(i)}>×</button></td>
                         </tr>
                         ))}
-                        <tr className="tot"><td>Totals</td><td className="num">{fmt(totalDr)}</td><td className="num">{fmt(totalCr)}</td><td /></tr>
+                        <tr className="tot"><td>{t('je.totals')}</td><td className="num">{fmt(totalDr)}</td><td className="num">{fmt(totalCr)}</td><td /></tr>
                     </tbody>
                 </table>
-                <button className="sa-acc-btn" onClick={addLine}>+ Add line</button>
+                <button className="sa-acc-btn" onClick={addLine}>{t('je.addLine')}</button>
                 {err && <p className="sa-acc-warn"><AlertTriangle size={13} /> {err}</p>}
                 <div className="sa-acc-modal-actions">
-                    <button className="sa-acc-btn" onClick={onClose}>Cancel</button>
+                    <button className="sa-acc-btn" onClick={onClose}>{t('btn.cancel')}</button>
                     <button className="sa-acc-btn sa-acc-btn--primary" disabled={!balanced || saving} onClick={submit}>
-                        {saving ? 'Posting…' : 'Post Entry'}
+                        {saving ? t('btn.posting') : t('btn.post')}
                                 </button>
                             </div>
                                 </div>
@@ -1091,12 +1108,13 @@ function HqJournalEntryModal({ scope, onClose, onPosted }) {
 }
 
 /* ── Journal Entries ────────────────────────────────────────────────────── */
-function JournalEntriesTab({ scope, dateRange }) {
+function JournalEntriesTab({ scope, dateRange, t }) {
     const isSupplier = scope.type === 'supplier';
     const scopeReady = isSupplier ? !!scope.supplierId : scope.type === 'hq' ? !!scope.hqWorkshopId : !!scope.workshopId;
     const canEdit = scope.type === 'hq' && !!scope.hqWorkshopId;
     const [modalOpen, setModalOpen] = useState(false);
     const ref = useRef(null);
+    const failMsg = t('empty.failed');
 
     const { loading, error, data, reload } = useScopedData(async () => {
         if (!scopeReady) return null;
@@ -1113,10 +1131,11 @@ function JournalEntriesTab({ scope, dateRange }) {
         scope.hqWorkshopId,
         dateRange?.dateFrom,
         dateRange?.dateTo,
-    ]);
+        failMsg,
+    ], failMsg);
 
-    if (!scopeReady) return <ScopeEmpty scope={scope} />;
-    if (loading) return <Loading />;
+    if (!scopeReady) return <ScopeEmpty scope={scope} t={t} />;
+    if (loading) return <Loading t={t} />;
     if (error) return <ErrorBox msg={error} />;
 
     const rows = data?.entries || data?.journals || data?.items || [];
@@ -1124,18 +1143,18 @@ function JournalEntriesTab({ scope, dateRange }) {
         <div className="sa-acc-panel">
             {canEdit && (
                 <div className="sa-acc-hq-edit-bar">
-                    <button className="sa-acc-btn sa-acc-btn--primary" onClick={() => setModalOpen(true)}>+ New Journal Entry</button>
+                    <button className="sa-acc-btn sa-acc-btn--primary" onClick={() => setModalOpen(true)}>{t('je.newBtn')}</button>
                 </div>
             )}
             {modalOpen && (
-                <HqJournalEntryModal scope={scope} onClose={() => setModalOpen(false)} onPosted={reload} />
+                <HqJournalEntryModal scope={scope} onClose={() => setModalOpen(false)} onPosted={reload} t={t} />
             )}
             <ReportToolbar
-                title="Journal Entries"
+                title={t('report.journal')}
                 onCsv={() =>
                     downloadCsv(
                         'journal-entries.csv',
-                        ['Date', 'Entry #', 'Type', 'Description', 'Debit', 'Credit'],
+                        [t('th.date'), t('th.entryNo'), t('th.type'), t('th.description'), t('th.debit'), t('th.credit')],
                         rows.map((r) => [
                             fmtDate(r.date),
                             r.entryNumber || r.number || '',
@@ -1146,15 +1165,16 @@ function JournalEntriesTab({ scope, dateRange }) {
                         ]),
                     )
                 }
-                onPrint={() => printElement(ref.current, 'Journal Entries')}
+                onPrint={() => printElement(ref.current, t('report.journal'))}
+                t={t}
             />
             <div ref={ref}>
                 <table className="sa-acc-table">
                                         <thead>
-                        <tr><th>Date</th><th>Entry #</th><th>Type</th><th>Description</th><th className="num">Debit</th><th className="num">Credit</th></tr>
+                        <tr><th>{t('th.date')}</th><th>{t('th.entryNo')}</th><th>{t('th.type')}</th><th>{t('th.description')}</th><th className="num">{t('th.debit')}</th><th className="num">{t('th.credit')}</th></tr>
                                         </thead>
                                         <tbody>
-                        {rows.length === 0 && <tr><td colSpan={6} className="sa-acc-td-empty">No journal entries.</td></tr>}
+                        {rows.length === 0 && <tr><td colSpan={6} className="sa-acc-td-empty">{t('empty.noJournal')}</td></tr>}
                         {rows.map((r) => (
                             <tr key={r.id}>
                                 <td>{fmtDate(r.date)}</td>
@@ -1173,10 +1193,11 @@ function JournalEntriesTab({ scope, dateRange }) {
 }
 
 /* ── Payments / Receipts ────────────────────────────────────────────────── */
-function TransactionsTab({ scope, kind, dateRange }) {
+function TransactionsTab({ scope, kind, dateRange, t }) {
     const isSupplier = scope.type === 'supplier';
     const scopeReady = isSupplier ? !!scope.supplierId : scope.type === 'hq' ? !!scope.hqWorkshopId : !!scope.workshopId;
     const ref = useRef(null);
+    const failMsg = t('empty.failed');
 
     const { loading, error, data } = useScopedData(async () => {
         if (!scopeReady) return null;
@@ -1197,14 +1218,16 @@ function TransactionsTab({ scope, kind, dateRange }) {
         kind,
         dateRange?.dateFrom,
         dateRange?.dateTo,
-    ]);
+        failMsg,
+    ], failMsg);
 
-    if (!scopeReady) return <ScopeEmpty scope={scope} />;
-    if (loading) return <Loading />;
+    if (!scopeReady) return <ScopeEmpty scope={scope} t={t} />;
+    if (loading) return <Loading t={t} />;
     if (error) return <ErrorBox msg={error} />;
 
     const rows = data?.rows || data?.items || data?.entries || [];
-    const title = kind === 'payment' ? 'Payments' : 'Receipts';
+    const title = kind === 'payment' ? t('report.payments') : t('report.receipts');
+    const emptyMsg = kind === 'payment' ? t('empty.noPayments') : t('empty.noReceipts');
     return (
         <div className="sa-acc-panel">
             <ReportToolbar
@@ -1212,7 +1235,7 @@ function TransactionsTab({ scope, kind, dateRange }) {
                 onCsv={() =>
                     downloadCsv(
                         `${kind}s.csv`,
-                        ['Date', 'Voucher', 'Payee', 'Account', 'Amount', 'Status'],
+                        [t('th.date'), t('th.voucher'), t('th.payee'), t('th.account'), t('th.amount'), t('th.status')],
                         rows.map((r) => [
                             fmtDate(r.date),
                             r.voucherNumber || r.voucher || r.number || '',
@@ -1224,14 +1247,15 @@ function TransactionsTab({ scope, kind, dateRange }) {
                     )
                 }
                 onPrint={() => printElement(ref.current, title)}
+                t={t}
             />
             <div ref={ref}>
                 <table className="sa-acc-table">
                     <thead>
-                        <tr><th>Date</th><th>Voucher</th><th>Payee</th><th>Account</th><th className="num">Amount</th><th>Status</th></tr>
+                        <tr><th>{t('th.date')}</th><th>{t('th.voucher')}</th><th>{t('th.payee')}</th><th>{t('th.account')}</th><th className="num">{t('th.amount')}</th><th>{t('th.status')}</th></tr>
                     </thead>
                     <tbody>
-                        {rows.length === 0 && <tr><td colSpan={6} className="sa-acc-td-empty">No {title.toLowerCase()}.</td></tr>}
+                        {rows.length === 0 && <tr><td colSpan={6} className="sa-acc-td-empty">{emptyMsg}</td></tr>}
                         {rows.map((r, i) => (
                             <tr key={r.id || i}>
                                 <td>{fmtDate(r.date)}</td>
@@ -1250,10 +1274,11 @@ function TransactionsTab({ scope, kind, dateRange }) {
 }
 
 /* ── Activity Log (cash/bank feed) ──────────────────────────────────────── */
-function ActivityTab({ scope, dateRange }) {
+function ActivityTab({ scope, dateRange, t }) {
     const isSupplier = scope.type === 'supplier';
     const scopeReady = isSupplier ? !!scope.supplierId : scope.type === 'hq' ? !!scope.hqWorkshopId : !!scope.workshopId;
     const ref = useRef(null);
+    const failMsg = t('empty.failed');
 
     const { loading, error, data } = useScopedData(async () => {
         if (!scopeReady) return null;
@@ -1274,20 +1299,21 @@ function ActivityTab({ scope, dateRange }) {
         scope.hqWorkshopId,
         dateRange?.dateFrom,
         dateRange?.dateTo,
-    ]);
+        failMsg,
+    ], failMsg);
 
-    if (!scopeReady) return <ScopeEmpty scope={scope} />;
-    if (loading) return <Loading />;
+    if (!scopeReady) return <ScopeEmpty scope={scope} t={t} />;
+    if (loading) return <Loading t={t} />;
     if (error) return <ErrorBox msg={error} />;
 
     if (isSupplier) {
         const rows = data?.entries || data?.journals || data?.items || [];
     return (
             <div className="sa-acc-panel">
-                <ReportToolbar title="Activity Log" onCsv={() => downloadCsv('activity.csv', ['Date', 'Entry', 'Description'], rows.map((r) => [fmtDate(r.date), r.entryNumber || '', r.description || '']))} onPrint={() => printElement(ref.current, 'Activity Log')} />
+                <ReportToolbar title={t('report.activity')} onCsv={() => downloadCsv('activity.csv', [t('th.date'), t('th.entry'), t('th.description')], rows.map((r) => [fmtDate(r.date), r.entryNumber || '', r.description || '']))} onPrint={() => printElement(ref.current, t('report.activity'))} t={t} />
                 <div ref={ref}>
                     <table className="sa-acc-table">
-                        <thead><tr><th>Date</th><th>Entry</th><th>Description</th></tr></thead>
+                        <thead><tr><th>{t('th.date')}</th><th>{t('th.entry')}</th><th>{t('th.description')}</th></tr></thead>
                         <tbody>
                             {rows.map((r) => (
                                 <tr key={r.id}><td>{fmtDate(r.date)}</td><td>{r.entryNumber || '—'}</td><td>{r.description || '—'}</td></tr>
@@ -1303,11 +1329,11 @@ function ActivityTab({ scope, dateRange }) {
     return (
         <div className="sa-acc-panel">
             <ReportToolbar
-                title="Activity Log"
+                title={t('report.activity')}
                 onCsv={() =>
                     downloadCsv(
                         'activity.csv',
-                        ['Date', 'Direction', 'Account', 'Branch', 'Description', 'Amount'],
+                        [t('th.date'), t('th.direction'), t('th.account'), t('th.branch'), t('th.description'), t('th.amount')],
                         rows.map((r) => [
                             fmtDate(r.entryDate || r.createdAt),
                             r.direction,
@@ -1318,21 +1344,22 @@ function ActivityTab({ scope, dateRange }) {
                         ]),
                     )
                 }
-                onPrint={() => printElement(ref.current, 'Activity Log')}
+                onPrint={() => printElement(ref.current, t('report.activity'))}
+                t={t}
             />
             <div ref={ref}>
                 <table className="sa-acc-table">
                         <thead>
-                        <tr><th>Date</th><th>Dir</th><th>Account</th><th>Branch</th><th>Description</th><th className="num">Amount</th></tr>
+                        <tr><th>{t('th.date')}</th><th>{t('th.dir')}</th><th>{t('th.account')}</th><th>{t('th.branch')}</th><th>{t('th.description')}</th><th className="num">{t('th.amount')}</th></tr>
                         </thead>
                         <tbody>
-                        {rows.length === 0 && <tr><td colSpan={6} className="sa-acc-td-empty">No activity.</td></tr>}
+                        {rows.length === 0 && <tr><td colSpan={6} className="sa-acc-td-empty">{t('empty.noActivity')}</td></tr>}
                         {rows.map((r) => (
                             <tr key={r.id}>
                                 <td>{fmtDate(r.entryDate || r.createdAt)}</td>
                                 <td>
                                     <span className={`sa-acc-dir sa-acc-dir--${r.direction}`}>
-                                        {r.direction === 'in' ? 'IN' : 'OUT'}
+                                        {r.direction === 'in' ? t('dir.in') : t('dir.out')}
                                     </span>
                                         </td>
                                 <td>{r.account?.name || '—'}</td>
@@ -1352,6 +1379,12 @@ function ActivityTab({ scope, dateRange }) {
 export default function AccountingPage() {
     const { subTab } = useParams();
     const navigate = useNavigate();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
     const activeSub = subTab || 'chart-of-accounts';
 
     const [scope, setScopeState] = useState(loadScope);
@@ -1425,11 +1458,11 @@ export default function AccountingPage() {
             await loadLists();
         } catch (e) {
             // eslint-disable-next-line no-alert
-            alert(e?.message || 'Failed to set up HQ books');
+            alert(e?.message || t('err.setupHq'));
         } finally {
             setProvisioning(false);
         }
-    }, [loadLists]);
+    }, [loadLists, t]);
 
     useEffect(() => {
         loadLists();
@@ -1465,19 +1498,19 @@ export default function AccountingPage() {
         ].includes(activeSub);
     const dateBarHint =
         activeSub === 'balance-sheet'
-            ? 'Balance sheet uses the To date as the as-of date.'
+            ? t('hint.bs')
             : activeSub === 'pl'
-              ? 'Profit & Loss shows activity between From and To.'
+              ? t('hint.pl')
               : activeSub === 'chart-of-accounts' || activeSub === 'trial-balance'
-                ? 'COA and Trial Balance show balances as of the To date (including parent roll-ups). Ledger drill-down uses From–To for opening balance and period lines.'
-                : 'Lists and ledgers are filtered to the From–To date range.';
+                ? t('hint.coaTb')
+                : t('hint.lists');
 
     const renderTab = () => {
         if (isHqMode && !resolvedHqId) {
             return (
                 <div className="sa-acc-empty">
                     <AlertTriangle size={32} />
-                    <p>Set up Platform HQ books to use full accounting.</p>
+                    <p>{t('empty.setupHqFull')}</p>
                             </div>
             );
         }
@@ -1489,6 +1522,7 @@ export default function AccountingPage() {
                         <HqChartOfAccountsPanel
                             scope={effectiveScope}
                             dateRange={dateRange}
+                            t={t}
                         />
                     </AccountingWorkshopScopeProvider>
                 );
@@ -1506,6 +1540,7 @@ export default function AccountingPage() {
                                 scope={effectiveScope}
                                 dateRange={dateRange}
                                 accountIndex={accountIndex}
+                                t={t}
                             />
                         ) : null}
                         {activeSub === 'pl' ? (
@@ -1513,6 +1548,7 @@ export default function AccountingPage() {
                                 scope={effectiveScope}
                                 dateRange={dateRange}
                                 accountIndex={accountIndex}
+                                t={t}
                             />
                         ) : null}
                         {activeSub === 'balance-sheet' ? (
@@ -1520,10 +1556,11 @@ export default function AccountingPage() {
                                 scope={effectiveScope}
                                 dateRange={dateRange}
                                 accountIndex={accountIndex}
+                                t={t}
                             />
                         ) : null}
                         {activeSub === 'activity' ? (
-                            <HqActivityLogPanel dateRange={dateRange} />
+                            <HqActivityLogPanel dateRange={dateRange} t={t} />
                         ) : null}
                     </AccountingWorkshopScopeProvider>
                 );
@@ -1543,7 +1580,7 @@ export default function AccountingPage() {
             return (
                 <div className="sa-acc-empty">
                     <AlertTriangle size={32} />
-                    <p>Loading Platform HQ books…</p>
+                    <p>{t('empty.loadingHq')}</p>
                                     </div>
             );
         }
@@ -1555,6 +1592,7 @@ export default function AccountingPage() {
                         scope={effectiveScope}
                         dateRange={dateRange}
                         accountIndex={accountIndex}
+                        t={t}
                     />
                 );
             case 'trial-balance':
@@ -1563,28 +1601,30 @@ export default function AccountingPage() {
                         scope={effectiveScope}
                         dateRange={dateRange}
                         accountIndex={accountIndex}
+                        t={t}
                     />
                 );
             case 'pl':
-                return <PLTab scope={effectiveScope} dateRange={dateRange} accountIndex={accountIndex} />;
+                return <PLTab scope={effectiveScope} dateRange={dateRange} accountIndex={accountIndex} t={t} />;
             case 'balance-sheet':
                 return (
                     <BalanceSheetTab
                         scope={effectiveScope}
                         dateRange={dateRange}
                         accountIndex={accountIndex}
+                        t={t}
                     />
                 );
             case 'ledger':
-                return <LedgerTab scope={effectiveScope} dateRange={dateRange} />;
+                return <LedgerTab scope={effectiveScope} dateRange={dateRange} t={t} />;
             case 'journal-entries':
-                return <JournalEntriesTab scope={effectiveScope} dateRange={dateRange} />;
+                return <JournalEntriesTab scope={effectiveScope} dateRange={dateRange} t={t} />;
             case 'payments':
-                return <TransactionsTab scope={effectiveScope} kind="payment" dateRange={dateRange} />;
+                return <TransactionsTab scope={effectiveScope} kind="payment" dateRange={dateRange} t={t} />;
             case 'receipts':
-                return <TransactionsTab scope={effectiveScope} kind="receipt" dateRange={dateRange} />;
+                return <TransactionsTab scope={effectiveScope} kind="receipt" dateRange={dateRange} t={t} />;
             case 'activity':
-                return <ActivityTab scope={effectiveScope} dateRange={dateRange} />;
+                return <ActivityTab scope={effectiveScope} dateRange={dateRange} t={t} />;
             case 'commissions':
             case 'referral-commissions-rm':
                 if (effectiveScope.type === 'hq' && resolvedHqId) {
@@ -1599,10 +1639,7 @@ export default function AccountingPage() {
                 return (
                     <div className="sa-acc-empty">
                         <AlertTriangle size={28} />
-                        <p>
-                            Referral commissions are managed under HQ (My Books). Switch scope to HQ to
-                            view referrer payouts.
-                        </p>
+                        <p>{t('err.commissionsHqOnly')}</p>
         </div>
     );
             case 'workshop-commissions':
@@ -1621,6 +1658,7 @@ export default function AccountingPage() {
                         scope={effectiveScope}
                         dateRange={dateRange}
                         accountIndex={accountIndex}
+                        t={t}
                     />
                 );
         }
@@ -1632,13 +1670,13 @@ export default function AccountingPage() {
     return (
         <div className="accounting-page module-container">
             <div className="accounting-sub-nav">
-                {navTabs.map((t) => (
+                {navTabs.map((tab) => (
                     <NavLink
-                        key={t.path}
-                        to={`/admin/accounting/${t.path}`}
+                        key={tab.path}
+                        to={`/admin/accounting/${tab.path}`}
                         className={({ isActive }) => `accounting-sub-tab ${isActive ? 'active' : ''}`}
                     >
-                        {t.label}
+                        {t(tab.labelKey || ACC_TAB_LABEL_KEYS[tab.path])}
                     </NavLink>
                 ))}
             </div>
@@ -1654,6 +1692,7 @@ export default function AccountingPage() {
                     onRefresh={loadLists}
                     onProvisionHq={handleProvisionHq}
                     provisioning={provisioning}
+                    t={t}
                 />
             )}
 
@@ -1666,6 +1705,7 @@ export default function AccountingPage() {
                     onApply={applyDateRange}
                     onClear={clearDateRange}
                     hint={dateBarHint}
+                    t={t}
                 />
             ) : null}
 

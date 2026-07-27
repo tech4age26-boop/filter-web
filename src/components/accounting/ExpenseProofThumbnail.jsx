@@ -1,31 +1,45 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { ImageIcon } from 'lucide-react';
+import { awT } from '../../utils/adminWalletsI18n';
+
+function useAwLocale() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => awT(locale, key, vars), [locale]);
+    return { locale, t };
+}
 
 export default function ExpenseProofThumbnail({
     proofUrl,
     hasExpenseProof = false,
     size = 40,
-    emptyLabel = '—',
+    emptyLabel,
 }) {
+    const { t } = useAwLocale();
     const [open, setOpen] = useState(false);
     const url = proofUrl?.trim?.() ? proofUrl.trim() : proofUrl;
+    const dash = emptyLabel ?? t('empty.emDash');
 
     if (!url) {
         if (hasExpenseProof) {
             return (
-                <span title="Expense proof on file" style={{ color: '#64748b', fontSize: 12 }}>
-                    Proof
+                <span title={t('proof.onFile')} style={{ color: '#64748b', fontSize: 12 }}>
+                    {t('proof.label')}
                 </span>
             );
         }
-        return <span style={{ color: '#94a3b8' }}>{emptyLabel}</span>;
+        return <span style={{ color: '#94a3b8' }}>{dash}</span>;
     }
 
     return (
         <>
             <button
                 type="button"
-                title="View expense proof"
+                title={t('proof.view')}
                 onClick={() => setOpen(true)}
                 style={{
                     border: '1px solid #e2e8f0',
@@ -38,7 +52,7 @@ export default function ExpenseProofThumbnail({
             >
                 <img
                     src={url}
-                    alt="Expense proof"
+                    alt={t('proof.alt')}
                     style={{
                         width: size,
                         height: size,
@@ -55,7 +69,7 @@ export default function ExpenseProofThumbnail({
                 <div
                     role="dialog"
                     aria-modal="true"
-                    aria-label="Expense proof"
+                    aria-label={t('proof.title')}
                     onClick={() => setOpen(false)}
                     style={{
                         position: 'fixed',
@@ -82,15 +96,15 @@ export default function ExpenseProofThumbnail({
                     >
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, gap: 12 }}>
                             <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <ImageIcon size={16} /> Expense proof
+                                <ImageIcon size={16} /> {t('proof.title')}
                             </strong>
                             <button type="button" className="btn-portal-outline" onClick={() => setOpen(false)}>
-                                Close
+                                {t('btn.close')}
                             </button>
                         </div>
                         <img
                             src={url}
-                            alt="Expense proof full size"
+                            alt={t('proof.altFull')}
                             style={{
                                 maxWidth: '100%',
                                 maxHeight: 'calc(92vh - 80px)',

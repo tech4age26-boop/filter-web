@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
-import { useParams, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, NavLink, useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import { Search, Plus, Users, Building, Pencil, FileText, Loader, Check } from 'lucide-react';
 import CustomersPageShell from '../../components/admin/CustomersPageShell';
 import CorporateBillingSection from '../../components/admin/CorporateBillingSection';
@@ -16,6 +16,7 @@ import {
 } from '../../services/superAdminApi';
 import { marketingListReferrers } from '../../services/superAdminMarketingApi';
 import { parseAllCustomersRoute, customersRoutes, ALL_CUSTOMERS_BASE } from '../../utils/customersRoutes';
+import { custT, CUST_SUB_LABEL_KEYS } from '../../utils/customersI18n';
 
 const CORPORATE_BRANCH_CACHE_KEY = 'filter_corporate_branch_options_cache_v1';
 
@@ -66,8 +67,8 @@ function mapCustomersResponse(d) {
 }
 
 const SUB_TABS = [
-    { path: 'all-customers',     label: 'All Customers',     permission: 'customers.all-customers.view' },
-    { path: 'corporate-billing', label: 'Corporate Billing', permission: 'customers.corporate-billing.view' },
+    { path: 'all-customers',     labelKey: 'sub.all',     permission: 'customers.all-customers.view' },
+    { path: 'corporate-billing', labelKey: 'sub.billing', permission: 'customers.corporate-billing.view' },
 ];
 
 const EMPTY_NEW_CUSTOMER = {
@@ -87,7 +88,13 @@ export default function CustomersPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const { hasPermission } = useAuth();
-    const visibleSubTabs = SUB_TABS.filter((t) => hasPermission(t.permission));
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => custT(locale, key, vars), [locale]);
+    const visibleSubTabs = SUB_TABS.filter((tab) => hasPermission(tab.permission));
     const isAllCustomersPath = location.pathname.startsWith('/admin/customers/all-customers');
     const activeSub = isAllCustomersPath ? 'all-customers' : (subTab || 'all-customers');
     const route = parseAllCustomersRoute(location.pathname);
@@ -134,12 +141,12 @@ export default function CustomersPage() {
         let cancelled = false;
         const normalizeWorkshop = (w) => ({
             id: String(w?.id ?? w?.value ?? ''),
-            name: w?.name ?? w?.label ?? `Workshop ${w?.id ?? ''}`,
+            name: w?.name ?? w?.label ?? t('fallback.workshop', { id: w?.id ?? '' }),
             status: String(w?.status ?? '').toLowerCase(),
         });
         const normalizeBranch = (b, workshopId = '') => ({
             id: String(b?.id ?? b?._id ?? ''),
-            name: String(b?.name ?? 'Unnamed branch'),
+            name: String(b?.name ?? t('fallback.branch')),
             workshopId: String(b?.mainWorkshopId ?? b?.workshopId ?? workshopId ?? ''),
             workshopName: b?.mainWorkshopName ?? b?.workshopName ?? '',
         });
@@ -201,7 +208,7 @@ export default function CustomersPage() {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [t]);
 
     const corporateCount = customers.filter((c) => c.customerType === 'corporate').length;
     const walkInCount = customers.filter((c) => c.customerType === 'regular').length;
@@ -409,11 +416,11 @@ export default function CustomersPage() {
         const password = String(newCustomer.password || '').trim();
         const mobile = String(newCustomer.mobile || '').trim();
         if (!companyName || !contactPerson || !email || !password || !mobile) {
-            alert('Company name, contact person, email, password, and mobile are required.');
+            alert(t('err.createRequired'));
             return;
         }
         if (!Array.isArray(newCustomer.selectedStoreIds) || newCustomer.selectedStoreIds.length === 0) {
-            alert('Select at least one branch.');
+            alert(t('err.selectBranch'));
             return;
         }
         setSaving(true);
@@ -436,7 +443,7 @@ export default function CustomersPage() {
             goBack();
             setNewCustomer(EMPTY_NEW_CUSTOMER);
         } catch (e) {
-            alert(e?.message || 'Failed to create corporate account');
+            alert(e?.message || t('err.createFail'));
         } finally {
             setSaving(false);
         }
@@ -447,15 +454,15 @@ export default function CustomersPage() {
         if (isCorp) {
             const em = String(editingCustomer.loginEmail ?? '').trim();
             if (!em) {
-                alert('Corporate portal login email is required.');
+                alert(t('err.emailRequired'));
                 return;
             }
             if (!String(editingCustomer.companyName ?? '').trim()) {
-                alert('Company name is required for corporate customers.');
+                alert(t('err.companyRequired'));
                 return;
             }
             if (!Array.isArray(editingCustomer.selectedStoreIds) || editingCustomer.selectedStoreIds.length === 0) {
-                alert('Select at least one branch for this corporate account.');
+                alert(t('err.selectBranchCorp'));
                 return;
             }
         }
@@ -482,7 +489,7 @@ export default function CustomersPage() {
             setCustomers(mapCustomersResponse(d));
             closeEdit();
         } catch (e) {
-            alert(e?.message || 'Failed to save customer');
+            alert(e?.message || t('err.saveFail'));
         } finally {
             setSaving(false);
         }
@@ -494,11 +501,11 @@ export default function CustomersPage() {
         <div className={`customer-branch-picker customers-form-branch-picker ${className}`.trim()}>
             {selectedCount > 0 && (
                 <div className="customer-branch-picker-summary">
-                    {selectedCount} branch{selectedCount !== 1 ? 'es' : ''} selected
+                    {t(selectedCount === 1 ? 'picker.selected' : 'picker.selectedPlural', { n: selectedCount })}
                 </div>
             )}
             {workshops.length === 0 ? (
-                <div className="customer-branch-picker-empty">No workshops available.</div>
+                <div className="customer-branch-picker-empty">{t('picker.noWorkshops')}</div>
             ) : (
                 workshops.map((w) => {
                     const branchRows = allBranches.filter((b) => String(b.workshopId) === String(w.id));
@@ -550,73 +557,73 @@ export default function CustomersPage() {
             <>
                 {route?.screen === 'create' && (
                     <CustomersPageShell
-                        title="Add Corporate Customer"
+                        title={t('create.title')}
                         onClose={goBack}
                         fullWidth
                         footer={
                             <>
-                                <button type="button" className="btn-secondary" onClick={goBack}>Cancel</button>
+                                <button type="button" className="btn-secondary" onClick={goBack}>{t('btn.cancel')}</button>
                                 <button type="button" className="btn-submit" onClick={handleSaveNew} disabled={saving}>
-                                    {saving ? <><Loader size={14} className="spin" /> Creating…</> : 'Create Customer'}
+                                    {saving ? <><Loader size={14} className="spin" /> {t('btn.creating')}</> : t('btn.create')}
                                 </button>
                             </>
                         }
                     >
                         <p className="customers-form-lead">
-                            Register a new corporate account with portal login. The customer is auto-approved and can access selected workshop branches immediately.
+                            {t('create.lead')}
                         </p>
 
                         <div className="customers-create-layout">
                             <div className="customers-create-main">
                                 <section className="customers-form-section">
-                                    <h2 className="customers-form-section-title">Company details</h2>
+                                    <h2 className="customers-form-section-title">{t('section.company')}</h2>
                                     <div className="customers-form-grid customers-form-grid--4">
                                         <div className="form-group">
-                                            <label className="form-label">Company name *</label>
+                                            <label className="form-label">{t('label.companyName')}</label>
                                             <input
                                                 type="text"
                                                 className="form-input-field"
-                                                placeholder="e.g. Filter Corp"
+                                                placeholder={t('ph.company')}
                                                 value={newCustomer.companyName}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, companyName: e.target.value }))}
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label className="form-label">Contact person *</label>
+                                            <label className="form-label">{t('label.contactPerson')}</label>
                                             <input
                                                 type="text"
                                                 className="form-input-field"
-                                                placeholder="Primary contact name"
+                                                placeholder={t('ph.contact')}
                                                 value={newCustomer.contactPerson}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, contactPerson: e.target.value }))}
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label className="form-label">Mobile *</label>
+                                            <label className="form-label">{t('label.mobileReq')}</label>
                                             <input
                                                 type="text"
                                                 className="form-input-field"
-                                                placeholder="+966..."
+                                                placeholder={t('ph.mobile')}
                                                 value={newCustomer.mobile}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, mobile: e.target.value }))}
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label className="form-label">VAT number</label>
+                                            <label className="form-label">{t('label.vat')}</label>
                                             <input
                                                 type="text"
                                                 className="form-input-field"
-                                                placeholder="Optional"
+                                                placeholder={t('ph.optional')}
                                                 value={newCustomer.vatNumber}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, vatNumber: e.target.value }))}
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label className="form-label">CR number</label>
+                                            <label className="form-label">{t('label.cr')}</label>
                                             <input
                                                 type="text"
                                                 className="form-input-field"
-                                                placeholder="Commercial registration"
+                                                placeholder={t('ph.cr')}
                                                 value={newCustomer.crNumber}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, crNumber: e.target.value }))}
                                             />
@@ -625,38 +632,38 @@ export default function CustomersPage() {
                                 </section>
 
                                 <section className="customers-form-section">
-                                    <h2 className="customers-form-section-title">Portal login</h2>
+                                    <h2 className="customers-form-section-title">{t('section.portal')}</h2>
                                     <div className="customers-form-grid customers-form-grid--3">
                                         <div className="form-group">
-                                            <label className="form-label">Email *</label>
+                                            <label className="form-label">{t('label.email')}</label>
                                             <input
                                                 type="email"
                                                 className="form-input-field"
-                                                placeholder="login@company.com"
+                                                placeholder={t('ph.email')}
                                                 autoComplete="off"
                                                 value={newCustomer.email}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, email: e.target.value }))}
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label className="form-label">Password *</label>
+                                            <label className="form-label">{t('label.password')}</label>
                                             <input
                                                 type="password"
                                                 className="form-input-field"
-                                                placeholder="Portal password"
+                                                placeholder={t('ph.password')}
                                                 autoComplete="new-password"
                                                 value={newCustomer.password}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, password: e.target.value }))}
                                             />
                                         </div>
                                         <div className="form-group">
-                                            <label className="form-label">Referral username</label>
+                                            <label className="form-label">{t('label.referral')}</label>
                                             <select
                                                 className="form-input-field"
                                                 value={newCustomer.referralId}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, referralId: e.target.value }))}
                                             >
-                                                <option value="">No referral</option>
+                                                <option value="">{t('opt.noReferral')}</option>
                                                 {referrerOptions.map((r) => (
                                                     <option key={r.id} value={r.id}>
                                                         {r.username}
@@ -670,8 +677,8 @@ export default function CustomersPage() {
 
                             <aside className="customers-create-branches">
                                 <section className="customers-form-section customers-form-section--fill">
-                                    <h2 className="customers-form-section-title">Branch access *</h2>
-                                    <p className="customers-form-hint">Select which workshop branches this corporate account can use.</p>
+                                    <h2 className="customers-form-section-title">{t('section.branches')}</h2>
+                                    <p className="customers-form-hint">{t('hint.branches')}</p>
                                     {renderBranchPicker(newCustomer.selectedStoreIds, (branchId, checked) => {
                                         setNewCustomer((prev) => ({
                                             ...prev,
@@ -688,35 +695,33 @@ export default function CustomersPage() {
 
                 {route?.screen === 'edit' && editingCustomer && (
                     <CustomersPageShell
-                        title="Edit Customer"
+                        title={t('edit.title')}
                         onClose={closeEdit}
                         backDisabled={saving}
                         fullWidth
                         footer={
                             <>
-                                <button type="button" className="btn-secondary" onClick={closeEdit} disabled={saving}>Cancel</button>
-                                <button type="button" className="btn-submit" onClick={handleSaveEdit} disabled={saving || editFormLoading}>{saving ? <><Loader size={14} className="spin" /> Saving…</> : 'Save Changes'}</button>
+                                <button type="button" className="btn-secondary" onClick={closeEdit} disabled={saving}>{t('btn.cancel')}</button>
+                                <button type="button" className="btn-submit" onClick={handleSaveEdit} disabled={saving || editFormLoading}>{saving ? <><Loader size={14} className="spin" /> {t('btn.saving')}</> : t('btn.save')}</button>
                             </>
                         }
                     >
                         {editFormLoading ? (
-                            <div className="table-empty"><Loader size={18} className="spin" /> Loading corporate login…</div>
+                            <div className="table-empty"><Loader size={18} className="spin" /> {t('loading.login')}</div>
                         ) : (() => {
                             const isCorp = editingCustomer.customerType === 'corporate' || !!editingCustomer.corporateAccount;
                             return (
                                 <>
                                     <p className="customers-form-lead">
-                                        {isCorp
-                                            ? 'Update customer profile, corporate portal login, and branch access.'
-                                            : 'Update walk-in customer contact details and account status.'}
+                                        {isCorp ? t('edit.leadCorp') : t('edit.leadWalkIn')}
                                     </p>
                                     <div className={`customers-create-layout${isCorp ? '' : ' customers-create-layout--single'}`}>
                                         <div className="customers-create-main">
                                             <section className="customers-form-section">
-                                                <h2 className="customers-form-section-title">Customer profile</h2>
+                                                <h2 className="customers-form-section-title">{t('section.profile')}</h2>
                                                 <div className="customers-form-grid customers-form-grid--3">
                                                     <div className="form-group">
-                                                        <label className="form-label">Customer name</label>
+                                                        <label className="form-label">{t('label.customerName')}</label>
                                                         <input
                                                             type="text"
                                                             className="form-input-field"
@@ -725,29 +730,29 @@ export default function CustomersPage() {
                                                         />
                                                     </div>
                                                     <div className="form-group">
-                                                        <label className="form-label">Type</label>
+                                                        <label className="form-label">{t('label.type')}</label>
                                                         <select
                                                             className="form-input-field"
                                                             value={editingCustomer.customerType === 'corporate' ? 'Corporate' : 'Walk-in'}
                                                             onChange={(e) => setEditingCustomer((p) => ({ ...p, customerType: e.target.value === 'Corporate' ? 'corporate' : 'regular' }))}
                                                         >
-                                                            <option value="Walk-in">Walk-in</option>
-                                                            <option value="Corporate">Corporate</option>
+                                                            <option value="Walk-in">{t('type.walkIn')}</option>
+                                                            <option value="Corporate">{t('type.corporate')}</option>
                                                         </select>
                                                     </div>
                                                     <div className="form-group">
-                                                        <label className="form-label">Status</label>
+                                                        <label className="form-label">{t('label.status')}</label>
                                                         <select
                                                             className="form-input-field"
                                                             value={editingCustomer.isActive ? 'Active' : 'Inactive'}
                                                             onChange={(e) => setEditingCustomer((p) => ({ ...p, isActive: e.target.value === 'Active' }))}
                                                         >
-                                                            <option value="Active">Active</option>
-                                                            <option value="Inactive">Inactive</option>
+                                                            <option value="Active">{t('status.active')}</option>
+                                                            <option value="Inactive">{t('status.inactive')}</option>
                                                         </select>
                                                     </div>
                                                     <div className="form-group">
-                                                        <label className="form-label">Mobile</label>
+                                                        <label className="form-label">{t('label.mobile')}</label>
                                                         <input
                                                             type="text"
                                                             className="form-input-field"
@@ -756,7 +761,7 @@ export default function CustomersPage() {
                                                         />
                                                     </div>
                                                     <div className="form-group">
-                                                        <label className="form-label">WhatsApp</label>
+                                                        <label className="form-label">{t('label.whatsapp')}</label>
                                                         <input
                                                             type="text"
                                                             className="form-input-field"
@@ -765,7 +770,7 @@ export default function CustomersPage() {
                                                         />
                                                     </div>
                                                     <div className="form-group">
-                                                        <label className="form-label">VAT number</label>
+                                                        <label className="form-label">{t('label.vat')}</label>
                                                         <input
                                                             type="text"
                                                             className="form-input-field"
@@ -774,7 +779,7 @@ export default function CustomersPage() {
                                                         />
                                                     </div>
                                                     <div className="form-group">
-                                                        <label className="form-label">CR number</label>
+                                                        <label className="form-label">{t('label.cr')}</label>
                                                         <input
                                                             type="text"
                                                             className="form-input-field"
@@ -787,10 +792,10 @@ export default function CustomersPage() {
 
                                             {isCorp && (
                                                 <section className="customers-form-section">
-                                                    <h2 className="customers-form-section-title">Corporate account</h2>
+                                                    <h2 className="customers-form-section-title">{t('section.corporate')}</h2>
                                                     <div className="customers-form-grid customers-form-grid--3">
                                                         <div className="form-group">
-                                                            <label className="form-label">Company name *</label>
+                                                            <label className="form-label">{t('label.companyName')}</label>
                                                             <input
                                                                 type="text"
                                                                 className="form-input-field"
@@ -799,7 +804,7 @@ export default function CustomersPage() {
                                                             />
                                                         </div>
                                                         <div className="form-group">
-                                                            <label className="form-label">Contact person</label>
+                                                            <label className="form-label">{t('label.contactPersonOpt')}</label>
                                                             <input
                                                                 type="text"
                                                                 className="form-input-field"
@@ -808,7 +813,7 @@ export default function CustomersPage() {
                                                             />
                                                         </div>
                                                         <div className="form-group">
-                                                            <label className="form-label">Portal email *</label>
+                                                            <label className="form-label">{t('label.portalEmail')}</label>
                                                             <input
                                                                 type="email"
                                                                 className="form-input-field"
@@ -818,28 +823,28 @@ export default function CustomersPage() {
                                                             />
                                                         </div>
                                                         <div className="form-group">
-                                                            <label className="form-label">New password</label>
+                                                            <label className="form-label">{t('label.newPassword')}</label>
                                                             <input
                                                                 type="password"
                                                                 className="form-input-field"
                                                                 autoComplete="new-password"
-                                                                placeholder="Leave empty to keep current"
+                                                                placeholder={t('ph.keepPassword')}
                                                                 value={editingCustomer.newPassword}
                                                                 onChange={(e) => setEditingCustomer((p) => ({ ...p, newPassword: e.target.value }))}
                                                             />
                                                         </div>
                                                         <div className="form-group span-2">
-                                                            <label className="form-label">Primary workshop</label>
+                                                            <label className="form-label">{t('label.primaryWorkshop')}</label>
                                                             <input
                                                                 type="text"
                                                                 className="form-input-field"
                                                                 readOnly
                                                                 disabled
                                                                 value={editingCustomer.workshopName || '—'}
-                                                                title="Updates from the first selected branch on save."
+                                                                title={t('hint.workshopAnchor')}
                                                             />
                                                             <p className="customers-form-hint customers-form-hint--inline">
-                                                                Anchor workshop follows the first selected branch when you save.
+                                                                {t('hint.workshopAnchor')}
                                                             </p>
                                                         </div>
                                                     </div>
@@ -850,8 +855,8 @@ export default function CustomersPage() {
                                         {isCorp && (
                                             <aside className="customers-create-branches">
                                                 <section className="customers-form-section customers-form-section--fill">
-                                                    <h2 className="customers-form-section-title">Branch access *</h2>
-                                                    <p className="customers-form-hint">Select which workshop branches this corporate account can use.</p>
+                                                    <h2 className="customers-form-section-title">{t('section.branches')}</h2>
+                                                    <p className="customers-form-hint">{t('hint.branches')}</p>
                                                     {renderBranchPicker(editingCustomer.selectedStoreIds || [], (branchId, checked) => {
                                                         setEditingCustomer((prev) => ({
                                                             ...prev,
@@ -872,53 +877,68 @@ export default function CustomersPage() {
 
                 {route?.screen === 'details' && (
                     <CustomersPageShell
-                        title="Customer Details"
+                        title={t('details.title')}
                         onClose={closeDetails}
                     >
                         {detailsLoading ? (
-                            <div className="table-empty"><Loader size={18} className="spin" /> Loading details…</div>
+                            <div className="table-empty"><Loader size={18} className="spin" /> {t('loading.details')}</div>
                         ) : detailsData ? (
                             <div className="customers-form-stack">
                                 <div className="form-group">
-                                    <label className="form-label">Customer</label>
+                                    <label className="form-label">{t('label.customer')}</label>
                                     <div className="cell-main-text">{detailsData.name ?? detailsData.customer?.name ?? '—'}</div>
                                     <div className="cell-sub-text">{detailsData.mobile ?? detailsData.customer?.mobile ?? '—'}</div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Type</label>
-                                    <div className="cell-main-text">{(detailsData.customerType ?? detailsData.customer?.customerType ?? 'regular') === 'corporate' ? 'Corporate' : 'Walk-in'}</div>
+                                    <label className="form-label">{t('label.type')}</label>
+                                    <div className="cell-main-text">
+                                        {(detailsData.customerType ?? detailsData.customer?.customerType ?? 'regular') === 'corporate'
+                                            ? t('type.corporate')
+                                            : t('type.walkIn')}
+                                    </div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Vehicles / Orders</label>
+                                    <label className="form-label">{t('label.vehiclesOrders')}</label>
                                     <div className="cell-main-text">
-                                        Vehicles: {Array.isArray(detailsData.vehicles) ? detailsData.vehicles.length : (detailsData.vehiclesCount ?? 0)}
+                                        {t('details.vehicles', {
+                                            n: Array.isArray(detailsData.vehicles) ? detailsData.vehicles.length : (detailsData.vehiclesCount ?? 0),
+                                        })}
                                     </div>
                                     <div className="cell-sub-text">
-                                        Sales Orders: {Array.isArray(detailsData.salesOrders) ? detailsData.salesOrders.length : (detailsData.salesOrdersCount ?? 0)}
+                                        {t('details.salesOrders', {
+                                            n: Array.isArray(detailsData.salesOrders) ? detailsData.salesOrders.length : (detailsData.salesOrdersCount ?? 0),
+                                        })}
                                     </div>
                                 </div>
                                 {Array.isArray(detailsData.salesOrders) && detailsData.salesOrders.length > 0 && (
                                     <div className="form-group">
-                                        <label className="form-label">Latest Orders</label>
+                                        <label className="form-label">{t('label.latestOrders')}</label>
                                         {detailsData.salesOrders.slice(0, 5).map((o, idx) => (
                                             <div key={String(o.id ?? o.orderNumber ?? idx)} className="cell-sub-text" style={{ marginBottom: 6 }}>
-                                                {String(o.status ?? 'unknown')} | {String(o.source ?? '—')} | Invoice: {o.invoice?.invoiceNumber ?? '—'}
+                                                {t('details.orderLine', {
+                                                    status: String(o.status ?? 'unknown'),
+                                                    source: String(o.source ?? '—'),
+                                                    invoice: o.invoice?.invoiceNumber ?? '—',
+                                                })}
                                             </div>
                                         ))}
                                     </div>
                                 )}
                                 {detailsData.corporateAccount && (
                                     <div className="form-group">
-                                        <label className="form-label">Corporate Account</label>
+                                        <label className="form-label">{t('label.corporateAccount')}</label>
                                         <div className="cell-main-text">{detailsData.corporateAccount.companyName ?? '—'}</div>
                                         <div className="cell-sub-text">
-                                            Credit: SAR {Number(detailsData.corporateAccount.creditLimit ?? 0).toFixed(2)} | Due: SAR {Number(detailsData.corporateAccount.dueBalance ?? 0).toFixed(2)}
+                                            {t('details.creditDue', {
+                                                credit: Number(detailsData.corporateAccount.creditLimit ?? 0).toFixed(2),
+                                                due: Number(detailsData.corporateAccount.dueBalance ?? 0).toFixed(2),
+                                            })}
                                         </div>
                                     </div>
                                 )}
                                 {Array.isArray(detailsData.corporateAccount?.portalUsers) && detailsData.corporateAccount.portalUsers.length > 0 && (
                                     <div className="form-group">
-                                        <label className="form-label">Corporate portal email</label>
+                                        <label className="form-label">{t('label.portalEmails')}</label>
                                         {detailsData.corporateAccount.portalUsers.map((u) => (
                                             <div key={String(u.userId)} className="cell-sub-text" style={{ marginBottom: 4 }}>
                                                 {u.email || '—'}
@@ -929,17 +949,20 @@ export default function CustomersPage() {
                                 )}
                                 {Array.isArray(detailsData.corporateAccount?.corporateOrders) && detailsData.corporateAccount.corporateOrders.length > 0 && (
                                     <div className="form-group">
-                                        <label className="form-label">Corporate Orders</label>
+                                        <label className="form-label">{t('label.corporateOrders')}</label>
                                         {detailsData.corporateAccount.corporateOrders.slice(0, 5).map((co, idx) => (
                                             <div key={String(co.id ?? idx)} className="cell-sub-text" style={{ marginBottom: 6 }}>
-                                                {co.status ?? '—'} | Linked SOs: {Array.isArray(co.linkedSalesOrders) ? co.linkedSalesOrders.length : 0}
+                                                {t('details.corpOrderLine', {
+                                                    status: co.status ?? '—',
+                                                    n: Array.isArray(co.linkedSalesOrders) ? co.linkedSalesOrders.length : 0,
+                                                })}
                                             </div>
                                         ))}
                                     </div>
                                 )}
                             </div>
                         ) : (
-                            <div className="table-empty">No details found.</div>
+                            <div className="table-empty">{t('details.empty')}</div>
                         )}
                     </CustomersPageShell>
                 )}
@@ -950,13 +973,13 @@ export default function CustomersPage() {
     return (
         <div className="customers-page module-container">
             <div className="customers-sub-nav">
-                {visibleSubTabs.map((t) => (
+                {visibleSubTabs.map((tab) => (
                     <NavLink
-                        key={t.path}
-                        to={`/admin/customers/${t.path}`}
-                        className={() => `customers-sub-tab ${isCustomersSubTabActive(t.path) ? 'active' : ''}`}
+                        key={tab.path}
+                        to={`/admin/customers/${tab.path}`}
+                        className={() => `customers-sub-tab ${isCustomersSubTabActive(tab.path) ? 'active' : ''}`}
                     >
-                        {t.label}
+                        {t(CUST_SUB_LABEL_KEYS[tab.path] || tab.labelKey)}
                     </NavLink>
                 ))}
             </div>
@@ -967,21 +990,21 @@ export default function CustomersPage() {
                 <div className="stat-mini-card">
                     <Users size={20} color="var(--color-primary)" />
                     <div>
-                        <p className="mini-label">Total Customers</p>
+                        <p className="mini-label">{t('stat.total')}</p>
                         <h4 className="mini-val">{customers.length}</h4>
                     </div>
                 </div>
                 <div className="stat-mini-card">
                     <Building size={20} color="var(--color-primary)" />
                     <div>
-                        <p className="mini-label">Corporate</p>
+                        <p className="mini-label">{t('stat.corporate')}</p>
                         <h4 className="mini-val">{corporateCount}</h4>
                     </div>
                 </div>
                 <div className="stat-mini-card">
                     <Users size={20} color="var(--color-primary)" />
                     <div>
-                        <p className="mini-label">Walk-in</p>
+                        <p className="mini-label">{t('stat.walkIn')}</p>
                         <h4 className="mini-val">{walkInCount}</h4>
                     </div>
                 </div>
@@ -992,79 +1015,84 @@ export default function CustomersPage() {
                     <Search size={16} />
                     <input
                         type="text"
-                        placeholder="Search customers..."
+                        placeholder={t('search.placeholder')}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
                 <div className="billing-tabs" style={{ margin: 0 }}>
                     {[
-                        { id: 'all', label: 'All' },
-                        { id: 'regular', label: 'Walk-in' },
-                        { id: 'corporate', label: 'Corporate' },
-                    ].map((t) => (
+                        { id: 'all', labelKey: 'filter.all' },
+                        { id: 'regular', labelKey: 'filter.walkIn' },
+                        { id: 'corporate', labelKey: 'filter.corporate' },
+                    ].map((tab) => (
                         <button
-                            key={t.id}
+                            key={tab.id}
                             type="button"
-                            className={`billing-tab ${typeFilter === t.id ? 'active' : ''}`}
-                            onClick={() => setTypeFilter(t.id)}
+                            className={`billing-tab ${typeFilter === tab.id ? 'active' : ''}`}
+                            onClick={() => setTypeFilter(tab.id)}
                         >
-                            {t.label}
+                            {t(tab.labelKey)}
                         </button>
                     ))}
                 </div>
-                <button type="button" className="btn-portal" onClick={() => navigate(customersRoutes.create())}><Plus size={16} /> ADD CUSTOMER</button>
+                <button type="button" className="btn-portal" onClick={() => navigate(customersRoutes.create())}><Plus size={16} /> {t('btn.add')}</button>
             </div>
 
             <section className="premium-table">
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">CUSTOMER</th>
-                            <th className="table-th">TYPE</th>
-                            <th className="table-th">MOBILE</th>
-                            <th className="table-th">WORKSHOP</th>
-                            <th className="table-th">ORDER STATS</th>
-                            <th className="table-th">CORPORATE</th>
-                            <th className="table-th">STATUS</th>
-                            <th className="table-th">ACTIONS</th>
+                            <th className="table-th">{t('th.customer')}</th>
+                            <th className="table-th">{t('th.type')}</th>
+                            <th className="table-th">{t('th.mobile')}</th>
+                            <th className="table-th">{t('th.workshop')}</th>
+                            <th className="table-th">{t('th.orderStats')}</th>
+                            <th className="table-th">{t('th.corporate')}</th>
+                            <th className="table-th">{t('th.status')}</th>
+                            <th className="table-th">{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={8} className="table-cell table-empty"><Loader size={18} className="spin" /> Loading…</td></tr>
+                            <tr><td colSpan={8} className="table-cell table-empty"><Loader size={18} className="spin" /> {t('loading')}</td></tr>
                         ) : filteredCustomers.map((c) => (
                             <tr key={c.id} className="table-row">
                                 <td className="table-cell">
                                     <div className="cell-main-text">{c.name}</div>
-                                    <div className="cell-sub-text">{c.customerType === 'corporate' ? 'Business Account' : 'Walk-in'}</div>
+                                    <div className="cell-sub-text">{c.customerType === 'corporate' ? t('type.business') : t('type.walkIn')}</div>
                                 </td>
                                 <td className="table-cell">
                                     <span className={`type-badge ${c.customerType === 'corporate' ? 'corporate' : 'walk-in'}`}>
-                                        {c.customerType === 'corporate' ? 'Corporate' : 'Walk-in'}
+                                        {c.customerType === 'corporate' ? t('type.corporate') : t('type.walkIn')}
                                     </span>
                                 </td>
                                 <td className="table-cell">{c.mobile}</td>
                                 <td className="table-cell">{c.workshopName}</td>
                                 <td className="table-cell">
-                                    <div className="cell-sub-text">Total: {c.orderStats.totalOrders}</div>
-                                    <div className="cell-sub-text">Completed: {c.orderStats.completedOrders} | Draft: {c.orderStats.draftOrders}</div>
+                                    <div className="cell-sub-text">{t('orders.total', { n: c.orderStats.totalOrders })}</div>
+                                    <div className="cell-sub-text">
+                                        {t('orders.completedDraft', {
+                                            c: c.orderStats.completedOrders,
+                                            d: c.orderStats.draftOrders,
+                                        })}
+                                    </div>
                                 </td>
                                 <td className="table-cell">
                                     {c.corporateAccount ? (
-                                        <span className="type-badge corporate">{c.corporateAccount.companyName ?? 'Corporate'}</span>
+                                        <span className="type-badge corporate">{c.corporateAccount.companyName ?? t('type.corporate')}</span>
                                     ) : (
                                         <span className="cell-sub-text">—</span>
                                     )}
                                 </td>
                                 <td className="table-cell">
                                     <span className={`status-badge ${c.isActive ? 'status-completed' : 'status-warning'}`}>
-                                        {c.isActive ? 'Active' : 'Inactive'}
+                                        {c.isActive ? t('status.active') : t('status.inactive')}
                                     </span>
                                 </td>
                                 <td className="table-cell">
-                                    <button type="button" className="btn-edit" onClick={() => openDetails(c.id)}><FileText size={14} /> Details</button>
-                                    <button type="button" className="btn-edit" onClick={() => openEdit(c)} style={{ marginLeft: 8 }}><Pencil size={14} /> Edit</button>
+                                    <button type="button" className="btn-edit" onClick={() => openDetails(c.id)}><FileText size={14} /> {t('btn.details')}</button>
+                                    <button type="button" className="btn-edit" onClick={() => openEdit(c)} style={{ marginLeft: 8 }}><Pencil size={14} /> {t('btn.edit')}</button>
                                 </td>
                             </tr>
                         ))}

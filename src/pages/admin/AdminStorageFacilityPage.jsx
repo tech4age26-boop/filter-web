@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { ChevronRight, Truck, Warehouse } from 'lucide-react';
 import { getSupplier, getSuppliers } from '../../services/superAdminApi';
 import { useAdminPageMeta } from '../../context/AdminPageMetaContext';
@@ -7,7 +7,17 @@ import { useAuth } from '../../context/AuthContext';
 import { ShimmerTable } from '../../components/supplier/Shimmer';
 import SupplierStorageFacility from '../supplier/storage-facility/SupplierStorageFacility';
 import { StorageFacilityPortalProvider } from '../supplier/storage-facility/StorageFacilityPortalContext';
+import { sfT } from '../../utils/storageFacilityI18n';
 import '../../styles/admin/AccountingPage.css';
+
+function useSfLocale() {
+    const outletCtx = useOutletContext() || {};
+    return (
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en'
+    );
+}
 
 function normalizeSupplierRow(s) {
     return {
@@ -22,6 +32,8 @@ function normalizeSupplierRow(s) {
 
 function AdminStorageFacilitySupplierList() {
     const navigate = useNavigate();
+    const locale = useSfLocale();
+    const t = useCallback((key, vars) => sfT(locale, key, vars), [locale]);
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -35,12 +47,12 @@ function AdminStorageFacilitySupplierList() {
             const list = Array.isArray(res) ? res : (res?.suppliers ?? res?.data ?? []);
             setRows(list.map(normalizeSupplierRow));
         } catch (e) {
-            setErr(e?.message || 'Failed to load suppliers');
+            setErr(e?.message || t('admin.errLoad'));
             setRows([]);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         load();
@@ -60,12 +72,9 @@ function AdminStorageFacilitySupplierList() {
             <header className="mgr-si-header">
                 <h2 className="mgr-si-title">
                     <Warehouse size={22} style={{ verticalAlign: 'middle', marginRight: 8 }} />
-                    Storage Facility
+                    {t('admin.title')}
                 </h2>
-                <p className="mgr-si-subtitle">
-                    Select a supplier to manage their storage brands, stock, invoices, and accounting —
-                    same as the supplier portal.
-                </p>
+                <p className="mgr-si-subtitle">{t('admin.subtitle')}</p>
             </header>
 
             {err ? <div className="mgr-si-error">{err}</div> : null}
@@ -73,7 +82,7 @@ function AdminStorageFacilitySupplierList() {
             <div style={{ marginBottom: 16 }}>
                 <input
                     className="mgr-si-search-input"
-                    placeholder="Search suppliers…"
+                    placeholder={t('admin.search')}
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
                     style={{ maxWidth: 360 }}
@@ -89,10 +98,10 @@ function AdminStorageFacilitySupplierList() {
                     <table className="mgr-si-table">
                         <thead>
                             <tr className="table-header-row">
-                                <th className="table-th">Supplier</th>
-                                <th className="table-th">Contact</th>
-                                <th className="table-th">Phone</th>
-                                <th className="table-th">Category</th>
+                                <th className="table-th">{t('th.supplier')}</th>
+                                <th className="table-th">{t('th.contact')}</th>
+                                <th className="table-th">{t('th.phone')}</th>
+                                <th className="table-th">{t('th.category')}</th>
                                 <th className="table-th" />
                             </tr>
                         </thead>
@@ -108,7 +117,7 @@ function AdminStorageFacilitySupplierList() {
                                                 display: 'block',
                                             }}
                                         />
-                                        No suppliers found.
+                                        {t('admin.empty')}
                                     </td>
                                 </tr>
                             ) : (
@@ -196,12 +205,13 @@ function AdminStorageFacilitySupplierView({ supplierId }) {
 export default function AdminStorageFacilityPage() {
     const { supplierId } = useParams();
     const { hasPermission } = useAuth();
+    const locale = useSfLocale();
     const canView = hasPermission('storage-facility.view');
 
     if (!canView) {
         return (
             <div className="mgr-si-page" style={{ padding: 20 }}>
-                <p style={{ color: '#64748b' }}>You do not have permission to view Storage Facility.</p>
+                <p style={{ color: '#64748b' }}>{sfT(locale, 'admin.denied')}</p>
             </div>
         );
     }

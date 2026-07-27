@@ -1,13 +1,22 @@
-import React from 'react';
+import React, { useCallback } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import WorkshopTransactionsLog from './WorkshopTransactionsLog';
+import { accT } from '../../../utils/accountingI18n';
 
 export default function WorkshopPaymentsLog({ branches = [], selectedBranchId = 'all' }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
+
     return (
         <WorkshopTransactionsLog
             direction="out"
-            title="Payments Log"
-            subtitle="Every outgoing payment across cash, bank, and petty-cash registers."
-            emptyHint="No payments in this period."
+            title={t('pay.paymentsLog')}
+            subtitle={t('pay.paymentsSub')}
+            emptyHint={t('pay.empty')}
             branches={branches}
             selectedBranchId={selectedBranchId}
         />

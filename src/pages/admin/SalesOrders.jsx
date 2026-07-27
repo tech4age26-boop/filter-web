@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { ShoppingCart, Search, CheckCircle2, XCircle, Clock, Loader } from 'lucide-react';
 import '../../styles/admin/SalesOrders.css';
 import '../workshop/Workshop.css';
@@ -13,58 +14,73 @@ import {
 import * as marketingLookupApi from '../../services/marketingSalesLookupApi';
 import { ExportMenu } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
+import { soT, SO_STATUS_OPTION_KEYS, SO_STATUS_LABEL_KEYS } from '../../utils/salesOrdersI18n';
 
 const PAGE_SIZE = 25;
 const EXPORT_LIMIT = 5000;
 
 /** Build {headers, rows} mirroring the on-screen table — used for PDF/Excel export. */
-function buildSalesOrderExportRows(orders) {
+function buildSalesOrderExportRows(orders, fmtDateTime, t) {
     const headers = [
-        'Invoice No', 'Order #', 'Date / Time', 'Workshop', 'Branch',
-        'Customer', 'Mobile', 'Vehicle', 'Technicians', 'Total (SAR)', 'Status',
+        t('exp.invNo'),
+        t('exp.order'),
+        t('exp.datetime'),
+        t('exp.workshop'),
+        t('exp.branch'),
+        t('exp.customer'),
+        t('exp.mobile'),
+        t('exp.vehicle'),
+        t('exp.techs'),
+        t('exp.total'),
+        t('exp.status'),
     ];
     const rows = (orders || []).map((order) => [
-        order.invoiceNo ?? 'Pending invoice',
+        order.invoiceNo ?? t('pendingInvoice'),
         order.id,
-        formatInvoiceDateTime(order),
+        fmtDateTime(order),
         order.workshopName ?? '—',
         order.branchName ?? '—',
-        order.customerName ?? 'Walk-in',
+        order.customerName ?? t('walkIn'),
         order.customerMobile ?? '—',
         order.plateNo ?? '—',
         order.technicianNames ?? '—',
         order.totalAmount != null ? Number(Number(order.totalAmount).toFixed(2)) : '',
-        formatStatusLabel(order.status),
+        formatStatusLabel(order.status, t),
     ]);
     return { headers, rows };
 }
 
 const STATUS_VARIANT = {
-    completed: { class: 'so-status-completed', icon: CheckCircle2, label: 'Completed' },
-    invoiced: { class: 'so-status-completed', icon: CheckCircle2, label: 'Invoiced' },
-    cancelled: { class: 'so-status-cancelled', icon: XCircle, label: 'Cancelled' },
-    rejected: { class: 'so-status-cancelled', icon: XCircle, label: 'Rejected' },
-    pending: { class: 'so-status-pending', icon: Clock, label: 'Pending' },
-    draft: { class: 'so-status-pending', icon: Clock, label: 'Draft' },
-    in_progress: { class: 'so-status-pending', icon: Clock, label: 'In progress' },
+    completed: { class: 'so-status-completed', icon: CheckCircle2 },
+    invoiced: { class: 'so-status-completed', icon: CheckCircle2 },
+    cancelled: { class: 'so-status-cancelled', icon: XCircle },
+    rejected: { class: 'so-status-cancelled', icon: XCircle },
+    pending: { class: 'so-status-pending', icon: Clock },
+    draft: { class: 'so-status-pending', icon: Clock },
+    in_progress: { class: 'so-status-pending', icon: Clock },
 };
 
-function formatStatusLabel(status) {
+const STATUS_OPTION_VALUES = ['', 'draft', 'pending', 'in_progress', 'completed', 'invoiced', 'cancelled'];
+
+function formatStatusLabel(status, t) {
     if (status == null || String(status).trim() === '') return '—';
+    const key = String(status).trim().toLowerCase();
+    const labelKey = SO_STATUS_LABEL_KEYS[key];
+    if (labelKey && t) return t(labelKey);
     return String(status)
         .trim()
         .replace(/_/g, ' ')
         .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, t }) {
     const key = String(status ?? '').trim().toLowerCase();
     const cfg = STATUS_VARIANT[key];
     const Icon = cfg?.icon ?? Clock;
     return (
         <span className={`so-status-badge ${cfg?.class ?? 'so-status-pending'}`}>
             <Icon size={12} />
-            {cfg?.label ?? formatStatusLabel(status)}
+            {formatStatusLabel(status, t)}
         </span>
     );
 }
@@ -99,25 +115,22 @@ function localDateTimeToIso(localValue) {
     return d.toISOString();
 }
 
-function formatDiscountCell(discountType, discountValue) {
-    const t = String(discountType ?? '').toLowerCase();
+function formatDiscountCell(discountType, discountValue, t) {
+    const dtype = String(discountType ?? '').toLowerCase();
     const v = toNumber(discountValue);
     if (!v) return '—';
-    if (t === 'percent' || t === 'percentage') return `${v}%`;
-    return `SAR ${v.toLocaleString()}`;
+    if (dtype === 'percent' || dtype === 'percentage') return `${v}%`;
+    return t('money.sar', { amount: v.toLocaleString() });
 }
 
-const STATUS_OPTIONS = [
-    { value: '', label: 'All Status' },
-    { value: 'draft', label: 'Draft' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'in_progress', label: 'In progress' },
-    { value: 'completed', label: 'Completed' },
-    { value: 'invoiced', label: 'Invoiced' },
-    { value: 'cancelled', label: 'Cancelled' },
-];
-
 export default function SalesOrders({ portal = 'admin' }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => soT(locale, key, vars), [locale]);
+
     const getWorkshopOptions = portal === 'marketing'
         ? marketingLookupApi.getWorkshopOptions
         : adminGetWorkshopOptions;
@@ -170,7 +183,10 @@ export default function SalesOrders({ portal = 'admin' }) {
                       : [];
                 if (!cancelled) {
                     setWorkshopOptions(
-                        list.map((w) => ({ id: String(w.id), name: String(w.name || '').trim() || 'Workshop' })),
+                        list.map((w) => ({
+                            id: String(w.id),
+                            name: String(w.name || '').trim() || soT(locale, 'fallback.workshop'),
+                        })),
                     );
                 }
             } catch {
@@ -182,7 +198,7 @@ export default function SalesOrders({ portal = 'admin' }) {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [locale]);
 
     // Load branches when workshop changes.
     useEffect(() => {
@@ -203,7 +219,10 @@ export default function SalesOrders({ portal = 'admin' }) {
                       : [];
                 if (!cancelled) {
                     setBranchOptions(
-                        list.map((b) => ({ id: String(b.id), name: String(b.name || '').trim() || 'Branch' })),
+                        list.map((b) => ({
+                            id: String(b.id),
+                            name: String(b.name || '').trim() || soT(locale, 'fallback.branch'),
+                        })),
                     );
                     setSelectedBranchId('');
                 }
@@ -219,12 +238,12 @@ export default function SalesOrders({ portal = 'admin' }) {
         return () => {
             cancelled = true;
         };
-    }, [selectedWorkshopId]);
+    }, [selectedWorkshopId, locale]);
 
     // Debounce search.
     useEffect(() => {
-        const t = setTimeout(() => setSearchDebounced(searchInput.trim()), 380);
-        return () => clearTimeout(t);
+        const timer = setTimeout(() => setSearchDebounced(searchInput.trim()), 380);
+        return () => clearTimeout(timer);
     }, [searchInput]);
 
     // Reset to page 1 whenever filters change.
@@ -261,11 +280,11 @@ export default function SalesOrders({ portal = 'admin' }) {
         } catch (e) {
             setOrders([]);
             setTotal(0);
-            setLoadError(e?.message || 'Failed to load sales orders.');
+            setLoadError(e?.message || t('errLoad'));
         } finally {
             setLoading(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, statusFilter, searchDebounced, dateFrom, dateTo, page]);
+    }, [selectedWorkshopId, selectedBranchId, statusFilter, searchDebounced, dateFrom, dateTo, page, t]);
 
     useEffect(() => {
         void fetchOrders();
@@ -288,21 +307,22 @@ export default function SalesOrders({ portal = 'admin' }) {
             });
             const list = Array.isArray(res?.salesOrders) ? res.salesOrders
                 : Array.isArray(res?.data?.salesOrders) ? res.data.salesOrders : [];
-            const { headers, rows } = buildSalesOrderExportRows(list);
-            const subtitle = `${rows.length} order(s)`
+            const { headers, rows } = buildSalesOrderExportRows(list, formatInvoiceDateTime, t);
+            const subtitle = t('export.subtitle', { n: rows.length })
                 + (dateFrom || dateTo ? ` · ${dateFrom || '…'} → ${dateTo || '…'}` : '')
-                + (statusFilter ? ` · status: ${statusFilter}` : '');
+                + (statusFilter ? ` · ${t('export.status', { status: formatStatusLabel(statusFilter, t) })}` : '');
+            const title = t('exportTitle');
             if (kind === 'pdf') {
-                exportRowsToPdf({ title: 'Sales Orders', subtitle, headers, rows, filenameBase: 'sales-orders' });
+                exportRowsToPdf({ title, subtitle, headers, rows, filenameBase: 'sales-orders' });
             } else {
-                exportRowsToExcel({ sheetName: 'Sales Orders', headers, rows, filenameBase: 'sales-orders' });
+                exportRowsToExcel({ sheetName: title, headers, rows, filenameBase: 'sales-orders' });
             }
         } catch (e) {
-            setLoadError(e?.message || 'Export failed');
+            setLoadError(e?.message || t('errExport'));
         } finally {
             setExporting(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, statusFilter, searchDebounced, dateFrom, dateTo]);
+    }, [selectedWorkshopId, selectedBranchId, statusFilter, searchDebounced, dateFrom, dateTo, t]);
 
     const openDetails = useCallback(async (orderId) => {
         if (!orderId) return;
@@ -318,11 +338,11 @@ export default function SalesOrders({ portal = 'admin' }) {
                     : res;
             setDetailData(payload && typeof payload === 'object' ? payload : null);
         } catch (e) {
-            setDetailError(e?.message || 'Failed to load order details.');
+            setDetailError(e?.message || t('errDetail'));
         } finally {
             setDetailLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const closeDetails = () => {
         setDetailId('');
@@ -344,34 +364,41 @@ export default function SalesOrders({ portal = 'admin' }) {
         const cancelledCount = orders.filter((o) =>
             ['cancelled', 'rejected'].includes(String(o.status ?? '').toLowerCase()),
         ).length;
+        const money = (n) => t('money.sar', {
+            amount: n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
+        });
         return [
-            { label: 'Total Orders (matching)', value: total.toLocaleString() },
-            { label: 'Invoiced (this page)', value: invoicedCount.toLocaleString() },
-            { label: 'Pending (this page)', value: pendingCount.toLocaleString() },
+            { key: 'total', label: t('kpi.total'), value: total.toLocaleString() },
+            { key: 'invoiced', label: t('kpi.invoiced'), value: invoicedCount.toLocaleString() },
+            { key: 'pending', label: t('kpi.pending'), value: pendingCount.toLocaleString() },
+            { key: 'cancelled', label: t('kpi.cancelled'), value: cancelledCount.toLocaleString() },
             {
-                label: 'Cancelled (this page)',
-                value: cancelledCount.toLocaleString(),
-            },
-            {
-                label: 'Invoiced Revenue (this page)',
-                value: `SAR ${invoicedRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`,
+                key: 'revenue',
+                label: t('kpi.revenue'),
+                value: money(invoicedRevenue),
                 className: 'revenue',
             },
         ];
-    }, [orders, total]);
+    }, [orders, total, t]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const rangeFrom = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
     const rangeTo = Math.min(page * PAGE_SIZE, total);
+
+    const detailTitle = detailData?.invoice?.invoiceNo
+        ? t('detail.titleNo', { no: detailData.invoice.invoiceNo })
+        : detailData?.id
+          ? t('detail.titleId', { id: detailData.id })
+          : t('detail.title');
 
     return (
         <div className="so-container">
             <header className="so-header">
                 <div>
                     <h2 className="so-title">
-                        <ShoppingCart size={20} color="#F59E0B" /> All Sales Orders
+                        <ShoppingCart size={20} color="#F59E0B" /> {t('title')}
                     </h2>
-                    <p className="so-sub">POS sales across all workshops &amp; branches</p>
+                    <p className="so-sub">{t('sub')}</p>
                 </div>
                 <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                     <ExportMenu
@@ -379,14 +406,15 @@ export default function SalesOrders({ portal = 'admin' }) {
                         onExcel={() => runExport('excel')}
                         busy={exporting}
                         disabled={loading}
+                        locale={locale}
                     />
-                    <div className="so-order-count-badge">{total.toLocaleString()} orders</div>
+                    <div className="so-order-count-badge">{t('count', { n: total.toLocaleString() })}</div>
                 </div>
             </header>
 
             <div className="so-kpi-grid">
                 {kpis.map((k) => (
-                    <div key={k.label} className="so-kpi-card">
+                    <div key={k.key} className="so-kpi-card">
                         <p className="so-kpi-label">{k.label}</p>
                         <h3 className={`so-kpi-value ${k.className || ''}`}>{k.value}</h3>
                     </div>
@@ -399,7 +427,7 @@ export default function SalesOrders({ portal = 'admin' }) {
                     <input
                         type="text"
                         className="so-search-input"
-                        placeholder="Search invoice, customer, mobile, plate, order id…"
+                        placeholder={t('search')}
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
                     />
@@ -409,9 +437,9 @@ export default function SalesOrders({ portal = 'admin' }) {
                     value={selectedWorkshopId}
                     onChange={(e) => setSelectedWorkshopId(e.target.value)}
                     disabled={workshopOptionsLoading}
-                    aria-label="Workshop filter"
+                    aria-label={t('filter.workshop')}
                 >
-                    <option value="">{workshopOptionsLoading ? 'Loading workshops…' : 'All Workshops'}</option>
+                    <option value="">{workshopOptionsLoading ? t('loadingWorkshops') : t('allWorkshops')}</option>
                     {workshopOptions.map((w) => (
                         <option key={w.id} value={w.id}>{w.name}</option>
                     ))}
@@ -421,10 +449,10 @@ export default function SalesOrders({ portal = 'admin' }) {
                     value={selectedBranchId}
                     onChange={(e) => setSelectedBranchId(e.target.value)}
                     disabled={!selectedWorkshopId || branchOptionsLoading}
-                    aria-label="Branch filter"
+                    aria-label={t('filter.branch')}
                 >
                     <option value="">
-                        {selectedWorkshopId ? 'All Branches' : 'Select workshop first'}
+                        {selectedWorkshopId ? t('allBranches') : t('selectWorkshopFirst')}
                     </option>
                     {branchOptions.map((b) => (
                         <option key={b.id} value={b.id}>{b.name}</option>
@@ -434,10 +462,12 @@ export default function SalesOrders({ portal = 'admin' }) {
                     className="so-select"
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    aria-label="Status filter"
+                    aria-label={t('filter.status')}
                 >
-                    {STATUS_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    {STATUS_OPTION_VALUES.map((value) => (
+                        <option key={value || 'all'} value={value}>
+                            {t(SO_STATUS_OPTION_KEYS[value] || 'status.all')}
+                        </option>
                     ))}
                 </select>
                 <div className="so-date-group">
@@ -447,7 +477,7 @@ export default function SalesOrders({ portal = 'admin' }) {
                         value={dateFrom}
                         onChange={(e) => setDateFrom(e.target.value)}
                         step={60}
-                        aria-label="From date and time"
+                        aria-label={t('date.from')}
                     />
                     <input
                         type="datetime-local"
@@ -455,7 +485,7 @@ export default function SalesOrders({ portal = 'admin' }) {
                         value={dateTo}
                         onChange={(e) => setDateTo(e.target.value)}
                         step={60}
-                        aria-label="To date and time"
+                        aria-label={t('date.to')}
                     />
                 </div>
             </div>
@@ -480,28 +510,28 @@ export default function SalesOrders({ portal = 'admin' }) {
                 <table className="so-table">
                     <thead>
                         <tr>
-                            <th>Invoice / Order</th>
-                            <th>Date / Time</th>
-                            <th>Workshop</th>
-                            <th>Branch</th>
-                            <th>Customer</th>
-                            <th>Vehicle</th>
-                            <th>Technicians</th>
-                            <th>Total (SAR)</th>
-                            <th>Status</th>
+                            <th>{t('th.invoiceOrder')}</th>
+                            <th>{t('th.datetime')}</th>
+                            <th>{t('th.workshop')}</th>
+                            <th>{t('th.branch')}</th>
+                            <th>{t('th.customer')}</th>
+                            <th>{t('th.vehicle')}</th>
+                            <th>{t('th.techs')}</th>
+                            <th>{t('th.total')}</th>
+                            <th>{t('th.status')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading && orders.length === 0 ? (
                             <tr>
                                 <td colSpan={9} style={{ textAlign: 'center', padding: 24 }}>
-                                    <Loader size={18} className="spin" /> Loading…
+                                    <Loader size={18} className="spin" /> {t('loading')}
                                 </td>
                             </tr>
                         ) : orders.length === 0 ? (
                             <tr>
                                 <td colSpan={9} style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>
-                                    No sales orders match these filters.
+                                    {t('empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -514,9 +544,9 @@ export default function SalesOrders({ portal = 'admin' }) {
                                     <td>
                                         <div className="so-customer-info">
                                             <strong className="so-inv-link">
-                                                {order.invoiceNo ?? 'Pending invoice'}
+                                                {order.invoiceNo ?? t('pendingInvoice')}
                                             </strong>
-                                            <span className="so-customer-mobile">Order #{order.id}</span>
+                                            <span className="so-customer-mobile">{t('orderNo', { id: order.id })}</span>
                                         </div>
                                     </td>
                                     <td>{formatInvoiceDateTime(order)}</td>
@@ -524,7 +554,7 @@ export default function SalesOrders({ portal = 'admin' }) {
                                     <td className="so-text-dim">{order.branchName ?? '—'}</td>
                                     <td>
                                         <div className="so-customer-info">
-                                            <strong>{order.customerName ?? 'Walk-in'}</strong>
+                                            <strong>{order.customerName ?? t('walkIn')}</strong>
                                             <span className="so-customer-mobile">{order.customerMobile ?? '—'}</span>
                                         </div>
                                     </td>
@@ -539,7 +569,7 @@ export default function SalesOrders({ portal = 'admin' }) {
                                             : '—'}
                                     </td>
                                     <td>
-                                        <StatusBadge status={order.status} />
+                                        <StatusBadge status={order.status} t={t} />
                                     </td>
                                 </tr>
                             ))
@@ -551,20 +581,23 @@ export default function SalesOrders({ portal = 'admin' }) {
             {total > 0 && (
                 <div className="ws-report-pagination" style={{ marginTop: 12 }}>
                     <p className="ws-report-pagination__info">
-                        Showing <strong>{rangeFrom}</strong>–<strong>{rangeTo}</strong> of{' '}
-                        <strong>{total.toLocaleString()}</strong>
-                        {loading ? <span> · Loading…</span> : null}
+                        {t('showing', {
+                            from: rangeFrom,
+                            to: rangeTo,
+                            total: total.toLocaleString(),
+                        })}
+                        {loading ? <span> · {t('loading')}</span> : null}
                     </p>
-                    <nav className="ws-report-pagination__nav" aria-label="Sales orders pages">
+                    <nav className="ws-report-pagination__nav" aria-label={t('pageAria')}>
                         <button
                             type="button"
                             className="ws-report-pagination__edge"
                             disabled={page <= 1 || loading}
                             onClick={() => setPage((p) => Math.max(1, p - 1))}
                         >
-                            Previous
+                            {t('prev')}
                         </button>
-                        <div className="ws-report-pagination__pages" role="group" aria-label="Page numbers">
+                        <div className="ws-report-pagination__pages" role="group" aria-label={t('pageNums')}>
                             {(() => {
                                 const totalP = totalPages;
                                 const cur = page;
@@ -594,7 +627,7 @@ export default function SalesOrders({ portal = 'admin' }) {
                             disabled={page >= totalPages || loading}
                             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                         >
-                            Next
+                            {t('next')}
                         </button>
                     </nav>
                 </div>
@@ -602,13 +635,7 @@ export default function SalesOrders({ portal = 'admin' }) {
 
             {detailId && (
                 <Modal
-                    title={`Order ${
-                        detailData?.invoice?.invoiceNo
-                            ? `- ${detailData.invoice.invoiceNo}`
-                            : detailData?.id
-                              ? `#${detailData.id}`
-                              : 'Details'
-                    }`}
+                    title={detailTitle}
                     onClose={closeDetails}
                     width="min(1100px, 98vw)"
                     contentClassName="ws-modal-order-details"
@@ -622,29 +649,29 @@ export default function SalesOrders({ portal = 'admin' }) {
                             <div className="ws-report-table-wrapper">
                                 <table className="ws-table">
                                     <tbody>
-                                        <tr><th>ORDER STATUS</th><td>{formatStatusLabel(detailData.status)}</td></tr>
-                                        <tr><th>SOURCE</th><td>{formatStatusLabel(detailData.source)}</td></tr>
-                                        <tr><th>WORKSHOP</th><td>{detailData.workshopName ?? '—'}</td></tr>
-                                        <tr><th>BRANCH</th><td>{detailData.branchName ?? '—'}</td></tr>
-                                        <tr><th>ORDER PLACED</th><td>{formatDateTime(detailData.createdAt)}</td></tr>
+                                        <tr><th>{t('d.orderStatus')}</th><td>{formatStatusLabel(detailData.status, t)}</td></tr>
+                                        <tr><th>{t('d.source')}</th><td>{formatStatusLabel(detailData.source, t)}</td></tr>
+                                        <tr><th>{t('d.workshop')}</th><td>{detailData.workshopName ?? '—'}</td></tr>
+                                        <tr><th>{t('d.branch')}</th><td>{detailData.branchName ?? '—'}</td></tr>
+                                        <tr><th>{t('d.placed')}</th><td>{formatDateTime(detailData.createdAt)}</td></tr>
                                         {detailData.invoice ? (
                                             <>
-                                                <tr><th>INVOICE NO</th><td>{detailData.invoice.invoiceNo ?? '—'}</td></tr>
+                                                <tr><th>{t('d.invoiceNo')}</th><td>{detailData.invoice.invoiceNo ?? '—'}</td></tr>
                                                 <tr>
-                                                    <th>INVOICE DATE &amp; TIME</th>
+                                                    <th>{t('d.datetime')}</th>
                                                     <td>
                                                         {formatDateTime(
                                                             detailData.invoice.issuedAt ?? detailData.invoice.invoiceDate,
                                                         )}
                                                     </td>
                                                 </tr>
-                                                <tr><th>PAYMENT STATUS</th><td>{formatStatusLabel(detailData.invoice.paymentStatus)}</td></tr>
+                                                <tr><th>{t('d.payStatus')}</th><td>{formatStatusLabel(detailData.invoice.paymentStatus, t)}</td></tr>
                                             </>
                                         ) : null}
-                                        <tr><th>CUSTOMER NAME</th><td>{detailData.customer?.name ?? '—'}</td></tr>
-                                        <tr><th>PHONE</th><td>{detailData.customer?.mobile ?? '—'}</td></tr>
+                                        <tr><th>{t('d.customer')}</th><td>{detailData.customer?.name ?? '—'}</td></tr>
+                                        <tr><th>{t('d.phone')}</th><td>{detailData.customer?.mobile ?? '—'}</td></tr>
                                         <tr>
-                                            <th>VEHICLE</th>
+                                            <th>{t('d.vehicle')}</th>
                                             <td>
                                                 {detailData.vehicle?.plateNo ?? '—'}
                                                 {detailData.vehicle &&
@@ -657,8 +684,8 @@ export default function SalesOrders({ portal = 'admin' }) {
                                         </tr>
                                         {detailData.invoice ? (
                                             <tr>
-                                                <th>TOTAL AMOUNT</th>
-                                                <td>SAR {toNumber(detailData.invoice.totalAmount).toLocaleString()}</td>
+                                                <th>{t('d.total')}</th>
+                                                <td>{t('money.sar', { amount: toNumber(detailData.invoice.totalAmount).toLocaleString() })}</td>
                                             </tr>
                                         ) : null}
                                     </tbody>
@@ -671,28 +698,30 @@ export default function SalesOrders({ portal = 'admin' }) {
                                 detailData.orderDiscount.promoCode) ? (
                                 <div className="ws-report-table-wrapper">
                                     <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
-                                        Order discount &amp; promo
+                                        {t('d.promoTitle')}
                                     </p>
                                     <table className="ws-table">
                                         <tbody>
                                             <tr>
-                                                <th>Order-level discount</th>
+                                                <th>{t('d.orderDisc')}</th>
                                                 <td>
                                                     {formatDiscountCell(
                                                         detailData.orderDiscount.totalDiscountType,
                                                         detailData.orderDiscount.totalDiscountValue,
+                                                        t,
                                                     )}
                                                 </td>
                                             </tr>
                                             <tr>
-                                                <th>Promo discount (order)</th>
+                                                <th>{t('d.promoDisc')}</th>
                                                 <td>
-                                                    SAR{' '}
-                                                    {toNumber(detailData.orderDiscount.promoDiscountAmount).toLocaleString()}
+                                                    {t('money.sar', {
+                                                        amount: toNumber(detailData.orderDiscount.promoDiscountAmount).toLocaleString(),
+                                                    })}
                                                 </td>
                                             </tr>
                                             <tr>
-                                                <th>Promo code</th>
+                                                <th>{t('d.promoCode')}</th>
                                                 <td>{detailData.orderDiscount.promoCode ?? '—'}</td>
                                             </tr>
                                         </tbody>
@@ -702,21 +731,21 @@ export default function SalesOrders({ portal = 'admin' }) {
 
                             {Array.isArray(detailData.jobs) && detailData.jobs.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Jobs</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('d.jobs')}</p>
                                     <div className="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Job #</th>
-                                                    <th>Department</th>
-                                                    <th>Status</th>
-                                                    <th>Opened</th>
-                                                    <th>Completed</th>
-                                                    <th>Before disc.</th>
-                                                    <th>After disc.</th>
-                                                    <th>VAT</th>
-                                                    <th>Job total</th>
-                                                    <th>Technicians</th>
+                                                    <th>{t('d.jobNo')}</th>
+                                                    <th>{t('d.dept')}</th>
+                                                    <th>{t('d.status')}</th>
+                                                    <th>{t('d.opened')}</th>
+                                                    <th>{t('d.completed')}</th>
+                                                    <th>{t('d.beforeDisc')}</th>
+                                                    <th>{t('d.afterDisc')}</th>
+                                                    <th>{t('d.vat')}</th>
+                                                    <th>{t('d.jobTotal')}</th>
+                                                    <th>{t('d.techs')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -724,18 +753,18 @@ export default function SalesOrders({ portal = 'admin' }) {
                                                     <tr key={job.id}>
                                                         <td style={{ fontVariantNumeric: 'tabular-nums' }}>{job.id}</td>
                                                         <td>{job.departmentName ?? '—'}</td>
-                                                        <td>{formatStatusLabel(job.status)}</td>
+                                                        <td>{formatStatusLabel(job.status, t)}</td>
                                                         <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
                                                             {formatDateTime(job.createdAt)}
                                                         </td>
                                                         <td style={{ fontSize: '0.8125rem' }}>
                                                             {job.completedAt ? formatDateTime(job.completedAt) : '—'}
                                                         </td>
-                                                        <td>SAR {toNumber(job.amountBeforeDiscount).toLocaleString()}</td>
-                                                        <td>SAR {toNumber(job.amountAfterDiscount).toLocaleString()}</td>
-                                                        <td>SAR {toNumber(job.vatAmount).toLocaleString()}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.amountBeforeDiscount).toLocaleString() })}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.amountAfterDiscount).toLocaleString() })}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.vatAmount).toLocaleString() })}</td>
                                                         <td className="ws-font-bold">
-                                                            SAR {toNumber(job.totalAmount).toLocaleString()}
+                                                            {t('money.sar', { amount: toNumber(job.totalAmount).toLocaleString() })}
                                                         </td>
                                                         <td style={{ fontSize: '0.8125rem', minWidth: 160 }}>
                                                             {(job.assignments ?? []).length === 0
@@ -755,20 +784,20 @@ export default function SalesOrders({ portal = 'admin' }) {
 
                             {Array.isArray(detailData.lineItems) && detailData.lineItems.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Line items</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('d.lines')}</p>
                                     <div className="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Job #</th>
-                                                    <th>Dept</th>
-                                                    <th>Item</th>
-                                                    <th>Type</th>
-                                                    <th>Qty</th>
-                                                    <th>Unit (SAR)</th>
-                                                    <th>Discount</th>
-                                                    <th>VAT</th>
-                                                    <th>Line (SAR)</th>
+                                                    <th>{t('d.jobNo')}</th>
+                                                    <th>{t('d.deptShort')}</th>
+                                                    <th>{t('d.item')}</th>
+                                                    <th>{t('d.type')}</th>
+                                                    <th>{t('d.qty')}</th>
+                                                    <th>{t('d.unit')}</th>
+                                                    <th>{t('d.discount')}</th>
+                                                    <th>{t('d.vat')}</th>
+                                                    <th>{t('d.lineTotal')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -780,7 +809,7 @@ export default function SalesOrders({ portal = 'admin' }) {
                                                         <td>{row.itemType ?? '—'}</td>
                                                         <td>{row.qty}</td>
                                                         <td>{toNumber(row.unitPrice).toLocaleString()}</td>
-                                                        <td>{formatDiscountCell(row.discountType, row.discountValue)}</td>
+                                                        <td>{formatDiscountCell(row.discountType, row.discountValue, t)}</td>
                                                         <td style={{ fontSize: '0.8125rem' }}>
                                                             {toNumber(row.vatPercent)}% · {String(row.vatMode ?? '—')}
                                                         </td>
@@ -797,13 +826,13 @@ export default function SalesOrders({ portal = 'admin' }) {
 
                             {detailData.invoice && Array.isArray(detailData.invoice.payments) && detailData.invoice.payments.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Payments</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('d.payments')}</p>
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>Method</th>
-                                                <th>Amount (SAR)</th>
-                                                <th>Paid at</th>
+                                                <th>{t('d.method')}</th>
+                                                <th>{t('d.amount')}</th>
+                                                <th>{t('d.paidAt')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>

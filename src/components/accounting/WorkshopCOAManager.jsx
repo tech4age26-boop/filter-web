@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import {
     createAccount,
@@ -31,6 +31,7 @@ import {
     isWorkshopPettyCashCoaControlAccount,
     pruneWorkshopPettyCashCoaTree,
 } from '../../pages/workshop/workshopCoaAccountRouting';
+import { coaBadgeLabel, coaT, coaTypeLabel } from '../../utils/workshopCoaI18n';
 
 const HQ_CASHIER_CODE_RE = /^10(01|03|11)-(C|U)\d+/i;
 const HQ_STAFF_PETTY_RE = /^1003-E\d+/i;
@@ -83,14 +84,6 @@ function filterHqBooksTree(nodes, hqBooks) {
     };
     return (nodes || []).map(walk).filter(Boolean);
 }
-
-const TYPE_LABELS = {
-    ASSET: 'Assets',
-    LIABILITY: 'Liabilities',
-    EQUITY: 'Equity',
-    INCOME: 'Revenue',
-    EXPENSE: 'Expenses',
-};
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -174,7 +167,7 @@ function formFromInitial(initial) {
     };
 }
 
-function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
+function AccountForm({ initial, accounts, onCancel, onSaved, readOnly, t, locale }) {
     const [form, setForm] = useState(() => formFromInitial(initial));
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
@@ -272,7 +265,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
             }
             onSaved();
         } catch (e) {
-            setErr(e?.message || 'Failed to save account');
+            setErr(e?.message || t('err.save'));
         } finally {
             setSaving(false);
         }
@@ -291,41 +284,38 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                 border: '1px solid rgba(0,0,0,0.06)',
             }}
         >
-            <Field
-                label="Account code"
-                hint="Optional. Seeded chart uses 1000–6999 (e.g. 1100 is already AR). Leave blank to auto-generate a unique code."
-            >
+            <Field label={t('form.code')} hint={t('form.codeHint')}>
                 <input
                     style={inputStyle}
                     value={form.code}
                     onChange={(e) => setForm({ ...form, code: e.target.value })}
-                    placeholder="e.g. 6210 — or leave blank"
+                    placeholder={t('form.codePh')}
                     disabled={readOnly || isEdit}
                 />
             </Field>
-            <Field label="Name" required>
+            <Field label={t('form.name')} required>
                 <input
                     style={inputStyle}
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="Account name"
+                    placeholder={t('form.namePh')}
                     required
                     disabled={readOnly}
                 />
             </Field>
-            <Field label="Type" required>
+            <Field label={t('form.type')} required>
                 <select
                     style={inputStyle}
                     value={form.type}
                     onChange={(e) => setForm({ ...form, type: e.target.value })}
                     disabled={readOnly}
                 >
-                    {ACCOUNT_TYPES.map((t) => (
-                        <option key={t} value={t}>{TYPE_LABELS[t] || t}</option>
+                    {ACCOUNT_TYPES.map((typeKey) => (
+                        <option key={typeKey} value={typeKey}>{coaTypeLabel(locale, typeKey)}</option>
                     ))}
                 </select>
             </Field>
-            <Field label="Sub-type" required>
+            <Field label={t('form.subType')} required>
                 <select
                     style={inputStyle}
                     value={form.subType}
@@ -337,7 +327,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                     ))}
                 </select>
             </Field>
-            <Field label="Parent" hint="Heading accounts only — transactions post to child (detail) accounts.">
+            <Field label={t('form.parent')} hint={t('form.parentHint')}>
                 <select
                     style={inputStyle}
                     value={form.parentId || ''}
@@ -360,7 +350,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                     }}
                     disabled={readOnly}
                 >
-                    <option value="">— None —</option>
+                    <option value="">{t('form.parentNone')}</option>
                     {parentOptions.map((p) => (
                         <option key={p.id} value={p.id}>
                             [{p.code}] {p.name}
@@ -368,7 +358,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                     ))}
                 </select>
             </Field>
-            <Field label="Cash flow category" hint="Tag cash/bank accounts so they show up in the Cash Flow statement.">
+            <Field label={t('form.cashFlow')} hint={t('form.cashFlowHint')}>
                 <select
                     style={inputStyle}
                     value={form.cashFlowCategory || ''}
@@ -376,11 +366,11 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                     disabled={readOnly}
                 >
                     {CASH_FLOW_CATEGORIES.map((c) => (
-                        <option key={c} value={c}>{c || '— Auto —'}</option>
+                        <option key={c} value={c}>{c || t('form.cashFlowAuto')}</option>
                     ))}
                 </select>
             </Field>
-            <Field label="Opening balance">
+            <Field label={t('form.openingBal')}>
                 <input
                     type="number"
                     step="0.01"
@@ -390,10 +380,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                     disabled={readOnly}
                 />
             </Field>
-            <Field
-                label="Opening balance date"
-                hint="Date this opening balance applies from. Used as the journal date for the opening entry. Required when opening balance is not zero."
-            >
+            <Field label={t('form.openingDate')} hint={t('form.openingDateHint')}>
                 <input
                     type="date"
                     style={inputStyle}
@@ -404,10 +391,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                     disabled={readOnly}
                 />
             </Field>
-            <Field
-                label="Opening contra (equity)"
-                hint="Optional. Positive = normal side for this account type (e.g. debit for cash). If empty, the other leg posts to system account 3190 Opening balance suspense."
-            >
+            <Field label={t('form.openingContra')} hint={t('form.openingContraHint')}>
                 <select
                     style={inputStyle}
                     value={form.openingOffsetAccountId || ''}
@@ -416,7 +400,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                     }
                     disabled={readOnly}
                 >
-                    <option value="">— Use opening suspense (3190) —</option>
+                    <option value="">{t('form.openingSuspense')}</option>
                     {equityContraOptions.map((a) => (
                         <option key={a.id} value={a.id}>
                             [{a.code}] {a.name}
@@ -424,15 +408,15 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                     ))}
                 </select>
             </Field>
-            <Field label="Status">
+            <Field label={t('form.status')}>
                 <select
                     style={inputStyle}
                     value={form.status}
                     onChange={(e) => setForm({ ...form, status: e.target.value })}
                     disabled={readOnly}
                 >
-                    <option value="active">active</option>
-                    <option value="inactive">inactive</option>
+                    <option value="active">{t('form.status.active')}</option>
+                    <option value="inactive">{t('form.status.inactive')}</option>
                 </select>
             </Field>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, gridColumn: '1 / -1' }}>
@@ -442,14 +426,11 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                     onChange={(e) => setForm({ ...form, isCashEquivalent: e.target.checked })}
                     disabled={readOnly}
                 />
-                Treat as a cash equivalent (cash/bank). Used by Cash Flow report scope.
+                {t('form.cashEquiv')}
             </label>
             {showCashBankRegister ? (
                 <>
-                    <Field
-                        label="Cash & Bank register"
-                        hint="Also creates a register on the Cash & Bank page (linked to this COA account)."
-                    >
+                    <Field label={t('form.register')} hint={t('form.registerHint')}>
                         <select
                             style={inputStyle}
                             value={form.cashBankRegisterType || ''}
@@ -458,15 +439,15 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                             }
                             disabled={readOnly}
                         >
-                            <option value="">— COA only (no register) —</option>
-                            <option value="CASH">Cash register</option>
-                            <option value="BANK">Bank register</option>
-                            <option value="PETTY_CASH">Petty cash register</option>
+                            <option value="">{t('form.registerNone')}</option>
+                            <option value="CASH">{t('form.register.cash')}</option>
+                            <option value="BANK">{t('form.register.bank')}</option>
+                            <option value="PETTY_CASH">{t('form.register.petty')}</option>
                         </select>
                     </Field>
                     {form.cashBankRegisterType === 'BANK' ? (
                         <>
-                            <Field label="Bank name">
+                            <Field label={t('form.bankName')}>
                                 <input
                                     style={inputStyle}
                                     value={form.bankName}
@@ -474,7 +455,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                                     disabled={readOnly}
                                 />
                             </Field>
-                            <Field label="IBAN">
+                            <Field label={t('form.iban')}>
                                 <input
                                     style={inputStyle}
                                     value={form.iban}
@@ -482,7 +463,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                                     disabled={readOnly}
                                 />
                             </Field>
-                            <Field label="Account number">
+                            <Field label={t('form.accountNumber')}>
                                 <input
                                     style={inputStyle}
                                     value={form.accountNumber}
@@ -496,7 +477,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
                     ) : null}
                 </>
             ) : null}
-            <Field label="Description">
+            <Field label={t('form.description')}>
                 <textarea
                     rows={2}
                     style={{ ...inputStyle, fontFamily: 'inherit' }}
@@ -508,9 +489,9 @@ function AccountForm({ initial, accounts, onCancel, onSaved, readOnly }) {
             {err ? <div style={{ gridColumn: '1 / -1' }}><AcctError message={err} /></div> : null}
             {!readOnly ? (
                 <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                    <button type="button" style={outlineBtnStyle} onClick={onCancel} disabled={saving}>Cancel</button>
+                    <button type="button" style={outlineBtnStyle} onClick={onCancel} disabled={saving}>{t('btn.cancel')}</button>
                     <button type="submit" style={primaryBtnStyle} disabled={saving}>
-                        {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create account'}
+                        {saving ? t('btn.saving') : isEdit ? t('btn.saveChanges') : t('btn.createAccount')}
                     </button>
                 </div>
             ) : null}
@@ -524,6 +505,13 @@ export default function WorkshopCOAManager({
     enableLedgerLinks = false,
     buildLedgerUrl,
 }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => coaT(locale, key, vars), [locale]);
+
     const { hqBooks, workshopId: scopeWorkshopId } = useAccountingWorkshopScope();
     const navigate = useNavigate();
     const [accounts, setAccounts] = useState([]);
@@ -558,7 +546,7 @@ export default function WorkshopCOAManager({
                 ...(scopeWorkshopId ? { workshopId: scopeWorkshopId } : {}),
                 ...(hqBooks ? { hqBooks: 'true' } : {}),
             };
-            const [flat, t] = await Promise.all([
+            const [flat, treeRes] = await Promise.all([
                 getAccounts(scopeParams),
                 getAccountsTree(scopeParams),
             ]);
@@ -579,15 +567,15 @@ export default function WorkshopCOAManager({
                 }));
             setAccounts(visibleFlat);
             const rawTree = hqBooks
-                ? filterHqBooksTree(parseArr(t), hqBooks)
-                : pruneWorkshopPettyCashCoaTree(parseArr(t));
+                ? filterHqBooksTree(parseArr(treeRes), hqBooks)
+                : pruneWorkshopPettyCashCoaTree(parseArr(treeRes));
             setTree(enrichTree(rawTree));
         } catch (e) {
-            setErr(e?.message || 'Failed to load chart of accounts');
+            setErr(e?.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, [dateRange?.dateFrom, dateRange?.dateTo, hqBooks, scopeWorkshopId]);
+    }, [dateRange?.dateFrom, dateRange?.dateTo, hqBooks, scopeWorkshopId, t]);
 
     useEffect(() => {
         reload();
@@ -638,12 +626,12 @@ export default function WorkshopCOAManager({
     }, [tree, accounts]);
 
     async function handleDelete(id) {
-        if (!confirm('Delete this account? System-seeded and posted accounts cannot be deleted.')) return;
+        if (!confirm(t('confirm.delete'))) return;
         try {
             await deleteAccount(id);
             await reload();
         } catch (e) {
-            alert(e?.message || 'Delete failed');
+            alert(e?.message || t('err.delete'));
         }
     }
 
@@ -690,7 +678,7 @@ export default function WorkshopCOAManager({
                     )}
                     {a.isAutoSeed ? (
                         <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#E0F2FE', color: '#075985', fontWeight: 700 }}>
-                            System
+                            {t('badge.system')}
                         </span>
                     ) : null}
                     {controlBadge ? (
@@ -703,12 +691,12 @@ export default function WorkshopCOAManager({
                             color: controlBadge.color,
                             fontWeight: 700,
                         }}>
-                            {controlBadge.label}
+                            {coaBadgeLabel(locale, controlBadge.label)}
                         </span>
                     ) : null}
                     {hasChildren ? (
                         <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', fontWeight: 700 }}>
-                            Heading
+                            {t('badge.heading')}
                         </span>
                     ) : null}
                 </td>
@@ -720,10 +708,10 @@ export default function WorkshopCOAManager({
                 <td style={{ textAlign: 'right' }}>
                     {!readOnly && !a.isAutoSeed && !hasChildren ? (
                         <>
-                            <button type="button" style={outlineBtnStyle} onClick={() => { setEditing(a); setCreating(false); }} title="Edit">
+                            <button type="button" style={outlineBtnStyle} onClick={() => { setEditing(a); setCreating(false); }} title={t('btn.edit')}>
                                 <Pencil size={14} />
                             </button>
-                            <button type="button" style={{ ...dangerBtnStyle, marginLeft: 6 }} onClick={() => handleDelete(a.id)} title="Delete">
+                            <button type="button" style={{ ...dangerBtnStyle, marginLeft: 6 }} onClick={() => handleDelete(a.id)} title={t('btn.delete')}>
                                 <Trash2 size={14} />
                             </button>
                         </>
@@ -746,20 +734,22 @@ export default function WorkshopCOAManager({
     return (
         <div className="chart-of-accounts-view" style={{ padding: 0 }}>
             <AcctCard
-                title="Chart of Accounts"
+                title={t('title')}
                 action={(
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         <select style={{ ...inputStyle, width: 'auto' }} value={view} onChange={(e) => setView(e.target.value)}>
-                            <option value="tree">Tree view</option>
-                            <option value="flat">Flat list</option>
+                            <option value="tree">{t('view.tree')}</option>
+                            <option value="flat">{t('view.flat')}</option>
                         </select>
                         <select style={{ ...inputStyle, width: 'auto' }} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-                            <option value="">All types</option>
-                            {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABELS[t] || t}</option>)}
+                            <option value="">{t('filter.allTypes')}</option>
+                            {ACCOUNT_TYPES.map((typeKey) => (
+                                <option key={typeKey} value={typeKey}>{coaTypeLabel(locale, typeKey)}</option>
+                            ))}
                         </select>
                         <input
                             type="search"
-                            placeholder="Search by code/name"
+                            placeholder={t('search.placeholder')}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             style={{ ...inputStyle, width: 200 }}
@@ -770,7 +760,7 @@ export default function WorkshopCOAManager({
                                 className="btn-portal"
                                 onClick={() => { setCreating(true); setEditing(null); }}
                             >
-                                <Plus size={14} /> New Account
+                                <Plus size={14} /> {t('btn.newAccount')}
                             </button>
                         ) : null}
                     </div>
@@ -783,23 +773,25 @@ export default function WorkshopCOAManager({
                             accounts={accounts}
                             onCancel={() => { setCreating(false); setEditing(null); }}
                             onSaved={() => { setCreating(false); setEditing(null); reload(); }}
+                            t={t}
+                            locale={locale}
                         />
                     </div>
                 ) : null}
 
                 <AcctError message={err} />
-                {loading ? <AcctLoading label="Loading accounts…" /> : (
+                {loading ? <AcctLoading label={t('loading')} /> : (
                     <div style={{ overflowX: 'auto' }}>
                         <table className="ws-table premium-table" style={{ width: '100%' }}>
                             <thead>
                                 <tr>
-                                    <th>Account</th>
-                                    <th>Type</th>
-                                    <th>Sub-type</th>
-                                    <th style={{ textAlign: 'right' }}>Debit Bal</th>
-                                    <th style={{ textAlign: 'right' }}>Credit Bal</th>
-                                    <th style={{ textAlign: 'right' }}>Balance</th>
-                                    {!readOnly ? <th style={{ textAlign: 'right' }}>Actions</th> : null}
+                                    <th>{t('th.account')}</th>
+                                    <th>{t('th.type')}</th>
+                                    <th>{t('th.subType')}</th>
+                                    <th style={{ textAlign: 'right' }}>{t('th.debitBal')}</th>
+                                    <th style={{ textAlign: 'right' }}>{t('th.creditBal')}</th>
+                                    <th style={{ textAlign: 'right' }}>{t('th.balance')}</th>
+                                    {!readOnly ? <th style={{ textAlign: 'right' }}>{t('th.actions')}</th> : null}
                                 </tr>
                             </thead>
                             <tbody>
@@ -811,8 +803,8 @@ export default function WorkshopCOAManager({
                                     <tr>
                                         <td colSpan={readOnly ? 6 : 7} style={{ textAlign: 'center', padding: 32, color: '#64748B' }}>
                                             {accounts.length === 0
-                                                ? 'No accounts in chart yet — use New Account to add one.'
-                                                : 'No accounts match your filters.'}
+                                                ? t('empty.none')
+                                                : t('empty.filtered')}
                                         </td>
                                     </tr>
                                 )}
