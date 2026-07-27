@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import {
     Plus,
     Wrench,
@@ -51,13 +51,7 @@ import {
     resolveWorkshopContactEmail,
 } from '../../utils/workshopManagementUtils';
 import { parseWorkshopRoute, workshopRoutes, WORKSHOP_BASE } from '../../utils/workshopRoutes';
-
-const STATUS_TABS = [
-    { id: 'all', label: 'All' },
-    { id: 'approved', label: 'Approved' },
-    { id: 'pending', label: 'Pending' },
-    { id: 'inactive', label: 'Inactive' },
-];
+import { wsT, WS_STATUS_TAB_KEYS, workshopStatusI18nKey } from '../../utils/workshopI18n';
 
 function WhatsAppIcon() {
     return (
@@ -78,60 +72,65 @@ function SelectField({ value, onChange, disabled, children, className = '' }) {
     );
 }
 
-function WorkshopCreateForm({ values, onChange, onDetectGps, isDetectingLocation }) {
+function statusDisplayLabel(status, t) {
+    const key = workshopStatusI18nKey(status);
+    return key ? t(key) : workshopStatusMeta(status).label;
+}
+
+function WorkshopCreateForm({ values, onChange, onDetectGps, isDetectingLocation, t }) {
     const set = (field) => (e) => onChange(field, e.target.value);
 
     return (
         <div className="workshop-form-layout">
             <section className="workshop-form-section">
-                <h2 className="workshop-form-section-title">Workshop details</h2>
+                <h2 className="workshop-form-section-title">{t('section.details')}</h2>
                 <div className="workshop-form-grid workshop-form-grid--2">
                     <div className="form-group">
-                        <label className="form-label">Workshop name *</label>
+                        <label className="form-label">{t('label.name')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Workshop name"
+                            placeholder={t('ph.name')}
                             value={values.name}
                             onChange={set('name')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Workshop code</label>
+                        <label className="form-label">{t('label.code')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="e.g. PETROM3567"
+                            placeholder={t('ph.code')}
                             value={values.workshopCode}
                             onChange={set('workshopCode')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Default branch name</label>
+                        <label className="form-label">{t('label.branchName')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Main Branch"
+                            placeholder={t('ph.branch')}
                             value={values.branchName}
                             onChange={set('branchName')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">VAT ID</label>
+                        <label className="form-label">{t('label.vat')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="VAT ID"
+                            placeholder={t('ph.vat')}
                             value={values.vatId}
                             onChange={set('vatId')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">CR number</label>
+                        <label className="form-label">{t('label.cr')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="CR number"
+                            placeholder={t('ph.cr')}
                             value={values.crNumber}
                             onChange={set('crNumber')}
                         />
@@ -141,43 +140,43 @@ function WorkshopCreateForm({ values, onChange, onDetectGps, isDetectingLocation
 
             <section className="workshop-form-section">
                 <div className="workshop-form-section-head">
-                    <h2 className="workshop-form-section-title">Address</h2>
+                    <h2 className="workshop-form-section-title">{t('section.address')}</h2>
                     <button
                         type="button"
                         className="workshop-gps-btn"
                         onClick={onDetectGps}
                         disabled={isDetectingLocation}
                     >
-                        {isDetectingLocation ? 'Detecting…' : 'Detect GPS location'}
+                        {isDetectingLocation ? t('btn.detecting') : t('btn.detectGps')}
                     </button>
                 </div>
                 <div className="workshop-form-grid workshop-form-grid--3">
                     <div className="form-group span-3">
-                        <label className="form-label">Street</label>
+                        <label className="form-label">{t('label.street')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Street"
+                            placeholder={t('ph.street')}
                             value={values.street}
                             onChange={set('street')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">City / district</label>
+                        <label className="form-label">{t('label.city')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="City / district"
+                            placeholder={t('ph.city')}
                             value={values.city}
                             onChange={set('city')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Postal code</label>
+                        <label className="form-label">{t('label.postal')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Postal code"
+                            placeholder={t('ph.postal')}
                             value={values.postalCode}
                             onChange={set('postalCode')}
                         />
@@ -186,74 +185,71 @@ function WorkshopCreateForm({ values, onChange, onDetectGps, isDetectingLocation
             </section>
 
             <section className="workshop-form-section">
-                <h2 className="workshop-form-section-title">Owner / portal login</h2>
+                <h2 className="workshop-form-section-title">{t('section.owner')}</h2>
                 <div className="workshop-form-grid workshop-form-grid--2">
                     <div className="form-group">
-                        <label className="form-label">Owner / contact name</label>
+                        <label className="form-label">{t('label.ownerName')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Full name"
+                            placeholder={t('ph.fullName')}
                             value={values.contactName}
                             onChange={set('contactName')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Mobile number *</label>
+                        <label className="form-label">{t('label.mobile')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="05XXXXXXXX"
+                            placeholder={t('ph.mobile')}
                             value={values.phone}
                             onChange={set('phone')}
                         />
-                        <p className="workshop-form-hint">Saudi format e.g. 05XXXXXXXX</p>
+                        <p className="workshop-form-hint">{t('hint.mobile')}</p>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Workshop email</label>
+                        <label className="form-label">{t('label.wsEmail')}</label>
                         <input
                             type="email"
                             className="form-input-field"
-                            placeholder="workshop@example.com"
+                            placeholder={t('ph.wsEmail')}
                             value={values.email}
                             onChange={set('email')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Owner login email</label>
+                        <label className="form-label">{t('label.ownerEmail')}</label>
                         <input
                             type="email"
                             className="form-input-field"
-                            placeholder="owner@example.com"
+                            placeholder={t('ph.ownerEmail')}
                             value={values.ownerUserEmail}
                             onChange={set('ownerUserEmail')}
                         />
-                        <p className="workshop-form-hint">Used to sign in to the workshop portal</p>
+                        <p className="workshop-form-hint">{t('hint.ownerEmail')}</p>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Set password</label>
+                        <label className="form-label">{t('label.password')}</label>
                         <input
                             type="password"
                             className="form-input-field"
-                            placeholder="Portal password"
+                            placeholder={t('ph.password')}
                             value={values.password}
                             onChange={set('password')}
                             autoComplete="new-password"
                         />
-                        <p className="workshop-form-hint">Saved in this browser for WhatsApp credentials</p>
+                        <p className="workshop-form-hint">{t('hint.password')}</p>
                     </div>
                 </div>
             </section>
 
-            <div className="workshop-create-note">
-                <strong>Note:</strong> After submitting, the workshop owner can sign in with the mobile number and
-                password above.
-            </div>
+            <div className="workshop-create-note">{t('note.create')}</div>
         </div>
     );
 }
 
-function WorkshopEditForm({ values, onChange }) {
+function WorkshopEditForm({ values, onChange, t }) {
     const set = (field) => (e) => onChange(field, e.target.value);
 
     return (
@@ -263,14 +259,14 @@ function WorkshopEditForm({ values, onChange }) {
                 save.
             </p>
             <section className="workshop-form-section">
-                <h2 className="workshop-form-section-title">Workshop profile</h2>
+                <h2 className="workshop-form-section-title">{t('section.profile')}</h2>
                 <div className="workshop-form-grid workshop-form-grid--2">
                     <div className="form-group">
-                        <label className="form-label">Workshop name *</label>
+                        <label className="form-label">{t('label.name')}</label>
                         <input type="text" className="form-input-field" value={values.name} onChange={set('name')} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Workshop code</label>
+                        <label className="form-label">{t('label.code')}</label>
                         <input
                             type="text"
                             className="form-input-field"
@@ -279,7 +275,7 @@ function WorkshopEditForm({ values, onChange }) {
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Owner name</label>
+                        <label className="form-label">{t('label.ownerNameShort')}</label>
                         <input
                             type="text"
                             className="form-input-field"
@@ -288,7 +284,7 @@ function WorkshopEditForm({ values, onChange }) {
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Mobile *</label>
+                        <label className="form-label">{t('label.mobileShort')}</label>
                         <input
                             type="text"
                             className="form-input-field"
@@ -297,11 +293,11 @@ function WorkshopEditForm({ values, onChange }) {
                         />
                     </div>
                     <div className="form-group span-2">
-                        <label className="form-label">Email</label>
+                        <label className="form-label">{t('label.email')}</label>
                         <input type="email" className="form-input-field" value={values.email} onChange={set('email')} />
                     </div>
                     <div className="form-group span-2">
-                        <label className="form-label">Address</label>
+                        <label className="form-label">{t('label.address')}</label>
                         <textarea
                             className="form-input-field"
                             rows={3}
@@ -310,11 +306,11 @@ function WorkshopEditForm({ values, onChange }) {
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Tax ID</label>
+                        <label className="form-label">{t('label.taxId')}</label>
                         <input type="text" className="form-input-field" value={values.taxId} onChange={set('taxId')} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">CR number</label>
+                        <label className="form-label">{t('label.cr')}</label>
                         <input
                             type="text"
                             className="form-input-field"
@@ -323,45 +319,43 @@ function WorkshopEditForm({ values, onChange }) {
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">GPS latitude</label>
+                        <label className="form-label">{t('label.lat')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="e.g. 24.7136"
+                            placeholder={t('ph.lat')}
                             value={values.gpsLat}
                             onChange={set('gpsLat')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">GPS longitude</label>
+                        <label className="form-label">{t('label.lng')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="e.g. 46.6753"
+                            placeholder={t('ph.lng')}
                             value={values.gpsLng}
                             onChange={set('gpsLng')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Status</label>
+                        <label className="form-label">{t('label.status')}</label>
                         <SelectField value={values.status === 'inactive' ? 'inactive' : 'approved'} onChange={set('status')}>
-                            <option value="inactive">Inactive</option>
-                            <option value="approved">Approved</option>
+                            <option value="inactive">{t('status.inactive')}</option>
+                            <option value="approved">{t('status.approved')}</option>
                         </SelectField>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Reset password</label>
+                        <label className="form-label">{t('label.resetPassword')}</label>
                         <input
                             type="password"
                             className="form-input-field"
                             autoComplete="new-password"
-                            placeholder="Leave empty to keep current"
+                            placeholder={t('ph.resetPassword')}
                             value={values.resetPassword}
                             onChange={set('resetPassword')}
                         />
-                        <p className="workshop-form-hint">
-                            Updates workshop owner portal login. Saved in session for WhatsApp credentials.
-                        </p>
+                        <p className="workshop-form-hint">{t('hint.password')}</p>
                     </div>
                 </div>
             </section>
@@ -369,33 +363,36 @@ function WorkshopEditForm({ values, onChange }) {
     );
 }
 
-function WorkshopDetailPanel({ workshop }) {
+function WorkshopDetailPanel({ workshop, t }) {
     if (!workshop) return null;
 
-    const status = workshopStatusMeta(workshop.status);
+    const statusLabel = statusDisplayLabel(workshop.status, t);
     const email = resolveWorkshopContactEmail(workshop) || workshop.email || '—';
 
     return (
         <div className="workshop-detail-layout">
             <section className="workshop-form-section">
-                <h2 className="workshop-form-section-title">Overview</h2>
+                <h2 className="workshop-form-section-title">{t('section.overview')}</h2>
                 <div className="workshop-detail-grid">
                     {[
-                        { label: 'Owner name', value: workshop.ownerName },
-                        { label: 'Mobile', value: workshop.mobile || resolveWorkshopPhone(workshop) },
-                        { label: 'Email', value: email },
-                        { label: 'Tax ID', value: workshop.taxId },
+                        { label: t('label.ownerNameShort'), value: workshop.ownerName },
+                        { label: t('label.mobileView'), value: workshop.mobile || resolveWorkshopPhone(workshop) },
+                        { label: t('label.email'), value: email },
+                        { label: t('label.taxId'), value: workshop.taxId },
                         {
-                            label: 'Currency',
+                            label: t('label.currency'),
                             value:
                                 workshop.currencyCode != null
-                                    ? `${workshop.currencyCode} (VAT ${workshop.vatPercent ?? 0}%)`
+                                    ? t('currency.vat', {
+                                          code: workshop.currencyCode,
+                                          vat: workshop.vatPercent ?? 0,
+                                      })
                                     : null,
                         },
-                        { label: 'Status', value: status.label },
-                        { label: 'Address', value: workshop.address },
+                        { label: t('label.status'), value: statusLabel },
+                        { label: t('label.address'), value: workshop.address },
                         {
-                            label: 'Registered',
+                            label: t('label.registered'),
                             value: workshop.createdAt
                                 ? new Date(workshop.createdAt).toLocaleDateString()
                                 : null,
@@ -410,17 +407,17 @@ function WorkshopDetailPanel({ workshop }) {
             </section>
 
             <section className="workshop-form-section">
-                <h2 className="workshop-form-section-title">Platform stats</h2>
+                <h2 className="workshop-form-section-title">{t('section.stats')}</h2>
                 <div className="workshop-stats-mini-grid">
                     {[
-                        { label: 'Branches', value: workshop.branchesCount },
-                        { label: 'Employees', value: workshop.employeesCount },
-                        { label: 'Technicians', value: workshop.techniciansCount },
-                        { label: 'Cashiers', value: workshop.cashiersCount },
-                        { label: 'Customers', value: workshop.customersCount },
-                        { label: 'Products', value: workshop.productsCount },
-                        { label: 'Services', value: workshop.servicesCount },
-                        { label: 'Sales orders', value: workshop.salesOrdersCount },
+                        { label: t('stat.branches'), value: workshop.branchesCount },
+                        { label: t('stat.employees'), value: workshop.employeesCount },
+                        { label: t('stat.technicians'), value: workshop.techniciansCount },
+                        { label: t('stat.cashiers'), value: workshop.cashiersCount },
+                        { label: t('stat.customers'), value: workshop.customersCount },
+                        { label: t('stat.products'), value: workshop.productsCount },
+                        { label: t('stat.services'), value: workshop.servicesCount },
+                        { label: t('stat.salesOrders'), value: workshop.salesOrdersCount },
                     ].map(({ label, value }) => (
                         <div key={label} className="workshop-stats-mini-card">
                             <p className="workshop-stats-mini-value">{value ?? 0}</p>
@@ -432,7 +429,7 @@ function WorkshopDetailPanel({ workshop }) {
 
             {workshop.branches?.length > 0 ? (
                 <section className="workshop-form-section">
-                    <h2 className="workshop-form-section-title">Branches</h2>
+                    <h2 className="workshop-form-section-title">{t('section.branches')}</h2>
                     <div className="workshop-branches-list">
                         {workshop.branches.map((b) => (
                             <div key={b.id} className="workshop-branch-row">
@@ -440,7 +437,7 @@ function WorkshopDetailPanel({ workshop }) {
                                 <span
                                     className={`status-badge ${b.isActive ? 'status-completed' : 'status-cancelled'}`}
                                 >
-                                    {b.isActive ? 'Active' : 'Inactive'}
+                                    {b.isActive ? t('status.active') : t('status.inactive')}
                                 </span>
                             </div>
                         ))}
@@ -454,6 +451,13 @@ function WorkshopDetailPanel({ workshop }) {
 export default function WorkshopManagementPage() {
     const navigate = useNavigate();
     const location = useLocation();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => wsT(locale, key, vars), [locale]);
+
     const route = parseWorkshopRoute(location.pathname);
     const pageMode = Boolean(route);
 
@@ -614,7 +618,7 @@ export default function WorkshopManagementPage() {
 
     const handleDetectGPS = () => {
         if (!navigator.geolocation) {
-            window.alert('Geolocation is not supported by your browser');
+            window.alert(t('err.geoUnsupported'));
             return;
         }
 
@@ -657,7 +661,7 @@ export default function WorkshopManagementPage() {
                 }
             },
             () => {
-                window.alert('Unable to retrieve your location. Please verify your browser permissions.');
+                window.alert(t('err.geoDenied'));
                 setIsDetectingLocation(false);
             },
             { timeout: 10000 },
@@ -728,12 +732,12 @@ export default function WorkshopManagementPage() {
     const handleEditWorkshopSave = async () => {
         if (!route?.id) return;
         if (!String(editForm.name || '').trim() || !String(editForm.mobile || '').trim()) {
-            window.alert('Workshop name and mobile are required.');
+            window.alert(t('err.nameMobile'));
             return;
         }
         const body = buildUpdateWorkshopBody(editForm);
         if (Object.keys(body).length === 0) {
-            window.alert('Nothing to update.');
+            window.alert(t('err.nothing'));
             return;
         }
         const newPassword = String(editForm.resetPassword ?? '').trim();
@@ -750,7 +754,7 @@ export default function WorkshopManagementPage() {
             await refreshWorkshops();
             goBack();
         } catch (err) {
-            window.alert(err?.message || 'Could not update workshop.');
+            window.alert(err?.message || t('err.update'));
         } finally {
             setSaving(false);
         }
@@ -759,7 +763,7 @@ export default function WorkshopManagementPage() {
     const openWorkshopCredentialsWaMeLink = async (workshop) => {
         const widStr = workshopRowId(workshop);
         if (!widStr) {
-            window.alert('Workshop id is missing on this row — cannot request WhatsApp link.');
+            window.alert(t('err.waId'));
             return;
         }
         const password = readRememberedWorkshopPassword(workshop);
@@ -772,7 +776,7 @@ export default function WorkshopManagementPage() {
             const payload = res?.data != null && typeof res.data === 'object' ? res.data : res;
             const url = payload?.waMeUrl ?? res?.waMeUrl;
             if (!url || typeof url !== 'string') {
-                window.alert('Server did not return a WhatsApp link (waMeUrl).');
+                window.alert(t('err.waUrl'));
                 return;
             }
             window.open(url, '_blank', 'noopener,noreferrer');
@@ -796,7 +800,7 @@ export default function WorkshopManagementPage() {
                 );
                 return;
             }
-            window.alert(err?.message || 'Could not get WhatsApp link.');
+            window.alert(err?.message || t('err.waLink'));
         } finally {
             setWaLinkBusyWorkshopId(null);
         }
@@ -805,31 +809,25 @@ export default function WorkshopManagementPage() {
     if (route?.screen === 'whatsapp-template') {
         return (
             <WorkshopPageShell
-                title="WhatsApp template"
+                title={t('wa.title')}
                 onClose={goBack}
                 footer={
                     <>
                         <button type="button" className="btn-secondary" onClick={goBack}>
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button type="button" className="btn-save-template" onClick={handleSaveTemplate}>
-                            <Save size={16} /> {templateSaved ? 'Saved!' : 'Save template'}
+                            <Save size={16} /> {templateSaved ? t('btn.saved') : t('btn.saveTemplate')}
                         </button>
                     </>
                 }
             >
-                <p className="workshop-form-lead">
-                    Draft only (saved in this browser). Row <strong>WhatsApp</strong> opens a prefilled chat (server
-                    wa.me link when the API exists; otherwise this template + row phone). Placeholders:{' '}
-                    <code>{'{{name}}'}</code>, <code>{'{{email}}'}</code>, <code>{'{{password}}'}</code>,{' '}
-                    <code>{'{{login_url}}'}</code> (defaults to this site&apos;s <code>/workshop/login</code>, or set{' '}
-                    <code>VITE_WORKSHOP_PORTAL_LOGIN_URL</code> for production).
-                </p>
+                <p className="workshop-form-lead">{t('wa.lead')}</p>
                 <textarea
                     className="workshop-mgmt-template-textarea"
                     value={templateEdit}
                     onChange={(e) => setTemplateEdit(e.target.value)}
-                    placeholder="Hey {{name}}, ..."
+                    placeholder={t('wa.placeholder')}
                     rows={10}
                 />
             </WorkshopPageShell>
@@ -839,12 +837,12 @@ export default function WorkshopManagementPage() {
     if (route?.screen === 'create') {
         return (
             <WorkshopPageShell
-                title="Add Workshop"
+                title={t('create.title')}
                 onClose={goBack}
                 footer={
                     <>
                         <button type="button" className="btn-secondary" onClick={goBack}>
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button
                             type="button"
@@ -854,10 +852,10 @@ export default function WorkshopManagementPage() {
                         >
                             {saving ? (
                                 <>
-                                    <Loader size={14} className="spin" /> Creating…
+                                    <Loader size={14} className="spin" /> {t('btn.creating')}
                                 </>
                             ) : (
-                                'Create Workshop'
+                                t('btn.create')
                             )}
                         </button>
                     </>
@@ -868,6 +866,7 @@ export default function WorkshopManagementPage() {
                     onChange={onCreateField}
                     onDetectGps={handleDetectGPS}
                     isDetectingLocation={isDetectingLocation}
+                    t={t}
                 />
             </WorkshopPageShell>
         );
@@ -876,13 +875,13 @@ export default function WorkshopManagementPage() {
     if (route?.screen === 'edit') {
         return (
             <WorkshopPageShell
-                title="Edit Workshop"
+                title={t('edit.title')}
                 onClose={goBack}
                 backDisabled={saving}
                 footer={
                     <>
                         <button type="button" className="btn-secondary" onClick={goBack} disabled={saving}>
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button
                             type="button"
@@ -892,10 +891,10 @@ export default function WorkshopManagementPage() {
                         >
                             {saving ? (
                                 <>
-                                    <Loader size={14} className="spin" /> Saving…
+                                    <Loader size={14} className="spin" /> {t('btn.saving')}
                                 </>
                             ) : (
-                                'Save changes'
+                                t('btn.save')
                             )}
                         </button>
                     </>
@@ -903,10 +902,10 @@ export default function WorkshopManagementPage() {
             >
                 {editLoading ? (
                     <div className="table-empty">
-                        <Loader size={18} className="spin" /> Loading workshop…
+                        <Loader size={18} className="spin" /> {t('loading')}
                     </div>
                 ) : (
-                    <WorkshopEditForm values={editForm} onChange={onEditField} />
+                    <WorkshopEditForm values={editForm} onChange={onEditField} t={t} />
                 )}
             </WorkshopPageShell>
         );
@@ -919,7 +918,7 @@ export default function WorkshopManagementPage() {
 
         return (
             <WorkshopPageShell
-                title={viewRow?.name || 'Workshop details'}
+                title={viewRow?.name || t('view.title')}
                 onClose={goBack}
                 footer={
                     <>
@@ -930,7 +929,7 @@ export default function WorkshopManagementPage() {
                             onClick={() => void openWorkshopCredentialsWaMeLink(viewRow)}
                         >
                             {waBusy ? <Loader size={16} className="spin" /> : <WhatsAppIcon />}
-                            <span>{waBusy ? 'Opening…' : 'WhatsApp'}</span>
+                            <span>{waBusy ? t('btn.opening') : t('btn.whatsapp')}</span>
                         </button>
                         <button
                             type="button"
@@ -939,17 +938,17 @@ export default function WorkshopManagementPage() {
                                 navigate(workshopRoutes.edit(wid), { state: { workshop: viewRow } })
                             }
                         >
-                            <Pencil size={14} /> Edit
+                            <Pencil size={14} /> {t('btn.edit')}
                         </button>
                     </>
                 }
             >
                 {viewLoading && !viewRow ? (
                     <div className="table-empty">
-                        <Loader size={18} className="spin" /> Loading workshop…
+                        <Loader size={18} className="spin" /> {t('loading')}
                     </div>
                 ) : (
-                    <WorkshopDetailPanel workshop={viewRow} />
+                    <WorkshopDetailPanel workshop={viewRow} t={t} />
                 )}
             </WorkshopPageShell>
         );
@@ -959,8 +958,8 @@ export default function WorkshopManagementPage() {
         <div className="workshop-mgmt-page module-container">
             <header className="branches-page-header">
                 <div className="branches-page-header-text">
-                    <h1 className="branches-title">Workshop</h1>
-                    <p className="branches-subtitle">Add workshops and send login details via WhatsApp</p>
+                    <h1 className="branches-title">{t('page.title')}</h1>
+                    <p className="branches-subtitle">{t('page.subtitle')}</p>
                 </div>
                 <div className="workshop-header-actions">
                     <button
@@ -968,14 +967,14 @@ export default function WorkshopManagementPage() {
                         className="btn-portal workshop-header-secondary"
                         onClick={() => navigate(workshopRoutes.whatsappTemplate())}
                     >
-                        <MessageSquare size={16} /> WhatsApp template
+                        <MessageSquare size={16} /> {t('btn.waTemplate')}
                     </button>
                     <button
                         type="button"
                         className="btn-portal branches-header-add"
                         onClick={() => navigate(workshopRoutes.create())}
                     >
-                        <Plus size={16} /> Add Workshop
+                        <Plus size={16} /> {t('btn.add')}
                     </button>
                 </div>
             </header>
@@ -986,7 +985,7 @@ export default function WorkshopManagementPage() {
                         <Wrench size={18} />
                     </span>
                     <div>
-                        <p className="workshop-stat-label">Total</p>
+                        <p className="workshop-stat-label">{t('stat.total')}</p>
                         <p className="workshop-stat-value">{total}</p>
                     </div>
                 </div>
@@ -995,7 +994,7 @@ export default function WorkshopManagementPage() {
                         <UserCheck size={18} />
                     </span>
                     <div>
-                        <p className="workshop-stat-label">Approved</p>
+                        <p className="workshop-stat-label">{t('stat.approved')}</p>
                         <p className="workshop-stat-value">{approvedCount}</p>
                     </div>
                 </div>
@@ -1004,7 +1003,7 @@ export default function WorkshopManagementPage() {
                         <Clock size={18} />
                     </span>
                     <div>
-                        <p className="workshop-stat-label">Pending</p>
+                        <p className="workshop-stat-label">{t('stat.pending')}</p>
                         <p className="workshop-stat-value">{pendingCount}</p>
                     </div>
                 </div>
@@ -1013,7 +1012,7 @@ export default function WorkshopManagementPage() {
                         <Ban size={18} />
                     </span>
                     <div>
-                        <p className="workshop-stat-label">Inactive</p>
+                        <p className="workshop-stat-label">{t('stat.inactive')}</p>
                         <p className="workshop-stat-value">{inactiveCount}</p>
                     </div>
                 </div>
@@ -1024,23 +1023,23 @@ export default function WorkshopManagementPage() {
                     <Search size={16} />
                     <input
                         type="text"
-                        placeholder="Search workshop, owner, phone…"
+                        placeholder={t('search.placeholder')}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
 
-                <div className="branches-segment" role="tablist" aria-label="Filter by status">
-                    {STATUS_TABS.map((t) => (
+                <div className="branches-segment" role="tablist" aria-label={t('filter.statusAria')}>
+                    {WS_STATUS_TAB_KEYS.map((tab) => (
                         <button
-                            key={t.id}
+                            key={tab.id}
                             type="button"
                             role="tab"
-                            aria-selected={statusFilter === t.id}
-                            className={`branches-segment-btn ${statusFilter === t.id ? 'active' : ''}`}
-                            onClick={() => setStatusFilter(t.id)}
+                            aria-selected={statusFilter === tab.id}
+                            className={`branches-segment-btn ${statusFilter === tab.id ? 'active' : ''}`}
+                            onClick={() => setStatusFilter(tab.id)}
                         >
-                            {t.label}
+                            {t(tab.labelKey)}
                         </button>
                     ))}
                 </div>
@@ -1050,11 +1049,11 @@ export default function WorkshopManagementPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Workshop</th>
-                            <th className="table-th">Contact</th>
-                            <th className="table-th">Phone</th>
-                            <th className="table-th">Email</th>
-                            <th className="table-th">Status</th>
+                            <th className="table-th">{t('th.workshop')}</th>
+                            <th className="table-th">{t('th.contact')}</th>
+                            <th className="table-th">{t('th.phone')}</th>
+                            <th className="table-th">{t('th.email')}</th>
+                            <th className="table-th">{t('th.status')}</th>
                             <th className="table-th" />
                         </tr>
                     </thead>
@@ -1069,14 +1068,15 @@ export default function WorkshopManagementPage() {
                             <tr>
                                 <td colSpan={6} className="table-cell table-empty branches-empty">
                                     <Wrench size={40} strokeWidth={1.25} />
-                                    <p>No workshops found</p>
-                                    <span>Adjust filters or add a new workshop.</span>
+                                    <p>{t('empty.title')}</p>
+                                    <span>{t('empty.hint')}</span>
                                 </td>
                             </tr>
                         ) : (
                             filtered.map((w, rowIdx) => {
                                 const wid = workshopRowId(w);
-                                const status = workshopStatusMeta(w.status);
+                                const statusMeta = workshopStatusMeta(w.status);
+                                const statusLabel = statusDisplayLabel(w.status, t);
                                 const waBusy = waLinkBusyWorkshopId === wid;
 
                                 return (
@@ -1131,8 +1131,8 @@ export default function WorkshopManagementPage() {
                                             </div>
                                         </td>
                                         <td className="table-cell">
-                                            <span className={`workshop-status-badge ${status.className}`}>
-                                                {status.label}
+                                            <span className={`workshop-status-badge ${statusMeta.className}`}>
+                                                {statusLabel}
                                             </span>
                                         </td>
                                         <td className="table-cell workshop-actions-cell">
@@ -1141,7 +1141,7 @@ export default function WorkshopManagementPage() {
                                                     type="button"
                                                     className="btn-workshop-edit"
                                                     disabled={!wid}
-                                                    title={wid ? 'Edit workshop' : 'Workshop id missing'}
+                                                    title={wid ? t('title.editWorkshop') : t('title.idMissing')}
                                                     onClick={() =>
                                                         wid
                                                             ? navigate(workshopRoutes.edit(wid), {
@@ -1157,14 +1157,14 @@ export default function WorkshopManagementPage() {
                                                     className="btn-whatsapp"
                                                     disabled={!!workshopWhatsAppDisabledReason(w) || waBusy}
                                                     onClick={() => void openWorkshopCredentialsWaMeLink(w)}
-                                                    title="Open WhatsApp with a prefilled message"
+                                                    title={t('title.openWa')}
                                                 >
                                                     {waBusy ? (
                                                         <Loader size={16} className="spin" />
                                                     ) : (
                                                         <WhatsAppIcon />
                                                     )}
-                                                    <span>{waBusy ? '…' : 'WhatsApp'}</span>
+                                                    <span>{waBusy ? '…' : t('btn.whatsapp')}</span>
                                                 </button>
                                             </div>
                                         </td>

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
     Award, Pencil, TrendingUp, ShieldCheck, Zap, X,
     Plus, ChevronDown, ChevronUp, Trash2, CheckCircle2,
@@ -24,15 +25,8 @@ import {
     marketingListLoyaltyAccounts,
     marketingGetLoyaltyReports,
 } from '../../services/superAdminMarketingApi';
+import { tierT } from '../../utils/tierManagementI18n';
 import '../../styles/admin/TierManagementPage.css';
-
-const fmt = (n) => Number(n || 0).toLocaleString();
-const sar = (n) => `SAR ${fmt(n)}`;
-const fmtDate = (iso) => {
-    if (!iso) return '—';
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
-};
 
 const EMPTY_TIER_FORM = {
     name: '',
@@ -55,6 +49,50 @@ const EMPTY_TIER_FORM = {
 };
 
 export default function TierManagementPage() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => tierT(locale, key, vars), [locale]);
+    const numberLocale = locale === 'ar' ? 'ar-SA' : undefined;
+
+    const fmt = useCallback((n) => Number(n || 0).toLocaleString(numberLocale), [numberLocale]);
+    const sar = useCallback((n) => t('money.sar', { amount: fmt(n) }), [t, fmt]);
+    const fmtDate = useCallback((iso) => {
+        if (!iso) return t('common.emDash');
+        const d = new Date(iso);
+        return Number.isNaN(d.getTime()) ? t('common.emDash') : d.toLocaleDateString(numberLocale);
+    }, [t, numberLocale]);
+
+    const statusLabel = useCallback((status) => {
+        const key = `status.${status}`;
+        const translated = t(key);
+        return translated === key ? status : translated;
+    }, [t]);
+
+    const typeLabel = useCallback((type) => {
+        if (!type) return t('rules.na');
+        const key = `type.${type}`;
+        const translated = t(key);
+        return translated === key ? String(type).replace('_', ' ') : translated;
+    }, [t]);
+
+    const fieldLabel = useCallback((field) => {
+        if (!field) return t('rules.na');
+        const key = `field.${field}`;
+        const translated = t(key);
+        return translated === key ? String(field).replace('_', ' ') : translated;
+    }, [t]);
+
+    const actionLabel = useCallback((actionType) => {
+        if (!actionType) return t('rules.na');
+        const key = `action.${actionType}`;
+        const translated = t(key);
+        return translated === key ? String(actionType).replace('_', ' ') : translated;
+    }, [t]);
+
     const [activeTab, setActiveTab] = useState('corporate');
 
     // Live data
@@ -116,13 +154,13 @@ export default function TierManagementPage() {
             try {
                 await Promise.all([loadTiers(), loadRules(), loadAccounts(), loadReports()]);
             } catch (err) {
-                if (!cancelled) flash('error', err?.message || 'Failed to load tier data');
+                if (!cancelled) flash('error', err?.message || t('error.loadFailed'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
         })();
         return () => { cancelled = true; };
-    }, [loadTiers, loadRules, loadAccounts, loadReports, flash]);
+    }, [loadTiers, loadRules, loadAccounts, loadReports, flash, t]);
 
     /* ---------------- Tier helpers ---------------- */
     const toggleExpand = (id) => setExpandedTiers((p) => ({ ...p, [id]: !p[id] }));
@@ -152,7 +190,7 @@ export default function TierManagementPage() {
             eligiblePromotions: formState.eligiblePromotions !== false,
             benefits: formState.benefits || [],
         };
-        if (!payload.name.trim()) { flash('error', 'Tier name is required'); return; }
+        if (!payload.name.trim()) { flash('error', t('flash.tierNameRequired')); return; }
         setBusy(true);
         try {
             if (editingTier) {
@@ -162,34 +200,34 @@ export default function TierManagementPage() {
             }
             await Promise.all([loadTiers(), loadReports()]);
             setEditModalOpen(false);
-            flash('success', editingTier ? 'Tier updated' : 'Tier created');
+            flash('success', editingTier ? t('flash.tierUpdated') : t('flash.tierCreated'));
         } catch (err) {
-            flash('error', err?.message || 'Failed to save tier');
+            flash('error', err?.message || t('flash.tierSaveFailed'));
         } finally {
             setBusy(false);
         }
     };
 
     const handleDeleteTier = async (tier) => {
-        if (!window.confirm(`Delete tier "${tier.name}"?`)) return;
+        if (!window.confirm(t('flash.tierDeleteConfirm', { name: tier.name }))) return;
         setBusy(true);
         try {
             await marketingDeleteLoyaltyTier(tier.id);
             await Promise.all([loadTiers(), loadReports()]);
-            flash('success', 'Tier deleted');
+            flash('success', t('flash.tierDeleted'));
         } catch (err) {
-            flash('error', err?.message || 'Failed to delete tier');
+            flash('error', err?.message || t('flash.tierDeleteFailed'));
         } finally {
             setBusy(false);
         }
     };
 
     const handleToggleTier = async (tier, active) => {
-        setTiers((prev) => prev.map((t) => (t.id === tier.id ? { ...t, status: active ? 'active' : 'inactive' } : t)));
+        setTiers((prev) => prev.map((row) => (row.id === tier.id ? { ...row, status: active ? 'active' : 'inactive' } : row)));
         try {
             await marketingUpdateLoyaltyTier(tier.id, { status: active ? 'active' : 'inactive' });
         } catch (err) {
-            flash('error', err?.message || 'Failed to update tier');
+            flash('error', err?.message || t('flash.tierUpdateFailed'));
             loadTiers();
         }
     };
@@ -201,9 +239,9 @@ export default function TierManagementPage() {
         [next[index], next[newIndex]] = [next[newIndex], next[index]];
         setTiers(next);
         try {
-            await marketingReorderLoyaltyTiers(next.map((t) => t.id));
+            await marketingReorderLoyaltyTiers(next.map((row) => row.id));
         } catch (err) {
-            flash('error', err?.message || 'Failed to reorder');
+            flash('error', err?.message || t('flash.reorderFailed'));
             loadTiers();
         }
     };
@@ -254,7 +292,7 @@ export default function TierManagementPage() {
             payload.threshold = Number(formState.threshold) || 0;
             payload.value = Number(formState.value) || 0;
         }
-        if (!payload.name.trim()) { flash('error', 'Rule name is required'); return; }
+        if (!payload.name.trim()) { flash('error', t('flash.ruleNameRequired')); return; }
         setBusy(true);
         try {
             if (editingRule) {
@@ -265,9 +303,9 @@ export default function TierManagementPage() {
             await Promise.all([loadRules(), loadReports()]);
             if (type === 'earn') setEarnModalOpen(false);
             else setRedemptModalOpen(false);
-            flash('success', editingRule ? 'Rule updated' : 'Rule created');
+            flash('success', editingRule ? t('flash.ruleUpdated') : t('flash.ruleCreated'));
         } catch (err) {
-            flash('error', err?.message || 'Failed to save rule');
+            flash('error', err?.message || t('flash.ruleSaveFailed'));
         } finally {
             setBusy(false);
         }
@@ -278,7 +316,7 @@ export default function TierManagementPage() {
         try {
             await marketingUpdateLoyaltyRule(rule.id, { status });
         } catch (err) {
-            flash('error', err?.message || 'Failed to update rule');
+            flash('error', err?.message || t('flash.ruleUpdateFailed'));
             loadRules();
         }
     };
@@ -325,7 +363,7 @@ export default function TierManagementPage() {
             condition: formState.condition,
             action: formState.action,
         };
-        if (!payload.name.trim()) { flash('error', 'Rule name is required'); return; }
+        if (!payload.name.trim()) { flash('error', t('flash.ruleNameRequired')); return; }
         setBusy(true);
         try {
             if (editingRule) {
@@ -335,37 +373,37 @@ export default function TierManagementPage() {
             }
             await Promise.all([loadRules(), loadReports()]);
             setRuleModalOpen(false);
-            flash('success', editingRule ? 'Rule updated' : 'Rule created');
+            flash('success', editingRule ? t('flash.ruleUpdated') : t('flash.ruleCreated'));
         } catch (err) {
-            flash('error', err?.message || 'Failed to save rule');
+            flash('error', err?.message || t('flash.ruleSaveFailed'));
         } finally {
             setBusy(false);
         }
     };
 
     const deleteRule = async (id) => {
-        if (!window.confirm('Delete this rule?')) return;
+        if (!window.confirm(t('flash.ruleDeleteConfirm'))) return;
         setBusy(true);
         try {
             await marketingDeleteLoyaltyRule(id);
             await Promise.all([loadRules(), loadReports()]);
-            flash('success', 'Rule deleted');
+            flash('success', t('flash.ruleDeleted'));
         } catch (err) {
-            flash('error', err?.message || 'Failed to delete rule');
+            flash('error', err?.message || t('flash.ruleDeleteFailed'));
         } finally {
             setBusy(false);
         }
     };
 
     const runMonthlyReset = async () => {
-        if (!window.confirm('Reset all customers\u2019 monthly spend to zero and re-evaluate tiers?')) return;
+        if (!window.confirm(t('flash.monthlyResetConfirm'))) return;
         setBusy(true);
         try {
             const res = await marketingRunLoyaltyMonthlyReset();
             await Promise.all([loadAccounts(accountSearch), loadReports()]);
-            flash('success', `Monthly reset complete (${res?.accountsReset ?? 0} accounts)`);
+            flash('success', t('flash.monthlyResetDone', { count: res?.accountsReset ?? 0 }));
         } catch (err) {
-            flash('error', err?.message || 'Monthly reset failed');
+            flash('error', err?.message || t('flash.monthlyResetFailed'));
         } finally {
             setBusy(false);
         }
@@ -381,16 +419,16 @@ export default function TierManagementPage() {
     /* ---------------- Derived report stats ---------------- */
     const stats = reports?.stats || {};
     const walkinStats = [
-        { label: 'Total Points Issued', value: fmt(stats.totalPointsIssued), icon: Award, color: '#fbbf24' },
-        { label: 'Available Points', value: fmt(stats.availablePoints), icon: Zap, color: '#10b981' },
-        { label: 'Points Redeemed', value: fmt(stats.pointsRedeemed), icon: TrendingUp, color: '#6366f1' },
-        { label: 'Loyalty Liability', value: sar(stats.loyaltyLiability), icon: Users, color: '#f43f5e' },
+        { label: t('stat.totalPointsIssued'), value: fmt(stats.totalPointsIssued), icon: Award, color: '#fbbf24' },
+        { label: t('stat.availablePoints'), value: fmt(stats.availablePoints), icon: Zap, color: '#10b981' },
+        { label: t('stat.pointsRedeemed'), value: fmt(stats.pointsRedeemed), icon: TrendingUp, color: '#6366f1' },
+        { label: t('stat.loyaltyLiability'), value: sar(stats.loyaltyLiability), icon: Users, color: '#f43f5e' },
     ];
     const reportStats = [
-        { label: 'Corporate Customers', value: fmt(stats.corporateCustomers), icon: ShieldCheck, color: '#0ea5e9' },
-        { label: 'Walk-In Loyalty Accts', value: fmt(stats.walkInLoyaltyAccounts), icon: Users, color: '#10b981' },
-        { label: 'Total Points Issued', value: fmt(stats.totalPointsIssued), icon: Award, color: '#fbbf24' },
-        { label: 'Loyalty Liability', value: sar(stats.loyaltyLiability), icon: Settings, color: '#f43f5e' },
+        { label: t('stat.corporateCustomers'), value: fmt(stats.corporateCustomers), icon: ShieldCheck, color: '#0ea5e9' },
+        { label: t('stat.walkInLoyaltyAccts'), value: fmt(stats.walkInLoyaltyAccounts), icon: Users, color: '#10b981' },
+        { label: t('stat.totalPointsIssued'), value: fmt(stats.totalPointsIssued), icon: Award, color: '#fbbf24' },
+        { label: t('stat.loyaltyLiability'), value: sar(stats.loyaltyLiability), icon: Settings, color: '#f43f5e' },
     ];
     const tierDist = reports?.tierDistribution || [];
     const trendData = reports?.pointsTrend || [];
@@ -398,21 +436,21 @@ export default function TierManagementPage() {
     const topAccounts = reports?.topAccounts || [];
 
     const TABS = [
-        { id: 'corporate', label: 'Corporate Tiers', icon: ShieldCheck },
-        { id: 'walkin', label: 'Walk-In Loyalty', icon: Users },
-        { id: 'rules', label: 'Rules Engine', icon: Settings },
-        { id: 'reports', label: 'Reports', icon: BarChart3 },
+        { id: 'corporate', label: t('tab.corporate'), icon: ShieldCheck },
+        { id: 'walkin', label: t('tab.walkin'), icon: Users },
+        { id: 'rules', label: t('tab.rules'), icon: Settings },
+        { id: 'reports', label: t('tab.reports'), icon: BarChart3 },
     ];
 
-    const tierNameById = (id) => tiers.find((t) => String(t.id) === String(id))?.name || id || '—';
+    const tierNameById = (id) => tiers.find((row) => String(row.id) === String(id))?.name || id || t('common.emDash');
 
     return (
-        <div className="tier-management-page module-container">
+        <div className="tier-management-page module-container" dir={locale === 'ar' ? 'rtl' : undefined}>
             <header className="tier-main-header">
                 <div className="header-icon"><Award size={32} /></div>
                 <div className="header-info">
-                    <h1 className="header-title">Tier Management</h1>
-                    <p className="header-subtitle">Corporate tiers, loyalty engine, rules configuration and reports</p>
+                    <h1 className="header-title">{t('page.title')}</h1>
+                    <p className="header-subtitle">{t('page.subtitle')}</p>
                 </div>
             </header>
 
@@ -445,23 +483,23 @@ export default function TierManagementPage() {
 
             <div className="tier-content-section">
                 {loading ? (
-                    <div className="empty-state" style={{ padding: 48, textAlign: 'center' }}>Loading tier data…</div>
+                    <div className="empty-state" style={{ padding: 48, textAlign: 'center' }}>{t('loading')}</div>
                 ) : activeTab === 'corporate' ? (
                     <>
                         <div className="section-header">
                             <div className="header-left">
-                                <h2 className="section-title">Corporate Tier Configuration</h2>
-                                <p className="section-desc">Define tiers, thresholds, discounts and benefits. Auto-upgrades on monthly spend.</p>
+                                <h2 className="section-title">{t('corporate.title')}</h2>
+                                <p className="section-desc">{t('corporate.desc')}</p>
                             </div>
                             <button className="btn-new-tier" onClick={openNewTier}>
-                                <Plus size={20} /><span>New Tier</span>
+                                <Plus size={20} /><span>{t('corporate.newTier')}</span>
                             </button>
                         </div>
 
                         <div className="tier-list-container">
                             {tiers.length === 0 ? (
                                 <div className="empty-state" style={{ padding: 32, textAlign: 'center' }}>
-                                    No tiers configured yet. Click “New Tier” to create your first one.
+                                    {t('corporate.empty')}
                                 </div>
                             ) : tiers.map((tier, index) => (
                                 <motion.div
@@ -479,18 +517,18 @@ export default function TierManagementPage() {
                                             <div className="tier-basic-info">
                                                 <div className="name-row">
                                                     <h3 className="tier-name">{tier.name}</h3>
-                                                    <span className={`status-badge ${tier.status === 'active' ? 'active' : ''}`}>{tier.status}</span>
-                                                    {tier.discount > 0 && <span className="discount-badge">{tier.discount}% off</span>}
-                                                    {tier.priority && <span className="priority-badge">Priority</span>}
+                                                    <span className={`status-badge ${tier.status === 'active' ? 'active' : ''}`}>{statusLabel(tier.status)}</span>
+                                                    {tier.discount > 0 && <span className="discount-badge">{t('corporate.discountOff', { discount: tier.discount })}</span>}
+                                                    {tier.priority && <span className="priority-badge">{t('corporate.priority')}</span>}
                                                 </div>
-                                                <p className="tier-range">{sar(tier.minSales)} – {sar(tier.maxSales)} / month</p>
+                                                <p className="tier-range">{t('corporate.rangeMonth', { min: sar(tier.minSales), max: sar(tier.maxSales) })}</p>
                                             </div>
                                             <div className="card-actions">
                                                 <div className="move-actions">
-                                                    <button className="action-btn move-btn" onClick={(e) => { e.stopPropagation(); moveTier(index, -1); }} disabled={index === 0} title="Move Up">
+                                                    <button className="action-btn move-btn" onClick={(e) => { e.stopPropagation(); moveTier(index, -1); }} disabled={index === 0} title={t('corporate.moveUp')}>
                                                         <ArrowUp size={16} />
                                                     </button>
-                                                    <button className="action-btn move-btn" onClick={(e) => { e.stopPropagation(); moveTier(index, 1); }} disabled={index === tiers.length - 1} title="Move Down">
+                                                    <button className="action-btn move-btn" onClick={(e) => { e.stopPropagation(); moveTier(index, 1); }} disabled={index === tiers.length - 1} title={t('corporate.moveDown')}>
                                                         <ArrowDown size={16} />
                                                     </button>
                                                 </div>
@@ -515,7 +553,7 @@ export default function TierManagementPage() {
                                                 <motion.div className="card-expanded-details" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
                                                     <div className="benefits-grid">
                                                         {(tier.benefits || []).length === 0 ? (
-                                                            <span className="tier-range">No benefits configured</span>
+                                                            <span className="tier-range">{t('corporate.noBenefits')}</span>
                                                         ) : tier.benefits.map((benefit, idx) => (
                                                             <div key={idx} className="benefit-chip">
                                                                 <CheckCircle2 size={14} className="check-icon" />
@@ -551,21 +589,21 @@ export default function TierManagementPage() {
                         <div className="loyalty-rules-grid">
                             <div className="rules-column">
                                 <div className="column-header">
-                                    <h3 className="column-title">Points Earn Rules</h3>
-                                    <button className="column-add-btn" onClick={openNewEarnRule}><Plus size={16} /> <span>Add</span></button>
+                                    <h3 className="column-title">{t('walkin.earnRules')}</h3>
+                                    <button className="column-add-btn" onClick={openNewEarnRule}><Plus size={16} /> <span>{t('walkin.add')}</span></button>
                                 </div>
                                 <div className="rules-stack">
                                     {earnRules.length === 0 ? (
-                                        <div className="empty-state" style={{ padding: 16 }}>No earn rules yet</div>
+                                        <div className="empty-state" style={{ padding: 16 }}>{t('walkin.noEarnRules')}</div>
                                     ) : earnRules.map((rule) => (
                                         <div key={rule.id} className="rule-card-modern">
                                             <div className="rule-info">
                                                 <div className="rule-name-row">
                                                     <h4 className="rule-name">{rule.name}</h4>
-                                                    <span className="rule-status">{rule.status}</span>
+                                                    <span className="rule-status">{statusLabel(rule.status)}</span>
                                                 </div>
                                                 <p className="rule-description">{rule.description}</p>
-                                                <div className="rule-detail-tag">{rule.rate} pt / SAR</div>
+                                                <div className="rule-detail-tag">{t('walkin.ptPerSar', { rate: rule.rate })}</div>
                                             </div>
                                             <div className="rule-actions">
                                                 <label className="toggle-switch small" onClick={(e) => e.stopPropagation()}>
@@ -582,22 +620,22 @@ export default function TierManagementPage() {
 
                             <div className="rules-column">
                                 <div className="column-header">
-                                    <h3 className="column-title">Points Redemption Rules</h3>
-                                    <button className="column-add-btn" onClick={openNewRedemptRule}><Plus size={16} /> <span>Add</span></button>
+                                    <h3 className="column-title">{t('walkin.redemptRules')}</h3>
+                                    <button className="column-add-btn" onClick={openNewRedemptRule}><Plus size={16} /> <span>{t('walkin.add')}</span></button>
                                 </div>
                                 <div className="rules-stack">
                                     {redemptRules.length === 0 ? (
-                                        <div className="empty-state" style={{ padding: 16 }}>No redemption rules yet</div>
+                                        <div className="empty-state" style={{ padding: 16 }}>{t('walkin.noRedemptRules')}</div>
                                     ) : redemptRules.map((rule) => (
                                         <div key={rule.id} className="rule-card-modern">
                                             <div className="rule-info">
                                                 <div className="rule-name-row">
                                                     <h4 className="rule-name">{rule.name}</h4>
-                                                    <span className="rule-status">{rule.status}</span>
+                                                    <span className="rule-status">{statusLabel(rule.status)}</span>
                                                 </div>
                                                 <p className="rule-description">{rule.description}</p>
                                                 <div className="rule-detail-row">
-                                                    <span className="value-tag gold">{rule.threshold} pts threshold</span>
+                                                    <span className="value-tag gold">{t('walkin.ptsThreshold', { threshold: rule.threshold })}</span>
                                                     <span className="arrow-sep">➔</span>
                                                     <span className="value-tag green">{sar(rule.value)}</span>
                                                 </div>
@@ -618,27 +656,33 @@ export default function TierManagementPage() {
 
                         <div className="loyalty-accounts-section">
                             <div className="accounts-header">
-                                <h3 className="section-title">Customer Loyalty Accounts</h3>
+                                <h3 className="section-title">{t('walkin.accountsTitle')}</h3>
                                 <div className="table-search">
                                     <Layout size={16} />
-                                    <input type="text" placeholder="Search by name or mobile..." value={accountSearch} onChange={onAccountSearch} />
+                                    <input type="text" placeholder={t('walkin.searchPlaceholder')} value={accountSearch} onChange={onAccountSearch} />
                                 </div>
                             </div>
                             <div className="loyalty-table-wrapper">
                                 <table className="modern-tier-table">
                                     <thead>
                                         <tr>
-                                            <th>Customer</th><th>Type</th><th>Tier</th><th>Available Pts</th><th>Total Pts</th><th>Month Spend</th><th>Last Visit</th>
+                                            <th>{t('col.customer')}</th>
+                                            <th>{t('col.type')}</th>
+                                            <th>{t('col.tier')}</th>
+                                            <th>{t('col.availablePts')}</th>
+                                            <th>{t('col.totalPts')}</th>
+                                            <th>{t('col.monthSpend')}</th>
+                                            <th>{t('col.lastVisit')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {loyaltyAccounts.length === 0 ? (
-                                            <tr><td colSpan="7" className="empty-state">No loyalty accounts yet</td></tr>
+                                            <tr><td colSpan="7" className="empty-state">{t('walkin.noAccounts')}</td></tr>
                                         ) : loyaltyAccounts.map((acc) => (
                                             <tr key={acc.id}>
                                                 <td className="font-semibold">{acc.customer}</td>
                                                 <td>{acc.type}</td>
-                                                <td>{acc.tier ? <span className={`tier-badge-small ${String(acc.tier).toLowerCase()}`}>{acc.tier}</span> : '—'}</td>
+                                                <td>{acc.tier ? <span className={`tier-badge-small ${String(acc.tier).toLowerCase()}`}>{acc.tier}</span> : t('common.emDash')}</td>
                                                 <td className="pts-column">{fmt(acc.availablePoints)}</td>
                                                 <td>{fmt(acc.totalPoints)}</td>
                                                 <td>{sar(acc.monthSpend)}</td>
@@ -654,22 +698,22 @@ export default function TierManagementPage() {
                     <div className="rules-engine-dashboard">
                         <div className="section-header">
                             <div className="header-left">
-                                <h2 className="section-title">Rules Engine Builder</h2>
-                                <p className="section-desc">Visual IF/THEN rule definitions that drive all tier and loyalty logic</p>
+                                <h2 className="section-title">{t('rules.title')}</h2>
+                                <p className="section-desc">{t('rules.desc')}</p>
                             </div>
                             <div className="tab-actions">
                                 <button className="btn-modern-outline" onClick={runMonthlyReset} disabled={busy}>
-                                    <TrendingUp size={18} /><span>Run Monthly Reset</span>
+                                    <TrendingUp size={18} /><span>{t('rules.runMonthlyReset')}</span>
                                 </button>
                                 <button className="btn-new-tier" onClick={openNewRule}>
-                                    <Plus size={20} /><span>Add Rule</span>
+                                    <Plus size={20} /><span>{t('rules.addRule')}</span>
                                 </button>
                             </div>
                         </div>
 
                         <div className="rules-stack-modern">
                             {rules.length === 0 ? (
-                                <div className="empty-state" style={{ padding: 32, textAlign: 'center' }}>No rules defined yet</div>
+                                <div className="empty-state" style={{ padding: 32, textAlign: 'center' }}>{t('rules.empty')}</div>
                             ) : rules.map((rule, idx) => {
                                 const cond = rule.condition || {};
                                 const act = rule.action || {};
@@ -682,10 +726,10 @@ export default function TierManagementPage() {
                                                     {rule.type === 'tier_assign' && <ShieldCheck size={12} />}
                                                     {rule.type === 'earn' && <Zap size={12} />}
                                                     {rule.type === 'redeem' && <Award size={12} />}
-                                                    <span>{String(rule.type || '').replace('_', ' ')}</span>
+                                                    <span>{typeLabel(rule.type)}</span>
                                                 </div>
                                                 <h3 className="rule-display-name">{rule.name}</h3>
-                                                <span className={`status-pill ${rule.status}`}>{rule.status}</span>
+                                                <span className={`status-pill ${rule.status}`}>{statusLabel(rule.status)}</span>
                                             </div>
                                             <div className="rule-actions-top">
                                                 <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
@@ -699,9 +743,9 @@ export default function TierManagementPage() {
 
                                         <div className="rule-logic-display">
                                             <div className="logic-part if">
-                                                <span className="logic-label">IF</span>
+                                                <span className="logic-label">{t('rules.if')}</span>
                                                 <div className="logic-box">
-                                                    <span className="field">{String(cond.field || 'n/a').replace('_', ' ')}</span>
+                                                    <span className="field">{fieldLabel(cond.field)}</span>
                                                     <span className="operator">{cond.operator || ''}</span>
                                                     <span className="value">
                                                         {cond.operator === 'between'
@@ -712,17 +756,17 @@ export default function TierManagementPage() {
                                             </div>
                                             <div className="logic-arrow"><ArrowUp size={20} style={{ transform: 'rotate(90deg)' }} /></div>
                                             <div className="logic-part then">
-                                                <span className="logic-label">THEN</span>
+                                                <span className="logic-label">{t('rules.then')}</span>
                                                 <div className="logic-box">
-                                                    <span className="action-type">{String(act.type || 'n/a').replace('_', ' ')}</span>
+                                                    <span className="action-type">{actionLabel(act.type)}</span>
                                                     <span className="operator">=</span>
                                                     <span className="result">
                                                         {act.tierId ? (<span className="tier-tag">{tierNameById(act.tierId)}</span>) : fmt(act.value)}
                                                     </span>
                                                 </div>
                                             </div>
-                                            {rule.type === 'earn' && (<div className="rule-value-pill reward">{act.value} pt per SAR</div>)}
-                                            {rule.type === 'redeem' && (<div className="rule-value-pill cost">{act.pointsCost} pts → SAR {act.value}</div>)}
+                                            {rule.type === 'earn' && (<div className="rule-value-pill reward">{t('rules.ptPerSar', { value: act.value })}</div>)}
+                                            {rule.type === 'redeem' && (<div className="rule-value-pill cost">{t('rules.ptsToSar', { points: act.pointsCost, value: act.value })}</div>)}
                                         </div>
 
                                         <p className="rule-card-desc">{rule.description}</p>
@@ -750,10 +794,10 @@ export default function TierManagementPage() {
 
                         <div className="reports-charts-grid">
                             <div className="report-chart-card">
-                                <div className="chart-header"><h3 className="chart-title">Customers by Tier</h3></div>
+                                <div className="chart-header"><h3 className="chart-title">{t('reports.customersByTier')}</h3></div>
                                 <div className="chart-body" style={{ height: 260 }}>
                                     {tierDist.every((d) => !d.value) ? (
-                                        <div className="empty-state" style={{ padding: 32, textAlign: 'center' }}>No tier assignments yet</div>
+                                        <div className="empty-state" style={{ padding: 32, textAlign: 'center' }}>{t('reports.noTierAssignments')}</div>
                                     ) : (
                                         <ResponsiveContainer width="100%" height="100%">
                                             <PieChart>
@@ -769,7 +813,7 @@ export default function TierManagementPage() {
                             </div>
 
                             <div className="report-chart-card">
-                                <div className="chart-header"><h3 className="chart-title">Loyalty Points Summary</h3></div>
+                                <div className="chart-header"><h3 className="chart-title">{t('reports.pointsSummary')}</h3></div>
                                 <div className="chart-body" style={{ height: 180 }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <AreaChart data={trendData}>
@@ -795,35 +839,42 @@ export default function TierManagementPage() {
                                 <div className="chart-footer-metrics">
                                     <div className="footer-metric">
                                         <span className="metric-dot green"></span>
-                                        <div className="metric-info"><p className="m-label">Earned</p><p className="m-value">{fmt(trendTotals.earned)}</p></div>
+                                        <div className="metric-info"><p className="m-label">{t('reports.earned')}</p><p className="m-value">{fmt(trendTotals.earned)}</p></div>
                                     </div>
                                     <div className="footer-metric">
                                         <span className="metric-dot red"></span>
-                                        <div className="metric-info"><p className="m-label">Redeemed</p><p className="m-value">{fmt(trendTotals.redeemed)}</p></div>
+                                        <div className="metric-info"><p className="m-label">{t('reports.redeemed')}</p><p className="m-value">{fmt(trendTotals.redeemed)}</p></div>
                                     </div>
                                     <div className="footer-metric">
                                         <span className="metric-dot gold"></span>
-                                        <div className="metric-info"><p className="m-label">Outstanding</p><p className="m-value">{fmt(trendTotals.outstanding)}</p></div>
+                                        <div className="metric-info"><p className="m-label">{t('reports.outstanding')}</p><p className="m-value">{fmt(trendTotals.outstanding)}</p></div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
                         <div className="loyalty-accounts-section no-margin">
-                            <div className="accounts-header"><h3 className="section-title">Top Loyalty Accounts</h3></div>
+                            <div className="accounts-header"><h3 className="section-title">{t('reports.topAccounts')}</h3></div>
                             <div className="loyalty-table-wrapper">
                                 <table className="modern-tier-table">
                                     <thead>
-                                        <tr><th>Customer</th><th>Type</th><th>Tier</th><th>Available Pts</th><th>Month Spend</th><th>Lifetime</th></tr>
+                                        <tr>
+                                            <th>{t('col.customer')}</th>
+                                            <th>{t('col.type')}</th>
+                                            <th>{t('col.tier')}</th>
+                                            <th>{t('col.availablePts')}</th>
+                                            <th>{t('col.monthSpend')}</th>
+                                            <th>{t('col.lifetime')}</th>
+                                        </tr>
                                     </thead>
                                     <tbody>
                                         {topAccounts.length === 0 ? (
-                                            <tr><td colSpan="6" className="empty-state">No loyalty accounts yet</td></tr>
+                                            <tr><td colSpan="6" className="empty-state">{t('walkin.noAccounts')}</td></tr>
                                         ) : topAccounts.map((account) => (
                                             <tr key={account.id}>
                                                 <td className="font-semibold">{account.customer}</td>
                                                 <td>{account.type}</td>
-                                                <td>{account.tier ? <span className={`tier-badge-small ${String(account.tier).toLowerCase()}`}>{account.tier}</span> : '—'}</td>
+                                                <td>{account.tier ? <span className={`tier-badge-small ${String(account.tier).toLowerCase()}`}>{account.tier}</span> : t('common.emDash')}</td>
                                                 <td className="pts-column">{fmt(account.pts)}</td>
                                                 <td>{sar(account.monthSpend)}</td>
                                                 <td className="text-slate-400">{sar(account.lifetime)}</td>
@@ -840,21 +891,21 @@ export default function TierManagementPage() {
             {/* Tier Modal */}
             <AnimatePresence>
                 {editModalOpen && (
-                    <Modal title={editingTier ? 'Edit Tier Details' : 'Create New Tier'} onClose={() => setEditModalOpen(false)} className="tier-form-modal">
+                    <Modal title={editingTier ? t('modal.editTier') : t('modal.createTier')} onClose={() => setEditModalOpen(false)} className="tier-form-modal">
                         <div className="modern-form-container">
                             <div className="form-section">
-                                <h4 className="form-section-title">General Information</h4>
+                                <h4 className="form-section-title">{t('modal.generalInfo')}</h4>
                                 <div className="form-row">
                                     <div className="form-group flex-2">
-                                        <label>Tier Name</label>
-                                        <input type="text" placeholder="e.g. Gold" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} />
+                                        <label>{t('modal.tierName')}</label>
+                                        <input type="text" placeholder={t('modal.tierNamePlaceholder')} value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} />
                                     </div>
                                     <div className="form-group flex-1">
-                                        <label>Icon</label>
+                                        <label>{t('modal.icon')}</label>
                                         <input type="text" value={formState.icon} onChange={(e) => setFormState({ ...formState, icon: e.target.value })} />
                                     </div>
                                     <div className="form-group flex-1">
-                                        <label>Accent Color</label>
+                                        <label>{t('modal.accentColor')}</label>
                                         <div className="color-picker-simple">
                                             <input type="color" value={formState.color} onChange={(e) => setFormState({ ...formState, color: e.target.value })} />
                                             <div className="color-indicator" style={{ background: formState.color }}></div>
@@ -864,25 +915,25 @@ export default function TierManagementPage() {
                             </div>
 
                             <div className="form-section">
-                                <h4 className="form-section-title">Revenue & Rewards</h4>
+                                <h4 className="form-section-title">{t('modal.revenueRewards')}</h4>
                                 <div className="form-row">
                                     <div className="form-group">
-                                        <label>Min Sales (SAR)</label>
+                                        <label>{t('modal.minSales')}</label>
                                         <input type="number" value={formState.minSales} onChange={(e) => setFormState({ ...formState, minSales: Number(e.target.value) })} />
                                     </div>
                                     <div className="form-group">
-                                        <label>Max Sales (SAR)</label>
+                                        <label>{t('modal.maxSales')}</label>
                                         <input type="number" value={formState.maxSales} onChange={(e) => setFormState({ ...formState, maxSales: Number(e.target.value) })} />
                                     </div>
                                     <div className="form-group">
-                                        <label>Discount %</label>
+                                        <label>{t('modal.discountPct')}</label>
                                         <input type="number" value={formState.discount} onChange={(e) => setFormState({ ...formState, discount: Number(e.target.value) })} />
                                     </div>
                                 </div>
                             </div>
 
                             <div className="form-section">
-                                <h4 className="form-section-title">Features & Visibility</h4>
+                                <h4 className="form-section-title">{t('modal.featuresVisibility')}</h4>
                                 <div className="modern-toggles-grid">
                                     <div className="modern-toggle-item small">
                                         <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
@@ -890,8 +941,8 @@ export default function TierManagementPage() {
                                             <span className="toggle-v3-track"></span>
                                         </label>
                                         <div className="toggle-label">
-                                            <p className="main-label">Priority Support</p>
-                                            <p className="sub-label">Skip the queue for service tasks</p>
+                                            <p className="main-label">{t('modal.prioritySupport')}</p>
+                                            <p className="sub-label">{t('modal.prioritySupportHint')}</p>
                                         </div>
                                     </div>
                                     <div className="modern-toggle-item small">
@@ -900,8 +951,8 @@ export default function TierManagementPage() {
                                             <span className="toggle-v3-track"></span>
                                         </label>
                                         <div className="toggle-label">
-                                            <p className="main-label">Eligible for Promotions</p>
-                                            <p className="sub-label">Allow marketing promotions to stack</p>
+                                            <p className="main-label">{t('modal.eligiblePromotions')}</p>
+                                            <p className="sub-label">{t('modal.eligiblePromotionsHint')}</p>
                                         </div>
                                     </div>
                                     <div className="modern-toggle-item small">
@@ -910,18 +961,18 @@ export default function TierManagementPage() {
                                             <span className="toggle-v3-track"></span>
                                         </label>
                                         <div className="toggle-label">
-                                            <p className="main-label">Tier Active</p>
-                                            <p className="sub-label">Enable tier for accounts</p>
+                                            <p className="main-label">{t('modal.tierActive')}</p>
+                                            <p className="sub-label">{t('modal.tierActiveHint')}</p>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
                             <div className="form-section no-border">
-                                <h4 className="form-section-title">Tier Benefits</h4>
+                                <h4 className="form-section-title">{t('modal.tierBenefits')}</h4>
                                 <div className="benefit-input-modern">
-                                    <input type="text" placeholder="Enter a benefit and press enter..." value={newBenefit} onChange={(e) => setNewBenefit(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addBenefit()} />
-                                    <button onClick={addBenefit}>Add</button>
+                                    <input type="text" placeholder={t('modal.benefitPlaceholder')} value={newBenefit} onChange={(e) => setNewBenefit(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addBenefit()} />
+                                    <button onClick={addBenefit}>{t('modal.add')}</button>
                                 </div>
                                 <div className="modern-benefits-list">
                                     {formState.benefits.map((benefit, i) => (
@@ -934,9 +985,9 @@ export default function TierManagementPage() {
                             </div>
 
                             <div className="modal-footer-modern">
-                                <button className="btn-modern-cancel" onClick={() => setEditModalOpen(false)}>Cancel</button>
+                                <button className="btn-modern-cancel" onClick={() => setEditModalOpen(false)}>{t('modal.cancel')}</button>
                                 <button className="btn-new-tier" onClick={handleSaveTier} disabled={busy}>
-                                    {editingTier ? 'Update Tier' : 'Create Tier'}
+                                    {editingTier ? t('modal.updateTier') : t('modal.createTierBtn')}
                                 </button>
                             </div>
                         </div>
@@ -947,31 +998,31 @@ export default function TierManagementPage() {
             {/* Earn Rule Modal */}
             <AnimatePresence>
                 {earnModalOpen && (
-                    <Modal onClose={() => setEarnModalOpen(false)} title={editingRule ? 'Edit Earn Rule' : 'New Earn Rule'} className="tier-form-modal">
+                    <Modal onClose={() => setEarnModalOpen(false)} title={editingRule ? t('modal.editEarnRule') : t('modal.newEarnRule')} className="tier-form-modal">
                         <div className="modern-form-container">
                             <div className="form-section no-border">
                                 <div className="form-group">
-                                    <label>Rule Name</label>
-                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder="e.g. Standard Earn Rate" />
+                                    <label>{t('modal.ruleName')}</label>
+                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder={t('modal.earnNamePlaceholder')} />
                                 </div>
                                 <div className="form-group">
-                                    <label>Description</label>
-                                    <input type="text" style={{ height: '80px' }} value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder="Describe how customers earn points..." />
+                                    <label>{t('modal.description')}</label>
+                                    <input type="text" style={{ height: '80px' }} value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder={t('modal.earnDescPlaceholder')} />
                                 </div>
                                 <div className="form-row">
                                     <div className="form-group">
-                                        <label>Points per SAR spent</label>
+                                        <label>{t('modal.pointsPerSar')}</label>
                                         <input type="number" value={formState.rate} onChange={(e) => setFormState({ ...formState, rate: e.target.value })} />
                                     </div>
                                     <div className="form-group">
-                                        <label>Priority</label>
+                                        <label>{t('modal.priority')}</label>
                                         <input type="number" value={formState.priority} onChange={(e) => setFormState({ ...formState, priority: e.target.value })} />
                                     </div>
                                 </div>
                             </div>
                             <div className="modal-footer-modern">
-                                <button className="btn-modern-cancel" onClick={() => setEarnModalOpen(false)}>Cancel</button>
-                                <button className="btn-new-tier" onClick={() => saveLoyaltyRule('earn')} disabled={busy}>{editingRule ? 'Update Rule' : 'Create Rule'}</button>
+                                <button className="btn-modern-cancel" onClick={() => setEarnModalOpen(false)}>{t('modal.cancel')}</button>
+                                <button className="btn-new-tier" onClick={() => saveLoyaltyRule('earn')} disabled={busy}>{editingRule ? t('modal.updateRule') : t('modal.createRule')}</button>
                             </div>
                         </div>
                     </Modal>
@@ -981,35 +1032,35 @@ export default function TierManagementPage() {
             {/* Redemption Rule Modal */}
             <AnimatePresence>
                 {redemptModalOpen && (
-                    <Modal onClose={() => setRedemptModalOpen(false)} title={editingRule ? 'Edit Redemption Rule' : 'New Redemption Rule'} className="tier-form-modal">
+                    <Modal onClose={() => setRedemptModalOpen(false)} title={editingRule ? t('modal.editRedemptRule') : t('modal.newRedemptRule')} className="tier-form-modal">
                         <div className="modern-form-container">
                             <div className="form-section no-border">
                                 <div className="form-group">
-                                    <label>Rule Name</label>
-                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder="e.g. Standard Redemption" />
+                                    <label>{t('modal.ruleName')}</label>
+                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder={t('modal.redemptNamePlaceholder')} />
                                 </div>
                                 <div className="form-group">
-                                    <label>Description</label>
-                                    <input type="text" style={{ height: '80px' }} value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder="Describe the redemption process..." />
+                                    <label>{t('modal.description')}</label>
+                                    <input type="text" style={{ height: '80px' }} value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder={t('modal.redemptDescPlaceholder')} />
                                 </div>
                                 <div className="form-row">
                                     <div className="form-group">
-                                        <label>Points Threshold</label>
+                                        <label>{t('modal.pointsThreshold')}</label>
                                         <input type="number" value={formState.threshold} onChange={(e) => setFormState({ ...formState, threshold: e.target.value })} />
                                     </div>
                                     <div className="form-group">
-                                        <label>SAR Value</label>
+                                        <label>{t('modal.sarValue')}</label>
                                         <input type="number" value={formState.value} onChange={(e) => setFormState({ ...formState, value: e.target.value })} />
                                     </div>
                                 </div>
                                 <div className="form-group">
-                                    <label>Priority</label>
+                                    <label>{t('modal.priority')}</label>
                                     <input type="number" value={formState.priority} onChange={(e) => setFormState({ ...formState, priority: e.target.value })} />
                                 </div>
                             </div>
                             <div className="modal-footer-modern">
-                                <button className="btn-modern-cancel" onClick={() => setRedemptModalOpen(false)}>Cancel</button>
-                                <button className="btn-new-tier" onClick={() => saveLoyaltyRule('redeem')} disabled={busy}>{editingRule ? 'Update Rule' : 'Create Rule'}</button>
+                                <button className="btn-modern-cancel" onClick={() => setRedemptModalOpen(false)}>{t('modal.cancel')}</button>
+                                <button className="btn-new-tier" onClick={() => saveLoyaltyRule('redeem')} disabled={busy}>{editingRule ? t('modal.updateRule') : t('modal.createRule')}</button>
                             </div>
                         </div>
                     </Modal>
@@ -1019,63 +1070,63 @@ export default function TierManagementPage() {
             {/* Rules Engine Modal */}
             <AnimatePresence>
                 {ruleModalOpen && (
-                    <Modal onClose={() => setRuleModalOpen(false)} title={editingRule ? 'Edit Rule' : 'New Rule'} className="tier-form-modal">
+                    <Modal onClose={() => setRuleModalOpen(false)} title={editingRule ? t('modal.editRule') : t('modal.newRule')} className="tier-form-modal">
                         <div className="modern-form-container">
                             <div className="form-section">
                                 <div className="form-group">
-                                    <label>Rule Name *</label>
-                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder="Enter rule name..." />
+                                    <label>{t('modal.ruleNameRequired')}</label>
+                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder={t('modal.ruleNamePlaceholder')} />
                                 </div>
                                 <div className="form-group">
-                                    <label>Description</label>
-                                    <input type="text" value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder="Describe what this rule does..." />
+                                    <label>{t('modal.description')}</label>
+                                    <input type="text" value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder={t('modal.ruleDescPlaceholder')} />
                                 </div>
                                 <div className="form-row">
                                     <div className="form-group flex-2">
-                                        <label>Rule Type</label>
+                                        <label>{t('modal.ruleType')}</label>
                                         <select value={formState.type} onChange={(e) => setFormState({ ...formState, type: e.target.value })} className="tester-select">
-                                            <option value="tier_assign">tier_assign</option>
-                                            <option value="earn">earn</option>
-                                            <option value="redeem">redeem</option>
+                                            <option value="tier_assign">{t('modal.typeTierAssign')}</option>
+                                            <option value="earn">{t('modal.typeEarn')}</option>
+                                            <option value="redeem">{t('modal.typeRedeem')}</option>
                                         </select>
                                     </div>
                                     <div className="form-group flex-1">
-                                        <label>Priority (lower = first)</label>
+                                        <label>{t('modal.priorityHint')}</label>
                                         <input type="number" value={formState.priority} onChange={(e) => setFormState({ ...formState, priority: parseInt(e.target.value, 10) || 0 })} />
                                     </div>
                                 </div>
                             </div>
 
                             <div className="form-section rule-box if">
-                                <h4 className="box-title">IF CONDITION</h4>
+                                <h4 className="box-title">{t('modal.ifCondition')}</h4>
                                 <div className="form-row">
                                     <div className="form-group">
-                                        <label>Field</label>
+                                        <label>{t('modal.field')}</label>
                                         <select value={formState.condition.field} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, field: e.target.value } })} className="tester-select">
-                                            <option value="monthly_spend">Monthly Spend (SAR)</option>
-                                            <option value="loyalty_points">Total Loyalty Points</option>
-                                            <option value="invoice_total">Invoice Total (SAR)</option>
-                                            <option value="lifetime_spend">Lifetime Spend</option>
+                                            <option value="monthly_spend">{t('modal.fieldMonthlySpend')}</option>
+                                            <option value="loyalty_points">{t('modal.fieldLoyaltyPoints')}</option>
+                                            <option value="invoice_total">{t('modal.fieldInvoiceTotal')}</option>
+                                            <option value="lifetime_spend">{t('modal.fieldLifetimeSpend')}</option>
                                         </select>
                                     </div>
                                     <div className="form-group">
-                                        <label>Operator</label>
+                                        <label>{t('modal.operator')}</label>
                                         <select value={formState.condition.operator} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, operator: e.target.value } })} className="tester-select">
-                                            <option value=">=">{'>= (Greater or Equal)'}</option>
-                                            <option value="<=">{'<= (Less or Equal)'}</option>
-                                            <option value="==">{'== (Equals)'}</option>
-                                            <option value="between">Between</option>
+                                            <option value=">=">{t('modal.opGte')}</option>
+                                            <option value="<=">{t('modal.opLte')}</option>
+                                            <option value="==">{t('modal.opEq')}</option>
+                                            <option value="between">{t('modal.opBetween')}</option>
                                         </select>
                                     </div>
                                 </div>
                                 <div className="form-row">
                                     <div className="form-group">
-                                        <label>Value</label>
+                                        <label>{t('modal.value')}</label>
                                         <input type="number" value={formState.condition.value} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, value: parseInt(e.target.value, 10) || 0 } })} />
                                     </div>
                                     {formState.condition.operator === 'between' && (
                                         <div className="form-group">
-                                            <label>Max Value</label>
+                                            <label>{t('modal.maxValue')}</label>
                                             <input type="number" value={formState.condition.maxValue} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, maxValue: parseInt(e.target.value, 10) || 0 } })} />
                                         </div>
                                     )}
@@ -1083,29 +1134,29 @@ export default function TierManagementPage() {
                             </div>
 
                             <div className="form-section rule-box then">
-                                <h4 className="box-title">THEN ACTION</h4>
+                                <h4 className="box-title">{t('modal.thenAction')}</h4>
                                 <div className="form-row">
                                     <div className="form-group">
-                                        <label>Action</label>
+                                        <label>{t('modal.action')}</label>
                                         <select value={formState.action.type} onChange={(e) => setFormState({ ...formState, action: { ...formState.action, type: e.target.value } })} className="tester-select">
-                                            <option value="assign_tier">Assign Corporate Tier</option>
-                                            <option value="award_points">Award Bonus Points</option>
-                                            <option value="apply_discount">Apply Discount %</option>
-                                            <option value="apply_discount_val">Apply Discount (SAR)</option>
+                                            <option value="assign_tier">{t('modal.actionAssignTier')}</option>
+                                            <option value="award_points">{t('modal.actionAwardPoints')}</option>
+                                            <option value="apply_discount">{t('modal.actionApplyDiscountPct')}</option>
+                                            <option value="apply_discount_val">{t('modal.actionApplyDiscountSar')}</option>
                                         </select>
                                     </div>
                                     <div className="form-group">
                                         {formState.action.type === 'assign_tier' ? (
                                             <>
-                                                <label>Tier</label>
+                                                <label>{t('modal.tier')}</label>
                                                 <select value={formState.action.tierId} onChange={(e) => setFormState({ ...formState, action: { ...formState.action, tierId: e.target.value } })} className="tester-select">
-                                                    <option value="">Select tier...</option>
-                                                    {tiers.map((t) => (<option key={t.id} value={t.id}>{t.icon} {t.name}</option>))}
+                                                    <option value="">{t('modal.selectTier')}</option>
+                                                    {tiers.map((row) => (<option key={row.id} value={row.id}>{row.icon} {row.name}</option>))}
                                                 </select>
                                             </>
                                         ) : (
                                             <>
-                                                <label>Value</label>
+                                                <label>{t('modal.value')}</label>
                                                 <input type="number" value={formState.action.value} onChange={(e) => setFormState({ ...formState, action: { ...formState.action, value: parseInt(e.target.value, 10) || 0 } })} />
                                             </>
                                         )}
@@ -1119,13 +1170,13 @@ export default function TierManagementPage() {
                                         <input type="checkbox" checked={formState.status === 'active'} onChange={(e) => setFormState({ ...formState, status: e.target.checked ? 'active' : 'paused' })} />
                                         <span className="toggle-v3-track"></span>
                                     </label>
-                                    <div className="toggle-label"><p className="main-label">Active</p></div>
+                                    <div className="toggle-label"><p className="main-label">{t('modal.active')}</p></div>
                                 </div>
                             </div>
 
                             <div className="modal-footer-modern">
-                                <button className="btn-modern-cancel" onClick={() => setRuleModalOpen(false)}>Cancel</button>
-                                <button className="btn-new-tier" onClick={saveRule} disabled={busy}>Save Rule</button>
+                                <button className="btn-modern-cancel" onClick={() => setRuleModalOpen(false)}>{t('modal.cancel')}</button>
+                                <button className="btn-new-tier" onClick={saveRule} disabled={busy}>{t('modal.saveRule')}</button>
                             </div>
                         </div>
                     </Modal>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useMatch } from 'react-router-dom';
+import { useNavigate, useMatch, useOutletContext } from 'react-router-dom';
 import {
     Loader2, RefreshCw, Plus, Trash2, Edit2, Eye, X, FileText, Search, Printer,
 } from 'lucide-react';
@@ -21,21 +21,38 @@ import {
     getDepartmentServices,
 } from '../../services/superAdminApi';
 import { CHECKLIST_ROWS } from '../../utils/thermalInvoiceTotals';
+import { diT } from '../../utils/demoInvoicesI18n';
 
 const PAGE_SIZE = 50;
 const DEMO_INVOICES_LIST = '/admin/demo-invoices';
 
-const num = (v) =>
-    `SAR ${Number(v ?? 0).toLocaleString(undefined, {
+function useDemoLocale() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => diT(locale, key, vars), [locale]);
+    return { locale, t };
+}
+
+const num = (v, t) => {
+    const amount = Number(v ?? 0).toLocaleString(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-    })}`;
+    });
+    return t ? t('money.sar', { amount }) : `SAR ${amount}`;
+};
 
-function formatDate(raw) {
+function formatDate(raw, locale = 'en') {
     if (!raw) return '—';
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) return String(raw);
-    return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+    return d.toLocaleDateString(locale === 'ar' ? 'ar-SA' : undefined, {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+    });
 }
 
 /** Format a date/ISO into a `datetime-local` input value (local time). */
@@ -53,6 +70,7 @@ function toLocalDateTimeInput(raw) {
  */
 export default function DemoInvoicesPage() {
     const { hasPermission } = useAuth();
+    const { locale, t } = useDemoLocale();
     const navigate = useNavigate();
     const newRoute = useMatch('/admin/demo-invoices/new');
     const editRoute = useMatch('/admin/demo-invoices/:invoiceId/edit');
@@ -91,13 +109,13 @@ export default function DemoInvoicesPage() {
             setRows(Array.isArray(res?.items) ? res.items : []);
             setTotal(Number(res?.total) || 0);
         } catch (e) {
-            setError(e?.message || 'Could not load demo invoices');
+            setError(e?.message || t('err.loadList'));
             setRows([]);
             setTotal(0);
         } finally {
             setLoading(false);
         }
-    }, [canView, routeView, filterWorkshopId, search, page]);
+    }, [canView, routeView, filterWorkshopId, search, page, t]);
 
     useEffect(() => { void load(); }, [load]);
     useEffect(() => { setPage(1); }, [filterWorkshopId, search]);
@@ -114,7 +132,7 @@ export default function DemoInvoicesPage() {
                 if (!cancelled) {
                     setWorkshopOptions(list.map((w) => ({
                         id: String(w.id),
-                        name: String(w.name || '').trim() || 'Workshop',
+                        name: String(w.name || '').trim() || t('fallback.workshop'),
                     })));
                 }
             } catch {
@@ -122,18 +140,18 @@ export default function DemoInvoicesPage() {
             }
         })();
         return () => { cancelled = true; };
-    }, []);
+    }, [t]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
     const handleDelete = async (row) => {
         if (!canDelete) return;
-        if (!window.confirm(`Delete demo invoice ${row.invoiceNo}?`)) return;
+        if (!window.confirm(t('confirm.delete', { no: row.invoiceNo }))) return;
         try {
             await deleteDemoInvoice(row.id);
             await load();
         } catch (e) {
-            alert(e?.message || 'Delete failed');
+            alert(e?.message || t('err.delete'));
         }
     };
 
@@ -152,7 +170,7 @@ export default function DemoInvoicesPage() {
     if (!canView) {
         return (
             <div className="demo-invoices-page">
-                <p style={{ color: '#64748b' }}>You do not have permission to view Demo Invoices.</p>
+                <p style={{ color: '#64748b' }}>{t('page.noPerm')}</p>
             </div>
         );
     }
@@ -164,6 +182,8 @@ export default function DemoInvoicesPage() {
                 workshopOptions={workshopOptions}
                 onClose={goToList}
                 onSaved={goToList}
+                t={t}
+                locale={locale}
             />
         );
     }
@@ -175,6 +195,8 @@ export default function DemoInvoicesPage() {
                 workshopOptions={workshopOptions}
                 onClose={goToList}
                 onSaved={goToList}
+                t={t}
+                locale={locale}
             />
         );
     }
@@ -184,6 +206,7 @@ export default function DemoInvoicesPage() {
             <DemoInvoiceViewPage
                 invoiceId={viewRoute.params.invoiceId}
                 onClose={goToList}
+                t={t}
             />
         );
     }
@@ -193,10 +216,10 @@ export default function DemoInvoicesPage() {
             <header style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                 <div>
                     <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>
-                        Demo Invoices
+                        {t('page.title')}
                     </h1>
                     <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.875rem' }}>
-                        Sandbox invoices for demos &amp; testing — no real impact on workshops, journals, or inventory.
+                        {t('page.subtitle')}
                     </p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -206,7 +229,7 @@ export default function DemoInvoicesPage() {
                         disabled={loading}
                         style={btnSecondary}
                     >
-                        <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                        <RefreshCw size={14} className={loading ? 'spin' : ''} /> {t('btn.refresh')}
                     </button>
                     {canCreate && (
                         <button
@@ -214,7 +237,7 @@ export default function DemoInvoicesPage() {
                             onClick={() => navigate(`${DEMO_INVOICES_LIST}/new`)}
                             style={btnPrimary}
                         >
-                            <Plus size={14} /> New Demo Invoice
+                            <Plus size={14} /> {t('btn.new')}
                         </button>
                     )}
                 </div>
@@ -222,13 +245,13 @@ export default function DemoInvoicesPage() {
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'flex-end' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 220 }}>
-                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Workshop</label>
+                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>{t('label.workshop')}</label>
                     <select
                         value={filterWorkshopId}
                         onChange={(e) => setFilterWorkshopId(e.target.value)}
                         style={selectStyle}
                     >
-                        <option value="">All workshops</option>
+                        <option value="">{t('opt.allWorkshops')}</option>
                         {workshopOptions.map((w) => (
                             <option key={w.id} value={w.id}>{w.name}</option>
                         ))}
@@ -240,7 +263,7 @@ export default function DemoInvoicesPage() {
                         type="search"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search invoice no, customer, plate…"
+                        placeholder={t('search.placeholder')}
                         style={{ ...inputStyle, paddingLeft: 34 }}
                     />
                 </div>
@@ -256,27 +279,31 @@ export default function DemoInvoicesPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                     <thead>
                         <tr>
-                            <th style={cellTh}>Date</th>
-                            <th style={cellTh}>Invoice No</th>
-                            <th style={cellTh}>Customer</th>
-                            <th style={cellTh}>Workshop / Branch</th>
-                            <th style={cellTh}>Items</th>
-                            <th style={{ ...cellTh, textAlign: 'right' }}>Total</th>
-                            <th style={{ ...cellTh, textAlign: 'right' }}>Actions</th>
+                            <th style={cellTh}>{t('th.date')}</th>
+                            <th style={cellTh}>{t('th.invoiceNo')}</th>
+                            <th style={cellTh}>{t('th.customer')}</th>
+                            <th style={cellTh}>{t('th.workshopBranch')}</th>
+                            <th style={cellTh}>{t('th.items')}</th>
+                            <th style={{ ...cellTh, textAlign: 'right' }}>{t('th.total')}</th>
+                            <th style={{ ...cellTh, textAlign: 'right' }}>{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
-                                <Loader2 size={18} className="spin" /> Loading…
+                                <Loader2 size={18} className="spin" /> {t('loading')}
                             </td></tr>
                         ) : rows.length === 0 ? (
                             <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
-                                No demo invoices yet. Click <strong>New Demo Invoice</strong> to create one.
+                                {t('empty.list', { action: t('empty.listAction') }).split(t('empty.listAction')).map((part, i, arr) => (
+                                    i < arr.length - 1
+                                        ? <span key={i}>{part}<strong>{t('empty.listAction')}</strong></span>
+                                        : <span key={i}>{part}</span>
+                                ))}
                             </td></tr>
                         ) : rows.map((r) => (
                             <tr key={r.id} style={{ borderTop: '1px solid #f1f5f9' }}>
-                                <td style={cellTd}>{formatDate(r.invoiceDate ?? r.createdAt)}</td>
+                                <td style={cellTd}>{formatDate(r.invoiceDate ?? r.createdAt, locale)}</td>
                                 <td style={cellTd}><span style={{ fontWeight: 700, color: '#2563eb' }}>{r.invoiceNo}</span></td>
                                 <td style={cellTd}>
                                     <div style={{ fontWeight: 700 }}>{r.customerName ?? '—'}</div>
@@ -290,20 +317,20 @@ export default function DemoInvoicesPage() {
                                 </td>
                                 <td style={cellTd}>{r.itemsCount}</td>
                                 <td style={{ ...cellTd, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                                    {num(r.totalAmount)}
+                                    {num(r.totalAmount, t)}
                                 </td>
                                 <td style={{ ...cellTd, textAlign: 'right' }}>
                                     <div style={{ display: 'inline-flex', gap: 4 }}>
-                                        <button type="button" onClick={() => openView(r)} style={iconBtn('#1d4ed8', '#eff6ff', '#bfdbfe')} title="View">
+                                        <button type="button" onClick={() => openView(r)} style={iconBtn('#1d4ed8', '#eff6ff', '#bfdbfe')} title={t('title.view')}>
                                             <Eye size={13} />
                                         </button>
                                         {canEdit && (
-                                            <button type="button" onClick={() => navigate(`${DEMO_INVOICES_LIST}/${encodeURIComponent(r.id)}/edit`)} style={iconBtn('#92400e', '#fef3c7', '#fde68a')} title="Edit">
+                                            <button type="button" onClick={() => navigate(`${DEMO_INVOICES_LIST}/${encodeURIComponent(r.id)}/edit`)} style={iconBtn('#92400e', '#fef3c7', '#fde68a')} title={t('title.edit')}>
                                                 <Edit2 size={13} />
                                             </button>
                                         )}
                                         {canDelete && (
-                                            <button type="button" onClick={() => handleDelete(r)} style={iconBtn('#991b1b', '#fef2f2', '#fecaca')} title="Delete">
+                                            <button type="button" onClick={() => handleDelete(r)} style={iconBtn('#991b1b', '#fef2f2', '#fecaca')} title={t('title.delete')}>
                                                 <Trash2 size={13} />
                                             </button>
                                         )}
@@ -321,13 +348,17 @@ export default function DemoInvoicesPage() {
                         flexWrap: 'wrap', gap: 12,
                     }}>
                         <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                            Showing <strong>{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)}</strong> of <strong>{total}</strong>
+                            {t('page.showing', {
+                                from: (page - 1) * PAGE_SIZE + 1,
+                                to: Math.min(page * PAGE_SIZE, total),
+                                total,
+                            })}
                         </div>
                         <div style={{ display: 'inline-flex', gap: 6 }}>
-                            <PgBtn onClick={() => setPage(1)} disabled={page === 1}>« First</PgBtn>
-                            <PgBtn onClick={() => setPage(page - 1)} disabled={page === 1}>‹ Prev</PgBtn>
-                            <PgBtn onClick={() => setPage(page + 1)} disabled={page >= totalPages}>Next ›</PgBtn>
-                            <PgBtn onClick={() => setPage(totalPages)} disabled={page >= totalPages}>Last »</PgBtn>
+                            <PgBtn onClick={() => setPage(1)} disabled={page === 1}>{t('page.first')}</PgBtn>
+                            <PgBtn onClick={() => setPage(page - 1)} disabled={page === 1}>{t('page.prev')}</PgBtn>
+                            <PgBtn onClick={() => setPage(page + 1)} disabled={page >= totalPages}>{t('page.next')}</PgBtn>
+                            <PgBtn onClick={() => setPage(totalPages)} disabled={page >= totalPages}>{t('page.last')}</PgBtn>
                         </div>
                     </div>
                 )}
@@ -338,7 +369,7 @@ export default function DemoInvoicesPage() {
 
 /* ───────── Full-page invoice view ─────────────────────────────────────── */
 
-function DemoInvoiceViewPage({ invoiceId, onClose }) {
+function DemoInvoiceViewPage({ invoiceId, onClose, t }) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [invoice, setInvoice] = useState(null);
@@ -352,35 +383,35 @@ function DemoInvoiceViewPage({ invoiceId, onClose }) {
                 if (!cancelled) setInvoice(res?.invoice ?? res?.data ?? null);
             })
             .catch((e) => {
-                if (!cancelled) setError(e?.message || 'Could not load invoice');
+                if (!cancelled) setError(e?.message || t('err.loadInvoice'));
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [invoiceId]);
+    }, [invoiceId, t]);
 
     const mapped = invoice ? mapDemoToInvoice(invoice) : null;
 
     return (
         <ApprovalPageShell
-            title={invoice?.invoiceNo ? `Demo Invoice · ${invoice.invoiceNo}` : 'Demo Invoice'}
+            title={invoice?.invoiceNo ? t('view.titleNo', { no: invoice.invoiceNo }) : t('view.title')}
             onBack={onClose}
-            backLabel="Back to Demo Invoices"
+            backLabel={t('view.back')}
             footer={mapped && !loading && !error ? (
                 <>
                     <button type="button" onClick={() => window.print()} style={btnSecondary}>
-                        <Printer size={14} /> Print
+                        <Printer size={14} /> {t('btn.print')}
                     </button>
                     <button type="button" onClick={onClose} style={btnPrimary}>
-                        Done
+                        {t('btn.done')}
                     </button>
                 </>
             ) : null}
         >
             {loading ? (
                 <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
-                    <Loader2 size={20} className="spin" /> Loading…
+                    <Loader2 size={20} className="spin" /> {t('loading')}
                 </div>
             ) : error ? (
                 <div style={{ padding: 12, background: '#fef2f2', color: '#b91c1c', borderRadius: 10 }}>
@@ -395,7 +426,7 @@ function DemoInvoiceViewPage({ invoiceId, onClose }) {
                     </div>
                 </div>
             ) : (
-                <p style={{ color: '#64748b' }}>Invoice not found.</p>
+                <p style={{ color: '#64748b' }}>{t('view.notFound')}</p>
             )}
         </ApprovalPageShell>
     );
@@ -403,7 +434,7 @@ function DemoInvoiceViewPage({ invoiceId, onClose }) {
 
 /* ───────── Create / Edit form (full page) ─────────────────────────────── */
 
-function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
+function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved, t, locale }) {
     const isEdit = !!editId;
     const [loading, setLoading] = useState(isEdit);
     const [saving, setSaving] = useState(false);
@@ -417,6 +448,9 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
     const [invoiceDateTime, setInvoiceDateTime] = useState(() =>
         editId ? '' : toLocalDateTimeInput(new Date()),
     );
+    /** `automatic` (default on create) | `manual` */
+    const [invoiceNoMode, setInvoiceNoMode] = useState(editId ? 'manual' : 'automatic');
+    const [invoiceNo, setInvoiceNo] = useState('');
     const [customerName, setCustomerName] = useState('');
     const [customerMobile, setCustomerMobile] = useState('');
     const [customerType, setCustomerType] = useState('Individual');
@@ -456,6 +490,8 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                 setWorkshopId(inv.workshop?.id ?? '');
                 setBranchId(inv.branch?.id ?? '');
                 setInvoiceDateTime(toLocalDateTimeInput(inv.invoiceDate ?? inv.issuedAt));
+                setInvoiceNo(inv.invoiceNo ?? '');
+                setInvoiceNoMode('manual');
                 setCustomerName(inv.customerName ?? '');
                 setCustomerMobile(inv.customerMobile ?? '');
                 setCustomerType(inv.customerType ?? 'Individual');
@@ -489,13 +525,13 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                     itemDiscount: Number(it.itemDiscount ?? 0),
                 })));
             } catch (e) {
-                if (!cancelled) setError(e?.message || 'Failed to load demo invoice');
+                if (!cancelled) setError(e?.message || t('err.loadDemo'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
         })();
         return () => { cancelled = true; };
-    }, [editId, isEdit]);
+    }, [editId, isEdit, t]);
 
     // Load branches when workshop changes.
     useEffect(() => {
@@ -513,7 +549,7 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                 if (!cancelled) {
                     setBranches(list.map((b) => ({
                         id: String(b.id),
-                        name: String(b.name || '').trim() || 'Branch',
+                        name: String(b.name || '').trim() || t('fallback.branch'),
                     })));
                 }
             } catch {
@@ -586,9 +622,13 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
     };
 
     const handleSave = async () => {
-        if (!workshopId) { setError('Pick a workshop'); return; }
-        if (!branchId)   { setError('Pick a branch'); return; }
-        if (items.length === 0) { setError('Add at least one item'); return; }
+        if (!workshopId) { setError(t('err.pickWorkshop')); return; }
+        if (!branchId)   { setError(t('err.pickBranch')); return; }
+        if (items.length === 0) { setError(t('err.addItem')); return; }
+        if (invoiceNoMode === 'manual' && !invoiceNo.trim()) {
+            setError(t('err.invoiceNo'));
+            return;
+        }
         setSaving(true);
         setError('');
         try {
@@ -631,11 +671,14 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                     itemDiscount: Number(it.itemDiscount || 0),
                 })),
             };
+            if (invoiceNoMode === 'manual') {
+                body.invoiceNo = invoiceNo.trim();
+            }
             if (isEdit) await updateDemoInvoice(editId, body);
             else        await createDemoInvoice(body);
             onSaved?.();
         } catch (e) {
-            setError(e?.message || 'Save failed');
+            setError(e?.message || t('err.save'));
         } finally {
             setSaving(false);
         }
@@ -644,24 +687,24 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
     return (
         <>
             <ApprovalPageShell
-                title={isEdit ? 'Edit Demo Invoice' : 'New Demo Invoice'}
+                title={isEdit ? t('form.editTitle') : t('form.newTitle')}
                 onBack={onClose}
-                backLabel="Back to Demo Invoices"
+                backLabel={t('form.back')}
                 backDisabled={saving}
                 footer={!loading ? (
                     <>
                         <button type="button" onClick={onClose} disabled={saving} style={btnSecondary}>
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button type="button" onClick={handleSave} disabled={saving} style={btnPrimary}>
-                            {saving ? <><Loader2 size={14} className="spin" /> Saving…</> : <><FileText size={14} /> {isEdit ? 'Save Changes' : 'Create Demo Invoice'}</>}
+                            {saving ? <><Loader2 size={14} className="spin" /> {t('btn.saving')}</> : <><FileText size={14} /> {isEdit ? t('btn.saveChanges') : t('btn.create')}</>}
                         </button>
                     </>
                 ) : null}
             >
                 {loading ? (
                     <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
-                        <Loader2 size={20} className="spin" /> Loading…
+                        <Loader2 size={20} className="spin" /> {t('loading')}
                     </div>
                 ) : (
                     <div className="demo-invoice-form-body">
@@ -672,23 +715,23 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                         )}
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
-                            <FormField label="Workshop *">
+                            <FormField label={t('label.workshopReq')}>
                                 <select value={workshopId} onChange={(e) => setWorkshopId(e.target.value)} style={selectStyle}>
-                                    <option value="">Select workshop…</option>
+                                    <option value="">{t('opt.selectWorkshop')}</option>
                                     {workshopOptions.map((w) => (
                                         <option key={w.id} value={w.id}>{w.name}</option>
                                     ))}
                                 </select>
                             </FormField>
-                            <FormField label="Branch *">
+                            <FormField label={t('label.branchReq')}>
                                 <select value={branchId} onChange={(e) => setBranchId(e.target.value)} disabled={!workshopId} style={{ ...selectStyle, opacity: workshopId ? 1 : 0.6 }}>
-                                    <option value="">Select branch…</option>
+                                    <option value="">{t('opt.selectBranch')}</option>
                                     {branches.map((b) => (
                                         <option key={b.id} value={b.id}>{b.name}</option>
                                     ))}
                                 </select>
                             </FormField>
-                            <FormField label="Invoice date & time *">
+                            <FormField label={t('label.invoiceDateTime')}>
                                 <input
                                     type="datetime-local"
                                     value={invoiceDateTime}
@@ -698,80 +741,135 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                             </FormField>
                         </div>
 
-                        <SectionHeader>Customer</SectionHeader>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                            <FormField label="Customer name">
-                                <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} style={inputStyle} placeholder="Walk-in" />
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: invoiceNoMode === 'manual' ? '1fr 1fr' : '1fr',
+                            gap: 12,
+                            marginBottom: 12,
+                            padding: '12px 14px',
+                            borderRadius: 10,
+                            border: '1px solid #e2e8f0',
+                            background: '#f8fafc',
+                        }}>
+                            <FormField label={t('label.invoiceNoMode')}>
+                                <div style={{ display: 'inline-flex', gap: 0, borderRadius: 8, border: '1px solid #cbd5e1', overflow: 'hidden', background: '#fff' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setInvoiceNoMode('automatic')}
+                                        style={{
+                                            ...invoiceNoModeBtn,
+                                            background: invoiceNoMode === 'automatic' ? '#0f172a' : '#fff',
+                                            color: invoiceNoMode === 'automatic' ? '#fff' : '#475569',
+                                        }}
+                                    >
+                                        {t('invoiceNo.automatic')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setInvoiceNoMode('manual')}
+                                        style={{
+                                            ...invoiceNoModeBtn,
+                                            background: invoiceNoMode === 'manual' ? '#0f172a' : '#fff',
+                                            color: invoiceNoMode === 'manual' ? '#fff' : '#475569',
+                                            borderLeft: '1px solid #cbd5e1',
+                                        }}
+                                    >
+                                        {t('invoiceNo.manual')}
+                                    </button>
+                                </div>
+                                {invoiceNoMode === 'automatic' && (
+                                    <div style={{ marginTop: 6, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                                        {isEdit ? t('invoiceNo.autoHintEdit') : t('invoiceNo.autoHint')}
+                                    </div>
+                                )}
                             </FormField>
-                            <FormField label="Mobile">
+                            {invoiceNoMode === 'manual' && (
+                                <FormField label={t('label.invoiceNoReq')}>
+                                    <input
+                                        value={invoiceNo}
+                                        onChange={(e) => setInvoiceNo(e.target.value)}
+                                        style={inputStyle}
+                                        placeholder={t('ph.invoiceNo')}
+                                        autoComplete="off"
+                                    />
+                                </FormField>
+                            )}
+                        </div>
+
+                        <SectionHeader>{t('section.customer')}</SectionHeader>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                            <FormField label={t('label.customerName')}>
+                                <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} style={inputStyle} placeholder={t('ph.walkIn')} />
+                            </FormField>
+                            <FormField label={t('label.mobile')}>
                                 <input value={customerMobile} onChange={(e) => setCustomerMobile(e.target.value)} style={inputStyle} placeholder="—" />
                             </FormField>
-                            <FormField label="Customer type">
+                            <FormField label={t('label.customerType')}>
                                 <select value={customerType} onChange={(e) => setCustomerType(e.target.value)} style={selectStyle}>
-                                    <option value="Individual">Individual</option>
-                                    <option value="Corporate">Corporate</option>
-                                    <option value="Walk-in">Walk-in</option>
+                                    <option value="Individual">{t('type.Individual')}</option>
+                                    <option value="Corporate">{t('type.Corporate')}</option>
+                                    <option value="Walk-in">{t('type.Walk-in')}</option>
                                 </select>
                             </FormField>
-                            <FormField label="Customer Tax ID">
+                            <FormField label={t('label.customerTaxId')}>
                                 <input value={customerTaxId} onChange={(e) => setCustomerTaxId(e.target.value)} style={inputStyle} placeholder="—" />
                             </FormField>
                         </div>
 
-                        <SectionHeader>Vehicle</SectionHeader>
+                        <SectionHeader>{t('section.vehicle')}</SectionHeader>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
-                            <FormField label="Plate">
+                            <FormField label={t('label.plate')}>
                                 <input value={vehiclePlate} onChange={(e) => setVehiclePlate(e.target.value)} style={inputStyle} placeholder="ABC 1234" />
                             </FormField>
-                            <FormField label="Make">
+                            <FormField label={t('label.make')}>
                                 <input value={vehicleMake} onChange={(e) => setVehicleMake(e.target.value)} style={inputStyle} placeholder="Toyota" />
                             </FormField>
-                            <FormField label="Model">
+                            <FormField label={t('label.model')}>
                                 <input value={vehicleModel} onChange={(e) => setVehicleModel(e.target.value)} style={inputStyle} placeholder="Corolla" />
                             </FormField>
-                            <FormField label="Year">
+                            <FormField label={t('label.year')}>
                                 <input value={vehicleYear} onChange={(e) => setVehicleYear(e.target.value)} style={inputStyle} placeholder="2022" />
                             </FormField>
-                            <FormField label="VIN">
+                            <FormField label={t('label.vin')}>
                                 <input value={vehicleVin} onChange={(e) => setVehicleVin(e.target.value)} style={inputStyle} placeholder="—" />
                             </FormField>
-                            <FormField label="Odometer (km)">
+                            <FormField label={t('label.odometer')}>
                                 <input type="number" min="0" value={odometerReading} onChange={(e) => setOdometerReading(e.target.value)} style={inputStyle} placeholder="—" />
                             </FormField>
-                            <FormField label="Next oil change (km)">
+                            <FormField label={t('label.nextOil')}>
                                 <input type="number" min="0" value={nextOilChangeKm} onChange={(e) => setNextOilChangeKm(e.target.value)} style={inputStyle} placeholder="—" />
                             </FormField>
                         </div>
 
-                        <SectionHeader>Items</SectionHeader>
+                        <SectionHeader>{t('section.items')}</SectionHeader>
                         {/* Items */}
                         <div style={{ marginBottom: 12 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                <h4 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 800 }}>Line Items</h4>
+                                <h4 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 800 }}>{t('items.lineItems')}</h4>
                                 <div style={{ display: 'inline-flex', gap: 6 }}>
                                     <button type="button" onClick={() => handleAddItem('product')} style={btnSmall}>
-                                        <Plus size={12} /> Product
+                                        <Plus size={12} /> {t('btn.product')}
                                     </button>
                                     <button type="button" onClick={() => handleAddItem('service')} style={btnSmall}>
-                                        <Plus size={12} /> Service
+                                        <Plus size={12} /> {t('btn.service')}
                                     </button>
                                 </div>
                             </div>
                             {items.length === 0 ? (
                                 <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: 8, fontSize: '0.875rem' }}>
-                                    No items yet — add a product or service from master catalog.
+                                    {t('items.empty')}
                                 </div>
                             ) : (
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
                                     <thead style={{ background: '#f8fafc' }}>
                                         <tr>
-                                            <th style={{ padding: 8, textAlign: 'left' }}>Type</th>
-                                            <th style={{ padding: 8, textAlign: 'left' }}>Item</th>
-                                            <th style={{ padding: 8, textAlign: 'left', width: 130 }}>Arabic name</th>
-                                            <th style={{ padding: 8, textAlign: 'right', width: 80 }}>Qty</th>
-                                            <th style={{ padding: 8, textAlign: 'right', width: 110 }}>Unit Price</th>
-                                            <th style={{ padding: 8, textAlign: 'right', width: 100 }}>Discount</th>
-                                            <th style={{ padding: 8, textAlign: 'right', width: 110 }}>Line</th>
+                                            <th style={{ padding: 8, textAlign: 'left' }}>{t('items.th.type')}</th>
+                                            <th style={{ padding: 8, textAlign: 'left' }}>{t('items.th.item')}</th>
+                                            <th style={{ padding: 8, textAlign: 'left', width: 130 }}>{t('items.th.arabic')}</th>
+                                            <th style={{ padding: 8, textAlign: 'right', width: 80 }}>{t('items.th.qty')}</th>
+                                            <th style={{ padding: 8, textAlign: 'right', width: 110 }}>{t('items.th.unitPrice')}</th>
+                                            <th style={{ padding: 8, textAlign: 'right', width: 100 }}>{t('items.th.discount')}</th>
+                                            <th style={{ padding: 8, textAlign: 'right', width: 110 }}>{t('items.th.line')}</th>
                                             <th style={{ padding: 8, width: 40 }}></th>
                                         </tr>
                                     </thead>
@@ -780,7 +878,9 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                                             const line = ((Number(it.qty) || 0) * (Number(it.unitPrice) || 0)) - Number(it.itemDiscount || 0);
                                             return (
                                                 <tr key={it.tempId} style={{ borderTop: idx === 0 ? 'none' : '1px solid #f1f5f9' }}>
-                                                    <td style={{ padding: 8, textTransform: 'capitalize', fontSize: '0.7rem', color: '#64748b' }}>{it.itemType}</td>
+                                                    <td style={{ padding: 8, textTransform: 'capitalize', fontSize: '0.7rem', color: '#64748b' }}>
+                                                        {it.itemType === 'product' ? t('btn.product') : it.itemType === 'service' ? t('btn.service') : it.itemType}
+                                                    </td>
                                                     <td style={{ padding: 8, fontWeight: 600 }}>{it.name}</td>
                                                     <td style={{ padding: 8 }}>
                                                         <input
@@ -821,7 +921,7 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                                                         />
                                                     </td>
                                                     <td style={{ padding: 8, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                                                        {num(line)}
+                                                        {num(line, t)}
                                                     </td>
                                                     <td style={{ padding: 8 }}>
                                                         <button type="button" onClick={() => setItems((prev) => prev.filter((p) => p.tempId !== it.tempId))} style={iconBtn('#991b1b', '#fef2f2', '#fecaca')}>
@@ -837,7 +937,7 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
-                            <FormField label="Invoice discount">
+                            <FormField label={t('label.invoiceDiscount')}>
                                 <input
                                     type="number"
                                     min="0"
@@ -847,7 +947,7 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                                     style={inputStyle}
                                 />
                             </FormField>
-                            <FormField label="Promo code discount">
+                            <FormField label={t('label.promoDiscount')}>
                                 <input
                                     type="number"
                                     min="0"
@@ -857,12 +957,12 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                                     style={inputStyle}
                                 />
                             </FormField>
-                            <FormField label="Notes">
+                            <FormField label={t('label.notes')}>
                                 <input value={notes} onChange={(e) => setNotes(e.target.value)} style={inputStyle} />
                             </FormField>
                         </div>
 
-                        <SectionHeader>Maintenance Checklist</SectionHeader>
+                        <SectionHeader>{t('section.checklist')}</SectionHeader>
                         <div style={{
                             display: 'grid', gridTemplateColumns: '1fr 1fr',
                             gap: 8, marginBottom: 14,
@@ -886,10 +986,10 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                                         style={{ cursor: 'pointer' }}
                                     />
                                     <span style={{ flex: 1, fontSize: '0.8125rem', fontWeight: 600 }}>
-                                        {en}
+                                        {locale === 'ar' ? ar : en}
                                     </span>
                                     <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                        {ar}
+                                        {locale === 'ar' ? en : ar}
                                     </span>
                                 </label>
                             ))}
@@ -897,14 +997,14 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
 
                         {/* Totals */}
                         <div style={{ padding: 14, background: '#f8fafc', borderRadius: 10, marginBottom: 14 }}>
-                            <Row label="Subtotal (excl VAT)" value={num(totals.subtotal)} />
+                            <Row label={t('totals.subtotal')} value={num(totals.subtotal, t)} />
                             {totals.itemDiscountTotal > 0 && (
-                                <Row label="Item discounts" value={num(totals.itemDiscountTotal)} />
+                                <Row label={t('totals.itemDiscounts')} value={num(totals.itemDiscountTotal, t)} />
                             )}
-                            <Row label="Invoice discount" value={num(totals.discountAmount)} />
-                            <Row label="Promo discount" value={num(totals.promoDiscount)} />
-                            <Row label="VAT" value={num(totals.vatAmount)} />
-                            <Row label="Total amount due" value={num(totals.totalAmount)} bold />
+                            <Row label={t('totals.invoiceDiscount')} value={num(totals.discountAmount, t)} />
+                            <Row label={t('totals.promoDiscount')} value={num(totals.promoDiscount, t)} />
+                            <Row label={t('totals.vat')} value={num(totals.vatAmount, t)} />
+                            <Row label={t('totals.due')} value={num(totals.totalAmount, t)} bold />
                         </div>
                     </div>
                 )}
@@ -917,6 +1017,7 @@ function DemoInvoiceForm({ editId, workshopOptions, onClose, onSaved }) {
                     departments={departments}
                     onAddItems={handlePickItems}
                     onClose={() => setPickerOpen(false)}
+                    t={t}
                 />
             )}
         </>
@@ -929,7 +1030,7 @@ function catalogItemKey(it) {
     return `${it.itemType}-${it.id}`;
 }
 
-function ItemPicker({ kind, items, departments, onAddItems, onClose }) {
+function ItemPicker({ kind, items, departments, onAddItems, onClose, t }) {
     const [query, setQuery] = useState('');
     const [deptId, setDeptId] = useState('');
     const [selected, setSelected] = useState(() => new Set());
@@ -942,8 +1043,8 @@ function ItemPicker({ kind, items, departments, onAddItems, onClose }) {
         setDeptId('');
         setSelected(new Set());
         setHighlightIdx(0);
-        const t = setTimeout(() => searchRef.current?.focus(), 0);
-        return () => clearTimeout(t);
+        const focusTimer = setTimeout(() => searchRef.current?.focus(), 0);
+        return () => clearTimeout(focusTimer);
     }, [kind]);
 
     const filtered = useMemo(() => {
@@ -1026,8 +1127,8 @@ function ItemPicker({ kind, items, departments, onAddItems, onClose }) {
                 style={{ ...modalCard, width: 'min(760px, 100%)', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
             >
                 <div style={modalHeader}>
-                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, textTransform: 'capitalize' }}>
-                        Pick {kind === 'product' ? 'products' : 'services'} from master catalog
+                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>
+                        {kind === 'product' ? t('picker.titleProducts') : t('picker.titleServices')}
                     </h3>
                     <button type="button" onClick={onClose} style={modalCloseBtn}><X size={18} /></button>
                 </div>
@@ -1037,9 +1138,9 @@ function ItemPicker({ kind, items, departments, onAddItems, onClose }) {
                         value={deptId}
                         onChange={(e) => setDeptId(e.target.value)}
                         style={{ ...selectStyle, minWidth: 200, flex: '1 1 180px' }}
-                        aria-label="Filter by department"
+                        aria-label={t('aria.filterDept')}
                     >
-                        <option value="">All departments</option>
+                        <option value="">{t('picker.allDepts')}</option>
                         {departments.map((d) => (
                             <option key={d.id} value={d.id}>{d.name}</option>
                         ))}
@@ -1051,20 +1152,20 @@ function ItemPicker({ kind, items, departments, onAddItems, onClose }) {
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                             onKeyDown={handleSearchKeyDown}
-                            placeholder="Search by name or department…"
+                            placeholder={t('picker.search')}
                             style={{ ...inputStyle, paddingLeft: 36 }}
-                            aria-label="Search catalog"
+                            aria-label={t('aria.searchCatalog')}
                         />
                     </div>
                 </div>
 
                 <p style={{ margin: 0, padding: '8px 16px', fontSize: '0.75rem', color: '#64748b' }}>
-                    Type to filter · Arrow ↑↓ to move · Enter or click to select · Add multiple items at once
+                    {t('picker.hint')}
                 </p>
 
                 <div style={{ overflow: 'auto', flex: 1, padding: '0 16px' }}>
                     {filtered.length === 0 ? (
-                        <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>No items match your search.</div>
+                        <div style={{ textAlign: 'center', color: '#94a3b8', padding: 30 }}>{t('picker.empty')}</div>
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                             <thead style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
@@ -1077,12 +1178,12 @@ function ItemPicker({ kind, items, departments, onAddItems, onClose }) {
                                                 if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected;
                                             }}
                                             onChange={toggleAllVisible}
-                                            aria-label="Select all visible"
+                                            aria-label={t('aria.selectAll')}
                                         />
                                     </th>
-                                    <th style={{ padding: 8, textAlign: 'left' }}>Name</th>
-                                    <th style={{ padding: 8, textAlign: 'left' }}>Department</th>
-                                    <th style={{ padding: 8, textAlign: 'right' }}>Price</th>
+                                    <th style={{ padding: 8, textAlign: 'left' }}>{t('picker.th.name')}</th>
+                                    <th style={{ padding: 8, textAlign: 'left' }}>{t('picker.th.dept')}</th>
+                                    <th style={{ padding: 8, textAlign: 'right' }}>{t('picker.th.price')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1112,7 +1213,7 @@ function ItemPicker({ kind, items, departments, onAddItems, onClose }) {
                                             </td>
                                             <td style={{ padding: 8, fontWeight: 700 }}>{it.name}</td>
                                             <td style={{ padding: 8, color: '#64748b' }}>{it.departmentName ?? '—'}</td>
-                                            <td style={{ padding: 8, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{num(it.price)}</td>
+                                            <td style={{ padding: 8, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{num(it.price, t)}</td>
                                         </tr>
                                     );
                                 })}
@@ -1132,11 +1233,11 @@ function ItemPicker({ kind, items, departments, onAddItems, onClose }) {
                 }}>
                     <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
                         {selected.size > 0
-                            ? `${selected.size} item(s) selected`
-                            : `${filtered.length} shown`}
+                            ? t('picker.selected', { n: selected.size })
+                            : t('picker.shown', { n: filtered.length })}
                     </span>
                     <div style={{ display: 'flex', gap: 8 }}>
-                        <button type="button" onClick={onClose} style={btnSecondary}>Cancel</button>
+                        <button type="button" onClick={onClose} style={btnSecondary}>{t('btn.cancel')}</button>
                         <button
                             type="button"
                             onClick={addSelected}
@@ -1148,7 +1249,7 @@ function ItemPicker({ kind, items, departments, onAddItems, onClose }) {
                             }}
                         >
                             <Plus size={14} />
-                            Add selected ({selected.size})
+                            {t('btn.addSelected', { n: selected.size })}
                         </button>
                     </div>
                 </div>
@@ -1283,6 +1384,14 @@ const inputStyle = {
     border: '1px solid #cbd5e1', fontSize: '0.875rem', boxSizing: 'border-box',
 };
 const selectStyle = { ...inputStyle, background: '#fff' };
+const invoiceNoModeBtn = {
+    padding: '8px 14px',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '0.8125rem',
+    fontWeight: 700,
+    lineHeight: 1.2,
+};
 const btnPrimary = {
     display: 'inline-flex', alignItems: 'center', gap: 6,
     padding: '8px 14px', borderRadius: 8,

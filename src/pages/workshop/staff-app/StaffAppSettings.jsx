@@ -3,9 +3,11 @@ import { RefreshCw, Save } from 'lucide-react';
 import { getStaffAppSettings, updateStaffAppSettings } from '../../../services/staffAppApi';
 import { listExpenseCategories } from '../../../services/employeeExpenseApi';
 import { useStaffAppScope } from '../../../context/StaffAppScopeContext';
+import { useStaffAppI18n } from '../../../utils/staffAppI18n';
 
 export default function StaffAppSettings() {
     const scope = useStaffAppScope();
+    const { t } = useStaffAppI18n();
     const [categories, setCategories] = useState([]);
     const [allowedCategoryIds, setAllowedCategoryIds] = useState([]);
     const [defaultApproverRole, setDefaultApproverRole] = useState('accounting');
@@ -27,11 +29,11 @@ export default function StaffAppSettings() {
             setAllowedCategoryIds(settings.allowedCategoryIds ?? []);
             setDefaultApproverRole(settings.defaultApproverRole ?? 'accounting');
         } catch (e) {
-            setError(e?.message || 'Could not load settings.');
+            setError(e?.message || t('settings.errLoad'));
         } finally {
             setLoading(false);
         }
-    }, [scope]);
+    }, [scope, t]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -51,22 +53,22 @@ export default function StaffAppSettings() {
                 allowedCategoryIds,
                 defaultApproverRole,
             }, scope.scopeParams());
-            setMessage('Settings saved.');
+            setMessage(t('settings.saved'));
         } catch (e) {
-            setError(e?.message || 'Save failed.');
+            setError(e?.message || t('settings.errSave'));
         } finally {
             setSaving(false);
         }
     };
 
-    if (loading) return <p className="staff-app-empty">Loading settings…</p>;
+    if (loading) return <p className="staff-app-empty">{t('settings.loading')}</p>;
 
     return (
         <div>
             <div className="staff-app-toolbar">
-                <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>App Settings</h2>
+                <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>{t('settings.title')}</h2>
                 <button type="button" className="staff-app-btn staff-app-btn--primary" onClick={handleSave} disabled={saving}>
-                    <Save size={14} /> Save
+                    <Save size={14} /> {t('common.save')}
                 </button>
                 <button type="button" className="staff-app-btn" onClick={load}>
                     <RefreshCw size={14} />
@@ -75,9 +77,9 @@ export default function StaffAppSettings() {
             {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
             {message && <p style={{ color: '#065f46' }}>{message}</p>}
             <div className="staff-app-table-wrap" style={{ padding: 16 }}>
-                <h3 style={{ marginTop: 0 }}>Expense COA categories (staff app)</h3>
+                <h3 style={{ marginTop: 0 }}>{t('settings.categoriesTitle')}</h3>
                 <p style={{ fontSize: '0.8125rem', color: '#666', marginBottom: 12 }}>
-                    Select which expense accounts outdoor staff can use in the Flutter app.
+                    {t('settings.categoriesHint')}
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {categories.map((c) => {
@@ -91,11 +93,11 @@ export default function StaffAppSettings() {
                         );
                     })}
                 </div>
-                <h3 style={{ marginTop: 24 }}>Default approver role</h3>
+                <h3 style={{ marginTop: 24 }}>{t('settings.approverTitle')}</h3>
                 <select className="staff-app-btn" value={defaultApproverRole} onChange={(e) => setDefaultApproverRole(e.target.value)}>
-                    <option value="workshop_admin">Workshop admin</option>
-                    <option value="accounting">Accounting</option>
-                    <option value="manager">Manager</option>
+                    <option value="workshop_admin">{t('settings.role.workshopAdmin')}</option>
+                    <option value="accounting">{t('settings.role.accounting')}</option>
+                    <option value="manager">{t('settings.role.manager')}</option>
                 </select>
             </div>
         </div>

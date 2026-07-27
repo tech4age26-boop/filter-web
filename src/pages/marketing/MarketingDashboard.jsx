@@ -32,6 +32,10 @@ import {
   marketingGetDashboard,
   marketingGetDashboardAnalytics,
 } from '../../services/superAdminMarketingApi';
+import {
+  formatMarketingMonthLabel,
+  marketingT,
+} from '../../utils/marketingI18n';
 
 const DEFAULT_CURRENCY = 'SAR';
 
@@ -66,43 +70,22 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function formatSar(value, currency = DEFAULT_CURRENCY) {
+function formatSar(value, currency = DEFAULT_CURRENCY, locale = 'en') {
   const n = toNumber(value);
+  const numberLocale = locale === 'ar' ? 'ar-SA' : undefined;
 
   if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M ${currency}`;
   if (Math.abs(n) >= 1_000) return `${Math.round(n / 1_000)}K ${currency}`;
 
-  return `${n.toLocaleString(undefined, {
+  return `${n.toLocaleString(numberLocale, {
     maximumFractionDigits: 0,
   })} ${currency}`;
 }
 
-function formatPlainNumber(value) {
-  return toNumber(value).toLocaleString(undefined, {
+function formatPlainNumber(value, locale = 'en') {
+  return toNumber(value).toLocaleString(locale === 'ar' ? 'ar-SA' : undefined, {
     maximumFractionDigits: 0,
   });
-}
-
-function formatMonthLabel(month) {
-  if (!month || typeof month !== 'string') return month || '';
-  const [y, m] = month.split('-');
-  const idx = Number(m) - 1;
-  const names = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  if (idx < 0 || idx > 11) return month;
-  return `${names[idx]} ${String(y).slice(2)}`;
 }
 
 const KpiCard = ({ title, value, icon: Icon, iconBg, iconColor }) => {
@@ -134,6 +117,12 @@ const ChartCard = ({ title, subtitle, children, height = 240 }) => (
 export const MarketingDashboard = () => {
   const ctx = useOutletContext() || {};
   const marketingWorkshopId = ctx.marketingWorkshopId ?? '';
+  const locale =
+    ctx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => marketingT(locale, key, vars), [locale]);
 
   const [dash, setDash] = useState(null);
   const [analytics, setAnalytics] = useState(null);
@@ -162,7 +151,7 @@ export const MarketingDashboard = () => {
         ]);
 
         if (dashRes?.success === false) {
-          throw new Error(dashRes?.message || 'Dashboard request failed.');
+          throw new Error(dashRes?.message || marketingT(locale, 'error.request'));
         }
 
         setDash(dashRes?.data || dashRes || {});
@@ -177,12 +166,12 @@ export const MarketingDashboard = () => {
         });
       } catch (e) {
         setAnalytics(null);
-        setError(e?.message || 'Failed to load marketing dashboard.');
+        setError(e?.message || marketingT(locale, 'error.load'));
       } finally {
         setLoading(false);
       }
     },
-    [marketingWorkshopId],
+    [marketingWorkshopId, locale],
   );
 
   useEffect(() => {
@@ -213,11 +202,11 @@ export const MarketingDashboard = () => {
   }, [dash]);
 
   const trends = useMemo(() => {
-    return asArray(analytics?.trends).map((t) => ({
-      ...t,
-      label: formatMonthLabel(t.month),
+    return asArray(analytics?.trends).map((row) => ({
+      ...row,
+      label: formatMarketingMonthLabel(locale, row.month),
     }));
-  }, [analytics]);
+  }, [analytics, locale]);
 
   const branchWise = useMemo(() => asArray(analytics?.branchWise), [analytics]);
   const workshopWise = useMemo(
@@ -257,7 +246,7 @@ export const MarketingDashboard = () => {
             className={`md-pill ${branchId === '' ? 'is-active' : ''}`}
             onClick={() => handleBranchSelect('')}
           >
-            All Branches
+            {t('branch.all')}
           </button>
 
           {branches.map((b) => (
@@ -267,7 +256,7 @@ export const MarketingDashboard = () => {
               className={`md-pill ${branchId === b.id ? 'is-active' : ''}`}
               onClick={() => handleBranchSelect(b.id)}
             >
-              {b.name || `Branch ${b.id}`}
+              {b.name || t('branch.n', { id: b.id })}
             </button>
           ))}
         </div>
@@ -275,57 +264,57 @@ export const MarketingDashboard = () => {
 
       <div className="marketing-stat-grid">
         <KpiCard
-          title="Wallet Balance"
-          value={formatSar(overview.walletBalance, currency)}
+          title={t('kpi.walletBalance')}
+          value={formatSar(overview.walletBalance, currency, locale)}
           icon={Wallet}
           iconBg="#FFFBEB"
           iconColor="#D97706"
         />
         <KpiCard
-          title="Active Campaigns"
-          value={formatPlainNumber(overview.activeCampaigns)}
+          title={t('kpi.activeCampaigns')}
+          value={formatPlainNumber(overview.activeCampaigns, locale)}
           icon={Megaphone}
           iconBg="#EFF6FF"
           iconColor="#2563EB"
         />
         <KpiCard
-          title="Revenue Generated"
-          value={formatSar(overview.revenue, currency)}
+          title={t('kpi.revenueGenerated')}
+          value={formatSar(overview.revenue, currency, locale)}
           icon={TrendingUp}
           iconBg="#ECFDF5"
           iconColor="#10B981"
         />
         <KpiCard
-          title="Total Leads"
-          value={formatPlainNumber(overview.leads)}
+          title={t('kpi.totalLeads')}
+          value={formatPlainNumber(overview.leads, locale)}
           icon={Target}
           iconBg="#F5F3FF"
           iconColor="#8B5CF6"
         />
         <KpiCard
-          title="Impressions"
-          value={formatPlainNumber(overview.impressions)}
+          title={t('kpi.impressions')}
+          value={formatPlainNumber(overview.impressions, locale)}
           icon={Eye}
           iconBg="#ECFEFF"
           iconColor="#0891B2"
         />
         <KpiCard
-          title="Unique Customers"
-          value={formatPlainNumber(overview.uniqueCustomers)}
+          title={t('kpi.uniqueCustomers')}
+          value={formatPlainNumber(overview.uniqueCustomers, locale)}
           icon={Users}
           iconBg="#FDF2F8"
           iconColor="#DB2777"
         />
         <KpiCard
-          title="Conversions"
-          value={formatPlainNumber(overview.conversions)}
+          title={t('kpi.conversions')}
+          value={formatPlainNumber(overview.conversions, locale)}
           icon={MousePointerClick}
           iconBg="#FEF2F2"
           iconColor="#EF4444"
         />
         <KpiCard
-          title="Overall ROI"
-          value={`${formatPlainNumber(overview.roiPercent)}%`}
+          title={t('kpi.overallRoi')}
+          value={`${formatPlainNumber(overview.roiPercent, locale)}%`}
           icon={Zap}
           iconBg="#FEFCE8"
           iconColor="#CA8A04"
@@ -334,24 +323,26 @@ export const MarketingDashboard = () => {
 
       <div className="md-roi-card">
         <div className="md-roi-block">
-          <div className="md-roi-label">Total Spend</div>
+          <div className="md-roi-label">{t('roi.totalSpend')}</div>
           <div className="md-roi-value">
-            {formatSar(overview.totalSpend, currency)}
+            {formatSar(overview.totalSpend, currency, locale)}
           </div>
           <div className="md-roi-sub">
-            ROAS {toNumber(overview.roas).toFixed(2)}x · Conversion rate{' '}
-            {toNumber(overview.conversionRate).toFixed(1)}%
+            {t('roi.sub', {
+              roas: toNumber(overview.roas).toFixed(2),
+              rate: toNumber(overview.conversionRate).toFixed(1),
+            })}
           </div>
         </div>
 
         <div className="md-pending-box">
-          <div>Pending Requests</div>
-          <strong>{formatPlainNumber(cards.pendingRequests)}</strong>
+          <div>{t('roi.pendingRequests')}</div>
+          <strong>{formatPlainNumber(cards.pendingRequests, locale)}</strong>
         </div>
       </div>
 
       <div className="md-grid-2">
-        <ChartCard title="Conversion Trends" subtitle="Leads vs conversions — last 6 months">
+        <ChartCard title={t('chart.conversionTrends')} subtitle={t('chart.conversionTrendsSub')}>
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={trends} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
@@ -362,7 +353,7 @@ export const MarketingDashboard = () => {
               <Area
                 type="monotone"
                 dataKey="leads"
-                name="Leads"
+                name={t('series.leads')}
                 stroke="#8B5CF6"
                 fill="#8B5CF622"
                 strokeWidth={2}
@@ -370,7 +361,7 @@ export const MarketingDashboard = () => {
               <Area
                 type="monotone"
                 dataKey="conversions"
-                name="Conversions"
+                name={t('series.conversions')}
                 stroke="#10B981"
                 fill="#10B98122"
                 strokeWidth={2}
@@ -379,17 +370,17 @@ export const MarketingDashboard = () => {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Revenue Trend" subtitle="Monthly invoiced revenue (SAR)">
+        <ChartCard title={t('chart.revenueTrend')} subtitle={t('chart.revenueTrendSub')}>
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={trends} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
               <XAxis dataKey="label" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip formatter={(v) => formatSar(v, currency)} />
+              <Tooltip formatter={(v) => formatSar(v, currency, locale)} />
               <Area
                 type="monotone"
                 dataKey="revenue"
-                name="Revenue"
+                name={t('series.revenue')}
                 stroke="#2563EB"
                 fill="#2563EB22"
                 strokeWidth={2}
@@ -400,21 +391,21 @@ export const MarketingDashboard = () => {
       </div>
 
       <div className="md-grid-2">
-        <ChartCard title="Customer Growth" subtitle="Unique customers per month">
+        <ChartCard title={t('chart.customerGrowth')} subtitle={t('chart.customerGrowthSub')}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={trends} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
               <XAxis dataKey="label" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} />
               <Tooltip />
-              <Bar dataKey="customers" name="Customers" fill="#DB2777" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="customers" name={t('series.customers')} fill="#DB2777" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Reach by Platform" subtitle="Revenue share per ad platform">
+        <ChartCard title={t('chart.reachByPlatform')} subtitle={t('chart.reachByPlatformSub')}>
           {reachByPlatform.length === 0 ? (
-            <div className="md-empty-text">No platform data</div>
+            <div className="md-empty-text">{t('empty.platform')}</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -435,7 +426,7 @@ export const MarketingDashboard = () => {
                     />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v) => formatSar(v, currency)} />
+                <Tooltip formatter={(v) => formatSar(v, currency, locale)} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
               </PieChart>
             </ResponsiveContainer>
@@ -445,12 +436,12 @@ export const MarketingDashboard = () => {
 
       <div className="md-chart-card">
         <div className="md-chart-head">
-          <div className="md-chart-title">Branch-wise Performance</div>
-          <div className="md-chart-sub">Revenue, orders and customers per branch</div>
+          <div className="md-chart-title">{t('chart.branchWise')}</div>
+          <div className="md-chart-sub">{t('chart.branchWiseSub')}</div>
         </div>
 
         {branchWise.length === 0 ? (
-          <div className="md-empty-text">No branch data</div>
+          <div className="md-empty-text">{t('empty.branch')}</div>
         ) : (
           <>
             <div style={{ width: '100%', height: 240 }}>
@@ -462,8 +453,8 @@ export const MarketingDashboard = () => {
                   <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
                   <XAxis dataKey="branch" tick={{ fontSize: 10 }} interval={0} angle={-12} textAnchor="end" height={50} />
                   <YAxis tick={{ fontSize: 10 }} />
-                  <Tooltip formatter={(v) => formatSar(v, currency)} />
-                  <Bar dataKey="revenue" name="Revenue" fill="#10B981" radius={[4, 4, 0, 0]} />
+                  <Tooltip formatter={(v) => formatSar(v, currency, locale)} />
+                  <Bar dataKey="revenue" name={t('series.revenue')} fill="#10B981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -472,20 +463,20 @@ export const MarketingDashboard = () => {
               <table className="md-table">
                 <thead>
                   <tr>
-                    <th>Branch</th>
-                    <th>Orders</th>
-                    <th>Customers</th>
-                    <th>Revenue</th>
+                    <th>{t('table.branch')}</th>
+                    <th>{t('table.orders')}</th>
+                    <th>{t('table.customers')}</th>
+                    <th>{t('table.revenue')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {branchWise.map((b) => (
                     <tr key={b.branchId}>
                       <td>{b.branch}</td>
-                      <td>{formatPlainNumber(b.orders)}</td>
-                      <td>{formatPlainNumber(b.customers)}</td>
+                      <td>{formatPlainNumber(b.orders, locale)}</td>
+                      <td>{formatPlainNumber(b.customers, locale)}</td>
                       <td className="md-strong-green">
-                        {formatSar(b.revenue, currency)}
+                        {formatSar(b.revenue, currency, locale)}
                       </td>
                     </tr>
                   ))}
@@ -497,9 +488,9 @@ export const MarketingDashboard = () => {
       </div>
 
       <div className="md-grid-2">
-        <ChartCard title="Workshop-wise Performance" subtitle="Revenue per workshop">
+        <ChartCard title={t('chart.workshopWise')} subtitle={t('chart.workshopWiseSub')}>
           {workshopWise.length === 0 ? (
-            <div className="md-empty-text">No workshop data</div>
+            <div className="md-empty-text">{t('empty.workshop')}</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
@@ -515,8 +506,8 @@ export const MarketingDashboard = () => {
                   tick={{ fontSize: 10 }}
                   width={110}
                 />
-                <Tooltip formatter={(v) => formatSar(v, currency)} />
-                <Bar dataKey="revenue" name="Revenue" fill="#6366F1" radius={[0, 4, 4, 0]} />
+                <Tooltip formatter={(v) => formatSar(v, currency, locale)} />
+                <Bar dataKey="revenue" name={t('series.revenue')} fill="#6366F1" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -524,12 +515,12 @@ export const MarketingDashboard = () => {
 
         <div className="md-chart-card">
           <div className="md-chart-head">
-            <div className="md-chart-title">Top Campaigns</div>
-            <div className="md-chart-sub">Highest revenue campaigns</div>
+            <div className="md-chart-title">{t('chart.topCampaigns')}</div>
+            <div className="md-chart-sub">{t('chart.topCampaignsSub')}</div>
           </div>
 
           {topCampaigns.length === 0 ? (
-            <div className="md-empty-text">No campaigns found</div>
+            <div className="md-empty-text">{t('empty.campaigns')}</div>
           ) : (
             <div className="md-campaign-list">
               {topCampaigns.map((campaign, index) => (
@@ -543,8 +534,8 @@ export const MarketingDashboard = () => {
                   </div>
 
                   <div className="md-campaign-revenue">
-                    <strong>{formatSar(campaign.revenue, currency)}</strong>
-                    <span>ROI {formatPlainNumber(campaign.roiPercent)}%</span>
+                    <strong>{formatSar(campaign.revenue, currency, locale)}</strong>
+                    <span>{t('campaign.roi', { pct: formatPlainNumber(campaign.roiPercent, locale) })}</span>
                   </div>
                 </div>
               ))}

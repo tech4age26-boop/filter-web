@@ -24,17 +24,18 @@ export const STAFF_APP_SLUG_TO_TAB = Object.fromEntries(
     Object.entries(STAFF_APP_TAB_SLUG).map(([tab, slug]) => [slug, tab]),
 );
 
+/** Prefer `labelKey` + staffAppT; `label` kept as English fallback. */
 export const STAFF_APP_NAV_ITEMS = [
-    { id: 'sap-overview', label: 'Overview', permission: 'workshop.staff-app.overview.view' },
-    { id: 'sap-expenses', label: 'Expenses', permission: 'workshop.staff-app.expenses.view' },
-    { id: 'sap-requests', label: 'Requests', permission: 'workshop.staff-app.requests.view' },
-    { id: 'sap-purchase-orders', label: 'Purchase Orders', permission: 'workshop.staff-app.purchase-orders.view' },
-    { id: 'sap-tasks', label: 'Tasks', permission: 'workshop.staff-app.tasks.view' },
-    { id: 'sap-leave', label: 'Leave', permission: 'workshop.staff-app.leave.view' },
-    { id: 'sap-salary-advances', label: 'Salary & Advances', permission: 'workshop.staff-app.salary-advances.view' },
-    { id: 'sap-chat', label: 'Chat', permission: 'workshop.staff-app.chat.view' },
-    { id: 'sap-notifications', label: 'Notifications', permission: 'workshop.staff-app.notifications.view' },
-    { id: 'sap-settings', label: 'App Settings', permission: 'workshop.staff-app.settings.view' },
+    { id: 'sap-overview', labelKey: 'nav.overview', label: 'Overview', permission: 'workshop.staff-app.overview.view' },
+    { id: 'sap-expenses', labelKey: 'nav.expenses', label: 'Expenses', permission: 'workshop.staff-app.expenses.view' },
+    { id: 'sap-requests', labelKey: 'nav.requests', label: 'Requests', permission: 'workshop.staff-app.requests.view' },
+    { id: 'sap-purchase-orders', labelKey: 'nav.purchaseOrders', label: 'Purchase Orders', permission: 'workshop.staff-app.purchase-orders.view' },
+    { id: 'sap-tasks', labelKey: 'nav.tasks', label: 'Tasks', permission: 'workshop.staff-app.tasks.view' },
+    { id: 'sap-leave', labelKey: 'nav.leave', label: 'Leave', permission: 'workshop.staff-app.leave.view' },
+    { id: 'sap-salary-advances', labelKey: 'nav.salaryAdvances', label: 'Salary & Advances', permission: 'workshop.staff-app.salary-advances.view' },
+    { id: 'sap-chat', labelKey: 'nav.chat', label: 'Chat', permission: 'workshop.staff-app.chat.view' },
+    { id: 'sap-notifications', labelKey: 'nav.notifications', label: 'Notifications', permission: 'workshop.staff-app.notifications.view' },
+    { id: 'sap-settings', labelKey: 'nav.settings', label: 'App Settings', permission: 'workshop.staff-app.settings.view' },
 ];
 
 /** Legacy permission codes still grant access when staff-app codes are not seeded yet. */

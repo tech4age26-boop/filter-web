@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Modal from '../../components/Modal';
@@ -16,21 +17,34 @@ import {
 import * as marketingLookupApi from '../../services/marketingSalesLookupApi';
 import { ExportMenu } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
+import { srT } from '../../utils/salesReportsI18n';
 import '../workshop/Workshop.css';
 
 const EXPORT_LIMIT = 5000;
+
+const REPORT_TABS = [
+    { id: 'recent_orders', labelKey: 'tab.orders' },
+    { id: 'daily_sales', labelKey: 'tab.dailySales' },
+    { id: 'by_technician', labelKey: 'tab.byTechnician' },
+    { id: 'by_customer', labelKey: 'tab.byCustomer' },
+    { id: 'by_product', labelKey: 'tab.byProduct' },
+    { id: 'by_department', labelKey: 'tab.byDepartment' },
+    { id: 'by_category', labelKey: 'tab.byCategories' },
+    { id: 'by_branch', labelKey: 'tab.byBranch' },
+    { id: 'by_cashier', labelKey: 'tab.byCashier' },
+];
 
 const toNumber = (value) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
-function formatOrderSourceLabel(source) {
+function formatOrderSourceLabel(source, t) {
     const s = String(source ?? '').trim().toLowerCase();
-    if (s === 'walk_in') return 'Walk-in';
-    if (s === 'walk_in_corporate') return 'Corporate walk-in';
-    if (s === 'takeaway') return 'Takeaway';
-    if (!s) return '—';
+    if (s === 'walk_in') return t('src.walkIn');
+    if (s === 'walk_in_corporate') return t('src.walkInCorporate');
+    if (s === 'takeaway') return t('src.takeaway');
+    if (!s) return t('common.emDash');
     return s
         .split('_')
         .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ''))
@@ -71,14 +85,14 @@ function defaultLocalRangeLatest() {
     return { start: toDatetimeLocalValue(start), end: toDatetimeLocalValue(end) };
 }
 
-function rangeToApiIso(rangeFromLocal, rangeToLocal) {
+function rangeToApiIso(rangeFromLocal, rangeToLocal, t) {
     const s = new Date(rangeFromLocal);
     const e = new Date(rangeToLocal);
     if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) {
-        throw new Error('Invalid date/time range.');
+        throw new Error(t ? t('err.invalidRange') : 'Invalid date/time range.');
     }
     if (s.getTime() > e.getTime()) {
-        throw new Error('Start must be on or before end.');
+        throw new Error(t ? t('err.startBeforeEnd') : 'Start must be on or before end.');
     }
     return { startDate: s.toISOString(), endDate: e.toISOString() };
 }
@@ -110,7 +124,7 @@ function isMoneyDetailColumnKey(k) {
     );
 }
 
-function formatLineItemSubtext(item) {
+function formatLineItemSubtext(item, t) {
     const qty = item.qty ?? item.quantity;
     const unit = toNumber(item.unitPrice ?? item.unit_price);
     const dType = String(item.discountType ?? item.discount_type ?? '').toLowerCase();
@@ -121,11 +135,17 @@ function formatLineItemSubtext(item) {
     const disc =
         dVal > 0
             ? dType === 'percent' || dType === 'percentage'
-                ? `Discount ${dVal}%`
-                : `Discount SAR ${dVal.toLocaleString()}`
-            : 'Discount —';
-    const line1 = `${item.itemType ?? item.item_type ?? 'item'} · Qty ${qty ?? '—'} · Unit SAR ${unit.toLocaleString()}`;
-    const line2 = `${disc} · VAT ${Number.isFinite(vatPct) && vatPct > 0 ? `${vatPct}%` : '—'}${vatMode ? ` (${vatMode})` : ''} · Line SAR ${line.toLocaleString()}`;
+                ? t('detail.line.discPct', { v: dVal })
+                : t('detail.line.discSar', { v: dVal.toLocaleString() })
+            : t('detail.line.discNone');
+    const line1 = t('detail.line.qtyUnit', {
+        type: item.itemType ?? item.item_type ?? t('detail.itemTypeDefault'),
+        qty: qty ?? t('common.emDash'),
+        unit: unit.toLocaleString(),
+    });
+    const vat = Number.isFinite(vatPct) && vatPct > 0 ? `${vatPct}%` : t('common.emDash');
+    const mode = vatMode ? ` (${vatMode})` : '';
+    const line2 = t('detail.line.vatLine', { disc, vat, mode, line: line.toLocaleString() });
     return { line1, line2 };
 }
 
@@ -149,16 +169,26 @@ function formatInvoiceDateTimeForDisplay(row) {
 }
 
 /** Build {headers, rows} for the Recent Orders list — used for PDF/Excel export. */
-function buildRecentOrdersExportRows(rows) {
-    const headers = ['Invoice No', 'Order #', 'Type', 'Status', 'Date / Time', 'Customer', 'Plate No', 'Total (SAR)'];
+function buildRecentOrdersExportRows(rows, t) {
+    const headers = [
+        t('export.h.invoice'),
+        t('export.h.order'),
+        t('export.h.type'),
+        t('export.h.status'),
+        t('export.h.datetime'),
+        t('export.h.customer'),
+        t('export.h.plate'),
+        t('export.h.total'),
+    ];
+    const dash = t('common.emDash');
     const out = (rows || []).map((row) => [
-        row.invoiceNo ?? (row.salesOrderId != null ? 'Pending invoice' : '—'),
-        row.salesOrderId ?? '—',
-        formatOrderSourceLabel(row.orderSource),
+        row.invoiceNo ?? (row.salesOrderId != null ? t('orders.pendingInvoice') : dash),
+        row.salesOrderId ?? dash,
+        formatOrderSourceLabel(row.orderSource, t),
         formatOrderStatusLabel(row.orderStatus),
         formatInvoiceDateTimeForDisplay(row),
-        row.customerName ?? '—',
-        row.plateNo ?? '—',
+        row.customerName ?? dash,
+        row.plateNo ?? dash,
         Number(toNumber(row.invoiceTotal).toFixed(2)),
     ]);
     return { headers, rows: out };
@@ -177,12 +207,12 @@ function formatReportInstant(iso) {
     });
 }
 
-function formatJobCompletedDisplay(job) {
-    if (!job) return '—';
+function formatJobCompletedDisplay(job, t) {
+    if (!job) return t('common.emDash');
     if (job.completedAt) return formatReportInstant(job.completedAt);
     const st = String(job.status ?? '').toLowerCase();
-    if (st === 'edited') return '— (reopened for edit)';
-    return '—';
+    if (st === 'edited') return t('modal.reopened');
+    return t('common.emDash');
 }
 
 function recentOrderRowTarget(row) {
@@ -274,18 +304,18 @@ function applyTabSort(rows, mode, getter) {
     });
 }
 
-function TabSortSelect({ value, onChange, ariaLabel = 'Sort by amount' }) {
+function TabSortSelect({ value, onChange, ariaLabel, t }) {
     return (
         <select
             className="ws-report-tab-search"
             style={{ maxWidth: 170, minWidth: 140 }}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            aria-label={ariaLabel}
+            aria-label={ariaLabel || t('sort.aria')}
         >
-            <option value="default">Sort: Default</option>
-            <option value="asc">Low → High</option>
-            <option value="desc">High → Low</option>
+            <option value="default">{t('sort.default')}</option>
+            <option value="asc">{t('sort.asc')}</option>
+            <option value="desc">{t('sort.desc')}</option>
         </select>
     );
 }
@@ -293,6 +323,13 @@ function TabSortSelect({ value, onChange, ariaLabel = 'Sort by amount' }) {
 const ORDERS_PAGE_SIZE = 25;
 
 export default function SalesReports({ portal = 'admin' }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => srT(locale, key, vars), [locale]);
+
     const reportsApi = portal === 'marketing' ? marketingReportsApi : adminReportsApi;
     const getWorkshopOptions = portal === 'marketing'
         ? marketingLookupApi.getWorkshopOptions
@@ -411,7 +448,7 @@ export default function SalesReports({ portal = 'admin' }) {
                       : [];
                 if (!cancelled) {
                     setWorkshopOptions(
-                        list.map((w) => ({ id: String(w.id), name: String(w.name || '').trim() || 'Workshop' })),
+                        list.map((w) => ({ id: String(w.id), name: String(w.name || '').trim() || t('filter.workshopFallback') })),
                     );
                 }
             } catch {
@@ -444,7 +481,7 @@ export default function SalesReports({ portal = 'admin' }) {
                       : [];
                 if (!cancelled) {
                     setBranchOptions(
-                        list.map((b) => ({ id: String(b.id), name: String(b.name || '').trim() || 'Branch' })),
+                        list.map((b) => ({ id: String(b.id), name: String(b.name || '').trim() || t('filter.branchFallback') })),
                     );
                     setSelectedBranchId('all');
                 }
@@ -463,22 +500,22 @@ export default function SalesReports({ portal = 'admin' }) {
     }, [hasWorkshop, selectedWorkshopId]);
 
     const workshopLabel = useMemo(() => {
-        if (!hasWorkshop) return 'Select workshop';
-        return workshopOptions.find((w) => w.id === String(selectedWorkshopId))?.name || 'Workshop';
-    }, [hasWorkshop, selectedWorkshopId, workshopOptions]);
+        if (!hasWorkshop) return t('filter.selectWorkshop');
+        return workshopOptions.find((w) => w.id === String(selectedWorkshopId))?.name || t('filter.workshopFallback');
+    }, [hasWorkshop, selectedWorkshopId, workshopOptions, t]);
 
     const branchLabel = useMemo(() => {
-        if (!hasWorkshop) return '—';
-        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
-        return branchOptions.find((b) => b.id === String(selectedBranchId))?.name || 'Branch';
-    }, [hasWorkshop, selectedBranchId, branchOptions]);
+        if (!hasWorkshop) return t('common.emDash');
+        if (!selectedBranchId || selectedBranchId === 'all') return t('filter.allBranches');
+        return branchOptions.find((b) => b.id === String(selectedBranchId))?.name || t('filter.branchFallback');
+    }, [hasWorkshop, selectedBranchId, branchOptions, t]);
 
     const fetchRecentOrdersList = useCallback(async () => {
         if (!hasWorkshop) return;
         setOrdersListLoading(true);
         setOrdersListError('');
         try {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = adminSalesReportsParams(selectedWorkshopId, selectedBranchId, {
                 startDate,
                 endDate,
@@ -507,11 +544,11 @@ export default function SalesReports({ portal = 'admin' }) {
         } catch (e) {
             setRecentOrders([]);
             setOrdersTotal(0);
-            setOrdersListError(e?.message || 'Could not load orders for this range.');
+            setOrdersListError(e?.message || t('err.loadOrders'));
         } finally {
             setOrdersListLoading(false);
         }
-    }, [hasWorkshop, selectedWorkshopId, selectedBranchId, rangeFromLocal, rangeToLocal, ordersPage, ordersSearchDebounced]);
+    }, [hasWorkshop, selectedWorkshopId, selectedBranchId, rangeFromLocal, rangeToLocal, ordersPage, ordersSearchDebounced, t]);
 
     const fetchRecentOrdersListRef = useRef(fetchRecentOrdersList);
     fetchRecentOrdersListRef.current = fetchRecentOrdersList;
@@ -519,13 +556,13 @@ export default function SalesReports({ portal = 'admin' }) {
     // Export the FULL recent-orders list for the current scope + date range.
     const runOrdersExport = useCallback(async (kind) => {
         if (!hasWorkshop) {
-            setOrdersListError('Select a workshop first to export its orders.');
+            setOrdersListError(t('err.selectWorkshopExport'));
             return;
         }
         setExporting(true);
         setOrdersListError('');
         try {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = adminSalesReportsParams(selectedWorkshopId, selectedBranchId, { startDate, endDate });
             const q = ordersSearchDebounced.trim();
             const res = await getAdminSalesRecentOrders({
@@ -536,19 +573,23 @@ export default function SalesReports({ portal = 'admin' }) {
             });
             const list = Array.isArray(res?.rows) ? res.rows
                 : Array.isArray(res?.data?.rows) ? res.data.rows : [];
-            const { headers, rows } = buildRecentOrdersExportRows(list);
-            const subtitle = `${rows.length} order(s) · ${rangeFromLocal || '…'} → ${rangeToLocal || '…'}`;
+            const { headers, rows } = buildRecentOrdersExportRows(list, t);
+            const subtitle = t('export.subtitle', {
+                n: rows.length,
+                from: rangeFromLocal || '…',
+                to: rangeToLocal || '…',
+            });
             if (kind === 'pdf') {
-                exportRowsToPdf({ title: 'Sales Reports — Orders', subtitle, headers, rows, filenameBase: 'sales-reports-orders' });
+                exportRowsToPdf({ title: t('export.title'), subtitle, headers, rows, filenameBase: 'sales-reports-orders' });
             } else {
-                exportRowsToExcel({ sheetName: 'Orders', headers, rows, filenameBase: 'sales-reports-orders' });
+                exportRowsToExcel({ sheetName: t('export.sheet'), headers, rows, filenameBase: 'sales-reports-orders' });
             }
         } catch (e) {
-            setOrdersListError(e?.message || 'Export failed');
+            setOrdersListError(e?.message || t('err.exportFailed'));
         } finally {
             setExporting(false);
         }
-    }, [hasWorkshop, selectedWorkshopId, selectedBranchId, rangeFromLocal, rangeToLocal, ordersSearchDebounced]);
+    }, [hasWorkshop, selectedWorkshopId, selectedBranchId, rangeFromLocal, rangeToLocal, ordersSearchDebounced, t]);
 
     const loadReports = useCallback(async () => {
         if (!hasWorkshop) {
@@ -572,7 +613,7 @@ export default function SalesReports({ portal = 'admin' }) {
         setDetailsError('');
         setOrdersPage(1);
         try {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = adminSalesReportsParams(selectedWorkshopId, selectedBranchId, {
                 startDate,
                 endDate,
@@ -605,7 +646,7 @@ export default function SalesReports({ portal = 'admin' }) {
                 getTechnicians(techQuery).catch(() => null),
             ]);
             if (!response?.success) {
-                throw new Error('Invalid reports response.');
+                throw new Error(t('err.invalidReports'));
             }
             setReportData(response);
             setSummaryData({
@@ -627,15 +668,15 @@ export default function SalesReports({ portal = 'admin' }) {
                       ? techniciansRes
                       : [];
             const opts = techList
-                .map((t) => ({
-                    id: String(t?.id ?? t?.employeeId ?? ''),
-                    name: String(t?.name ?? '').trim() || 'Technician',
+                .map((tech) => ({
+                    id: String(tech?.id ?? tech?.employeeId ?? ''),
+                    name: String(tech?.name ?? '').trim() || t('detail.fallback.technician'),
                 }))
-                .filter((t) => t.id);
+                .filter((tech) => tech.id);
             opts.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
             setTechnicianOptions(opts);
         } catch (error) {
-            setLoadError(error.message || 'Failed to load reports analytics.');
+            setLoadError(error.message || t('err.loadAnalytics'));
             setReportData(null);
             setSummaryData({
                 by_technician: [],
@@ -667,7 +708,7 @@ export default function SalesReports({ portal = 'admin' }) {
                 });
             }
         }
-    }, [hasWorkshop, selectedWorkshopId, selectedBranchId, rangeFromLocal, rangeToLocal]);
+    }, [hasWorkshop, selectedWorkshopId, selectedBranchId, rangeFromLocal, rangeToLocal, t]);
 
     useEffect(() => {
         const t = setTimeout(() => {
@@ -687,7 +728,7 @@ export default function SalesReports({ portal = 'admin' }) {
 
     const refetchByProductForTechnician = useCallback(
         async (technicianId) => {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = adminSalesReportsParams(selectedWorkshopId, selectedBranchId, {
                 startDate,
                 endDate,
@@ -716,12 +757,12 @@ export default function SalesReports({ portal = 'admin' }) {
             try {
                 await refetchByProductForTechnician(id);
             } catch (err) {
-                setByProductTechnicianError(err?.message || 'Failed to load product sales for this technician.');
+                setByProductTechnicianError(err?.message || t('err.loadProductTech'));
             } finally {
                 setByProductTechnicianLoading(false);
             }
         },
-        [refetchByProductForTechnician],
+        [refetchByProductForTechnician, t],
     );
 
     // Reset drill-down when scope changes.
@@ -749,18 +790,18 @@ export default function SalesReports({ portal = 'admin' }) {
     }, [loadReports]);
 
     const fetchRecentOrderDetails = useCallback(async (target) => {
-        const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+        const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
         const params = adminSalesReportsParams(selectedWorkshopId, selectedBranchId, {
             startDate,
             endDate,
         });
-        const t = String(target ?? '');
-        if (t.startsWith('so:')) {
-            return await getAdminSalesRecentOpenOrderDetails(t.slice(3), params);
+        const targetKey = String(target ?? '');
+        if (targetKey.startsWith('so:')) {
+            return await getAdminSalesRecentOpenOrderDetails(targetKey.slice(3), params);
         }
-        const invId = t.startsWith('inv:') ? t.slice(4) : t;
+        const invId = targetKey.startsWith('inv:') ? targetKey.slice(4) : targetKey;
         return await getAdminSalesRecentOrderDetails(invId, params);
-    }, [selectedWorkshopId, selectedBranchId, rangeFromLocal, rangeToLocal]);
+    }, [selectedWorkshopId, selectedBranchId, rangeFromLocal, rangeToLocal, t]);
 
     const openRecentOrderDetails = useCallback(async (target) => {
         if (!target) return;
@@ -775,12 +816,12 @@ export default function SalesReports({ portal = 'admin' }) {
                     : res;
             setRecentOrderDetails(payload && typeof payload === 'object' ? payload : null);
         } catch (error) {
-            setRecentOrderDetailsError(error?.message || 'Failed to load order details.');
+            setRecentOrderDetailsError(error?.message || t('err.loadOrderDetails'));
             setRecentOrderDetails(null);
         } finally {
             setRecentOrderDetailsLoading(false);
         }
-    }, [fetchRecentOrderDetails]);
+    }, [fetchRecentOrderDetails, t]);
 
     useEffect(() => {
         const id = recentOrderDetailsTargetRef.current;
@@ -831,7 +872,7 @@ export default function SalesReports({ portal = 'admin' }) {
     const loadDetails = useCallback(
         async (tabId, row) => {
             if (!hasWorkshop) return;
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = adminSalesReportsParams(selectedWorkshopId, selectedBranchId, {
                 startDate,
                 endDate,
@@ -845,35 +886,47 @@ export default function SalesReports({ portal = 'admin' }) {
             if (tabId === 'by_technician') {
                 fetcher = getAdminSalesByTechnicianDetails;
                 key = String(row.technician_id ?? row.technicianId ?? row.id ?? '');
-                title = `Technician details: ${row.name || 'Technician'}`;
+                title = t('detail.technician', { name: row.name || t('detail.fallback.technician') });
             } else if (tabId === 'by_customer') {
                 fetcher = getAdminSalesByCustomerDetails;
                 key = String(row.customer_id ?? row.customerId ?? '');
-                title = `Customer details: ${row.customer_name ?? row.customerName ?? 'Customer'}`;
+                title = t('detail.customer', {
+                    name: row.customer_name ?? row.customerName ?? t('detail.fallback.customer'),
+                });
             } else if (tabId === 'by_product') {
                 fetcher = getAdminSalesByProductDetails;
                 key = String(row.product_id ?? row.productId ?? '');
-                title = `Product details: ${row.product_name ?? row.productName ?? row.item_name ?? 'Item'}`;
+                title = t('detail.product', {
+                    name: row.product_name ?? row.productName ?? row.item_name ?? t('detail.fallback.item'),
+                });
             } else if (tabId === 'by_department') {
                 fetcher = getAdminSalesByDepartmentDetails;
                 key = String(row.department_id ?? row.departmentId ?? '');
-                title = `Department details: ${row.department_name ?? row.departmentName ?? 'Department'}`;
+                title = t('detail.department', {
+                    name: row.department_name ?? row.departmentName ?? t('detail.fallback.department'),
+                });
             } else if (tabId === 'by_category') {
                 fetcher = getAdminSalesByCategoryDetails;
                 key = String(row.category_id ?? row.categoryId ?? '');
-                title = `Category details: ${row.category_name ?? row.categoryName ?? 'Category'}`;
+                title = t('detail.category', {
+                    name: row.category_name ?? row.categoryName ?? t('detail.fallback.category'),
+                });
             } else if (tabId === 'by_branch') {
                 fetcher = getAdminSalesByBranchDetails;
                 key = String(row.branch_id ?? row.branchId ?? '');
-                title = `Branch details: ${row.branch_name ?? row.branchName ?? 'Branch'}`;
+                title = t('detail.branch', {
+                    name: row.branch_name ?? row.branchName ?? t('detail.fallback.branch'),
+                });
             } else if (tabId === 'by_cashier') {
                 fetcher = getAdminSalesByCashierDetails;
                 key = String(row.cashier_id ?? row.cashierId ?? row.user_id ?? row.userId ?? '');
-                title = `Cashier details: ${row.name ?? 'Cashier'}`;
+                title = t('detail.cashier', { name: row.name ?? t('detail.fallback.cashier') });
             } else if (tabId === 'daily_sales') {
                 fetcher = getAdminSalesDailyDetails;
                 key = String(row.date ?? '').trim();
-                title = `Daily sales · ${row.day ? `${row.day} · ` : ''}${key}`;
+                title = t('detail.daily', {
+                    day: `${row.day ? `${row.day} · ` : ''}${key}`,
+                });
             }
             if (!fetcher || !key) {
                 detailAnchorRef.current = null;
@@ -918,14 +971,14 @@ export default function SalesReports({ portal = 'admin' }) {
                 };
                 setDetailRows(rows.map(stripIds));
             } catch (error) {
-                setDetailsError(error?.message || 'Failed to load details.');
+                setDetailsError(error?.message || t('err.loadDetails'));
                 setDetailRows([]);
                 detailAnchorRef.current = null;
             } finally {
                 setDetailsLoading(false);
             }
         },
-        [hasWorkshop, selectedWorkshopId, selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId],
+        [hasWorkshop, selectedWorkshopId, selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, t],
     );
 
     loadDetailsRef.current = loadDetails;
@@ -956,7 +1009,7 @@ export default function SalesReports({ portal = 'admin' }) {
               : r.operationalPerformance;
         const byTechnician = parseArr(techRaw).map((e) => ({
             id: String(e.technician_id ?? e.employeeId ?? e.id ?? ''),
-            name: e.name || 'Unknown',
+            name: e.name || t('detail.fallback.unknown'),
             completedJobs: toNumber(e.completed_jobs ?? e.totalJobs ?? e.orders),
             commission: toNumber(e.commission_sar ?? e.commission),
             revenue: toNumber(e.revenue_sar ?? e.revenue),
@@ -981,49 +1034,39 @@ export default function SalesReports({ portal = 'admin' }) {
             previousPeriod: r.previous_period ?? null,
             definitions: typeof r.definitions === 'string' ? r.definitions : '',
         };
-    }, [reportData, summaryData]);
+    }, [reportData, summaryData, t]);
 
     const kpis = useMemo(() => {
         if (!norm) {
             return [
-                { label: 'Total Revenue', value: formatCurrency(0), color: 'text-green' },
-                { label: 'Revenue Change', value: '0.0%', sub: 'vs previous period', color: 'text-blue' },
-                { label: 'Stock Value (Cost)', value: formatCurrency(0), sub: 'At period end (est.)', color: 'text-orange' },
-                { label: 'Potential Profit', value: formatCurrency(0), sub: '0 SKUs with stock', color: 'text-purple' },
+                { label: t('kpi.totalRevenue'), value: formatCurrency(0), color: 'text-green' },
+                { label: t('kpi.revenueChange'), value: '0.0%', sub: t('kpi.vsPrevious'), color: 'text-blue' },
+                { label: t('kpi.stockValue'), value: formatCurrency(0), sub: t('kpi.stockSub'), color: 'text-orange' },
+                { label: t('kpi.potentialProfit'), value: formatCurrency(0), sub: t('kpi.skusWithStock', { n: 0 }), color: 'text-purple' },
             ];
         }
         const sign = norm.revenueChangePercent > 0 ? '+' : '';
         return [
-            { label: 'Total Revenue', value: formatCurrency(norm.totalRevenue), color: 'text-green' },
+            { label: t('kpi.totalRevenue'), value: formatCurrency(norm.totalRevenue), color: 'text-green' },
             {
-                label: 'Revenue Change',
+                label: t('kpi.revenueChange'),
                 value: `${sign}${norm.revenueChangePercent.toFixed(1)}%`,
-                sub: 'vs previous period',
+                sub: t('kpi.vsPrevious'),
                 color: 'text-blue',
             },
-            { label: 'Stock Value (Cost)', value: formatCurrency(norm.stockValueCost), sub: 'At period end (est.)', color: 'text-orange' },
+            { label: t('kpi.stockValue'), value: formatCurrency(norm.stockValueCost), sub: t('kpi.stockSub'), color: 'text-orange' },
             {
-                label: 'Potential Profit',
+                label: t('kpi.potentialProfit'),
                 value: formatCurrency(norm.potentialProfit),
-                sub: `${norm.activeSkus} SKUs with stock`,
+                sub: t('kpi.skusWithStock', { n: norm.activeSkus }),
                 color: 'text-purple',
             },
         ];
-    }, [norm]);
+    }, [norm, t]);
 
     const completedOrdersDisplay = norm?.completedOrdersCount ?? 0;
 
-    const tabs = [
-        { id: 'recent_orders', label: 'Orders' },
-        { id: 'daily_sales', label: 'Daily Sales' },
-        { id: 'by_technician', label: 'By Technician' },
-        { id: 'by_customer', label: 'By Customer' },
-        { id: 'by_product', label: 'By Product' },
-        { id: 'by_department', label: 'By Department' },
-        { id: 'by_category', label: 'By Categories' },
-        { id: 'by_branch', label: 'By Branch' },
-        { id: 'by_cashier', label: 'By Cashier' },
-    ];
+    const tabs = REPORT_TABS;
 
     const periodLine = useMemo(() => {
         if (!norm?.period?.start_date && !norm?.period?.startDate) return null;
@@ -1036,10 +1079,10 @@ export default function SalesReports({ portal = 'admin' }) {
         if (!curStart || !curEnd) return null;
         const prev =
             prevStart && prevEnd
-                ? ` · Previous: ${prevStart} → ${prevEnd}`
+                ? t('page.periodPrev', { start: prevStart, end: prevEnd })
                 : '';
-        return `Period: ${curStart} → ${curEnd}${prev}`;
-    }, [norm]);
+        return `${t('page.period', { start: curStart, end: curEnd })}${prev}`;
+    }, [norm, t]);
 
     const filteredDailyRevenue = useMemo(() => {
         const rows = norm?.dailyRevenue ?? [];
@@ -1196,9 +1239,9 @@ export default function SalesReports({ portal = 'admin' }) {
         <div className="ws-reports-page">
             <div className="ws-reports-header">
                 <div>
-                    <h2 className="ws-page-title">Sales Reports</h2>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
                     <p className="ws-page-sub">
-                        Workshop · <strong>{workshopLabel}</strong> · Scope · <strong>{branchLabel}</strong>
+                        {t('page.subWorkshop')} · <strong>{workshopLabel}</strong> · {t('page.subScope')} · <strong>{branchLabel}</strong>
                     </p>
                     {periodLine && (
                         <p className="ws-text-dim" style={{ margin: '4px 0 0', fontSize: '0.8125rem' }}>
@@ -1207,7 +1250,7 @@ export default function SalesReports({ portal = 'admin' }) {
                     )}
                 </div>
                 <div className="ws-online-badge">
-                    <div className="ws-online-dot" /> Online
+                    <div className="ws-online-dot" /> {t('page.online')}
                 </div>
             </div>
 
@@ -1218,10 +1261,10 @@ export default function SalesReports({ portal = 'admin' }) {
                         value={selectedWorkshopId}
                         onChange={(e) => setSelectedWorkshopId(e.target.value)}
                         disabled={workshopOptionsLoading}
-                        aria-label="Select workshop"
+                        aria-label={t('filter.selectWorkshop')}
                     >
                         <option value="">
-                            {workshopOptionsLoading ? 'Loading workshops…' : 'Select workshop'}
+                            {workshopOptionsLoading ? t('filter.loadingWorkshops') : t('filter.selectWorkshop')}
                         </option>
                         {workshopOptions.map((w) => (
                             <option key={w.id} value={w.id}>{w.name}</option>
@@ -1232,9 +1275,9 @@ export default function SalesReports({ portal = 'admin' }) {
                         value={selectedBranchId}
                         onChange={(e) => setSelectedBranchId(e.target.value)}
                         disabled={!hasWorkshop || branchOptionsLoading}
-                        aria-label="Select branch"
+                        aria-label={t('filter.selectBranch')}
                     >
-                        <option value="all">{hasWorkshop ? 'All branches' : 'Select workshop first'}</option>
+                        <option value="all">{hasWorkshop ? t('filter.allBranches') : t('filter.selectWorkshopFirst')}</option>
                         {branchOptions.map((b) => (
                             <option key={b.id} value={b.id}>{b.name}</option>
                         ))}
@@ -1245,16 +1288,16 @@ export default function SalesReports({ portal = 'admin' }) {
                             value={rangeFromLocal}
                             onChange={(e) => setRangeFromLocal(e.target.value)}
                             step={60}
-                            aria-label="From date and time"
+                            aria-label={t('filter.from')}
                             disabled={!hasWorkshop}
                         />
-                        <span className="ws-text-dim">to</span>
+                        <span className="ws-text-dim">{t('filter.toWord')}</span>
                         <input
                             type="datetime-local"
                             value={rangeToLocal}
                             onChange={(e) => setRangeToLocal(e.target.value)}
                             step={60}
-                            aria-label="To date and time"
+                            aria-label={t('filter.to')}
                             disabled={!hasWorkshop}
                         />
                     </div>
@@ -1264,17 +1307,17 @@ export default function SalesReports({ portal = 'admin' }) {
                         onClick={loadReports}
                         disabled={isLoading || !hasWorkshop}
                     >
-                        <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
+                        <RefreshCw size={14} /> {isLoading ? t('filter.refreshing') : t('filter.refresh')}
                     </button>
                 </div>
                 <div className="ws-order-count">
-                    <span>{completedOrdersDisplay} completed orders</span>
+                    <span>{t('filter.completedOrders', { n: completedOrdersDisplay })}</span>
                 </div>
             </div>
 
             {!hasWorkshop ? (
                 <div className="ws-section" style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                    Select a workshop above to view sales reports.
+                    {t('page.selectWorkshopPrompt')}
                 </div>
             ) : null}
 
@@ -1304,7 +1347,7 @@ export default function SalesReports({ portal = 'admin' }) {
                                 className={`ws-tab-btn ${activeTab === tab.id ? 'active' : ''}`}
                                 onClick={() => setActiveTab(tab.id)}
                             >
-                                {tab.label}
+                                {t(tab.labelKey)}
                             </button>
                         ))}
                     </div>
@@ -1316,15 +1359,15 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <input
                                         type="search"
                                         className="ws-report-tab-search"
-                                        placeholder="Search day, date, amount…"
+                                        placeholder={t('search.daily')}
                                         value={tabSearch.daily_sales}
                                         onChange={(e) => setTabSearch((p) => ({ ...p, daily_sales: e.target.value }))}
-                                        aria-label="Search daily sales"
+                                        aria-label={t('search.aria.daily')}
                                     />
-                                    <TabSortSelect value={tabSort.daily_sales} onChange={setSortFor('daily_sales')} ariaLabel="Sort daily revenue" />
+                                    <TabSortSelect value={tabSort.daily_sales} onChange={setSortFor('daily_sales')} ariaLabel={t('sort.daily')} t={t} />
                                 </div>
                                 <div className="ws-chart-container">
-                                    <h4 className="ws-chart-title">Daily Revenue</h4>
+                                    <h4 className="ws-chart-title">{t('chart.dailyRevenue')}</h4>
                                     <div style={{ width: '100%', height: 300 }}>
                                         <ResponsiveContainer>
                                             <BarChart
@@ -1347,22 +1390,22 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>DAY</th>
-                                                <th>DATE</th>
-                                                <th>REVENUE (SAR)</th>
+                                                <th>{t('th.day')}</th>
+                                                <th>{t('th.date')}</th>
+                                                <th>{t('th.revenue')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(norm?.dailyRevenue ?? []).length === 0 ? (
                                                 <tr>
                                                     <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No daily revenue data
+                                                        {t('empty.daily')}
                                                     </td>
                                                 </tr>
                                             ) : filteredDailyRevenue.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No rows match your search.
+                                                        {t('empty.noMatch')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -1393,15 +1436,15 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <input
                                         type="search"
                                         className="ws-report-tab-search"
-                                        placeholder="Search technician, jobs, revenue…"
+                                        placeholder={t('search.technician')}
                                         value={tabSearch.by_technician}
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_technician: e.target.value }))}
-                                        aria-label="Search by technician"
+                                        aria-label={t('search.aria.technician')}
                                     />
-                                    <TabSortSelect value={tabSort.by_technician} onChange={setSortFor('by_technician')} ariaLabel="Sort technicians by revenue" />
+                                    <TabSortSelect value={tabSort.by_technician} onChange={setSortFor('by_technician')} ariaLabel={t('sort.technician')} t={t} />
                                 </div>
                                 <div className="ws-chart-container">
-                                    <h4 className="ws-chart-title">Revenue by Technician</h4>
+                                    <h4 className="ws-chart-title">{t('chart.byTechnician')}</h4>
                                     <div style={{ width: '100%', height: 300 }}>
                                         <ResponsiveContainer>
                                             <BarChart data={filteredByTechnician} layout="vertical" margin={{ left: 40, right: 20 }}>
@@ -1418,23 +1461,23 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>TECHNICIAN</th>
-                                                <th>COMPLETED JOBS</th>
-                                                <th>REVENUE (SAR)</th>
-                                                <th>COMMISSION (SAR)</th>
+                                                <th>{t('th.technician')}</th>
+                                                <th>{t('th.completedJobs')}</th>
+                                                <th>{t('th.revenue')}</th>
+                                                <th>{t('th.commission')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(norm?.byTechnician ?? []).length === 0 ? (
                                                 <tr>
                                                     <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No technician performance data
+                                                        {t('empty.technician')}
                                                     </td>
                                                 </tr>
                                             ) : filteredByTechnician.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No rows match your search.
+                                                        {t('empty.noMatch')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -1463,34 +1506,34 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <input
                                         type="search"
                                         className="ws-report-tab-search"
-                                        placeholder="Search phone, plate, orders, revenue…"
+                                        placeholder={t('search.customer')}
                                         value={tabSearch.by_customer}
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_customer: e.target.value }))}
-                                        aria-label="Search by customer"
+                                        aria-label={t('search.aria.customer')}
                                     />
-                                    <TabSortSelect value={tabSort.by_customer} onChange={setSortFor('by_customer')} ariaLabel="Sort customers by revenue" />
+                                    <TabSortSelect value={tabSort.by_customer} onChange={setSortFor('by_customer')} ariaLabel={t('sort.customer')} t={t} />
                                 </div>
                                 <div className="ws-report-table-wrapper">
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>PHONE NUMBER</th>
-                                                <th>PLATE NUMBER</th>
-                                                <th>ORDERS</th>
-                                                <th>REVENUE (SAR)</th>
+                                                <th>{t('th.phone')}</th>
+                                                <th>{t('th.plate')}</th>
+                                                <th>{t('th.orders')}</th>
+                                                <th>{t('th.revenue')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(norm?.byCustomer ?? []).length === 0 ? (
                                                 <tr>
                                                     <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No customer breakdown for this scope.
+                                                        {t('empty.customer')}
                                                     </td>
                                                 </tr>
                                             ) : filteredByCustomer.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No rows match your search.
+                                                        {t('empty.noMatch')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -1528,7 +1571,7 @@ export default function SalesReports({ portal = 'admin' }) {
                                 <div className="ws-report-tab-toolbar ws-report-tab-toolbar--split">
                                     <div className="ws-report-tab-toolbar-left">
                                         <label className="ws-report-tab-field-label" htmlFor="admin-by-product-tech">
-                                            Technician
+                                            {t('product.techLabel')}
                                         </label>
                                         <select
                                             id="admin-by-product-tech"
@@ -1536,26 +1579,26 @@ export default function SalesReports({ portal = 'admin' }) {
                                             value={byProductTechnicianId}
                                             onChange={handleByProductTechnicianChange}
                                             disabled={isLoading || byProductTechnicianLoading}
-                                            aria-label="Filter product sales by technician"
+                                            aria-label={t('product.techAria')}
                                         >
-                                            <option value="">All technicians</option>
-                                            {technicianOptions.map((t) => (
-                                                <option key={t.id} value={t.id}>{t.name}</option>
+                                            <option value="">{t('product.allTechs')}</option>
+                                            {technicianOptions.map((techOpt) => (
+                                                <option key={techOpt.id} value={techOpt.id}>{techOpt.name}</option>
                                             ))}
                                         </select>
                                         {byProductTechnicianLoading && (
-                                            <span className="ws-text-dim ws-report-tab-inline-hint">Updating…</span>
+                                            <span className="ws-text-dim ws-report-tab-inline-hint">{t('common.updating')}</span>
                                         )}
                                     </div>
                                     <input
                                         type="search"
                                         className="ws-report-tab-search"
-                                        placeholder="Search product, type, qty, revenue…"
+                                        placeholder={t('search.product')}
                                         value={tabSearch.by_product}
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_product: e.target.value }))}
-                                        aria-label="Search by product"
+                                        aria-label={t('search.aria.product')}
                                     />
-                                    <TabSortSelect value={tabSort.by_product} onChange={setSortFor('by_product')} ariaLabel="Sort products by revenue" />
+                                    <TabSortSelect value={tabSort.by_product} onChange={setSortFor('by_product')} ariaLabel={t('sort.product')} t={t} />
                                 </div>
                                 {byProductTechnicianError && (
                                     <p className="ws-report-tab-inline-error" role="alert">
@@ -1566,23 +1609,23 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>PRODUCT / SERVICE</th>
-                                                <th>TYPE</th>
-                                                <th>QTY</th>
-                                                <th>REVENUE (SAR)</th>
+                                                <th>{t('th.product')}</th>
+                                                <th>{t('th.type')}</th>
+                                                <th>{t('th.qty')}</th>
+                                                <th>{t('th.revenue')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(norm?.byProduct ?? []).length === 0 ? (
                                                 <tr>
                                                     <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No product breakdown for this scope.
+                                                        {t('empty.product')}
                                                     </td>
                                                 </tr>
                                             ) : filteredByProduct.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No rows match your search.
+                                                        {t('empty.noMatch')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -1621,33 +1664,33 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <input
                                         type="search"
                                         className="ws-report-tab-search"
-                                        placeholder="Search department, orders, revenue…"
+                                        placeholder={t('search.department')}
                                         value={tabSearch.by_department}
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_department: e.target.value }))}
-                                        aria-label="Search by department"
+                                        aria-label={t('search.aria.department')}
                                     />
-                                    <TabSortSelect value={tabSort.by_department} onChange={setSortFor('by_department')} ariaLabel="Sort departments by revenue" />
+                                    <TabSortSelect value={tabSort.by_department} onChange={setSortFor('by_department')} ariaLabel={t('sort.department')} t={t} />
                                 </div>
                                 <div className="ws-report-table-wrapper">
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>DEPARTMENT</th>
-                                                <th>ORDERS</th>
-                                                <th>REVENUE (SAR)</th>
+                                                <th>{t('th.department')}</th>
+                                                <th>{t('th.orders')}</th>
+                                                <th>{t('th.revenue')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(norm?.byDepartment ?? []).length === 0 ? (
                                                 <tr>
                                                     <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No department breakdown for this scope.
+                                                        {t('empty.department')}
                                                     </td>
                                                 </tr>
                                             ) : filteredByDepartment.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No rows match your search.
+                                                        {t('empty.noMatch')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -1677,34 +1720,34 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <input
                                         type="search"
                                         className="ws-report-tab-search"
-                                        placeholder="Search category, qty, orders, revenue…"
+                                        placeholder={t('search.category')}
                                         value={tabSearch.by_category}
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_category: e.target.value }))}
-                                        aria-label="Search by category"
+                                        aria-label={t('search.aria.category')}
                                     />
-                                    <TabSortSelect value={tabSort.by_category} onChange={setSortFor('by_category')} ariaLabel="Sort categories by revenue" />
+                                    <TabSortSelect value={tabSort.by_category} onChange={setSortFor('by_category')} ariaLabel={t('sort.category')} t={t} />
                                 </div>
                                 <div className="ws-report-table-wrapper">
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>CATEGORY</th>
-                                                <th>QTY SOLD</th>
-                                                <th>ORDERS</th>
-                                                <th>REVENUE (SAR)</th>
+                                                <th>{t('th.category')}</th>
+                                                <th>{t('th.qtySold')}</th>
+                                                <th>{t('th.orders')}</th>
+                                                <th>{t('th.revenue')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(norm?.byCategory ?? []).length === 0 ? (
                                                 <tr>
                                                     <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No category breakdown for this scope.
+                                                        {t('empty.category')}
                                                     </td>
                                                 </tr>
                                             ) : filteredByCategory.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No rows match your search.
+                                                        {t('empty.noMatch')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -1735,33 +1778,33 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <input
                                         type="search"
                                         className="ws-report-tab-search"
-                                        placeholder="Search branch, orders, revenue…"
+                                        placeholder={t('search.branch')}
                                         value={tabSearch.by_branch}
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_branch: e.target.value }))}
-                                        aria-label="Search by branch"
+                                        aria-label={t('search.aria.branch')}
                                     />
-                                    <TabSortSelect value={tabSort.by_branch} onChange={setSortFor('by_branch')} ariaLabel="Sort branches by revenue" />
+                                    <TabSortSelect value={tabSort.by_branch} onChange={setSortFor('by_branch')} ariaLabel={t('sort.branch')} t={t} />
                                 </div>
                                 <div className="ws-report-table-wrapper">
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>BRANCH</th>
-                                                <th>COMPLETED ORDERS</th>
-                                                <th>REVENUE (SAR)</th>
+                                                <th>{t('th.branch')}</th>
+                                                <th>{t('th.completedOrders')}</th>
+                                                <th>{t('th.revenue')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(norm?.byBranch ?? []).length === 0 ? (
                                                 <tr>
                                                     <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No branch breakdown (select “All branches” for cross-branch).
+                                                        {t('empty.branch')}
                                                     </td>
                                                 </tr>
                                             ) : filteredByBranch.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No rows match your search.
+                                                        {t('empty.noMatch')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -1791,33 +1834,33 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <input
                                         type="search"
                                         className="ws-report-tab-search"
-                                        placeholder="Search cashier, orders, revenue…"
+                                        placeholder={t('search.cashier')}
                                         value={tabSearch.by_cashier}
                                         onChange={(e) => setTabSearch((p) => ({ ...p, by_cashier: e.target.value }))}
-                                        aria-label="Search by cashier"
+                                        aria-label={t('search.aria.cashier')}
                                     />
-                                    <TabSortSelect value={tabSort.by_cashier} onChange={setSortFor('by_cashier')} ariaLabel="Sort cashiers by revenue" />
+                                    <TabSortSelect value={tabSort.by_cashier} onChange={setSortFor('by_cashier')} ariaLabel={t('sort.cashier')} t={t} />
                                 </div>
                                 <div className="ws-report-table-wrapper">
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>CASHIER</th>
-                                                <th>TOTAL ORDERS</th>
-                                                <th>TOTAL REVENUE (SAR)</th>
+                                                <th>{t('th.cashier')}</th>
+                                                <th>{t('th.totalOrders')}</th>
+                                                <th>{t('th.totalRevenue')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(norm?.byCashier ?? []).length === 0 ? (
                                                 <tr>
                                                     <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No cashier sales in this scope.
+                                                        {t('empty.cashier')}
                                                     </td>
                                                 </tr>
                                             ) : filteredByCashier.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        No rows match your search.
+                                                        {t('empty.noMatch')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -1855,12 +1898,12 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <input
                                         type="search"
                                         className="ws-report-tab-search"
-                                        placeholder="Search invoice no., order id, customer, plate…"
+                                        placeholder={t('search.orders')}
                                         value={ordersSearchInput}
                                         onChange={(e) => setOrdersSearchInput(e.target.value)}
-                                        aria-label="Search orders"
+                                        aria-label={t('search.aria.orders')}
                                     />
-                                    <TabSortSelect value={tabSort.recent_orders} onChange={setSortFor('recent_orders')} ariaLabel="Sort orders by total" />
+                                    <TabSortSelect value={tabSort.recent_orders} onChange={setSortFor('recent_orders')} ariaLabel={t('sort.orders')} t={t} />
                                     <ExportMenu
                                         onPdf={() => runOrdersExport('pdf')}
                                         onExcel={() => runOrdersExport('excel')}
@@ -1887,28 +1930,28 @@ export default function SalesReports({ portal = 'admin' }) {
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>INVOICE / ORDER</th>
-                                                <th>TYPE</th>
-                                                <th>STATUS</th>
-                                                <th>DATE / TIME</th>
-                                                <th>CUSTOMER NAME</th>
-                                                <th>PLATE NO</th>
-                                                <th>TOTAL (SAR)</th>
+                                                <th>{t('th.invoiceOrder')}</th>
+                                                <th>{t('th.orderType')}</th>
+                                                <th>{t('th.status')}</th>
+                                                <th>{t('th.dateTime')}</th>
+                                                <th>{t('th.customerName')}</th>
+                                                <th>{t('th.plateNo')}</th>
+                                                <th>{t('th.totalSar')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {ordersListLoading && recentOrders.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={7} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                        Loading orders…
+                                                        {t('empty.loadingOrders')}
                                                     </td>
                                                 </tr>
                                             ) : ordersTotal === 0 && !ordersListLoading ? (
                                                 <tr>
                                                     <td colSpan={7} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                                         {ordersSearchDebounced
-                                                            ? 'No orders match your search in this date range.'
-                                                            : 'No orders in this scope.'}
+                                                            ? t('empty.ordersSearch')
+                                                            : t('empty.orders')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -1923,19 +1966,19 @@ export default function SalesReports({ portal = 'admin' }) {
                                                         >
                                                             <td>
                                                                 <strong>
-                                                                    {isOpen ? 'Pending invoice' : (row.invoiceNo ?? '—')}
+                                                                    {isOpen ? t('orders.pendingInvoice') : (row.invoiceNo ?? t('common.emDash'))}
                                                                 </strong>
                                                                 {isOpen && row.salesOrderId != null ? (
                                                                     <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-text-muted)' }}>
-                                                                        Order #{row.salesOrderId}
+                                                                        {t('orders.orderNo', { id: row.salesOrderId })}
                                                                     </span>
                                                                 ) : null}
                                                             </td>
-                                                            <td style={{ fontSize: '0.8125rem' }}>{formatOrderSourceLabel(row.orderSource)}</td>
+                                                            <td style={{ fontSize: '0.8125rem' }}>{formatOrderSourceLabel(row.orderSource, t)}</td>
                                                             <td style={{ fontSize: '0.8125rem' }}>{formatOrderStatusLabel(row.orderStatus)}</td>
                                                             <td>{formatInvoiceDateTimeForDisplay(row)}</td>
-                                                            <td>{row.customerName ?? '—'}</td>
-                                                            <td>{row.plateNo ?? '—'}</td>
+                                                            <td>{row.customerName ?? t('common.emDash')}</td>
+                                                            <td>{row.plateNo ?? t('common.emDash')}</td>
                                                             <td className="ws-font-bold">SAR {toNumber(row.invoiceTotal).toLocaleString()}</td>
                                                         </tr>
                                                     );
@@ -1947,20 +1990,23 @@ export default function SalesReports({ portal = 'admin' }) {
                                 {ordersTotal > 0 && (
                                     <div className="ws-report-pagination">
                                         <p className="ws-report-pagination__info">
-                                            Showing <strong>{ordersRangeFrom}</strong>–<strong>{ordersRangeTo}</strong> of{' '}
-                                            <strong>{ordersTotal}</strong>
-                                            {ordersListLoading ? <span> · Loading…</span> : null}
+                                            {t('orders.showing', {
+                                                from: ordersRangeFrom,
+                                                to: ordersRangeTo,
+                                                total: ordersTotal,
+                                            })}
+                                            {ordersListLoading ? <span> · {t('common.loading')}</span> : null}
                                         </p>
-                                        <nav className="ws-report-pagination__nav" aria-label="Orders list pages">
+                                        <nav className="ws-report-pagination__nav" aria-label={t('orders.pagesAria')}>
                                             <button
                                                 type="button"
                                                 className="ws-report-pagination__edge"
                                                 disabled={ordersPage <= 1 || ordersListLoading}
                                                 onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
                                             >
-                                                Previous
+                                                {t('orders.prev')}
                                             </button>
-                                            <div className="ws-report-pagination__pages" role="group" aria-label="Page numbers">
+                                            <div className="ws-report-pagination__pages" role="group" aria-label={t('orders.pageNumsAria')}>
                                                 {(() => {
                                                     const totalP = ordersTotalPages;
                                                     const cur = ordersPage;
@@ -1990,7 +2036,7 @@ export default function SalesReports({ portal = 'admin' }) {
                                                 disabled={ordersPage >= ordersTotalPages || ordersListLoading}
                                                 onClick={() => setOrdersPage((p) => Math.min(ordersTotalPages, p + 1))}
                                             >
-                                                Next
+                                                {t('orders.next')}
                                             </button>
                                         </nav>
                                     </div>
@@ -2003,13 +2049,14 @@ export default function SalesReports({ portal = 'admin' }) {
 
             {(recentOrderDetailsLoading || recentOrderDetailsError || recentOrderDetails) && (
                 <Modal
-                    title={`Order ${
-                        recentOrderDetails?.listingKind === 'open' || !recentOrderDetails?.invoiceNo
-                            ? recentOrderDetails?.salesOrderId
-                                ? `(pending invoice · #${recentOrderDetails.salesOrderId})`
-                                : 'Details'
-                            : `- ${recentOrderDetails.invoiceNo}`
-                    }`}
+                    title={t('modal.orderTitle', {
+                        suffix:
+                            recentOrderDetails?.listingKind === 'open' || !recentOrderDetails?.invoiceNo
+                                ? recentOrderDetails?.salesOrderId
+                                    ? t('modal.pendingSuffix', { id: recentOrderDetails.salesOrderId })
+                                    : t('common.details')
+                                : t('modal.invoiceSuffix', { no: recentOrderDetails.invoiceNo }),
+                    })}
                     contentClassName="ws-modal-order-details"
                     onClose={() => {
                         recentOrderDetailsTargetRef.current = null;
@@ -2029,58 +2076,58 @@ export default function SalesReports({ portal = 'admin' }) {
                                 <table className="ws-table">
                                     <tbody>
                                         <tr>
-                                            <th>ORDER TYPE</th>
-                                            <td>{formatOrderSourceLabel(recentOrderDetails.orderSource)}</td>
+                                            <th>{t('modal.orderType')}</th>
+                                            <td>{formatOrderSourceLabel(recentOrderDetails.orderSource, t)}</td>
                                         </tr>
                                         <tr>
-                                            <th>ORDER STATUS</th>
+                                            <th>{t('modal.orderStatus')}</th>
                                             <td>{formatOrderStatusLabel(recentOrderDetails.orderStatus)}</td>
                                         </tr>
                                         {recentOrderDetails.invoiceNo ? (
                                             <tr>
-                                                <th>INVOICE NO</th>
+                                                <th>{t('modal.invoiceNo')}</th>
                                                 <td>{recentOrderDetails.invoiceNo}</td>
                                             </tr>
                                         ) : null}
                                         {recentOrderDetails.orderPlacedAt ? (
                                             <tr>
-                                                <th>ORDER PLACED</th>
+                                                <th>{t('modal.orderPlaced')}</th>
                                                 <td>{formatReportInstant(recentOrderDetails.orderPlacedAt)}</td>
                                             </tr>
                                         ) : null}
                                         {(recentOrderDetails.listingKind === 'invoice' || recentOrderDetails.invoiceNo) ? (
                                             <tr>
-                                                <th>INVOICE DATE &amp; TIME</th>
+                                                <th>{t('modal.invoiceDateTime')}</th>
                                                 <td>{formatInvoiceDateTimeForDisplay(recentOrderDetails)}</td>
                                             </tr>
                                         ) : null}
-                                        <tr><th>CUSTOMER NAME</th><td>{recentOrderDetails.customerName ?? '—'}</td></tr>
-                                        <tr><th>PHONE</th><td>{recentOrderDetails.phone ?? '—'}</td></tr>
-                                        <tr><th>VEHICLE NO</th><td>{recentOrderDetails.vehicleNo ?? '—'}</td></tr>
-                                        <tr><th>DEPARTMENTS</th><td>{(recentOrderDetails.departments ?? []).map((d) => d?.name).filter(Boolean).join(', ') || '—'}</td></tr>
-                                        <tr><th>TECHNICIANS</th><td>{(recentOrderDetails.technicians ?? []).map((t) => t?.name).filter(Boolean).join(', ') || '—'}</td></tr>
-                                        <tr><th>TOTAL AMOUNT</th><td>SAR {toNumber(recentOrderDetails.totalAmount).toLocaleString()}</td></tr>
-                                        <tr><th>PAYMENT METHOD</th><td>{recentOrderDetails.paymentMethod ?? '—'}</td></tr>
-                                        <tr><th>CUSTOMER TYPE</th><td>{recentOrderDetails.customerType ?? '—'}</td></tr>
+                                        <tr><th>{t('modal.customerName')}</th><td>{recentOrderDetails.customerName ?? t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.phone')}</th><td>{recentOrderDetails.phone ?? t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.vehicleNo')}</th><td>{recentOrderDetails.vehicleNo ?? t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.departments')}</th><td>{(recentOrderDetails.departments ?? []).map((d) => d?.name).filter(Boolean).join(', ') || t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.technicians')}</th><td>{(recentOrderDetails.technicians ?? []).map((tech) => tech?.name).filter(Boolean).join(', ') || t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.totalAmount')}</th><td>SAR {toNumber(recentOrderDetails.totalAmount).toLocaleString()}</td></tr>
+                                        <tr><th>{t('modal.paymentMethod')}</th><td>{recentOrderDetails.paymentMethod ?? t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.customerType')}</th><td>{recentOrderDetails.customerType ?? t('common.emDash')}</td></tr>
                                     </tbody>
                                 </table>
                             </div>
                             {recentOrderDetails.orderDiscount ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Order discount &amp; promo</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('modal.orderDiscPromo')}</p>
                                     <table className="ws-table">
                                         <tbody>
                                             <tr>
-                                                <th>Order-level discount</th>
+                                                <th>{t('modal.orderLevelDisc')}</th>
                                                 <td>{formatDiscountCell(recentOrderDetails.orderDiscount.totalDiscountType, recentOrderDetails.orderDiscount.totalDiscountValue)}</td>
                                             </tr>
                                             <tr>
-                                                <th>Promo discount (order)</th>
+                                                <th>{t('modal.promoDisc')}</th>
                                                 <td>SAR {toNumber(recentOrderDetails.orderDiscount.promoDiscountAmount).toLocaleString()}</td>
                                             </tr>
                                             <tr>
-                                                <th>Promo code</th>
-                                                <td>{recentOrderDetails.orderDiscount.promoCode ?? '—'}</td>
+                                                <th>{t('modal.promoCode')}</th>
+                                                <td>{recentOrderDetails.orderDiscount.promoCode ?? t('common.emDash')}</td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -2088,32 +2135,32 @@ export default function SalesReports({ portal = 'admin' }) {
                             ) : null}
                             {Array.isArray(recentOrderDetails.jobsDetail) && recentOrderDetails.jobsDetail.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Jobs</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('modal.jobs')}</p>
                                     <div className="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Job #</th>
-                                                    <th>Department</th>
-                                                    <th>Job status</th>
-                                                    <th>Opened</th>
-                                                    <th>Completed</th>
-                                                    <th>Job discount</th>
-                                                    <th>Promo</th>
-                                                    <th>Before disc.</th>
-                                                    <th>After disc.</th>
-                                                    <th>VAT</th>
-                                                    <th>Job total</th>
+                                                    <th>{t('modal.jobNo')}</th>
+                                                    <th>{t('modal.department')}</th>
+                                                    <th>{t('modal.jobStatus')}</th>
+                                                    <th>{t('modal.opened')}</th>
+                                                    <th>{t('modal.completed')}</th>
+                                                    <th>{t('modal.jobDiscount')}</th>
+                                                    <th>{t('modal.promo')}</th>
+                                                    <th>{t('modal.beforeDisc')}</th>
+                                                    <th>{t('modal.afterDisc')}</th>
+                                                    <th>{t('modal.vat')}</th>
+                                                    <th>{t('modal.jobTotal')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {recentOrderDetails.jobsDetail.map((job) => (
                                                     <tr key={job.jobId}>
-                                                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>{job.jobId ?? '—'}</td>
-                                                        <td>{job.departmentName ?? '—'}</td>
+                                                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>{job.jobId ?? t('common.emDash')}</td>
+                                                        <td>{job.departmentName ?? t('common.emDash')}</td>
                                                         <td>{formatOrderStatusLabel(job.status)}</td>
                                                         <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>{formatReportInstant(job.createdAt)}</td>
-                                                        <td style={{ fontSize: '0.8125rem' }}>{formatJobCompletedDisplay(job)}</td>
+                                                        <td style={{ fontSize: '0.8125rem' }}>{formatJobCompletedDisplay(job, t)}</td>
                                                         <td>{formatDiscountCell(job.totalDiscountType, job.totalDiscountValue)}</td>
                                                         <td>SAR {toNumber(job.promoDiscountAmount).toLocaleString()}</td>
                                                         <td>SAR {toNumber(job.amountBeforeDiscount).toLocaleString()}</td>
@@ -2129,33 +2176,33 @@ export default function SalesReports({ portal = 'admin' }) {
                             ) : null}
                             {Array.isArray(recentOrderDetails.lineItems) && recentOrderDetails.lineItems.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Line items</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('modal.lineItems')}</p>
                                     <div className="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Job #</th>
-                                                    <th>Dept</th>
-                                                    <th>Item</th>
-                                                    <th>Type</th>
-                                                    <th>Qty</th>
-                                                    <th>Unit (SAR)</th>
-                                                    <th>Discount</th>
-                                                    <th>VAT</th>
-                                                    <th>Line (SAR)</th>
+                                                    <th>{t('modal.jobNo')}</th>
+                                                    <th>{t('modal.dept')}</th>
+                                                    <th>{t('modal.item')}</th>
+                                                    <th>{t('modal.type')}</th>
+                                                    <th>{t('modal.qty')}</th>
+                                                    <th>{t('modal.unitSar')}</th>
+                                                    <th>{t('modal.discount')}</th>
+                                                    <th>{t('modal.vat')}</th>
+                                                    <th>{t('modal.lineSar')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {recentOrderDetails.lineItems.map((row) => (
                                                     <tr key={row.salesOrderItemId}>
-                                                        <td>{row.jobId ?? '—'}</td>
-                                                        <td>{row.departmentName ?? '—'}</td>
-                                                        <td>{row.name ?? '—'}</td>
-                                                        <td>{row.itemType ?? '—'}</td>
+                                                        <td>{row.jobId ?? t('common.emDash')}</td>
+                                                        <td>{row.departmentName ?? t('common.emDash')}</td>
+                                                        <td>{row.name ?? t('common.emDash')}</td>
+                                                        <td>{row.itemType ?? t('common.emDash')}</td>
                                                         <td>{row.qty}</td>
                                                         <td>{toNumber(row.unitPrice).toLocaleString()}</td>
                                                         <td>{formatDiscountCell(row.discountType, row.discountValue)}</td>
-                                                        <td style={{ fontSize: '0.8125rem' }}>{toNumber(row.vatPercent)}% · {String(row.vatMode ?? '—')}</td>
+                                                        <td style={{ fontSize: '0.8125rem' }}>{toNumber(row.vatPercent)}% · {String(row.vatMode ?? t('common.emDash'))}</td>
                                                         <td className="ws-font-bold">{toNumber(row.lineTotal).toLocaleString()}</td>
                                                     </tr>
                                                 ))}
@@ -2171,7 +2218,7 @@ export default function SalesReports({ portal = 'admin' }) {
 
             {(detailsLoading || detailsError || detailRows.length > 0) && (
                 <Modal
-                    title={detailsTitle || 'Details'}
+                    title={detailsTitle || t('common.details')}
                     onClose={() => {
                         detailAnchorRef.current = null;
                         setDetailRows([]);
@@ -2218,9 +2265,9 @@ export default function SalesReports({ portal = 'admin' }) {
                                                         {columns.map((k) => (
                                                             <th key={k} style={{ padding: '8px 10px' }}>
                                                                 {isInvoiceDateDetailColumnKey(k)
-                                                                    ? 'DATE / TIME'
+                                                                    ? t('detail.col.dateTime')
                                                                     : isMoneyDetailColumnKey(k)
-                                                                      ? `${humanizeKey(k)} (SAR)`
+                                                                      ? t('detail.col.sarSuffix', { label: humanizeKey(k) })
                                                                       : humanizeKey(k)}
                                                             </th>
                                                         ))}
@@ -2249,10 +2296,10 @@ export default function SalesReports({ portal = 'admin' }) {
                                                                                             }}
                                                                                         >
                                                                                             <div style={{ fontWeight: 700, fontSize: 12 }}>
-                                                                                                {item.itemName ?? item.name ?? `Item ${idx + 1}`}
+                                                                                                {item.itemName ?? item.name ?? t('detail.itemN', { n: idx + 1 })}
                                                                                             </div>
                                                                                             {(() => {
-                                                                                                const sub = formatLineItemSubtext(item);
+                                                                                                const sub = formatLineItemSubtext(item, t);
                                                                                                 return (
                                                                                                     <>
                                                                                                         <div style={{ fontSize: 11, color: '#6B7280' }}>{sub.line1}</div>
@@ -2271,7 +2318,7 @@ export default function SalesReports({ portal = 'admin' }) {
                                                                         ) : isInvoiceDateDetailColumnKey(k) ? (
                                                                             formatInvoiceDateTimeForDisplay(row)
                                                                         ) : val == null || val === '' ? (
-                                                                            '—'
+                                                                            t('common.emDash')
                                                                         ) : (
                                                                             String(val)
                                                                         )}

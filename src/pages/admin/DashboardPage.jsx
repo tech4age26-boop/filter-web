@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { Navigate, useNavigate, useOutletContext } from 'react-router-dom';
 import {
     AlertCircle,
     Banknote,
@@ -34,51 +34,52 @@ import { ShimmerKpiGrid, ShimmerListRows } from '../../components/supplier/Shimm
 import '../../styles/admin/DashboardPage.css';
 import { getStats, getSalesOrders, getProducts } from '../../services/superAdminApi';
 import { list as listApprovals } from '../../services/approvalsApi';
+import { dashT } from '../../utils/dashboardI18n';
 
 const PRIMARY_STATS = [
-    { key: 'workshops', label: 'Workshops', icon: Wrench, tone: 'gold' },
-    { key: 'branches', label: 'Branches', icon: GitBranch, tone: 'blue' },
-    { key: 'users', label: 'Users', icon: Users, tone: 'violet' },
-    { key: 'customers', label: 'Customers', icon: UserCheck, tone: 'green' },
+    { key: 'workshops', labelKey: 'stat.workshops', icon: Wrench, tone: 'gold' },
+    { key: 'branches', labelKey: 'stat.branches', icon: GitBranch, tone: 'blue' },
+    { key: 'users', labelKey: 'stat.users', icon: Users, tone: 'violet' },
+    { key: 'customers', labelKey: 'stat.customers', icon: UserCheck, tone: 'green' },
 ];
 
 const SECONDARY_STATS = [
-    { key: 'technicians', label: 'Technicians', icon: Wrench },
-    { key: 'cashiers', label: 'Cashiers', icon: Wallet },
-    { key: 'suppliers', label: 'Suppliers', icon: Truck },
-    { key: 'products', label: 'Products', icon: Package },
-    { key: 'services', label: 'Services', icon: FileText },
-    { key: 'invoices', label: 'Invoices', icon: Receipt },
+    { key: 'technicians', labelKey: 'stat.technicians', icon: Wrench },
+    { key: 'cashiers', labelKey: 'stat.cashiers', icon: Wallet },
+    { key: 'suppliers', labelKey: 'stat.suppliers', icon: Truck },
+    { key: 'products', labelKey: 'stat.products', icon: Package },
+    { key: 'services', labelKey: 'stat.services', icon: FileText },
+    { key: 'invoices', labelKey: 'stat.invoices', icon: Receipt },
 ];
 
 const PORTAL_ACCESS_ITEMS = [
-    { title: 'Locker', icon: Box, path: '/locker', requiresLogout: true },
-    { title: 'Workshop', icon: Building, path: '/workshop', requiresLogout: true },
-    { title: 'POS', icon: ShoppingCart, path: '/pos', requiresLogout: true },
-    { title: 'Technician', icon: Wrench, path: '/technician', requiresLogout: true },
-    { title: 'Corporate', icon: Car, path: '/corporate', requiresLogout: true },
-    { title: 'Supplier', icon: Truck, path: '/supplier', requiresLogout: true },
-    { title: 'Warehouse', icon: Warehouse, path: '/supplier', requiresLogout: false },
-    { title: 'Marketing', icon: Gift, path: '/marketing/dashboard', requiresLogout: false },
-    { title: 'Referrer', icon: UserPlus, path: '/referrer-portal', requiresLogout: true },
+    { titleKey: 'portal.locker', icon: Box, path: '/locker', requiresLogout: true },
+    { titleKey: 'portal.workshop', icon: Building, path: '/workshop', requiresLogout: true },
+    { titleKey: 'portal.pos', icon: ShoppingCart, path: '/pos', requiresLogout: true },
+    { titleKey: 'portal.technician', icon: Wrench, path: '/technician', requiresLogout: true },
+    { titleKey: 'portal.corporate', icon: Car, path: '/corporate', requiresLogout: true },
+    { titleKey: 'portal.supplier', icon: Truck, path: '/supplier', requiresLogout: true },
+    { titleKey: 'portal.warehouse', icon: Warehouse, path: '/supplier', requiresLogout: false },
+    { titleKey: 'portal.marketing', icon: Gift, path: '/marketing/dashboard', requiresLogout: false },
+    { titleKey: 'portal.referrer', icon: UserPlus, path: '/referrer-portal', requiresLogout: true },
 ];
 
 const QUICK_ACTIONS = [
-    { label: 'Cash collection', icon: Banknote, path: '/admin/accounting/cash-bank' },
-    { label: 'Approvals', icon: Clock, path: '/admin/approvals' },
-    { label: 'Petty cash', icon: Wallet, path: '/admin/accounting/cash-bank' },
-    { label: 'Differences', icon: FileText, path: '/admin/accounting/cash-bank' },
-    { label: 'Workshop approvals', icon: ClipboardList, path: '/admin/approvals' },
-    { label: 'Corporate signups', icon: UserCheck, path: '/admin/approvals' },
-    { label: 'Technicians', icon: Users, path: '/admin/employees' },
-    { label: 'Zones', icon: Map, path: '/admin/zone-management' },
+    { labelKey: 'quick.cashCollection', icon: Banknote, path: '/admin/accounting/cash-bank' },
+    { labelKey: 'quick.approvals', icon: Clock, path: '/admin/approvals' },
+    { labelKey: 'quick.pettyCash', icon: Wallet, path: '/admin/accounting/cash-bank' },
+    { labelKey: 'quick.differences', icon: FileText, path: '/admin/accounting/cash-bank' },
+    { labelKey: 'quick.workshopApprovals', icon: ClipboardList, path: '/admin/approvals' },
+    { labelKey: 'quick.corporateSignups', icon: UserCheck, path: '/admin/approvals' },
+    { labelKey: 'quick.technicians', icon: Users, path: '/admin/employees' },
+    { labelKey: 'quick.zones', icon: Map, path: '/admin/zone-management' },
 ];
 
-function formatOrderDate(raw) {
+function formatOrderDate(raw, locale) {
     if (!raw) return '—';
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleString('en-US', {
+    return d.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US', {
         month: 'short',
         day: '2-digit',
         hour: 'numeric',
@@ -87,11 +88,12 @@ function formatOrderDate(raw) {
     });
 }
 
-function formatSar(value) {
+function formatSar(value, t) {
     if (value == null || value === '') return '—';
     const n = Number(value);
     if (!Number.isFinite(n)) return '—';
-    return `SAR ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const amount = n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return t('money.sar', { amount });
 }
 
 function orderStatusClass(status) {
@@ -115,6 +117,12 @@ function PanelEmpty({ icon: Icon, message, hint }) {
 
 export default function DashboardPage() {
     const navigate = useNavigate();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => dashT(locale, key, vars), [locale]);
     const { user, hasPermission } = useAuth();
     const canView = hasPermission('dashboard.view');
 
@@ -182,31 +190,34 @@ export default function DashboardPage() {
         <div className="sa-dashboard module-container">
             <section className="sa-card sa-portals-section">
                 <div className="sa-portals-head">
-                    <h3 className="sa-card-title">Portal access</h3>
-                    <span className="sa-portals-hint">Opens in a separate portal session</span>
+                    <h3 className="sa-card-title">{t('portals.title')}</h3>
+                    <span className="sa-portals-hint">{t('portals.hint')}</span>
                 </div>
                 <div className="sa-portal-tiles">
-                    {PORTAL_ACCESS_ITEMS.map((item) => (
-                        <button
-                            key={item.title}
-                            type="button"
-                            className="sa-portal-tile"
-                            title={item.title}
-                            onClick={() => {
-                                if (item.requiresLogout) {
-                                    navigate(`${item.path}/login`, { state: { forceLogout: true } });
-                                } else {
-                                    navigate(item.path);
-                                }
-                            }}
-                        >
-                            <span className="sa-portal-tile-icon">
-                                <item.icon size={20} />
-                            </span>
-                            <span className="sa-portal-tile-label">{item.title}</span>
-                            <ExternalLink size={11} className="sa-portal-tile-ext" />
-                        </button>
-                    ))}
+                    {PORTAL_ACCESS_ITEMS.map((item) => {
+                        const title = t(item.titleKey);
+                        return (
+                            <button
+                                key={item.titleKey}
+                                type="button"
+                                className="sa-portal-tile"
+                                title={title}
+                                onClick={() => {
+                                    if (item.requiresLogout) {
+                                        navigate(`${item.path}/login`, { state: { forceLogout: true } });
+                                    } else {
+                                        navigate(item.path);
+                                    }
+                                }}
+                            >
+                                <span className="sa-portal-tile-icon">
+                                    <item.icon size={20} />
+                                </span>
+                                <span className="sa-portal-tile-label">{title}</span>
+                                <ExternalLink size={11} className="sa-portal-tile-ext" />
+                            </button>
+                        );
+                    })}
                 </div>
             </section>
 
@@ -222,7 +233,7 @@ export default function DashboardPage() {
                                     <item.icon size={20} />
                                 </span>
                                 <div>
-                                    <p className="sa-metric-label">{item.label}</p>
+                                    <p className="sa-metric-label">{t(item.labelKey)}</p>
                                     <p className="sa-metric-value">{stats?.[item.key] ?? '0'}</p>
                                 </div>
                             </div>
@@ -234,7 +245,7 @@ export default function DashboardPage() {
                     {SECONDARY_STATS.map((item) => (
                         <div key={item.key} className="sa-metric-mini">
                             <item.icon size={15} className="sa-metric-mini-icon" />
-                            <span className="sa-metric-mini-label">{item.label}</span>
+                            <span className="sa-metric-mini-label">{t(item.labelKey)}</span>
                             <span className="sa-metric-mini-value">
                                 {statsLoading ? '—' : (stats?.[item.key] ?? '0')}
                             </span>
@@ -248,13 +259,13 @@ export default function DashboardPage() {
                 <button type="button" className="sa-alert-chip sa-alert-chip--orders" onClick={() => navigate('/admin/sales-orders')}>
                     <ShoppingCart size={16} />
                     <span>
-                        <strong>{statsLoading ? '—' : (stats?.salesOrders ?? '0')}</strong> sales orders
+                        <strong>{statsLoading ? '—' : (stats?.salesOrders ?? '0')}</strong> {t('alert.salesOrders')}
                     </span>
                 </button>
                 <button type="button" className="sa-alert-chip sa-alert-chip--approvals" onClick={() => navigate('/admin/approvals')}>
                     <AlertCircle size={16} />
                     <span>
-                        <strong>{pendingCount ?? '—'}</strong> pending approvals
+                        <strong>{pendingCount ?? '—'}</strong> {t('alert.pendingApprovals')}
                     </span>
                     <ChevronRight size={14} />
                 </button>
@@ -266,7 +277,7 @@ export default function DashboardPage() {
                     >
                         <AlertTriangle size={16} />
                         <span>
-                            <strong>{lowStock.length}</strong> low stock items
+                            <strong>{lowStock.length}</strong> {t('alert.lowStock')}
                         </span>
                         <ChevronRight size={14} />
                     </button>
@@ -281,16 +292,16 @@ export default function DashboardPage() {
                             <span className="sa-dash-panel-icon sa-dash-panel-icon--orders">
                                 <ShoppingCart size={17} />
                             </span>
-                            <h4>Recent orders</h4>
+                            <h4>{t('panel.recentOrders')}</h4>
                         </div>
                         <button type="button" className="sa-panel-link" onClick={() => navigate('/admin/sales-orders')}>
-                            View all
+                            {t('panel.viewAll')}
                         </button>
                     </div>
                     {panelLoading ? (
                         <ShimmerListRows rows={5} />
                     ) : recentOrders.length === 0 ? (
-                        <PanelEmpty icon={ShoppingCart} message="No recent orders" />
+                        <PanelEmpty icon={ShoppingCart} message={t('panel.noRecentOrders')} />
                     ) : (
                         <ul className="sa-panel-list">
                             {recentOrders.map((o) => {
@@ -303,7 +314,7 @@ export default function DashboardPage() {
                                         <div className="sa-panel-row-main">
                                             <span className="sa-panel-row-title">{num}</span>
                                             <span className="sa-panel-row-meta">
-                                                {formatOrderDate(dt)} · {formatSar(total)}
+                                                {formatOrderDate(dt, locale)} · {formatSar(total, t)}
                                             </span>
                                         </div>
                                         <span className={`sa-status-pill ${orderStatusClass(status)}`}>
@@ -322,20 +333,24 @@ export default function DashboardPage() {
                             <span className="sa-dash-panel-icon sa-dash-panel-icon--stock">
                                 <AlertTriangle size={17} />
                             </span>
-                            <h4>Low stock</h4>
+                            <h4>{t('panel.lowStock')}</h4>
                         </div>
                         <button
                             type="button"
                             className="sa-panel-link"
                             onClick={() => navigate('/admin/inventory/products-services')}
                         >
-                            Manage
+                            {t('panel.manage')}
                         </button>
                     </div>
                     {panelLoading ? (
                         <ShimmerListRows rows={5} />
                     ) : lowStock.length === 0 ? (
-                        <PanelEmpty icon={CheckCircle2} message="Stock healthy" hint="Nothing below reorder point" />
+                        <PanelEmpty
+                            icon={CheckCircle2}
+                            message={t('panel.stockHealthy')}
+                            hint={t('panel.stockHealthyHint')}
+                        />
                     ) : (
                         <ul className="sa-panel-list">
                             {lowStock.map((p) => {
@@ -349,10 +364,10 @@ export default function DashboardPage() {
                                         <div className="sa-panel-row-main">
                                             <span className="sa-panel-row-title">{name}</span>
                                             <span className="sa-panel-row-meta">
-                                                {stock} left · reorder {reorder}
+                                                {t('panel.stockLeft', { stock, reorder })}
                                             </span>
                                         </div>
-                                        <span className="sa-status-pill status-low">low</span>
+                                        <span className="sa-status-pill status-low">{t('panel.low')}</span>
                                     </li>
                                 );
                             })}
@@ -366,28 +381,37 @@ export default function DashboardPage() {
                             <span className="sa-dash-panel-icon sa-dash-panel-icon--approvals">
                                 <ClipboardList size={17} />
                             </span>
-                            <h4>Approvals</h4>
+                            <h4>{t('panel.approvals')}</h4>
                         </div>
                         <button type="button" className="sa-panel-link" onClick={() => navigate('/admin/approvals')}>
-                            Review all
+                            {t('panel.reviewAll')}
                         </button>
                     </div>
                     {panelLoading ? (
                         <ShimmerListRows rows={5} />
                     ) : pendingApprovals.length === 0 ? (
-                        <PanelEmpty icon={CheckCircle2} message="All clear" hint="No pending approvals" />
+                        <PanelEmpty
+                            icon={CheckCircle2}
+                            message={t('panel.allClear')}
+                            hint={t('panel.noPending')}
+                        />
                     ) : (
                         <ul className="sa-panel-list">
                             {pendingApprovals.map((a) => {
                                 const type = String(a.entityType ?? a.type ?? 'item').replace(/_/g, ' ');
-                                const desc = a.title ?? a.description ?? a.name ?? a.entityName ?? `${type} pending`;
+                                const desc =
+                                    a.title ??
+                                    a.description ??
+                                    a.name ??
+                                    a.entityName ??
+                                    t('panel.typePending', { type });
                                 const amt = a.amount ?? a.total ?? a.grandTotal ?? a.grand_total;
                                 return (
                                     <li key={`${a.entityType ?? type}-${a.id}`} className="sa-approval-row">
                                         <span className="sa-approval-type">{type}</span>
                                         <p className="sa-approval-desc">{desc}</p>
                                         {amt != null && amt !== '' ? (
-                                            <span className="sa-approval-amount">{formatSar(amt)}</span>
+                                            <span className="sa-approval-amount">{formatSar(amt, t)}</span>
                                         ) : null}
                                     </li>
                                 );
@@ -400,24 +424,24 @@ export default function DashboardPage() {
             {/* Actions + shortcuts */}
             <div className="sa-lower-grid">
                 <section className="sa-card sa-quick-section">
-                    <h3 className="sa-card-title">Quick actions</h3>
+                    <h3 className="sa-card-title">{t('quick.title')}</h3>
                     <div className="sa-quick-grid">
                         {QUICK_ACTIONS.map((action) => (
                             <button
-                                key={action.label}
+                                key={action.labelKey}
                                 type="button"
                                 className="sa-quick-btn"
                                 onClick={() => navigate(action.path)}
                             >
                                 <action.icon size={15} />
-                                <span>{action.label}</span>
+                                <span>{t(action.labelKey)}</span>
                             </button>
                         ))}
                     </div>
                 </section>
 
                 <section className="sa-card sa-shortcuts-section">
-                    <h3 className="sa-card-title">Shortcuts</h3>
+                    <h3 className="sa-card-title">{t('shortcuts.title')}</h3>
                     <button
                         type="button"
                         className="sa-shortcut-row"
@@ -427,8 +451,8 @@ export default function DashboardPage() {
                             <Package size={18} />
                         </span>
                         <span className="sa-shortcut-text">
-                            <strong>Product catalogues</strong>
-                            <span>Approvals, sync & inventory</span>
+                            <strong>{t('shortcuts.catalogues')}</strong>
+                            <span>{t('shortcuts.cataloguesHint')}</span>
                         </span>
                         <ChevronRight size={16} />
                     </button>
@@ -441,8 +465,8 @@ export default function DashboardPage() {
                             <Building2 size={18} />
                         </span>
                         <span className="sa-shortcut-text">
-                            <strong>Corporate customers</strong>
-                            <span>Wallets, billing & top-ups</span>
+                            <strong>{t('shortcuts.corporate')}</strong>
+                            <span>{t('shortcuts.corporateHint')}</span>
                         </span>
                         <ChevronRight size={16} />
                     </button>

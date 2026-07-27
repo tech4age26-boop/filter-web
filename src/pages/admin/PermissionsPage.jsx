@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate, useLocation, useMatch } from 'react-router-dom';
+import { useNavigate, useLocation, useMatch, useOutletContext } from 'react-router-dom';
 import {
     Pencil, Trash2, Search,
     ShieldCheck, Users,
@@ -14,7 +14,8 @@ import ApprovalsPage from './ApprovalsPage';
 import * as permissionsApi from '../../services/permissionsApi';
 import { getWorkshopOptions, getBranches } from '../../services/superAdminApi';
 import { codesToActionsByTab, flattenActionsByTab } from '../../utils/permissions';
-import { portalLoginHint, portalRequiresWorkshopScope } from '../../utils/permissionsPortalUtils';
+import { portalRequiresWorkshopScope } from '../../utils/permissionsPortalUtils';
+import { permT, actionLabel, portalLabel, portalDesc, workshopRoleLabel, portalLoginHintT } from '../../utils/permissionsI18n';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/PermissionsPage.css';
 
@@ -23,13 +24,27 @@ import '../../styles/admin/PermissionsPage.css';
 /* ────────────────────────────────────────────────────────────────────────── */
 
 const PORTALS = [
-    { id: 'super_admin', label: 'Super Admin', icon: ShieldCheck, color: '#7c3aed', desc: 'Platform-wide control' },
-    { id: 'workshop',    label: 'Workshop',    icon: Wrench,      color: '#0d9488', desc: 'Workshop owner / staff' },
-    { id: 'cashier',     label: 'Cashier (POS)', icon: Store,     color: '#2563eb', desc: 'Point of sale operators' },
-    { id: 'technician',  label: 'Technician',  icon: Briefcase,   color: '#ea580c', desc: 'Job execution app' },
-    { id: 'corporate',   label: 'Corporate',   icon: Building,    color: '#0891b2', desc: 'Corporate client portal' },
-    { id: 'supplier',    label: 'Supplier',    icon: ScrollText,  color: '#a16207', desc: 'Supplier portal' },
+    { id: 'super_admin', icon: ShieldCheck, color: '#7c3aed' },
+    { id: 'workshop',    icon: Wrench,      color: '#0d9488' },
+    { id: 'cashier',     icon: Store,       color: '#2563eb' },
+    { id: 'technician',  icon: Briefcase,   color: '#ea580c' },
+    { id: 'corporate',   icon: Building,    color: '#0891b2' },
+    { id: 'supplier',    icon: ScrollText,  color: '#a16207' },
 ];
+
+function getPortalsMeta(locale) {
+    return PORTALS.map((p) => ({
+        ...p,
+        label: portalLabel(locale, p.id),
+        desc: portalDesc(locale, p.id),
+    }));
+}
+
+function getComingSoonTree(t) {
+    return [
+        { section: t('comingSoon.section'), tabs: [{ key: '_placeholder', label: t('comingSoon.label'), actions: [] }] },
+    ];
+}
 
 /** Maps backend `userType` → portal id used in the PORTALS array above. */
 const USER_TYPE_TO_PORTAL = {
@@ -48,27 +63,14 @@ function portalIdForUser(user) {
 }
 
 const WORKSHOP_ROLE_OPTIONS = [
-    { id: 'workshop_owner', label: 'Workshop Owner' },
-    { id: 'manager',        label: 'Manager' },
-    { id: 'supervisor',     label: 'Supervisor' },
-    { id: 'team_leader',    label: 'Team Leader' },
-    { id: 'cashier',        label: 'Cashier' },
-    { id: 'technician',     label: 'Technician' },
+    { id: 'workshop_owner' },
+    { id: 'manager' },
+    { id: 'supervisor' },
+    { id: 'team_leader' },
+    { id: 'cashier' },
+    { id: 'technician' },
 ];
 
-const ACTION_LABEL = {
-    view: 'View',
-    create: 'Create',
-    edit: 'Edit',
-    delete: 'Delete',
-    approve: 'Approve',
-    reject: 'Reject',
-    export: 'Export',
-    'request-from-supplier': 'Request from Supplier',
-    'manual-adjust': 'Manual Adjust',
-    'critical-level': 'Critical level',
-    'force-logout': 'Force Logout',
-};
 const ACTION_COLOR = {
     view: '#0ea5e9',
     create: '#16a34a',
@@ -83,11 +85,6 @@ const ACTION_COLOR = {
     'force-logout': '#dc2626',
 };
 
-/** Fallback skeleton when a portal's tree isn't seeded yet. */
-const COMING_SOON_TREE = [
-    { section: 'COMING SOON', tabs: [{ key: '_placeholder', label: 'Permissions for this portal will be defined in the next step', actions: [] }] },
-];
-
 const PERMISSIONS_LIST_PATH = '/admin/permissions';
 
 /* ────────────────────────────────────────────────────────────────────────── */
@@ -96,6 +93,9 @@ const PERMISSIONS_LIST_PATH = '/admin/permissions';
 
 export default function PermissionsPage() {
     const { hasPermission } = useAuth();
+    const outletCtx = useOutletContext() || {};
+    const locale = outletCtx.locale || localStorage.getItem('portal-locale') || 'en';
+    const t = useCallback((key, vars) => permT(locale, key, vars), [locale]);
     const navigate = useNavigate();
     const location = useLocation();
     const roleNewRoute = useMatch('/admin/permissions/roles/new');
@@ -154,11 +154,11 @@ export default function PermissionsPage() {
                 fetchRegistry('super_admin'),
             ]);
         } catch (e) {
-            setError(e?.message || 'Failed to load permissions data');
+            setError(e?.message || t('error.load'));
         } finally {
             setLoading(false);
         }
-    }, [fetchRoles, fetchUsers, fetchRegistry]);
+    }, [fetchRoles, fetchUsers, fetchRegistry, t]);
 
     useEffect(() => { fetchAll(); }, [fetchAll]);
 
@@ -200,19 +200,19 @@ export default function PermissionsPage() {
             goToPermissionsList();
             await fetchUsers();
         } catch (e) {
-            alert(e?.message || 'Could not update user');
+            alert(e?.message || t('error.updateUser'));
         } finally {
             setSaving(false);
         }
     };
 
     const handleDeleteRole = async (id) => {
-        if (!window.confirm('Delete this role? This cannot be undone.')) return;
+        if (!window.confirm(t('confirm.deleteRole'))) return;
         try {
             await permissionsApi.deleteRole(id);
             await fetchRoles();
         } catch (e) {
-            alert(e?.message || 'Could not delete role');
+            alert(e?.message || t('error.deleteRole'));
         }
     };
 
@@ -238,7 +238,7 @@ export default function PermissionsPage() {
             goToPermissionsList();
             await fetchRoles();
         } catch (e) {
-            alert(e?.message || 'Could not save role');
+            alert(e?.message || t('error.saveRole'));
         } finally {
             setSaving(false);
         }
@@ -252,7 +252,7 @@ export default function PermissionsPage() {
             goToPermissionsList();
             await fetchUsers();
         } catch (e) {
-            alert(e?.message || 'Could not create user');
+            alert(e?.message || t('error.createUser'));
         } finally {
             setSaving(false);
         }
@@ -305,6 +305,8 @@ export default function PermissionsPage() {
                     registryByPortal={registryByPortal}
                     loadRegistry={fetchRegistry}
                     saving={saving}
+                    t={t}
+                    locale={locale}
                 />
             );
         }
@@ -312,16 +314,16 @@ export default function PermissionsPage() {
             if (!routeRoleDetail && loading) {
                 return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 40, justifyContent: 'center', color: '#64748b' }}>
-                        <Loader2 size={20} className="spin" /> Loading role…
+                        <Loader2 size={20} className="spin" /> {t('loading.role')}
                     </div>
                 );
             }
             if (!routeRoleDetail) {
                 return (
                     <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
-                        <p>Role not found.</p>
+                        <p>{t('notFound.role')}</p>
                         <button type="button" className="btn-portal create-role-btn" onClick={goToPermissionsList}>
-                            Back to Users & Permissions
+                            {t('shell.back')}
                         </button>
                     </div>
                 );
@@ -335,6 +337,8 @@ export default function PermissionsPage() {
                     registryByPortal={registryByPortal}
                     loadRegistry={fetchRegistry}
                     saving={saving}
+                    t={t}
+                    locale={locale}
                 />
             );
         }
@@ -346,6 +350,8 @@ export default function PermissionsPage() {
                     onSave={handleSaveUser}
                     roles={roles}
                     saving={saving}
+                    t={t}
+                    locale={locale}
                 />
             );
         }
@@ -353,16 +359,16 @@ export default function PermissionsPage() {
             if (!routeUser && loading) {
                 return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 40, justifyContent: 'center', color: '#64748b' }}>
-                        <Loader2 size={20} className="spin" /> Loading user…
+                        <Loader2 size={20} className="spin" /> {t('loading.user')}
                     </div>
                 );
             }
             if (!routeUser) {
                 return (
                     <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
-                        <p>User not found.</p>
+                        <p>{t('notFound.user')}</p>
                         <button type="button" className="btn-portal create-role-btn" onClick={goToPermissionsList}>
-                            Back to Users & Permissions
+                            {t('shell.back')}
                         </button>
                     </div>
                 );
@@ -375,6 +381,8 @@ export default function PermissionsPage() {
                     onClose={goToPermissionsList}
                     onSave={handleSaveUserRole}
                     saving={saving}
+                    t={t}
+                    locale={locale}
                 />
             );
         }
@@ -382,16 +390,16 @@ export default function PermissionsPage() {
             if (!routeUser && loading) {
                 return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 40, justifyContent: 'center', color: '#64748b' }}>
-                        <Loader2 size={20} className="spin" /> Loading user…
+                        <Loader2 size={20} className="spin" /> {t('loading.user')}
                     </div>
                 );
             }
             if (!routeUser) {
                 return (
                     <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
-                        <p>User not found.</p>
+                        <p>{t('notFound.user')}</p>
                         <button type="button" className="btn-portal create-role-btn" onClick={goToPermissionsList}>
-                            Back to Users & Permissions
+                            {t('shell.back')}
                         </button>
                     </div>
                 );
@@ -407,6 +415,8 @@ export default function PermissionsPage() {
                         goToPermissionsList();
                         fetchUsers();
                     }}
+                    t={t}
+                    locale={locale}
                 />
             );
         }
@@ -421,18 +431,18 @@ export default function PermissionsPage() {
         <div className="permissions-page module-container">
             <header className="permissions-page-header">
                 <div>
-                    <h1 className="permissions-title">Users & Permissions</h1>
-                    <p className="permissions-subtitle">Manage users, roles and access control</p>
+                    <h1 className="permissions-title">{t('page.title')}</h1>
+                    <p className="permissions-subtitle">{t('page.subtitle')}</p>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                    <button type="button" className="btn-portal create-role-btn" onClick={fetchAll} title="Refresh">
-                        <RefreshCcw size={16} /> Refresh
+                    <button type="button" className="btn-portal create-role-btn" onClick={fetchAll} title={t('btn.refresh')}>
+                        <RefreshCcw size={16} /> {t('btn.refresh')}
                     </button>
                     <button type="button" className="btn-portal create-role-btn" onClick={handleCreateNewUser}>
-                        <UserCircle size={18} /> Create User
+                        <UserCircle size={18} /> {t('btn.createUser')}
                     </button>
                     <button type="button" className="btn-portal create-role-btn" onClick={handleCreateNewRole}>
-                        <ShieldCheck size={18} /> Create Role
+                        <ShieldCheck size={18} /> {t('btn.createRole')}
                     </button>
                 </div>
             </header>
@@ -450,14 +460,14 @@ export default function PermissionsPage() {
             <div className="permissions-tabs-container">
                 <div className="permissions-tabs">
                     <button className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}>
-                        Users ({users.length})
+                        {t('tab.users', { count: users.length })}
                     </button>
                     <button className={`tab-btn ${activeTab === 'roles' ? 'active' : ''}`} onClick={() => setActiveTab('roles')}>
-                        Roles ({roles.length})
+                        {t('tab.roles', { count: roles.length })}
                     </button>
                     {canSeeApprovalSettings && (
                         <button className={`tab-btn ${activeTab === 'approvals' ? 'active' : ''}`} onClick={() => setActiveTab('approvals')}>
-                            Approval Configuration
+                            {t('tab.approvals')}
                         </button>
                     )}
                 </div>
@@ -466,7 +476,7 @@ export default function PermissionsPage() {
             <main className="permissions-content">
                 {loading ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 40, justifyContent: 'center', color: '#64748b' }}>
-                        <Loader2 size={20} className="spin" /> Loading…
+                        <Loader2 size={20} className="spin" /> {t('loading')}
                     </div>
                 ) : (
                     <AnimatePresence mode="wait">
@@ -481,9 +491,11 @@ export default function PermissionsPage() {
                                 totalCount={users.length}
                                 onEditUser={handleEditUserRole}
                                 onEditPermissions={handleEditUserPermissions}
+                                t={t}
+                                locale={locale}
                             />
                         ) : activeTab === 'roles' ? (
-                            <RolesTab key="roles" roles={roles} onEdit={handleEditRole} onDelete={handleDeleteRole} />
+                            <RolesTab key="roles" roles={roles} onEdit={handleEditRole} onDelete={handleDeleteRole} t={t} locale={locale} />
                         ) : canSeeApprovalSettings ? (
                             <ApprovalsPage key="approvals" isTab onlySettings />
                         ) : null}
@@ -498,7 +510,8 @@ export default function PermissionsPage() {
 /*  Users tab                                                                */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function UsersTab({ users, searchQuery, setSearchQuery, portalFilter, setPortalFilter, totalCount, onEditUser, onEditPermissions }) {
+function UsersTab({ users, searchQuery, setSearchQuery, portalFilter, setPortalFilter, totalCount, onEditUser, onEditPermissions, t, locale }) {
+    const portalsMeta = getPortalsMeta(locale);
     return (
         <motion.div
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
@@ -508,7 +521,7 @@ function UsersTab({ users, searchQuery, setSearchQuery, portalFilter, setPortalF
                 <div className="search-input-wrapper" style={{ flex: 1 }}>
                     <Search className="search-icon" size={18} />
                     <input
-                        type="text" placeholder="Search users…"
+                        type="text" placeholder={t('search.users')}
                         value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                         className="search-input"
                     />
@@ -522,8 +535,8 @@ function UsersTab({ users, searchQuery, setSearchQuery, portalFilter, setPortalF
                         color: '#0f172a', cursor: 'pointer', minWidth: 200,
                     }}
                 >
-                    <option value="">All Portals ({totalCount})</option>
-                    {PORTALS.map((p) => (
+                    <option value="">{t('filter.allPortals', { count: totalCount })}</option>
+                    {portalsMeta.map((p) => (
                         <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
                 </select>
@@ -537,7 +550,7 @@ function UsersTab({ users, searchQuery, setSearchQuery, portalFilter, setPortalF
                             color: '#64748b',
                         }}
                     >
-                        Clear filter
+                        {t('btn.clearFilter')}
                     </button>
                 )}
             </div>
@@ -546,21 +559,21 @@ function UsersTab({ users, searchQuery, setSearchQuery, portalFilter, setPortalF
                 <table className="premium-table">
                     <thead>
                         <tr>
-                            <th>User</th>
-                            <th>Portal</th>
-                            <th>Workshop / Branch</th>
-                            <th>Role</th>
-                            <th>Permissions</th>
-                            <th>Status</th>
-                            <th className="text-right">Actions</th>
+                            <th>{t('table.user')}</th>
+                            <th>{t('table.portal')}</th>
+                            <th>{t('table.workshopBranch')}</th>
+                            <th>{t('table.role')}</th>
+                            <th>{t('table.permissions')}</th>
+                            <th>{t('table.status')}</th>
+                            <th className="text-right">{t('table.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {users.length === 0 ? (
-                            <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>No users found.</td></tr>
+                            <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>{t('empty.users')}</td></tr>
                         ) : users.map((user) => {
                             const portalId = portalIdForUser(user);
-                            const portalMeta = PORTALS.find((p) => p.id === portalId);
+                            const portalMeta = portalsMeta.find((p) => p.id === portalId);
                             const avatar = (user.name || user.email || '?').charAt(0).toUpperCase();
                             return (
                                 <tr key={user.id}>
@@ -588,17 +601,17 @@ function UsersTab({ users, searchQuery, setSearchQuery, portalFilter, setPortalF
                                     </td>
                                     <td>
                                         <div className="role-selector">
-                                            <span>{user.role?.name ?? <em style={{ color: '#94a3b8' }}>No role</em>}</span>
+                                            <span>{user.role?.name ?? <em style={{ color: '#94a3b8' }}>{t('empty.noRole')}</em>}</span>
                                         </div>
                                     </td>
                                     <td>
                                         <span className="permission-count-badge">
-                                            {user.role?.permissionCount ?? 0} permissions
+                                            {t('count.permissions', { count: user.role?.permissionCount ?? 0 })}
                                         </span>
                                     </td>
                                     <td>
                                         <span className={`status-badge ${user.isActive ? 'status-active' : ''}`}>
-                                            {user.isActive ? 'Active' : 'Inactive'}
+                                            {user.isActive ? t('status.active') : t('status.inactive')}
                                         </span>
                                     </td>
                                     <td className="text-right">
@@ -607,7 +620,7 @@ function UsersTab({ users, searchQuery, setSearchQuery, portalFilter, setPortalF
                                                 type="button"
                                                 className="btn-icon"
                                                 onClick={() => onEditUser?.(user)}
-                                                title="Change assigned role / workshop / branch"
+                                                title={t('title.changeRole')}
                                             >
                                                 <Pencil size={18} />
                                             </button>
@@ -616,7 +629,7 @@ function UsersTab({ users, searchQuery, setSearchQuery, portalFilter, setPortalF
                                                     type="button"
                                                     className="btn-icon"
                                                     onClick={() => onEditPermissions?.(user)}
-                                                    title="Override this user's permissions (won't affect the role)"
+                                                    title={t('title.overridePerms')}
                                                     style={{ color: '#7c3aed' }}
                                                 >
                                                     <ShieldCheck size={18} />
@@ -652,7 +665,8 @@ function portalPillStyle(portal) {
 /*  Roles tab                                                                */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function RolesTab({ roles, onEdit, onDelete }) {
+function RolesTab({ roles, onEdit, onDelete, t, locale }) {
+    const portalsMeta = getPortalsMeta(locale);
     const grouped = useMemo(() => {
         const map = new Map();
         for (const r of roles) {
@@ -664,9 +678,11 @@ function RolesTab({ roles, onEdit, onDelete }) {
     }, [roles]);
 
     if (roles.length === 0) {
+        const createRole = t('btn.createRole');
+        const parts = t('empty.roles', { createRole: '|||' }).split('|||');
         return (
             <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
-                No roles defined yet. Click <strong>Create Role</strong> to add one.
+                {parts[0]}<strong>{createRole}</strong>{parts[1] ?? ''}
             </div>
         );
     }
@@ -677,7 +693,7 @@ function RolesTab({ roles, onEdit, onDelete }) {
             transition={{ duration: 0.3 }}
         >
             {grouped.map(([portalId, list]) => {
-                const portal = PORTALS.find((p) => p.id === portalId);
+                const portal = portalsMeta.find((p) => p.id === portalId) || PORTALS.find((p) => p.id === portalId);
                 const Icon = portal?.icon ?? Sparkles;
                 return (
                     <div key={portalId} style={{ marginBottom: 28 }}>
@@ -689,7 +705,7 @@ function RolesTab({ roles, onEdit, onDelete }) {
                                 <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
                                     {portal?.label ?? portalId}
                                 </h3>
-                                <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>{list.length} role(s)</p>
+                                <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>{t('count.roles', { count: list.length })}</p>
                             </div>
                         </div>
                         <div className="roles-grid">
@@ -708,15 +724,15 @@ function RolesTab({ roles, onEdit, onDelete }) {
                                     </div>
                                     <div className="role-card-body">
                                         <h3 className="role-name">{role.name}</h3>
-                                        <p className="role-perm-count">{role.permissionCount} permissions</p>
+                                        <p className="role-perm-count">{t('count.permissions', { count: role.permissionCount })}</p>
                                         <p className="role-description">{role.description || '—'}</p>
                                         <div className="role-tags">
-                                            <span className="role-tag">{role.userCount ?? 0} user(s)</span>
+                                            <span className="role-tag">{t('count.users', { count: role.userCount ?? 0 })}</span>
                                         </div>
                                     </div>
                                     {role.isSystem && (
                                         <div className="role-card-footer">
-                                            <span className="system-role-badge">System Role</span>
+                                            <span className="system-role-badge">{t('badge.systemRole')}</span>
                                         </div>
                                     )}
                                 </motion.div>
@@ -733,7 +749,8 @@ function RolesTab({ roles, onEdit, onDelete }) {
 /*  Create / Edit Role Modal                                                  */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistry, saving, asPage = false }) {
+function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistry, saving, asPage = false, t, locale }) {
+    const portalsMeta = getPortalsMeta(locale);
     const [step, setStep] = useState(editingRole ? 2 : 1);
     const [portal, setPortal] = useState(editingRole?.portal || '');
     const [name, setName] = useState(editingRole?.name || '');
@@ -752,20 +769,20 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
     }, [portal, registryByPortal, loadRegistry]);
 
     const portalTree = portal
-        ? (registryByPortal[portal]?.length ? registryByPortal[portal] : COMING_SOON_TREE)
+        ? (registryByPortal[portal]?.length ? registryByPortal[portal] : getComingSoonTree(t))
         : null;
 
     const totalActions = useMemo(() => {
         if (!portalTree) return 0;
         return portalTree.reduce(
-            (sum, sec) => sum + sec.tabs.reduce((s, t) => s + (t.actions?.length ?? 0), 0),
+            (sum, sec) => sum + sec.tabs.reduce((acc, tab) => acc + (tab.actions?.length ?? 0), 0),
             0,
         );
     }, [portalTree]);
 
     const selectedCount = useMemo(
         () => Object.values(perms).reduce(
-            (s, m) => s + Object.values(m).filter(Boolean).length, 0,
+            (acc, m) => acc + Object.values(m).filter(Boolean).length, 0,
         ),
         [perms],
     );
@@ -788,12 +805,12 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
     };
 
     const toggleSectionAll = (section) => {
-        const flatActions = section.tabs.flatMap((t) => t.actions.map((a) => [t.key, a]));
+        const flatActions = section.tabs.flatMap((tab) => tab.actions.map((a) => [tab.key, a]));
         const allOn = flatActions.every(([k, a]) => perms[k]?.[a]);
         const next = { ...perms };
-        for (const t of section.tabs) {
-            next[t.key] = { ...(next[t.key] || {}) };
-            for (const a of t.actions) next[t.key][a] = !allOn;
+        for (const tab of section.tabs) {
+            next[tab.key] = { ...(next[tab.key] || {}) };
+            for (const a of tab.actions) next[tab.key][a] = !allOn;
         }
         setPerms(next);
     };
@@ -804,9 +821,9 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
         const next = {};
         if (!allOn) {
             for (const sec of portalTree) {
-                for (const t of sec.tabs) {
-                    next[t.key] = {};
-                    for (const a of t.actions) next[t.key][a] = true;
+                for (const tab of sec.tabs) {
+                    next[tab.key] = {};
+                    for (const a of tab.actions) next[tab.key][a] = true;
                 }
             }
         }
@@ -814,8 +831,8 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
     };
 
     const handleSubmit = () => {
-        if (!portal) { alert('Pick a portal first'); return; }
-        if (!name.trim()) { alert('Role name is required'); return; }
+        if (!portal) { alert(t('role.alert.portal')); return; }
+        if (!name.trim()) { alert(t('role.alert.name')); return; }
         const codes = flattenActionsByTab(perms);
         onSave({
             name: name.trim(),
@@ -827,29 +844,31 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
 
     return (
         <PermissionsShell asPage={asPage}
-            title={editingRole ? 'Edit Role' : 'Create New Role'}
+            title={editingRole ? t('title.editRole') : t('title.createRole')}
             onClose={onClose}
             backDisabled={saving}
+            backLabel={t('shell.back')}
+            locale={locale}
             className="create-role-modal"
             footer={(
                 <div className="modal-footer-actions">
                     {!editingRole && step === 2 && (
                         <button type="button" className="btn-secondary" onClick={() => setStep(1)}>
-                            ← Back
+                            {t('btn.back')}
                         </button>
                     )}
-                    <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+                    <button type="button" className="btn-secondary" onClick={onClose}>{t('btn.cancel')}</button>
                     {step === 1 ? (
                         <button
                             type="button" className="btn-submit"
                             disabled={!portal} onClick={() => setStep(2)}
                             style={{ opacity: portal ? 1 : 0.6 }}
                         >
-                            Continue →
+                            {t('btn.continue')}
                         </button>
                     ) : (
                         <button type="button" className="btn-submit" onClick={handleSubmit} disabled={saving}>
-                            {saving ? 'Saving…' : (editingRole ? 'Save Changes' : 'Create Role')}
+                            {saving ? t('btn.saving') : (editingRole ? t('btn.saveChanges') : t('btn.createRoleSubmit'))}
                         </button>
                     )}
                 </div>
@@ -858,13 +877,13 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
             {step === 1 ? (
                 <div style={{ padding: 4 }}>
                     <h3 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
-                        Which portal is this role for?
+                        {t('role.pickPortal')}
                     </h3>
                     <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#64748b' }}>
-                        Each portal has its own pages and actions. We'll show only the permissions that apply.
+                        {t('role.pickPortalHint')}
                     </p>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
-                        {PORTALS.map((p) => {
+                        {portalsMeta.map((p) => {
                             const Icon = p.icon;
                             const selected = portal === p.id;
                             return (
@@ -893,20 +912,20 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
                 <div className="create-role-form">
                     <div className="form-row">
                         <div className="form-group flex-1">
-                            <label>Role Name *</label>
+                            <label>{t('role.name')}</label>
                             <input
-                                type="text" className="form-input" placeholder="e.g. Branch Manager"
+                                type="text" className="form-input" placeholder={t('role.namePlaceholder')}
                                 value={name} onChange={(e) => setName(e.target.value)}
                                 disabled={editingRole?.isSystem}
                             />
                             {editingRole?.isSystem && (
-                                <small style={{ color: '#94a3b8', fontSize: '0.7rem' }}>System roles cannot be renamed.</small>
+                                <small style={{ color: '#94a3b8', fontSize: '0.7rem' }}>{t('role.systemRename')}</small>
                             )}
                         </div>
                         <div className="form-group flex-1">
-                            <label>Description</label>
+                            <label>{t('role.description')}</label>
                             <input
-                                type="text" className="form-input" placeholder="Brief description"
+                                type="text" className="form-input" placeholder={t('role.descPlaceholder')}
                                 value={description} onChange={(e) => setDescription(e.target.value)}
                             />
                         </div>
@@ -918,19 +937,19 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
                         border: '1px solid #e2e8f0', marginTop: 8, marginBottom: 14,
                     }}>
                         <div>
-                            <strong style={{ fontSize: '0.875rem' }}>{PORTALS.find((p) => p.id === portal)?.label} portal</strong>
+                            <strong style={{ fontSize: '0.875rem' }}>{t('role.portalSuffix', { label: portalLabel(locale, portal) })}</strong>
                             <span style={{ color: '#64748b', marginLeft: 8, fontSize: '0.8125rem' }}>
-                                · {selectedCount} of {totalActions} permissions selected
+                                · {t('count.selected', { selected: selectedCount, total: totalActions })}
                             </span>
                         </div>
                         <button type="button" className="btn-link" onClick={selectAll}>
-                            {selectedCount === totalActions ? 'Deselect All' : 'Select All'}
+                            {selectedCount === totalActions ? t('btn.deselectAll') : t('btn.selectAll')}
                         </button>
                     </div>
 
                     {loadingTree ? (
                         <div style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>
-                            <Loader2 size={18} className="spin" /> Loading permissions tree…
+                            <Loader2 size={18} className="spin" /> {t('loading.tree')}
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -942,6 +961,8 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
                                     onToggleAction={toggleAction}
                                     onToggleTab={toggleTabAll}
                                     onToggleSection={() => toggleSectionAll(section)}
+                                    t={t}
+                                    locale={locale}
                                 />
                             ))}
                         </div>
@@ -952,11 +973,11 @@ function RoleModal({ onClose, onSave, editingRole, registryByPortal, loadRegistr
     );
 }
 
-function SectionPermissionsCard({ section, perms, onToggleAction, onToggleTab, onToggleSection }) {
+function SectionPermissionsCard({ section, perms, onToggleAction, onToggleTab, onToggleSection, t, locale }) {
     const [open, setOpen] = useState(true);
-    const totalActions = section.tabs.reduce((s, t) => s + (t.actions?.length ?? 0), 0);
+    const totalActions = section.tabs.reduce((acc, tab) => acc + (tab.actions?.length ?? 0), 0);
     const checkedActions = section.tabs.reduce(
-        (s, t) => s + (t.actions?.filter((a) => perms[t.key]?.[a]).length ?? 0),
+        (acc, tab) => acc + (tab.actions?.filter((a) => perms[tab.key]?.[a]).length ?? 0),
         0,
     );
     const allOn = totalActions > 0 && checkedActions === totalActions;
@@ -980,7 +1001,7 @@ function SectionPermissionsCard({ section, perms, onToggleAction, onToggleTab, o
                     onClick={onToggleSection}
                     style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 700 }}
                 >
-                    {allOn ? 'Clear' : 'Select all'}
+                    {allOn ? t('btn.clear') : t('btn.selectAllLower')}
                 </button>
             </div>
 
@@ -993,6 +1014,8 @@ function SectionPermissionsCard({ section, perms, onToggleAction, onToggleTab, o
                             perms={perms}
                             onToggleAction={onToggleAction}
                             onToggleTab={() => onToggleTab(tab)}
+                            t={t}
+                            locale={locale}
                         />
                     ))}
                 </div>
@@ -1001,7 +1024,7 @@ function SectionPermissionsCard({ section, perms, onToggleAction, onToggleTab, o
     );
 }
 
-function TabPermissionRow({ tab, perms, onToggleAction, onToggleTab }) {
+function TabPermissionRow({ tab, perms, onToggleAction, onToggleTab, t, locale }) {
     if ((tab.actions?.length ?? 0) === 0) {
         return (
             <div style={{ padding: '10px 12px', borderRadius: 8, background: '#fffbeb', color: '#92400e', fontSize: '0.8125rem' }}>
@@ -1042,7 +1065,7 @@ function TabPermissionRow({ tab, perms, onToggleAction, onToggleTab }) {
                                 onChange={() => onToggleAction(tab.key, a)}
                                 style={{ display: 'none' }}
                             />
-                            {ACTION_LABEL[a] || a}
+                            {actionLabel(locale, a)}
                         </label>
                     );
                 })}
@@ -1055,7 +1078,7 @@ function TabPermissionRow({ tab, perms, onToggleAction, onToggleTab }) {
 /*  Create User Modal                                                         */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
+function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }) {
     const [isSuperAdmin, setIsSuperAdmin] = useState(false);
     const [workshopId, setWorkshopId] = useState('');
     const [branchId, setBranchId] = useState('');
@@ -1104,19 +1127,19 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
     }, [roles, isSuperAdmin]);
 
     const handleSubmit = () => {
-        if (!name.trim()) { alert('Name is required'); return; }
-        if (!email.trim()) { alert('Email is required'); return; }
+        if (!name.trim()) { alert(t('user.alert.name')); return; }
+        if (!email.trim()) { alert(t('user.alert.email')); return; }
         if (!password || password.length < 6) {
-            alert('Password is required (min 6 characters)');
+            alert(t('user.alert.password'));
             return;
         }
         if (!assignRoleId) {
-            alert('Pick a role to assign');
+            alert(t('user.alert.role'));
             return;
         }
         if (!isSuperAdmin) {
             if (!workshopId || !branchId) {
-                alert('Workshop and branch are required for non-Super-Admin users');
+                alert(t('user.alert.workshopBranch'));
                 return;
             }
         }
@@ -1136,15 +1159,17 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
 
     return (
         <PermissionsShell asPage={asPage}
-            title="Create New User"
+            title={t('title.createUser')}
             onClose={onClose}
             backDisabled={saving}
+            backLabel={t('shell.back')}
+            locale={locale}
             className="create-role-modal"
             footer={(
                 <div className="modal-footer-actions">
-                    <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+                    <button type="button" className="btn-secondary" onClick={onClose}>{t('btn.cancel')}</button>
                     <button type="button" className="btn-submit" onClick={handleSubmit} disabled={saving}>
-                        {saving ? 'Creating…' : 'Create User'}
+                        {saving ? t('btn.creating') : t('btn.createUser')}
                     </button>
                 </div>
             )}
@@ -1168,9 +1193,9 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
                             <ShieldCheck size={18} />
                         </div>
                         <div>
-                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem' }}>Super Admin user</div>
+                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem' }}>{t('user.superAdmin')}</div>
                             <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                Platform-wide access — workshop / branch selection is skipped.
+                                {t('user.superAdminHint')}
                             </div>
                         </div>
                     </div>
@@ -1198,9 +1223,9 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
                             <Wallet size={18} />
                         </div>
                         <div>
-                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem' }}>Assign Wallet</div>
+                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem' }}>{t('user.assignWallet')}</div>
                             <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                Create a SAR wallet (0 balance) — user can request funds and record expenses later.
+                                {t('user.assignWalletHint')}
                             </div>
                         </div>
                     </div>
@@ -1210,17 +1235,17 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
                 {/* Identity */}
                 <div className="form-row">
                     <div className="form-group flex-1">
-                        <label>Name *</label>
+                        <label>{t('user.name')}</label>
                         <input
-                            type="text" className="form-input" placeholder="Full name"
+                            type="text" className="form-input" placeholder={t('user.namePlaceholder')}
                             value={name} onChange={(e) => setName(e.target.value)}
                             style={selectStyle}
                         />
                     </div>
                     <div className="form-group flex-1">
-                        <label>Email *</label>
+                        <label>{t('user.email')}</label>
                         <input
-                            type="email" className="form-input" placeholder="user@example.com"
+                            type="email" className="form-input" placeholder={t('user.emailPlaceholder')}
                             value={email} onChange={(e) => setEmail(e.target.value)}
                             style={selectStyle}
                         />
@@ -1229,7 +1254,7 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
 
                 <div className="form-row">
                     <div className="form-group flex-1">
-                        <label>Mobile</label>
+                        <label>{t('user.mobile')}</label>
                         <input
                             type="text" className="form-input" placeholder="+966 50 000 0000"
                             value={mobile} onChange={(e) => setMobile(e.target.value)}
@@ -1237,9 +1262,9 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
                         />
                     </div>
                     <div className="form-group flex-1">
-                        <label>Password *</label>
+                        <label>{t('user.password')}</label>
                         <input
-                            type="password" placeholder="Min 6 characters"
+                            type="password" placeholder={t('user.passwordPlaceholder')}
                             className="form-input" value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             style={selectStyle}
@@ -1251,7 +1276,7 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
                     <>
                         <div className="form-row">
                             <div className="form-group flex-1">
-                                <label>Workshop *</label>
+                                <label>{t('user.workshop')}</label>
                                 <select
                                     className="form-input" value={workshopId}
                                     onChange={(e) => {
@@ -1261,19 +1286,19 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
                                     style={selectStyle}
                                     disabled={loadingWs}
                                 >
-                                    <option value="">{loadingWs ? 'Loading workshops…' : 'Select workshop'}</option>
+                                    <option value="">{loadingWs ? t('loading.workshops') : t('user.selectWorkshop')}</option>
                                     {workshops.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
                                 </select>
                             </div>
                             <div className="form-group flex-1">
-                                <label>Branch *</label>
+                                <label>{t('user.branch')}</label>
                                 <select
                                     className="form-input" value={branchId}
                                     onChange={(e) => setBranchId(e.target.value)}
                                     disabled={!workshopId || loadingBr}
                                     style={selectStyle}
                                 >
-                                    <option value="">{loadingBr ? 'Loading branches…' : 'Select branch'}</option>
+                                    <option value="">{loadingBr ? t('loading.branches') : t('user.selectBranch')}</option>
                                     {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                                 </select>
                             </div>
@@ -1281,16 +1306,16 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
 
                         <div className="form-row">
                             <div className="form-group flex-1">
-                                <label>Workshop Role</label>
+                                <label>{t('user.workshopRole')}</label>
                                 <select
                                     className="form-input" value={workshopRole}
                                     onChange={(e) => setWorkshopRole(e.target.value)}
                                     disabled={!branchId}
                                     style={selectStyle}
                                 >
-                                    <option value="">— None —</option>
+                                    <option value="">{t('user.none')}</option>
                                     {WORKSHOP_ROLE_OPTIONS.map((r) => (
-                                        <option key={r.id} value={r.id}>{r.label}</option>
+                                        <option key={r.id} value={r.id}>{workshopRoleLabel(locale, r.id)}</option>
                                     ))}
                                 </select>
                             </div>
@@ -1305,27 +1330,27 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false }) {
                     fontSize: '0.8125rem', color: '#1e40af', fontWeight: 600,
                     display: 'flex', alignItems: 'center', gap: 8,
                 }}>
-                    <Users size={14} /> Assign Role
+                    <Users size={14} /> {t('user.assignRoleSection')}
                 </div>
 
                 <div className="form-row">
                     <div className="form-group flex-1">
-                        <label>Role *</label>
+                        <label>{t('user.role')}</label>
                         <select
                             className="form-input" value={assignRoleId}
                             onChange={(e) => setAssignRoleId(e.target.value)}
                             style={selectStyle}
                         >
-                            <option value="">Select role</option>
+                            <option value="">{t('user.selectRole')}</option>
                             {assignableRoles.map((r) => (
                                 <option key={r.id} value={r.id}>
-                                    {r.name} · {r.permissionCount} permissions
+                                    {t('user.roleOption', { name: r.name, count: r.permissionCount })}
                                 </option>
                             ))}
                         </select>
                         {assignableRoles.length === 0 && (
                             <small style={{ color: '#92400e', fontSize: '0.7rem' }}>
-                                No roles available for this scope. Create a role first.
+                                {t('user.noRolesScope')}
                             </small>
                         )}
                     </div>
@@ -1371,7 +1396,8 @@ function ToggleSwitch({ checked, onChange }) {
 /*  Edit User Role Modal                                                      */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = false }) {
+function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = false, t, locale }) {
+    const portalsMeta = getPortalsMeta(locale);
     const [roleId, setRoleId] = useState(user.role?.id ?? '');
     const [resetPassword, setResetPassword] = useState('');
     const [assignWallet, setAssignWallet] = useState(Boolean(user.walletEnabled));
@@ -1446,11 +1472,11 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
     const handleSubmit = () => {
         const pwd = resetPassword.trim();
         if (pwd && pwd.length < 6) {
-            alert('Password must be at least 6 characters');
+            alert(t('edit.alert.password'));
             return;
         }
         if (needsWorkshopScope && (!workshopId || !branchId)) {
-            alert('Workshop and branch are required for this portal');
+            alert(t('edit.alert.workshopBranch'));
             return;
         }
         const opts = {
@@ -1473,15 +1499,17 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
 
     return (
         <PermissionsShell asPage={asPage}
-            title={`Edit user — ${user.name || user.email}`}
+            title={t('title.editUser', { name: user.name || user.email })}
             onClose={onClose}
             backDisabled={saving}
+            backLabel={t('shell.back')}
+            locale={locale}
             className="create-role-modal"
             footer={(
                 <div className="modal-footer-actions">
-                    <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+                    <button type="button" className="btn-secondary" onClick={onClose}>{t('btn.cancel')}</button>
                     <button type="button" className="btn-submit" onClick={handleSubmit} disabled={saving || portalMismatch}>
-                        {saving ? 'Saving…' : 'Save Changes'}
+                        {saving ? t('btn.saving') : t('btn.saveChanges')}
                     </button>
                 </div>
             )}
@@ -1505,11 +1533,11 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                             <Wallet size={18} />
                         </div>
                         <div>
-                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem' }}>Assign Wallet</div>
+                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem' }}>{t('user.assignWallet')}</div>
                             <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
                                 {user.walletEnabled
-                                    ? 'SAR wallet is active — user can request funds and record expenses.'
-                                    : 'Create a SAR wallet (0 balance) — user can request funds and record expenses later.'}
+                                    ? t('user.assignWalletActive')
+                                    : t('user.assignWalletHint')}
                             </div>
                         </div>
                     </div>
@@ -1531,7 +1559,7 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                         <div style={{ fontSize: '0.8125rem', color: '#64748b' }}>{user.email || '—'}</div>
                         <div style={{ marginTop: 4, display: 'flex', gap: 6, alignItems: 'center', fontSize: '0.75rem' }}>
                             <span style={portalPillStyle(selectedPortal)}>
-                                {PORTALS.find((p) => p.id === selectedPortal)?.label ?? selectedPortal}
+                                {portalLabel(locale, selectedPortal) || selectedPortal}
                             </span>
                             {user.workshopName && (
                                 <span style={{ color: '#64748b' }}>· {user.workshopName}</span>
@@ -1549,24 +1577,24 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                     border: '2px solid #e2e8f0', background: '#fff',
                 }}>
                     <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem', marginBottom: 8 }}>
-                        Login portal
+                        {t('edit.loginPortal')}
                     </div>
                     <div className="form-group">
-                        <label>Assign portal *</label>
+                        <label>{t('edit.assignPortal')}</label>
                         <select
                             className="form-input"
                             value={selectedPortal}
                             onChange={(e) => handlePortalChange(e.target.value)}
                             style={selectStyle}
                         >
-                            {PORTALS.map((p) => (
+                            {portalsMeta.map((p) => (
                                 <option key={p.id} value={p.id}>
-                                    {p.label} — {p.desc}
+                                    {t('edit.portalOption', { label: p.label, desc: p.desc })}
                                 </option>
                             ))}
                         </select>
                         <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: '#64748b', lineHeight: 1.45 }}>
-                            {portalLoginHint(selectedPortal)}
+                            {portalLoginHintT(locale, selectedPortal)}
                         </p>
                     </div>
                 </div>
@@ -1579,10 +1607,13 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                     fontSize: '0.8125rem', marginBottom: 14, fontWeight: 600,
                     color: user.role ? '#1e40af' : '#92400e',
                 }}>
-                    Current role: <strong>{user.role?.name ?? 'No role assigned (legacy bypass)'}</strong>
+                    {t('edit.currentRole')} <strong>{user.role?.name ?? t('edit.noRoleLegacy')}</strong>
                     {user.role && (
                         <span style={{ marginLeft: 8, opacity: 0.8 }}>
-                            · {user.role.permissionCount} permissions · {user.role.portal} portal
+                            {t('edit.currentRoleMeta', {
+                                count: user.role.permissionCount,
+                                portal: portalLabel(locale, user.role.portal) || user.role.portal,
+                            })}
                         </span>
                     )}
                 </div>
@@ -1595,11 +1626,11 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                             borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0',
                             fontSize: '0.75rem', color: '#166534', fontWeight: 600,
                         }}>
-                            Workshop scope — required for the selected portal login.
+                            {t('edit.workshopScope')}
                         </div>
                         <div className="form-row">
                             <div className="form-group flex-1">
-                                <label>Workshop *</label>
+                                <label>{t('user.workshop')}</label>
                                 <select
                                     className="form-input"
                                     value={workshopId}
@@ -1610,14 +1641,14 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                                     style={selectStyle}
                                     disabled={loadingWs}
                                 >
-                                    <option value="">{loadingWs ? 'Loading workshops…' : '— None —'}</option>
+                                    <option value="">{loadingWs ? t('loading.workshops') : t('user.none')}</option>
                                     {workshops.map((w) => (
                                         <option key={w.id} value={w.id}>{w.name}</option>
                                     ))}
                                 </select>
                             </div>
                             <div className="form-group flex-1">
-                                <label>Branch *</label>
+                                <label>{t('user.branch')}</label>
                                 <select
                                     className="form-input"
                                     value={branchId}
@@ -1625,7 +1656,7 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                                     disabled={!workshopId || loadingBr}
                                     style={selectStyle}
                                 >
-                                    <option value="">{loadingBr ? 'Loading branches…' : '— None —'}</option>
+                                    <option value="">{loadingBr ? t('loading.branches') : t('user.none')}</option>
                                     {branches.map((b) => (
                                         <option key={b.id} value={b.id}>{b.name}</option>
                                     ))}
@@ -1635,16 +1666,16 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                         {selectedPortal === 'workshop' && (
                             <div className="form-row">
                                 <div className="form-group flex-1">
-                                    <label>Workshop Role</label>
+                                    <label>{t('user.workshopRole')}</label>
                                     <select
                                         className="form-input"
                                         value={workshopStaffRole}
                                         onChange={(e) => setWorkshopStaffRole(e.target.value)}
                                         style={selectStyle}
                                     >
-                                        <option value="">— None —</option>
+                                        <option value="">{t('user.none')}</option>
                                         {WORKSHOP_ROLE_OPTIONS.map((r) => (
-                                            <option key={r.id} value={r.id}>{r.label}</option>
+                                            <option key={r.id} value={r.id}>{workshopRoleLabel(locale, r.id)}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -1657,17 +1688,21 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                 {/* Role selector */}
                 <div className="form-row">
                     <div className="form-group flex-1">
-                        <label>Assign role</label>
+                        <label>{t('edit.assignRole')}</label>
                         <select
                             className="form-input"
                             value={roleId}
                             onChange={(e) => setRoleId(e.target.value)}
                             style={selectStyle}
                         >
-                            <option value="">— No role (clear assignment) —</option>
+                            <option value="">{t('edit.clearRole')}</option>
                             {assignableRoles.map((r) => (
                                 <option key={r.id} value={r.id}>
-                                    {r.name} · {r.permissionCount} permissions · ({r.portal})
+                                    {t('edit.roleOption', {
+                                        name: r.name,
+                                        count: r.permissionCount,
+                                        portal: portalLabel(locale, r.portal) || r.portal,
+                                    })}
                                 </option>
                             ))}
                         </select>
@@ -1676,17 +1711,17 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
 
                 <div className="form-row">
                     <div className="form-group flex-1">
-                        <label>Reset password</label>
+                        <label>{t('edit.resetPassword')}</label>
                         <input
                             type="password"
                             className="form-input"
                             autoComplete="new-password"
-                            placeholder="Leave empty to keep current password"
+                            placeholder={t('edit.resetPasswordPlaceholder')}
                             value={resetPassword}
                             onChange={(e) => setResetPassword(e.target.value)}
                         />
                         <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-                            Min 6 characters. Applies to this user&apos;s portal login.
+                            {t('edit.resetPasswordHint')}
                         </p>
                     </div>
                 </div>
@@ -1697,9 +1732,10 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                         background: '#fef3c7', border: '1px solid #fde68a',
                         fontSize: '0.8125rem', color: '#92400e',
                     }}>
-                        <strong>⚠ Portal mismatch:</strong> this role is designed for the
-                        <strong> {selectedRole.portal} </strong> portal but you selected
-                        <strong> {selectedPortal} </strong>. Pick a matching role before saving.
+                        {t('edit.mismatch', {
+                            rolePortal: portalLabel(locale, selectedRole.portal) || selectedRole.portal,
+                            selectedPortal: portalLabel(locale, selectedPortal) || selectedPortal,
+                        })}
                     </div>
                 )}
 
@@ -1707,9 +1743,7 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                     marginTop: 14, padding: '10px 14px', borderRadius: 8,
                     background: '#f1f5f9', fontSize: '0.75rem', color: '#64748b',
                 }}>
-                    💡 Tip — clear the role to revert this user to the legacy bypass
-                    (they'll see everything their userType normally allows).
-                    Changes take effect after the user logs out and back in.
+                    {t('edit.tip')}
                 </div>
             </div>
         </PermissionsShell>
@@ -1729,7 +1763,7 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
  * Save → PUT /users/:id/permissions (stores override)
  * Reset to defaults → DELETE /users/:id/permissions (clears override)
  */
-function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, onSaved, asPage = false }) {
+function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, onSaved, asPage = false, t, locale }) {
     const portal = user?.role?.portal || 'super_admin';
     const [perms, setPerms] = useState({}); // { [tabKey]: { [action]: true } }
     const [loading, setLoading] = useState(true);
@@ -1756,19 +1790,21 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
             })
             .catch((e) => {
                 if (cancelled) return;
-                setError(e?.message || 'Failed to load user permissions');
+                setError(e?.message || t('error.loadUserPerms'));
             })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [user.id]);
+    }, [user.id, t]);
 
-    const portalTree = registryByPortal[portal] || COMING_SOON_TREE;
+    const portalTree = registryByPortal[portal]?.length
+        ? registryByPortal[portal]
+        : getComingSoonTree(t);
     const totalActions = useMemo(() => portalTree.reduce(
-        (s, sec) => s + sec.tabs.reduce((c, t) => c + (t.actions?.length ?? 0), 0),
+        (sum, sec) => sum + sec.tabs.reduce((acc, tab) => acc + (tab.actions?.length ?? 0), 0),
         0,
     ), [portalTree]);
     const selectedCount = useMemo(() => Object.values(perms).reduce(
-        (s, m) => s + Object.values(m).filter(Boolean).length, 0,
+        (acc, m) => acc + Object.values(m).filter(Boolean).length, 0,
     ), [perms]);
 
     const toggleAction = (tabKey, action) => {
@@ -1784,12 +1820,12 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
         setPerms((prev) => ({ ...prev, [tab.key]: next }));
     };
     const toggleSectionAll = (section) => {
-        const flat = section.tabs.flatMap((t) => t.actions.map((a) => [t.key, a]));
+        const flat = section.tabs.flatMap((tab) => tab.actions.map((a) => [tab.key, a]));
         const allOn = flat.every(([k, a]) => perms[k]?.[a]);
         const next = { ...perms };
-        for (const t of section.tabs) {
-            next[t.key] = { ...(next[t.key] || {}) };
-            for (const a of t.actions) next[t.key][a] = !allOn;
+        for (const tab of section.tabs) {
+            next[tab.key] = { ...(next[tab.key] || {}) };
+            for (const a of tab.actions) next[tab.key][a] = !allOn;
         }
         setPerms(next);
     };
@@ -1797,9 +1833,9 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
         const allOn = selectedCount === totalActions;
         const next = {};
         if (!allOn) {
-            for (const sec of portalTree) for (const t of sec.tabs) {
-                next[t.key] = {};
-                for (const a of t.actions) next[t.key][a] = true;
+            for (const sec of portalTree) for (const tab of sec.tabs) {
+                next[tab.key] = {};
+                for (const a of tab.actions) next[tab.key][a] = true;
             }
         }
         setPerms(next);
@@ -1812,20 +1848,20 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
             await permissionsApi.setUserPermissions(user.id, codes);
             onSaved?.();
         } catch (e) {
-            alert(e?.message || 'Could not save permissions');
+            alert(e?.message || t('error.savePermissions'));
         } finally {
             setSaving(false);
         }
     };
 
     const handleReset = async () => {
-        if (!window.confirm("Revert this user to the role's default permissions? Their custom overrides will be discarded.")) return;
+        if (!window.confirm(t('confirm.resetOverride'))) return;
         setSaving(true);
         try {
             await permissionsApi.clearUserPermissions(user.id);
             onSaved?.();
         } catch (e) {
-            alert(e?.message || 'Could not reset permissions');
+            alert(e?.message || t('error.resetPermissions'));
         } finally {
             setSaving(false);
         }
@@ -1833,20 +1869,22 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
 
     return (
         <PermissionsShell asPage={asPage}
-            title={`Permissions — ${user.name || user.email}`}
+            title={t('title.userPermissions', { name: user.name || user.email })}
             onClose={onClose}
             backDisabled={saving}
+            backLabel={t('shell.back')}
+            locale={locale}
             className="create-role-modal"
             footer={(
                 <div className="modal-footer-actions">
                     {hasOverride && (
                         <button type="button" className="btn-secondary" onClick={handleReset} disabled={saving}>
-                            Reset to role defaults
+                            {t('btn.resetDefaults')}
                         </button>
                     )}
-                    <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+                    <button type="button" className="btn-secondary" onClick={onClose}>{t('btn.cancel')}</button>
                     <button type="button" className="btn-submit" onClick={handleSave} disabled={saving || loading}>
-                        {saving ? 'Saving…' : 'Save Override'}
+                        {saving ? t('btn.saving') : t('btn.saveOverride')}
                     </button>
                 </div>
             )}
@@ -1866,10 +1904,10 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
                         <div style={{ fontSize: '0.8125rem', color: '#64748b' }}>{user.email || '—'}</div>
                         <div style={{ marginTop: 4, fontSize: '0.75rem' }}>
                             <span style={portalPillStyle(portal)}>
-                                {PORTALS.find((p) => p.id === portal)?.label ?? portal}
+                                {portalLabel(locale, portal) || portal}
                             </span>
                             <span style={{ color: '#64748b', marginLeft: 6 }}>
-                                · Role: <strong>{user.role?.name}</strong>
+                                {t('override.roleLabel', { name: user.role?.name })}
                             </span>
                         </div>
                     </div>
@@ -1884,8 +1922,8 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
                     color: hasOverride ? '#6b21a8' : '#1e40af',
                 }}>
                     {hasOverride
-                        ? '🟣 Custom override is active — this user is using a hand-picked permission set.'
-                        : '🔵 Using role defaults — saving below will create a custom override for this user only.'}
+                        ? t('override.active')
+                        : t('override.defaults')}
                 </div>
 
                 {error && (
@@ -1900,16 +1938,16 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
                     border: '1px solid #e2e8f0', marginBottom: 14,
                 }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: 700 }}>
-                        {selectedCount} of {totalActions} permissions selected
+                        {t('count.selected', { selected: selectedCount, total: totalActions })}
                     </span>
                     <button type="button" className="btn-link" onClick={selectAll}>
-                        {selectedCount === totalActions ? 'Deselect All' : 'Select All'}
+                        {selectedCount === totalActions ? t('btn.deselectAll') : t('btn.selectAll')}
                     </button>
                 </div>
 
                 {loading ? (
                     <div style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>
-                        <Loader2 size={18} className="spin" /> Loading permissions…
+                        <Loader2 size={18} className="spin" /> {t('loading.permissions')}
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1921,6 +1959,8 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
                                 onToggleAction={toggleAction}
                                 onToggleTab={toggleTabAll}
                                 onToggleSection={() => toggleSectionAll(section)}
+                                t={t}
+                                locale={locale}
                             />
                         ))}
                     </div>
@@ -1930,9 +1970,7 @@ function UserPermissionsModal({ user, registryByPortal, loadRegistry, onClose, o
                     marginTop: 14, padding: '10px 14px', borderRadius: 8,
                     background: '#f1f5f9', fontSize: '0.75rem', color: '#64748b',
                 }}>
-                    💡 Tip — saving here creates a per-user override. The role itself is
-                    untouched, so other users assigned to <strong>{user.role?.name}</strong> are
-                    unaffected. Changes take effect after the user logs out and back in.
+                    {t('override.tip', { role: user.role?.name })}
                 </div>
             </div>
         </PermissionsShell>

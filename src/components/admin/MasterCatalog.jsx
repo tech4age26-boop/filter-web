@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import { 
     Plus, Search, Download, Upload, Filter, 
     CheckCircle2, AlertCircle, Copy, XCircle,
@@ -15,6 +15,7 @@ import CatalogUomFields, {
 } from './CatalogUomFields';
 import { formatUomRule } from '../../pages/workshop/workshopUomUtils';
 import { useAuth } from '../../context/AuthContext';
+import { catalogDisplayName } from '../../utils/catalogDisplayName';
 import '../../styles/admin/MasterCatalog.css';
 import productsCsvTemplate from '../../../Products.csv?url';
 import servicesCsvTemplate from '../../../Services.csv?url';
@@ -63,11 +64,12 @@ import {
     mcRoutes,
     tabForMasterCatalogScreen,
 } from '../../utils/masterCatalogRoutes';
+import { mcT, MC_TAB_LABEL_KEYS } from '../../utils/masterCatalogI18n';
 
 const KPI_CARD_DEFS = [
     {
         key: 'products',
-        label: 'PRODUCTS',
+        labelKey: 'kpi.products',
         icon: Box,
         color: '#111827',
         textColor: '#FFFFFF',
@@ -75,7 +77,7 @@ const KPI_CARD_DEFS = [
     },
     {
         key: 'services',
-        label: 'SERVICES',
+        labelKey: 'kpi.services',
         icon: Layers,
         color: '#F0FDF4',
         textColor: '#166534',
@@ -83,7 +85,7 @@ const KPI_CARD_DEFS = [
     },
     {
         key: 'departments',
-        label: 'DEPARTMENTS',
+        labelKey: 'kpi.departments',
         icon: LayoutGrid,
         color: '#FFFBEB',
         textColor: '#92400E',
@@ -91,7 +93,7 @@ const KPI_CARD_DEFS = [
     },
     {
         key: 'categories',
-        label: 'CATEGORIES',
+        labelKey: 'kpi.categories',
         icon: Tags,
         color: '#F5F3FF',
         textColor: '#5B21B6',
@@ -138,7 +140,8 @@ function buildLocalCatalogKpis({ products = [], services = [], departments = [],
 }
 
 /** Build the 4 summary cards from API KPIs with local-list fallback. */
-function buildKpiCards(kpis, fallbackKpis) {
+function buildKpiCards(kpis, fallbackKpis, t) {
+    const translate = typeof t === 'function' ? t : (key) => key;
     const k = kpis || {};
     const fallback = fallbackKpis || {};
     const products = { ...(fallback.products || {}), ...(k.products || {}) };
@@ -150,23 +153,31 @@ function buildKpiCards(kpis, fallbackKpis) {
     return [
         {
             ...KPI_CARD_DEFS[0],
+            label: translate(KPI_CARD_DEFS[0].labelKey),
             value: kpiNum(products.total),
-            sub: `${kpiNum(products.active)} active · ${kpiNum(products.inactive)} inactive`,
+            sub: translate('kpi.activeInactive', { active: kpiNum(products.active), inactive: kpiNum(products.inactive) }),
         },
         {
             ...KPI_CARD_DEFS[1],
+            label: translate(KPI_CARD_DEFS[1].labelKey),
             value: kpiNum(services.total),
-            sub: `${kpiNum(services.active)} active · ${kpiNum(services.inactive)} inactive`,
+            sub: translate('kpi.activeInactive', { active: kpiNum(services.active), inactive: kpiNum(services.inactive) }),
         },
         {
             ...KPI_CARD_DEFS[2],
+            label: translate(KPI_CARD_DEFS[2].labelKey),
             value: kpiNum(departments.total),
-            sub: `${kpiNum(departments.active)} active · ${kpiNum(departments.inactive)} inactive`,
+            sub: translate('kpi.activeInactive', { active: kpiNum(departments.active), inactive: kpiNum(departments.inactive) }),
         },
         {
             ...KPI_CARD_DEFS[3],
+            label: translate(KPI_CARD_DEFS[3].labelKey),
             value: kpiNum(categories.total),
-            sub: `${kpiNum(byType.product)} product · ${kpiNum(byType.service)} service · ${kpiNum(byType.expense)} expense`,
+            sub: translate('kpi.catBreakdown', {
+                product: kpiNum(byType.product),
+                service: kpiNum(byType.service),
+                expense: kpiNum(byType.expense),
+            }),
         },
     ];
 }
@@ -363,14 +374,17 @@ function getCsvImportPayload(result) {
     return result.data && typeof result.data === 'object' ? result.data : result;
 }
 
-function formatCsvImportSummary(result) {
+function formatCsvImportSummary(result, t) {
     const p = getCsvImportPayload(result);
     if (!p) return '';
+    const translate = typeof t === 'function' ? t : (key, vars) => mcT('en', key, vars);
     const parts = [];
-    if (typeof p.created === 'number') parts.push(`Created: ${p.created}`);
-    if (typeof p.skippedDuplicate === 'number') parts.push(`Skipped (duplicate SKU): ${p.skippedDuplicate}`);
-    if (typeof p.failed === 'number') parts.push(`Failed: ${p.failed}`);
-    if (typeof p.vatWarningsCount === 'number') parts.push(`VAT warning rows: ${p.vatWarningsCount}`);
+    if (typeof p.created === 'number') parts.push(translate('bulk.created', { n: p.created }));
+    if (typeof p.skippedDuplicate === 'number')
+        parts.push(translate('bulk.skippedSku', { n: p.skippedDuplicate }));
+    if (typeof p.failed === 'number') parts.push(translate('bulk.failed', { n: p.failed }));
+    if (typeof p.vatWarningsCount === 'number')
+        parts.push(translate('bulk.vatRows', { n: p.vatWarningsCount }));
     return parts.join(' · ');
 }
 
@@ -406,6 +420,13 @@ function formatVatWarningItem(w) {
 
 export default function MasterCatalog() {
     const { hasPermission } = useAuth();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const displayName = useCallback((item) => catalogDisplayName(item, locale), [locale]);
+    const t = useCallback((key, vars) => mcT(locale, key, vars), [locale]);
     const navigate = useNavigate();
     const location = useLocation();
     const [searchParams] = useSearchParams();
@@ -417,19 +438,19 @@ export default function MasterCatalog() {
         navigate(masterCatalogListUrl(tab));
     }, [navigate, route?.screen]);
 
-    const visibleMasterTabs = MASTER_TABS.filter((t) => hasPermission(t.permission));
+    const visibleMasterTabs = MASTER_TABS.filter((tab) => hasPermission(tab.permission));
     const [activeTab, setActiveTab] = useState(() => {
         const tabParam = typeof window !== 'undefined'
             ? new URLSearchParams(window.location.search).get('tab')
             : null;
-        if (tabParam && MASTER_TABS.some((t) => t.id === tabParam)) return tabParam;
+        if (tabParam && MASTER_TABS.some((tab) => tab.id === tabParam)) return tabParam;
         return visibleMasterTabs[0]?.id ?? 'master';
     });
 
     // If the current activeTab is no longer visible (perms changed mid-session), snap to first allowed.
     useEffect(() => {
         if (visibleMasterTabs.length === 0) return;
-        if (!visibleMasterTabs.some((t) => t.id === activeTab)) {
+        if (!visibleMasterTabs.some((tab) => tab.id === activeTab)) {
             setActiveTab(visibleMasterTabs[0].id);
         }
     }, [visibleMasterTabs, activeTab]);
@@ -502,7 +523,7 @@ export default function MasterCatalog() {
     const [toast, setToast] = useState(null);
     const showToast = (message, kind = 'success') => {
         setToast({ message, kind, id: Date.now() });
-        setTimeout(() => setToast((t) => (t && t.message === message ? null : t)), 3500);
+        setTimeout(() => setToast((prev) => (prev && prev.message === message ? null : prev)), 3500);
     };
 
     const [newProduct, setNewProduct] = useState({
@@ -760,7 +781,7 @@ export default function MasterCatalog() {
     };
 
     const handleDeleteDuplicateItem = async (entityType, item) => {
-        if (!window.confirm(`Delete this ${entityType} "${item.name}"? This cannot be undone.`)) return;
+        if (!window.confirm(`Delete this ${entityType} "${displayName(item) || item.name}"? This cannot be undone.`)) return;
         try {
             await deleteDuplicateItem(entityType, item.id);
             showToast('Item deleted', 'success');
@@ -890,7 +911,7 @@ export default function MasterCatalog() {
     useEffect(() => {
         if (pageMode) return;
         const tab = searchParams.get('tab');
-        if (tab && visibleMasterTabs.some((t) => t.id === tab) && tab !== activeTab) {
+        if (tab && visibleMasterTabs.some((mt) => mt.id === tab) && tab !== activeTab) {
             setActiveTab(tab);
         }
     }, [pageMode, searchParams, visibleMasterTabs, activeTab]);
@@ -1743,7 +1764,7 @@ export default function MasterCatalog() {
                             className={`mc-status-btn ${statusFilter === s ? 'active' : ''}`}
                             onClick={() => setStatusFilter(s)}
                         >
-                            {s}
+                            {t(`filter.${s.toLowerCase()}`)}
                         </button>
                     ))}
                 </div>
@@ -1752,7 +1773,7 @@ export default function MasterCatalog() {
                     <Search size={18} className="mc-search-icon" />
                     <input 
                         type="text" 
-                        placeholder="Search name, SKU, brand, KM type value…"
+                        placeholder={t('search.products')}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -1764,7 +1785,7 @@ export default function MasterCatalog() {
                             value={selectedProductDepartment}
                             onChange={(e) => setSelectedProductDepartment(e.target.value)}
                         >
-                            <option value="">All Departments</option>
+                            <option value="">{t('filter.allDepartments')}</option>
                             {productDepartmentOptions.map((dept) => (
                                 <option key={dept.id} value={dept.id}>{dept.name}</option>
                             ))}
@@ -1772,7 +1793,9 @@ export default function MasterCatalog() {
                         <ChevronDown size={14} />
                     </div>
                     <span className="mc-items-count">
-                        {searchQuery ? `${displayedProducts.length} of ${products.length}` : `${displayedProducts.length} items`}
+                        {searchQuery
+                            ? t('count.of', { n: displayedProducts.length, m: products.length })
+                            : t('count.items', { n: displayedProducts.length })}
                     </span>
                     {hasPermission('inventory.master-catalog.products.view') && (
                         <button
@@ -1783,7 +1806,7 @@ export default function MasterCatalog() {
                             title="Export all products in the database as CSV"
                         >
                             <Download size={16} />
-                            {productsExporting ? 'Exporting…' : 'Export CSV'}
+                            {productsExporting ? t('btn.exporting') : t('btn.exportCsv')}
                         </button>
                     )}
                 </div>
@@ -1792,12 +1815,12 @@ export default function MasterCatalog() {
             {loading ? (
                 <div className="mc-empty-state">
                     <div className="mc-empty-icon"><RefreshCw size={28} className="spin" /></div>
-                    <p>Loading products…</p>
+                    <p>{t('loading.products')}</p>
                 </div>
             ) : displayedProducts.length === 0 ? (
                 <div className="mc-empty-state">
                     <div className="mc-empty-icon"><Package size={44} opacity={0.18} /></div>
-                    <p>{searchQuery ? `No products matching "${searchQuery}"` : 'No products yet'}</p>
+                    <p>{searchQuery ? `${t('empty.productsSearch')} "${searchQuery}"` : t('empty.products')}</p>
                 </div>
             ) : (
                 <div className="mc-products-grid">
@@ -1818,19 +1841,21 @@ export default function MasterCatalog() {
                                 <div className="mc-pc-header">
                                     <div className="mc-pc-icon"><Edit3 size={18} /></div>
                                     <span className={`mc-pc-status ${isActive ? 'approved' : 'rejected'}`}>
-                                        {isActive ? 'Active' : 'Inactive'}
+                                        {isActive ? t('status.active') : t('status.inactive')}
                                     </span>
                                 </div>
                                 <div className="mc-pc-body">
-                                    <h3 className="mc-pc-name">{p.name}</h3>
-                                    <p className="mc-pc-sku">{p.sku || 'No SKU'}</p>
+                                    <h3 className="mc-pc-name" dir={locale === 'ar' && (p.arabicName || p.arabic_name) ? 'rtl' : undefined}>
+                                        {displayName(p)}
+                                    </h3>
+                                    <p className="mc-pc-sku">{p.sku || t('chip.noSku')}</p>
                                     {createdLabel ? (
                                         <p className="mc-pc-created" title={String(createdRaw)}>
-                                            Created {createdLabel}
+                                            {t('chip.created')} {createdLabel}
                                         </p>
                                     ) : null}
                                     <div className="mc-pc-tags">
-                                        <span className="mc-pc-tag">Product</span>
+                                        <span className="mc-pc-tag">{t('chip.product')}</span>
                                         <span className="mc-pc-tag">
                                             {formatUomRule(
                                                 p.warehouseUnit,
@@ -1841,12 +1866,12 @@ export default function MasterCatalog() {
                                         <span className="mc-pc-tag">{p.categoryName || '—'}</span>
                                         {p.kmTypeValue != null && String(p.kmTypeValue).trim() !== '' && (
                                             <span className="mc-pc-tag" title="KM type value">
-                                                KM {p.kmTypeValue}
+                                                {t('chip.km')} {p.kmTypeValue}
                                             </span>
                                         )}
                                         {toBoolAllowMinus(p) ? (
                                             <span className="mc-pc-tag" title="May go below zero at workshop/POS">
-                                                Minus Qty
+                                                {t('chip.minusQty')}
                                             </span>
                                         ) : null}
                                     </div>
@@ -1875,15 +1900,15 @@ export default function MasterCatalog() {
                                                 style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0 }}
                                             >
                                                 <div className="mc-toggle-label">
-                                                    <strong>Status</strong>
+                                                    <strong>{t('toggle.status')}</strong>
                                                     <span className={isActive ? 'mc-toggle-state--on' : ''}>
-                                                        {activeBusy ? 'Updating...' : isActive ? 'Active' : 'Inactive'}
+                                                        {activeBusy ? t('toggle.updating') : isActive ? t('status.active') : t('status.inactive')}
                                                     </span>
                                                 </div>
                                                 <div
                                                     className={`mc-toggle-switch${isActive ? ' active' : ''}`}
                                                     role="button"
-                                                    aria-label={`Toggle ${p.name} active status`}
+                                                    aria-label={`Toggle ${displayName(p)} active status`}
                                                     aria-pressed={isActive}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -1898,19 +1923,19 @@ export default function MasterCatalog() {
                                                 style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0 }}
                                             >
                                                 <div className="mc-toggle-label">
-                                                    <strong>Price Editable</strong>
+                                                    <strong>{t('toggle.priceEditable')}</strong>
                                                     <span className={priceEditable ? 'mc-toggle-state--on' : ''}>
                                                         {priceBusy
-                                                            ? 'Updating...'
+                                                            ? t('toggle.updating')
                                                             : priceEditable
-                                                              ? `Editable · min SAR ${Number(p.minPriceEditable ?? p.min_price_editable ?? 0).toFixed(2)}`
-                                                              : 'Fixed price'}
+                                                              ? `${t('toggle.editable')} · min SAR ${Number(p.minPriceEditable ?? p.min_price_editable ?? 0).toFixed(2)}`
+                                                              : t('toggle.fixedPrice')}
                                                     </span>
                                                 </div>
                                                 <div
                                                     className={`mc-toggle-switch${priceEditable ? ' active' : ''}`}
                                                     role="button"
-                                                    aria-label={`Toggle ${p.name} price editable`}
+                                                    aria-label={`Toggle ${displayName(p)} price editable`}
                                                     aria-pressed={priceEditable}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -1939,13 +1964,13 @@ export default function MasterCatalog() {
                         <Search size={16} className="mc-search-icon" />
                         <input
                             type="text"
-                            placeholder="Search departments..."
+                            placeholder={t('search.departments')}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                     </div>
                     {hasPermission('inventory.master-catalog.departments.create') && (
-                        <button className="mc-btn-primary small" onClick={() => navigate(mcRoutes.deptNew())}><Plus size={14} /> Add Department</button>
+                        <button className="mc-btn-primary small" onClick={() => navigate(mcRoutes.deptNew())}><Plus size={14} /> {t('btn.addDepartment')}</button>
                     )}
                 </div>
             </div>
@@ -1955,7 +1980,7 @@ export default function MasterCatalog() {
                     <div key={dept.id} className="mc-dept-card">
                         <div className="mc-dept-icon"><LayoutGrid size={24} color="#D4A017" /></div>
                         <h3 className="mc-dept-name">{dept.name}</h3>
-                        <p className="mc-dept-meta">Department</p>
+                        <p className="mc-dept-meta">{t('chip.department')}</p>
                         <div className="mc-dept-actions">
                             {hasPermission('inventory.master-catalog.departments.edit') && (
                                 <button className="mc-btn-icon" onClick={() => handleEditDeptClick(dept)}><Edit3 size={14} /></button>
@@ -1978,13 +2003,13 @@ export default function MasterCatalog() {
                         <Search size={16} className="mc-search-icon" />
                         <input
                             type="text"
-                            placeholder="Search categories..."
+                            placeholder={t('search.categories')}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                     </div>
                     {hasPermission('inventory.master-catalog.categories.create') && (
-                        <button className="mc-btn-primary small" onClick={() => navigate(mcRoutes.catNew())}><Plus size={14} /> Add Category</button>
+                        <button className="mc-btn-primary small" onClick={() => navigate(mcRoutes.catNew())}><Plus size={14} /> {t('btn.addCategory')}</button>
                     )}
                 </div>
             </div>
@@ -1993,9 +2018,9 @@ export default function MasterCatalog() {
                 <table className="mc-availability-table">
                     <thead>
                         <tr>
-                            <th>CATEGORY NAME</th>
-                            <th>DEPARTMENT</th>
-                            <th>ACTIONS</th>
+                            <th>{t('th.categoryName')}</th>
+                            <th>{t('th.department')}</th>
+                            <th>{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2051,10 +2076,10 @@ export default function MasterCatalog() {
             <div className="mc-content-area">
                 <div className="mc-pr-kpis">
                     {[
-                        { key: 'total', label: 'Total', color: '#111827', value: prKpis?.total },
-                        { key: 'pending', label: 'Pending', color: '#D97706', value: prKpis?.pending },
-                        { key: 'approved', label: 'Approved', color: '#15803D', value: prKpis?.approved },
-                        { key: 'rejected', label: 'Rejected', color: '#B91C1C', value: prKpis?.rejected },
+                        { key: 'total', label: t('kpi.total'), color: '#111827', value: prKpis?.total },
+                        { key: 'pending', label: t('kpi.pending'), color: '#D97706', value: prKpis?.pending },
+                        { key: 'approved', label: t('kpi.approved'), color: '#15803D', value: prKpis?.approved },
+                        { key: 'rejected', label: t('kpi.rejected'), color: '#B91C1C', value: prKpis?.rejected },
                     ].map((c) => (
                         <div key={c.key} className="mc-pr-kpi" style={{ borderColor: c.color }}>
                             <span className="mc-pr-kpi-value" style={{ color: c.color }}>{kpiNum(c.value)}</span>
@@ -2072,12 +2097,12 @@ export default function MasterCatalog() {
                                 className={`mc-service-tab ${prTab === s ? 'active' : ''}`}
                                 onClick={() => setPrTab(s)}
                             >
-                                {s}
+                                {t(`filter.${s.toLowerCase()}`)}
                             </button>
                         ))}
                     </div>
                     <button type="button" className="mc-btn-ghost" onClick={loadProductRequests} disabled={prLoading}>
-                        <RefreshCw size={14} /> {prLoading ? 'Refreshing…' : 'Refresh'}
+                        <RefreshCw size={14} /> {prLoading ? t('btn.refreshing') : t('btn.refresh')}
                     </button>
                 </div>
 
@@ -2085,17 +2110,17 @@ export default function MasterCatalog() {
                     <div className="mc-kpi-error">
                         <AlertCircle size={14} /> {prError}
                         <button type="button" className="mc-kpi-retry" onClick={loadProductRequests}>
-                            <RefreshCw size={12} /> Retry
+                            <RefreshCw size={12} /> {t('btn.retry')}
                         </button>
                     </div>
                 )}
 
                 {prLoading ? (
-                    <div className="mc-empty-state"><p>Loading…</p></div>
+                    <div className="mc-empty-state"><p>{t('loading')}</p></div>
                 ) : productRequests.length === 0 ? (
                     <div className="mc-empty-state">
                         <div className="mc-empty-icon"><CheckCircle2 size={48} opacity={0.15} /></div>
-                        <p>No {prTab.toLowerCase()} product requests</p>
+                        <p>{t('empty.requests', { status: t(`filter.${prTab.toLowerCase()}`).toLowerCase() })}</p>
                     </div>
                 ) : (
                     <div className="mc-pr-grid">
@@ -2109,42 +2134,44 @@ export default function MasterCatalog() {
                                     <div className="mc-pr-card-head">
                                         <div className="mc-pr-card-title">
                                             <Package size={16} color="#6B7280" />
-                                            <strong>{r.name || '—'}</strong>
+                                            <strong dir={locale === 'ar' && (r.arabicName || r.arabic_name) ? 'rtl' : undefined}>
+                                                {displayName(r) || '—'}
+                                            </strong>
                                         </div>
                                         {statusBadge(r.status)}
                                     </div>
                                     <div className="mc-pr-card-body">
                                         <div className="mc-pr-row">
-                                            <span className="mc-pr-label">SKU</span>
+                                            <span className="mc-pr-label">{t('pr.sku')}</span>
                                             <span className="mc-pr-value">{r.sku || '—'}</span>
                                         </div>
                                         <div className="mc-pr-row">
-                                            <span className="mc-pr-label">Brand</span>
+                                            <span className="mc-pr-label">{t('pr.brand')}</span>
                                             <span className="mc-pr-value">{r.brandName || '—'}</span>
                                         </div>
                                         <div className="mc-pr-row">
-                                            <span className="mc-pr-label">Requested from Supplier</span>
+                                            <span className="mc-pr-label">{t('pr.fromSupplier')}</span>
                                             <span className="mc-pr-value">
                                                 {submitter.name || submitter.email || '—'}
                                             </span>
                                         </div>
                                         <div className="mc-pr-row">
-                                            <span className="mc-pr-label">Expected price</span>
+                                            <span className="mc-pr-label">{t('pr.expectedPrice')}</span>
                                             <span className="mc-pr-value">{fmtMoney(r.expectedPrice)}</span>
                                         </div>
                                         <div className="mc-pr-row">
-                                            <span className="mc-pr-label">Submitted on</span>
+                                            <span className="mc-pr-label">{t('pr.submittedOn')}</span>
                                             <span className="mc-pr-value">{fmtDate(r.createdAt)}</span>
                                         </div>
                                         {r.notes && (
                                             <div className="mc-pr-notes">
-                                                <span className="mc-pr-label">Notes</span>
+                                                <span className="mc-pr-label">{t('pr.notes')}</span>
                                                 <p>{r.notes}</p>
                                             </div>
                                         )}
                                         {String(r.status).toLowerCase() === 'rejected' && r.rejectionReason && (
                                             <div className="mc-pr-rejection">
-                                                <strong>Rejection reason:</strong> {r.rejectionReason}
+                                                <strong>{t('pr.rejectionReason')}</strong> {r.rejectionReason}
                                             </div>
                                         )}
                                     </div>
@@ -2155,14 +2182,14 @@ export default function MasterCatalog() {
                                                 className="mc-btn-ghost"
                                                 onClick={() => openPrReject(r)}
                                             >
-                                                <XCircle size={14} /> Reject
+                                                <XCircle size={14} /> {t('btn.reject')}
                                             </button>
                                             <button
                                                 type="button"
                                                 className="mc-btn-primary"
                                                 onClick={() => openPrApprove(r)}
                                             >
-                                                <CheckCircle2 size={14} /> Approve
+                                                <CheckCircle2 size={14} /> {t('btn.approve')}
                                             </button>
                                         </div>
                                     )}
@@ -2186,31 +2213,31 @@ export default function MasterCatalog() {
         return (
             <div className="mc-content-area">
                 <div className="mc-engine-banner">
-                    <strong>Duplication Control Engine</strong>
+                    <strong>{t('dup.engine')}</strong>
                     <p>Automatically detects similar records across products, services, departments and categories.</p>
                 </div>
 
                 <div className="mc-services-header">
                     <div className="mc-services-tabs">
                         {[
-                            { id: '', label: 'All' },
-                            { id: 'product', label: 'Products' },
-                            { id: 'service', label: 'Services' },
-                            { id: 'department', label: 'Departments' },
-                            { id: 'category', label: 'Categories' },
-                        ].map((t) => (
+                            { id: '', labelKey: 'filter.all' },
+                            { id: 'product', labelKey: 'filter.products' },
+                            { id: 'service', labelKey: 'filter.services' },
+                            { id: 'department', labelKey: 'filter.departments' },
+                            { id: 'category', labelKey: 'filter.categories' },
+                        ].map((opt) => (
                             <button
-                                key={t.id || 'all'}
+                                key={opt.id || 'all'}
                                 type="button"
-                                className={`mc-service-tab ${dupEntityFilter === t.id ? 'active' : ''}`}
-                                onClick={() => setDupEntityFilter(t.id)}
+                                className={`mc-service-tab ${dupEntityFilter === opt.id ? 'active' : ''}`}
+                                onClick={() => setDupEntityFilter(opt.id)}
                             >
-                                {t.label}
+                                {t(opt.labelKey)}
                             </button>
                         ))}
                     </div>
                     <button type="button" className="mc-btn-ghost" onClick={loadDuplicates} disabled={dupLoading}>
-                        <RefreshCw size={14} /> {dupLoading ? 'Refreshing…' : 'Refresh'}
+                        <RefreshCw size={14} /> {dupLoading ? t('btn.refreshing') : t('btn.refresh')}
                     </button>
                 </div>
 
@@ -2219,17 +2246,17 @@ export default function MasterCatalog() {
                         {dupGroups.length ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
                     </div>
                     <div className="mc-alert-content">
-                        <strong>Duplicate Detection</strong>
+                        <strong>{t('dup.detection')}</strong>
                         <p>
                             {dupLoading
-                                ? 'Scanning…'
+                                ? t('dup.scanning')
                                 : dupGroups.length
-                                    ? `${dupGroups.length} group(s) · ${totalAffected} record(s) affected`
-                                    : 'No duplicate groups detected'}
+                                    ? t('dup.groupsRecords', { groups: dupGroups.length, records: totalAffected })
+                                    : t('dup.noGroups')}
                         </p>
                     </div>
                     {dupGroups.length > 0 && (
-                        <span className="mc-alert-badge">{dupGroups.length} Group(s)</span>
+                        <span className="mc-alert-badge">{dupGroups.length} {t('dup.groups')}</span>
                     )}
                 </div>
 
@@ -2237,7 +2264,7 @@ export default function MasterCatalog() {
                     <div className="mc-kpi-error">
                         <AlertCircle size={14} /> {dupError}
                         <button type="button" className="mc-kpi-retry" onClick={loadDuplicates}>
-                            <RefreshCw size={12} /> Retry
+                            <RefreshCw size={12} /> {t('btn.retry')}
                         </button>
                     </div>
                 )}
@@ -2245,7 +2272,7 @@ export default function MasterCatalog() {
                 {!dupLoading && dupGroups.length === 0 && !dupError && (
                     <div className="mc-empty-state">
                         <div className="mc-empty-icon"><CheckCircle2 size={48} opacity={0.15} /></div>
-                        <p>All clear — no duplicate groups{dupEntityFilter ? ` in ${dupEntityFilter}s` : ''}.</p>
+                        <p>{t('empty.duplicates')}{dupEntityFilter ? ` (${dupEntityFilter}s)` : ''}</p>
                     </div>
                 )}
 
@@ -2280,21 +2307,23 @@ export default function MasterCatalog() {
                                         <table className="mc-availability-table">
                                             <thead>
                                                 <tr>
-                                                    <th>NAME</th>
-                                                    <th>SKU</th>
-                                                    <th>KM TYPE</th>
-                                                    <th>VAT MODE</th>
-                                                    <th>CREATED</th>
-                                                    <th>DEPARTMENT</th>
-                                                    <th>CATEGORY</th>
-                                                    <th>STATUS</th>
-                                                    <th>ACTIONS</th>
+                                                    <th>{t('th.name')}</th>
+                                                    <th>{t('th.sku')}</th>
+                                                    <th>{t('th.kmType')}</th>
+                                                    <th>{t('th.vatMode')}</th>
+                                                    <th>{t('th.created')}</th>
+                                                    <th>{t('th.department')}</th>
+                                                    <th>{t('th.category')}</th>
+                                                    <th>{t('th.status')}</th>
+                                                    <th>{t('th.actions')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {items.map((item) => (
                                                     <tr key={item.id}>
-                                                        <td>{item.name || '—'}</td>
+                                                        <td dir={locale === 'ar' && (item.arabicName || item.arabic_name) ? 'rtl' : undefined}>
+                                                            {displayName(item) || '—'}
+                                                        </td>
                                                         <td className="mono">{item.sku || '—'}</td>
                                                         <td className="mono">
                                                             {group.entityType === 'product' &&
@@ -2317,7 +2346,7 @@ export default function MasterCatalog() {
                                                         <td>{item.category?.name || '—'}</td>
                                                         <td>
                                                             <span className={`mc-pc-status ${item.isActive === false ? 'rejected' : 'approved'}`}>
-                                                                {item.isActive === false ? 'Inactive' : 'Active'}
+                                                                {item.isActive === false ? t('status.inactive') : t('status.active')}
                                                             </span>
                                                         </td>
                                                         <td>
@@ -2342,7 +2371,7 @@ export default function MasterCatalog() {
                                                 className="mc-btn-ghost"
                                                 onClick={() => handleIgnoreDuplicate(group)}
                                             >
-                                                <ShieldCheck size={14} /> Mark as not duplicate
+                                                <ShieldCheck size={14} /> {t('btn.markNotDuplicate')}
                                             </button>
                                         </div>
                                     </div>
@@ -2362,14 +2391,14 @@ export default function MasterCatalog() {
                     <Search size={18} className="mc-search-icon" />
                     <input
                         type="text"
-                        placeholder="Search products..."
+                        placeholder={t('search.availability')}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
                 <div className="mc-availability-badges">
-                    <span className="mc-av-badge green">0 with stock</span>
-                    <span className="mc-av-badge red">{filteredAvailability.length} no supplier</span>
+                    <span className="mc-av-badge green">0 {t('avail.withStock')}</span>
+                    <span className="mc-av-badge red">{filteredAvailability.length} {t('avail.noSupplier')}</span>
                 </div>
             </div>
 
@@ -2377,21 +2406,21 @@ export default function MasterCatalog() {
                 <table className="mc-availability-table">
                     <thead>
                         <tr>
-                            <th>PRODUCT</th>
-                            <th>CATEGORY</th>
-                            <th>UNIT CONVERSION</th>
-                            <th>KM TYPE</th>
-                            <th>SUPPLIERS</th>
-                            <th>AVAILABILITY</th>
+                            <th>{t('th.product')}</th>
+                            <th>{t('th.category')}</th>
+                            <th>{t('th.unitConversion')}</th>
+                            <th>{t('th.kmType')}</th>
+                            <th>{t('th.suppliers')}</th>
+                            <th>{t('th.availability')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {(loading ? [] : filteredAvailability).map((p) => (
                             <tr key={p.id}>
                                 <td>
-                                    <div className="mc-table-product">
+                                    <div className="mc-table-product" dir={locale === 'ar' && (p.arabicName || p.arabic_name) ? 'rtl' : undefined}>
                                         <Package size={16} opacity={0.3} />
-                                        {p.name}
+                                        {displayName(p)}
                                     </div>
                                 </td>
                                 <td>{p.categoryName || '—'}</td>
@@ -2407,14 +2436,14 @@ export default function MasterCatalog() {
                                         ? p.kmTypeValue
                                         : '—'}
                                 </td>
-                                <td className="mc-muted">No suppliers</td>
-                                <td><span className="mc-av-status red">No Stock</span></td>
+                                <td className="mc-muted">{t('avail.noSuppliers')}</td>
+                                <td><span className="mc-av-status red">{t('avail.noStock')}</span></td>
                             </tr>
                         ))}
                         {!loading && filteredAvailability.length === 0 && (
                             <tr>
                                 <td colSpan={6} className="mc-muted" style={{ textAlign: 'center', padding: '24px' }}>
-                                    {searchQuery ? `No products matching "${searchQuery}"` : 'No products yet'}
+                                    {searchQuery ? `${t('empty.productsSearch')} "${searchQuery}"` : t('empty.products')}
                                 </td>
                             </tr>
                         )}
@@ -2435,7 +2464,7 @@ export default function MasterCatalog() {
                             className={`mc-service-tab ${s === serviceStatusFilter ? 'active' : ''}`}
                             onClick={() => setServiceStatusFilter(s)}
                         >
-                            {s}
+                            {t(`filter.${s.toLowerCase()}`)}
                         </button>
                     ))}
                 </div>
@@ -2444,7 +2473,7 @@ export default function MasterCatalog() {
                         <Search size={16} className="mc-search-icon" />
                         <input
                             type="text"
-                            placeholder="Search services..."
+                            placeholder={t('search.services')}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -2454,7 +2483,7 @@ export default function MasterCatalog() {
                             value={selectedServiceDepartment}
                             onChange={(e) => setSelectedServiceDepartment(e.target.value)}
                         >
-                            <option value="">All Departments</option>
+                            <option value="">{t('filter.allDepartments')}</option>
                             {serviceDepartmentOptions.map((dept) => (
                                 <option key={dept.id} value={dept.id}>{dept.name}</option>
                             ))}
@@ -2467,15 +2496,15 @@ export default function MasterCatalog() {
             <div className="mc-services-summary">
                 <div className="mc-ss-card purple">
                     <div className="mc-ss-value">{services.length}</div>
-                    <div className="mc-ss-label">Total Services</div>
+                    <div className="mc-ss-label">{t('kpi.totalServices')}</div>
                 </div>
                 <div className="mc-ss-card green">
                     <div className="mc-ss-value">{services.filter((s) => s.isActive !== false).length}</div>
-                    <div className="mc-ss-label">Approved</div>
+                    <div className="mc-ss-label">{t('kpi.approved')}</div>
                 </div>
                 <div className="mc-ss-card blue">
                     <div className="mc-ss-value">{services.filter((s) => toBoolPriceEditable(s)).length}</div>
-                    <div className="mc-ss-label">Price Editable</div>
+                    <div className="mc-ss-label">{t('kpi.priceEditable')}</div>
                 </div>
             </div>
 
@@ -2484,7 +2513,7 @@ export default function MasterCatalog() {
                     <div className="mc-empty-icon">
                         <RefreshCw size={28} className="spin" />
                     </div>
-                    <p>Loading services…</p>
+                    <p>{t('loading.services')}</p>
                 </div>
             ) : displayedServices.length === 0 ? (
                 <div className="mc-empty-state">
@@ -2493,9 +2522,9 @@ export default function MasterCatalog() {
                     </div>
                     <p>
                         {services.length === 0
-                            ? 'No services yet'
+                            ? t('empty.services')
                             : searchQuery
-                              ? `No services matching "${searchQuery}"`
+                              ? `${t('empty.servicesSearch')} "${searchQuery}"`
                               : 'No services match this filter'}
                     </p>
                 </div>
@@ -2530,15 +2559,17 @@ export default function MasterCatalog() {
                                         <Edit3 size={16} />
                                     </div>
                                     <span className={`mc-pc-status ${isActive ? 'approved' : 'rejected'}`}>
-                                        {isActive ? 'Active' : 'Inactive'}
+                                        {isActive ? t('status.active') : t('status.inactive')}
                                     </span>
                                 </div>
                                 <div className="mc-sc-body">
-                                    <h4 className="mc-sc-name">{p.name}</h4>
-                                    <p className="mc-sc-sub">{p.sku || 'No SKU'}</p>
+                                    <h4 className="mc-sc-name" dir={locale === 'ar' && (p.arabicName || p.arabic_name) ? 'rtl' : undefined}>
+                                        {displayName(p)}
+                                    </h4>
+                                    <p className="mc-sc-sub">{p.sku || t('chip.noSku')}</p>
                                     {createdLabel ? (
                                         <p className="mc-pc-created" title={String(createdRaw)}>
-                                            Created {createdLabel}
+                                            {t('chip.created')} {createdLabel}
                                         </p>
                                     ) : null}
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
@@ -2550,7 +2581,7 @@ export default function MasterCatalog() {
                                             </span>
                                         ) : null}
                                     </div>
-                                    <div className="mc-sc-price">Sale: SAR {p.sellingPrice ?? 0}</div>
+                                    <div className="mc-sc-price">{t('sale.sar', { price: p.sellingPrice ?? 0 })}</div>
                                 </div>
                                 <div className="mc-sc-footer">
                                     <div
@@ -2564,15 +2595,15 @@ export default function MasterCatalog() {
                                     >
                                         <div className="mc-sc-toggle-group" style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0 }}>
                                             <div className="mc-toggle-label">
-                                                <strong>Status</strong>
+                                                <strong>{t('toggle.status')}</strong>
                                                 <span className={isActive ? 'mc-toggle-state--on' : ''}>
-                                                    {activeBusy ? 'Updating...' : isActive ? 'Active' : 'Inactive'}
+                                                    {activeBusy ? t('toggle.updating') : isActive ? t('status.active') : t('status.inactive')}
                                                 </span>
                                             </div>
                                             <div
                                                 className={`mc-toggle-switch${isActive ? ' active' : ''}`}
                                                 role="button"
-                                                aria-label={`Toggle ${p.name} active status`}
+                                                aria-label={`Toggle ${displayName(p)} active status`}
                                                 aria-pressed={isActive}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
@@ -2584,15 +2615,15 @@ export default function MasterCatalog() {
                                         </div>
                                         <div className="mc-sc-toggle-group" style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0 }}>
                                             <div className="mc-toggle-label">
-                                                <strong>Price Editable</strong>
+                                                <strong>{t('toggle.priceEditable')}</strong>
                                                 <span className={priceEditable ? 'mc-toggle-state--on' : ''}>
-                                                    {priceBusy ? 'Updating...' : priceEditable ? 'Editable' : 'Fixed price'}
+                                                    {priceBusy ? t('toggle.updating') : priceEditable ? t('toggle.editable') : t('toggle.fixedPrice')}
                                                 </span>
                                             </div>
                                             <div
                                                 className={`mc-toggle-switch${priceEditable ? ' active' : ''}`}
                                                 role="button"
-                                                aria-label={`Toggle ${p.name} price editable`}
+                                                aria-label={`Toggle ${displayName(p)} price editable`}
                                                 aria-pressed={priceEditable}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
@@ -2604,15 +2635,15 @@ export default function MasterCatalog() {
                                         </div>
                                         <div className="mc-sc-toggle-group" style={{ justifyContent: 'flex-start', gap: 8, width: '100%', minWidth: 0 }}>
                                             <div className="mc-toggle-label">
-                                                <strong>Service Qty</strong>
+                                                <strong>{t('toggle.serviceQty')}</strong>
                                                 <span className={serviceQtyOn ? 'mc-toggle-state--on' : ''}>
-                                                    {qtyBusy ? 'Updating...' : serviceQtyOn ? 'Qty ON' : 'Qty OFF'}
+                                                    {qtyBusy ? t('toggle.updating') : serviceQtyOn ? t('toggle.qtyOn') : t('toggle.qtyOff')}
                                                 </span>
                                             </div>
                                             <div
                                                 className={`mc-toggle-switch${serviceQtyOn ? ' active' : ''}`}
                                                 role="button"
-                                                aria-label={`Toggle ${p.name} service quantity`}
+                                                aria-label={`Toggle ${displayName(p)} service quantity`}
                                                 aria-pressed={serviceQtyOn}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
@@ -2649,29 +2680,29 @@ export default function MasterCatalog() {
             {/* Header Area */}
             <div className="mc-header">
                 <div className="mc-header-info">
-                    <h1 className="mc-title">Master Product Catalog</h1>
-                    <p className="mc-subtitle">Super Admin — Single source of truth for all products & services across all tenants</p>
+                    <h1 className="mc-title">{t('page.title')}</h1>
+                    <p className="mc-subtitle">{t('page.subtitle')}</p>
                 </div>
                 <div className="mc-header-actions">
-                    <button type="button" className="mc-btn-ghost"><RefreshCw size={16} /> Sync Depts</button>
+                    <button type="button" className="mc-btn-ghost"><RefreshCw size={16} /> {t('btn.syncDepts')}</button>
                     {hasPermission('inventory.master-catalog.products.create') && (
                         <button type="button" className="mc-btn-ghost" onClick={() => navigate(mcRoutes.productImport())}>
-                            <Upload size={16} /> Bulk upload Product
+                            <Upload size={16} /> {t('btn.bulkProduct')}
                         </button>
                     )}
                     {hasPermission('inventory.master-catalog.services.create') && (
                         <button type="button" className="mc-btn-ghost" onClick={() => navigate(mcRoutes.serviceImport())}>
-                            <Upload size={16} /> Bulk upload Service
+                            <Upload size={16} /> {t('btn.bulkService')}
                         </button>
                     )}
                     {hasPermission('inventory.master-catalog.products.create') && (
                         <button type="button" className="mc-btn-primary" onClick={() => navigate(mcRoutes.productNew())}>
-                            <Plus size={16} /> Add product
+                            <Plus size={16} /> {t('btn.addProduct')}
                         </button>
                     )}
                     {hasPermission('inventory.master-catalog.services.create') && (
                         <button type="button" className="mc-btn-primary purple-btn" onClick={() => navigate(mcRoutes.serviceNew())}>
-                            <Plus size={16} /> Add service
+                            <Plus size={16} /> {t('btn.addService')}
                         </button>
                     )}
                 </div>
@@ -2683,11 +2714,11 @@ export default function MasterCatalog() {
                     <div className="mc-kpi-error">
                         <AlertCircle size={14} /> {kpisError}
                         <button type="button" className="mc-kpi-retry" onClick={loadKpis}>
-                            <RefreshCw size={12} /> Retry
+                            <RefreshCw size={12} /> {t('btn.retry')}
                         </button>
                     </div>
                 )}
-                {buildKpiCards(kpis, fallbackKpis).map((card) => (
+                {buildKpiCards(kpis, fallbackKpis, t).map((card) => (
                     <div
                         key={card.key}
                         className="mc-summary-card"
@@ -2701,7 +2732,7 @@ export default function MasterCatalog() {
                             {kpisLoading && !kpis ? '—' : card.value}
                         </div>
                         <div className="mc-card-sub" style={{ color: card.subColor }}>
-                            {kpisLoading && !kpis ? 'Loading…' : card.sub}
+                            {kpisLoading && !kpis ? t('loading') : card.sub}
                         </div>
                     </div>
                 ))}
@@ -2720,12 +2751,12 @@ export default function MasterCatalog() {
                         }}
                     >
                         <tab.icon size={16} />
-                        {tab.label}
+                        {t(MC_TAB_LABEL_KEYS[tab.id] || tab.label)}
                     </button>
                 ))}
                 {visibleMasterTabs.length === 0 && (
                     <div style={{ padding: 20, color: '#94a3b8', fontSize: '0.875rem' }}>
-                        You don't have permission to view any Master Catalog tabs.
+                        {t('empty.noTabs')}
                     </div>
                 )}
             </div>
@@ -2734,8 +2765,8 @@ export default function MasterCatalog() {
             <div className="mc-governance-banner">
                 <div className="mc-banner-icon"><CheckCircle2 size={18} /></div>
                 <div className="mc-banner-content">
-                    <strong>Master Catalog — Super Admin Governed</strong>
-                    <p>This is the single source of truth. Workshops and Suppliers cannot create products directly — they select from here or submit a request.</p>
+                    <strong>{t('banner.title')}</strong>
+                    <p>{t('banner.body')}</p>
                 </div>
             </div>
 
@@ -2755,28 +2786,28 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'dept-new' && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><LayoutGrid size={18} color="#D4A017" /> Add Master Department</div>}
+                        title={<div className="mc-modal-title"><LayoutGrid size={18} color="#D4A017" /> {t('modal.addDept')}</div>}
                         onClose={goBack}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
                             <div className="mc-form-group">
-                                <label>Department Name *</label>
+                                <label>{t('label.deptName')}</label>
                                 <input 
                                     type="text" 
-                                    placeholder="e.g. Engine Services" 
+                                    placeholder={t('ph.deptExample')} 
                                     value={newDept.name}
                                     onChange={(e) => setNewDept({ name: e.target.value })}
                                 />
                             </div>
                             <div className="mc-modal-footer">
                                 <button className="mc-btn-primary mc-btn-large" onClick={handleCreateDepartment} disabled={saving || !isDepartmentFormValid}>
-                                    {saving ? 'Saving...' : 'Add Department'}
+                                    {saving ? t('btn.saving') : t('btn.addDepartment')}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>{t('btn.cancel')}</button>
                             </div>
                             {!isDepartmentFormValid && (
-                                <p style={{ marginTop: 8, color: '#B91C1C', fontSize: 12 }}>Department name is required.</p>
+                                <p style={{ marginTop: 8, color: '#B91C1C', fontSize: 12 }}>{t('val.deptRequired')}</p>
                             )}
                         </div>
                     </MasterCatalogShell>
@@ -2787,25 +2818,25 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'dept-edit' && editingDept && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><LayoutGrid size={18} color="#D4A017" /> Edit Master Department</div>}
+                        title={<div className="mc-modal-title"><LayoutGrid size={18} color="#D4A017" /> {t('modal.editDept')}</div>}
                         onClose={goBack}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
                             <div className="mc-form-group">
-                                <label>Department Name *</label>
+                                <label>{t('label.deptName')}</label>
                                 <input 
                                     type="text" 
-                                    placeholder="e.g. Engine Services" 
+                                    placeholder={t('ph.deptExample')} 
                                     value={editingDept.name}
                                     onChange={(e) => setEditingDept({ ...editingDept, name: e.target.value })}
                                 />
                             </div>
                             <div className="mc-modal-footer">
                                 <button className="mc-btn-primary mc-btn-large" onClick={handleUpdateDepartment} disabled={saving || !editingDept.name?.trim()}>
-                                    {saving ? 'Saving...' : 'Update Department'}
+                                    {saving ? t('btn.saving') : t('btn.updateDepartment')}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>{t('btn.cancel')}</button>
                             </div>
                         </div>
                     </MasterCatalogShell>
@@ -2816,19 +2847,19 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'cat-new' && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><Tags size={18} color="#D4A017" /> Add Master Category</div>}
+                        title={<div className="mc-modal-title"><Tags size={18} color="#D4A017" /> {t('modal.addCat')}</div>}
                         onClose={goBack}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
                             <div className="mc-form-group">
-                                <label>Select Department *</label>
+                                <label>{t('label.selectDept')}</label>
                                 <div className="mc-select-wrapper">
                                     <select
                                         value={newCat.departmentId}
                                         onChange={(e) => setNewCat({ ...newCat, departmentId: e.target.value })}
                                     >
-                                        <option value="">Select Department</option>
+                                        <option value="">{t('label.selectDeptOpt')}</option>
                                         {departments.map((dept) => (
                                             <option key={dept.id} value={String(dept.id)}>{dept.name}</option>
                                         ))}
@@ -2837,33 +2868,33 @@ export default function MasterCatalog() {
                                 </div>
                             </div>
                             <div className="mc-form-group">
-                                <label>Category Type *</label>
+                                <label>{t('label.catType')}</label>
                                 <div className="mc-select-wrapper">
                                     <select value={newCat.type} onChange={(e) => setNewCat({ ...newCat, type: e.target.value })}>
-                                        <option value="product">Product</option>
-                                        <option value="service">Service</option>
+                                        <option value="product">{t('opt.product')}</option>
+                                        <option value="service">{t('opt.service')}</option>
                                     </select>
                                     <ChevronDown size={14} />
                                 </div>
                             </div>
                             <div className="mc-form-group">
-                                <label>Category Name *</label>
+                                <label>{t('label.catName')}</label>
                                 <input 
                                     type="text" 
-                                    placeholder="e.g. Synthetic Oil" 
+                                    placeholder={t('ph.catExample')} 
                                     value={newCat.name}
                                     onChange={(e) => setNewCat({ ...newCat, name: e.target.value })}
                                 />
                             </div>
                             <div className="mc-modal-footer">
                                 <button className="mc-btn-primary mc-btn-large" onClick={handleCreateCategory} disabled={saving || !isCategoryFormValid}>
-                                    {saving ? 'Saving...' : 'Add Category'}
+                                    {saving ? t('btn.saving') : t('btn.addCategory')}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>{t('btn.cancel')}</button>
                             </div>
                             {!isCategoryFormValid && (
                                 <p style={{ marginTop: 8, color: '#B91C1C', fontSize: 12 }}>
-                                    Department and category name are required.
+                                    {t('val.deptCatRequired')}
                                 </p>
                             )}
                         </div>
@@ -2875,13 +2906,13 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'cat-edit' && editingCat && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><Tags size={18} color="#D4A017" /> Edit Master Category</div>}
+                        title={<div className="mc-modal-title"><Tags size={18} color="#D4A017" /> {t('modal.editCat')}</div>}
                         onClose={goBack}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
                             <div className="mc-form-group">
-                                <label>Select Department *</label>
+                                <label>{t('label.selectDept')}</label>
                                 <div className="mc-dept-selector">
                                     {departments.map(dept => (
                                         <button 
@@ -2895,23 +2926,23 @@ export default function MasterCatalog() {
                                 </div>
                             </div>
                             <div className="mc-form-group">
-                                <label>Category Name *</label>
+                                <label>{t('label.catName')}</label>
                                 <input 
                                     type="text" 
-                                    placeholder="e.g. Synthetic Oil" 
+                                    placeholder={t('ph.catExample')} 
                                     value={editingCat.name}
                                     onChange={(e) => setEditingCat({ ...editingCat, name: e.target.value })}
                                 />
                             </div>
                             <div className="mc-form-group">
-                                <label>Category Type *</label>
+                                <label>{t('label.catType')}</label>
                                 <div className="mc-select-wrapper">
                                     <select
                                         value={editingCat.type || 'product'}
                                         onChange={(e) => setEditingCat({ ...editingCat, type: e.target.value })}
                                     >
-                                        <option value="product">Product</option>
-                                        <option value="service">Service</option>
+                                        <option value="product">{t('opt.product')}</option>
+                                        <option value="service">{t('opt.service')}</option>
                                     </select>
                                     <ChevronDown size={14} />
                                 </div>
@@ -2922,9 +2953,9 @@ export default function MasterCatalog() {
                                     onClick={handleUpdateCategory}
                                     disabled={saving || !editingCat.name?.trim() || !editingCat.departmentId}
                                 >
-                                    {saving ? 'Saving...' : 'Update Category'}
+                                    {saving ? t('btn.saving') : t('btn.updateCategory')}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>{t('btn.cancel')}</button>
                             </div>
                         </div>
                     </MasterCatalogShell>
@@ -2935,27 +2966,27 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'service-new' && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><Settings size={18} color="#9333EA" /> Add Service to Master Catalog</div>}
+                        title={<div className="mc-modal-title"><Settings size={18} color="#9333EA" /> {t('modal.addService')}</div>}
                         onClose={goBack}
                         className="sa-mc-modal"
                     >
                         <div className="mc-modal-form">
                             <div className="mc-form-group">
-                                <label>Service Name *</label>
+                                <label>{t('label.serviceName')}</label>
                                 <input
                                     type="text"
-                                    placeholder="e.g. Oil Change Full Synthetic"
+                                    placeholder={t('ph.serviceExample')}
                                     value={newService.name}
                                     onChange={(e) => setNewService((prev) => ({ ...prev, name: e.target.value }))}
                                 />
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Arabic name</label>
+                                <label>{t('label.arabicName')}</label>
                                 <input
                                     type="text"
                                     dir="rtl"
-                                    placeholder="الاسم بالعربية"
+                                    placeholder={t('ph.arabic')}
                                     value={newService.arabicName}
                                     onChange={(e) => setNewService((prev) => ({ ...prev, arabicName: e.target.value }))}
                                 />
@@ -2963,7 +2994,7 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>Department</label>
+                                    <label>{t('label.department')}</label>
                                     <div className="mc-select-wrapper">
                                         <select
                                             value={newService.departmentId}
@@ -2971,28 +3002,28 @@ export default function MasterCatalog() {
                                                 setNewService((prev) => ({ ...prev, departmentId: e.target.value, categoryId: '' }))
                                             }
                                         >
-                                            <option value="">Select Department</option>
+                                            <option value="">{t('label.selectDeptOpt')}</option>
                                             {departments.map((d) => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
                                         </select>
                                         <ChevronDown size={14} />
                                     </div>
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Category</label>
+                                    <label>{t('label.category')}</label>
                                     <div className="mc-select-wrapper">
                                         <select
                                             value={newService.categoryId}
                                             onChange={(e) => setNewService((prev) => ({ ...prev, categoryId: e.target.value }))}
                                             disabled={!newService.departmentId}
                                         >
-                                            <option value="">Select Category</option>
+                                            <option value="">{t('label.selectCategory')}</option>
                                             {selectedServiceCategories.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
                                         </select>
                                         <ChevronDown size={14} />
                                     </div>
                                     {newService.departmentId && selectedServiceCategories.length === 0 && (
                                         <p style={{ marginTop: 6, color: '#B91C1C', fontSize: 12 }}>
-                                            No service categories for this department. Create one first.
+                                            {t('hint.noServiceCats')}
                                         </p>
                                     )}
                                 </div>
@@ -3000,25 +3031,25 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>SKU</label>
+                                    <label>{t('label.sku')}</label>
                                     <input
                                         type="text"
-                                        placeholder="SRV-001"
+                                        placeholder={t('ph.skuService')}
                                         className="mc-input-faded"
                                         value={newService.sku}
                                         onChange={(e) => setNewService((prev) => ({ ...prev, sku: e.target.value }))}
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Unit</label>
+                                    <label>{t('label.unit')}</label>
                                     <div className="mc-select-wrapper">
                                         <select
                                             value={newService.unitOfMeasurement}
                                             onChange={(e) => setNewService((prev) => ({ ...prev, unitOfMeasurement: e.target.value }))}
                                         >
-                                            <option value="ea">Each (ea)</option>
-                                            <option value="pcs">pcs</option>
-                                            <option value="service">service</option>
+                                            <option value="ea">{t('opt.each')}</option>
+                                            <option value="pcs">{t('opt.pcs')}</option>
+                                            <option value="service">{t('opt.serviceUnit')}</option>
                                         </select>
                                         <ChevronDown size={14} />
                                     </div>
@@ -3027,10 +3058,10 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>Default Sale Price (SAR)</label>
+                                    <label>{t('label.salePrice')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={newService.sellingPrice}
                                         onChange={(e) =>
                                             setNewService((prev) => ({
@@ -3044,10 +3075,10 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>Min Corporate Price (SAR)</label>
+                                    <label>{t('label.minCorp')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={newService.minPriceCorporate}
                                         onChange={(e) =>
                                             setNewService((prev) => ({
@@ -3058,10 +3089,10 @@ export default function MasterCatalog() {
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Max Corporate Price (SAR)</label>
+                                    <label>{t('label.maxCorp')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={newService.maxPriceCorporate}
                                         onChange={(e) =>
                                             setNewService((prev) => ({
@@ -3074,10 +3105,10 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Description</label>
+                                <label>{t('label.description')}</label>
                                 <input
                                     type="text"
-                                    placeholder="Optional description"
+                                    placeholder={t('ph.description')}
                                     value={newService.description}
                                     onChange={(e) => setNewService((prev) => ({ ...prev, description: e.target.value }))}
                                 />
@@ -3085,8 +3116,8 @@ export default function MasterCatalog() {
 
                             <div className="mc-toggle-box yellow">
                                 <div className="mc-toggle-info">
-                                    <strong>Allow Cashier to Edit Price on POS</strong>
-                                    <span>When ON, cashier can negotiate & set custom price at checkout</span>
+                                    <strong>{t('toggle.allowCashierPrice')}</strong>
+                                    <span>{t('toggle.allowCashierPriceHint')}</span>
                                 </div>
                                 <label>
                                     <input
@@ -3099,8 +3130,8 @@ export default function MasterCatalog() {
 
                             <div className="mc-toggle-box blue-toggle">
                                 <div className="mc-toggle-info">
-                                    <strong>Allow Service Qty on POS</strong>
-                                    <span>When ON, cashier can set quantity (default 1). Line total = price × qty (e.g. 3 tyres × SAR 50).</span>
+                                    <strong>{t('toggle.allowServiceQty')}</strong>
+                                    <span>{t('toggle.allowServiceQtyHint')}</span>
                                 </div>
                                 <label>
                                     <input
@@ -3118,14 +3149,14 @@ export default function MasterCatalog() {
 
                             <div className="mc-toggle-box blue-toggle">
                                 <div className="mc-toggle-info">
-                                    <strong>Active Status</strong>
-                                    <span>Enable or disable this service across the catalog</span>
+                                    <strong>{t('toggle.activeStatus')}</strong>
+                                    <span>{t('toggle.activeStatusHint')}</span>
                                 </div>
                                 <div className="mc-toggle-switch small active"></div>
                             </div>
 
                             <div className="mc-modal-banner purple-banner">
-                                <ShieldCheck size={14} /> Services added here are immediately approved and available to all tenants.
+                                <ShieldCheck size={14} /> {t('banner.servicesApproved')}
                             </div>
 
                             <div className="mc-modal-footer row">
@@ -3135,13 +3166,13 @@ export default function MasterCatalog() {
                                     onClick={handleCreateCatalogService}
                                     disabled={saving || !isServiceFormValid}
                                 >
-                                    {saving ? 'Saving...' : 'Add to Master Catalog'}
+                                    {saving ? t('btn.saving') : t('btn.addToMaster')}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" style={{ flex: 1 }} onClick={goBack}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" style={{ flex: 1 }} onClick={goBack}>{t('btn.cancel')}</button>
                             </div>
                             {!isServiceFormValid && (
                                 <p style={{ marginTop: 8, color: '#B91C1C', fontSize: 12 }}>
-                                    Service name, department, and category are required.
+                                    {t('val.serviceRequired')}
                                 </p>
                             )}
                         </div>
@@ -3153,7 +3184,7 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'service-edit' && editingService && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><Settings size={18} color="#9333EA" /> Edit Service</div>}
+                        title={<div className="mc-modal-title"><Settings size={18} color="#9333EA" /> {t('modal.editService')}</div>}
                         onClose={() => {
                             if (saving) return;
                             goBack();
@@ -3163,7 +3194,7 @@ export default function MasterCatalog() {
                     >
                         <div className="mc-modal-form">
                             <div className="mc-form-group">
-                                <label>Service Name *</label>
+                                <label>{t('label.serviceName')}</label>
                                 <input
                                     type="text"
                                     value={editingService.name}
@@ -3172,11 +3203,11 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Arabic name</label>
+                                <label>{t('label.arabicName')}</label>
                                 <input
                                     type="text"
                                     dir="rtl"
-                                    placeholder="الاسم بالعربية"
+                                    placeholder={t('ph.arabic')}
                                     value={editingService.arabicName ?? ''}
                                     onChange={(e) => setEditingService((prev) => ({ ...prev, arabicName: e.target.value }))}
                                 />
@@ -3184,7 +3215,7 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>SKU</label>
+                                    <label>{t('label.sku')}</label>
                                     <input
                                         type="text"
                                         value={editingService.sku}
@@ -3192,10 +3223,10 @@ export default function MasterCatalog() {
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Selling Price (SAR)</label>
+                                    <label>{t('label.sellingPrice')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="Leave empty for null"
+                                        placeholder={t('ph.priceNull')}
                                         value={editingService.sellingPrice}
                                         onChange={(e) =>
                                             setEditingService((prev) => ({
@@ -3209,10 +3240,10 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>Min Corporate Price (SAR)</label>
+                                    <label>{t('label.minCorp')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={editingService.minPriceCorporate ?? ''}
                                         onChange={(e) =>
                                             setEditingService((prev) => ({
@@ -3223,10 +3254,10 @@ export default function MasterCatalog() {
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Max Corporate Price (SAR)</label>
+                                    <label>{t('label.maxCorp')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={editingService.maxPriceCorporate ?? ''}
                                         onChange={(e) =>
                                             setEditingService((prev) => ({
@@ -3239,7 +3270,7 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Description</label>
+                                <label>{t('label.description')}</label>
                                 <input
                                     type="text"
                                     value={editingService.description}
@@ -3248,7 +3279,7 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Category</label>
+                                <label>{t('label.category')}</label>
                                 <input
                                     type="text"
                                     readOnly
@@ -3257,7 +3288,7 @@ export default function MasterCatalog() {
                                         editingService.categoryName?.trim()
                                             ? editingService.categoryName
                                             : editingService.categoryId
-                                              ? `Category ID ${editingService.categoryId}`
+                                              ? t('catId.fallback', { id: editingService.categoryId })
                                               : '—'
                                     }
                                 />
@@ -3265,7 +3296,7 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>VAT mode</label>
+                                    <label>{t('label.vatMode')}</label>
                                     <input
                                         type="text"
                                         readOnly
@@ -3274,7 +3305,7 @@ export default function MasterCatalog() {
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Created</label>
+                                    <label>{t('label.created')}</label>
                                     <input
                                         type="text"
                                         readOnly
@@ -3291,13 +3322,13 @@ export default function MasterCatalog() {
                             <div className="mc-form-row">
                                 <div className="mc-toggle-box yellow">
                                     <div className="mc-toggle-info">
-                                        <strong>Service Status</strong>
-                                        <span>{editingService.isActive ? 'Active' : 'Inactive'}</span>
+                                        <strong>{t('toggle.serviceStatus')}</strong>
+                                        <span>{editingService.isActive ? t('status.active') : t('status.inactive')}</span>
                                     </div>
                                     <div
                                         className={`mc-toggle-switch small${editingService.isActive ? ' active' : ''}`}
                                         role="button"
-                                        aria-label="Toggle service active status"
+                                        aria-label={t('toggle.ariaServiceActive')}
                                         aria-pressed={!!editingService.isActive}
                                         onClick={() =>
                                             setEditingService((prev) => ({ ...prev, isActive: !prev.isActive }))
@@ -3306,13 +3337,13 @@ export default function MasterCatalog() {
                                 </div>
                                 <div className="mc-toggle-box yellow">
                                     <div className="mc-toggle-info">
-                                        <strong>Price Editable</strong>
-                                        <span>{editingService.isPriceEditable ? 'Editable by cashier' : 'Fixed price'}</span>
+                                        <strong>{t('toggle.priceEditable')}</strong>
+                                        <span>{editingService.isPriceEditable ? t('toggle.editableCashier') : t('toggle.fixedPrice')}</span>
                                     </div>
                                     <div
                                         className={`mc-toggle-switch small${editingService.isPriceEditable ? ' active' : ''}`}
                                         role="button"
-                                        aria-label="Toggle price editable"
+                                        aria-label={t('toggle.ariaPriceEditable')}
                                         aria-pressed={!!editingService.isPriceEditable}
                                         onClick={() =>
                                             setEditingService((prev) => ({
@@ -3326,17 +3357,17 @@ export default function MasterCatalog() {
 
                             <div className="mc-toggle-box blue-toggle" style={{ marginTop: 12 }}>
                                 <div className="mc-toggle-info">
-                                    <strong>Allow Service Qty on POS</strong>
+                                    <strong>{t('toggle.allowServiceQty')}</strong>
                                     <span>
                                         {editingService.serviceQtyEnabled
-                                            ? 'Cashier can change qty (default 1). Total = price × qty'
-                                            : 'Qty fixed at 1 on POS'}
+                                            ? t('toggle.qtyOnHint')
+                                            : t('toggle.qtyOffHint')}
                                     </span>
                                 </div>
                                 <div
                                     className={`mc-toggle-switch small${editingService.serviceQtyEnabled ? ' active' : ''}`}
                                     role="button"
-                                    aria-label="Toggle service quantity"
+                                    aria-label={t('toggle.ariaServiceQty')}
                                     aria-pressed={!!editingService.serviceQtyEnabled}
                                     onClick={() =>
                                         setEditingService((prev) => ({
@@ -3349,7 +3380,7 @@ export default function MasterCatalog() {
 
                             <div className="mc-modal-footer row">
                                 <button className="mc-btn-ghost mc-btn-large" onClick={handleDeleteCatalogService} disabled={saving}>
-                                    Delete
+                                    {t('btn.delete')}
                                 </button>
                                 <button
                                     className="mc-btn-ghost mc-btn-large"
@@ -3358,10 +3389,10 @@ export default function MasterCatalog() {
                                         setEditingService(null);
                                     }}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button className="mc-btn-primary mc-btn-large purple-btn" onClick={handleUpdateCatalogService} disabled={saving}>
-                                    {saving ? 'Saving...' : 'Update Service'}
+                                    {saving ? t('btn.saving') : t('btn.updateService')}
                                 </button>
                             </div>
                         </div>
@@ -3373,17 +3404,17 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'product-edit' && editingProduct && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><ShieldCheck size={18} color="#D4A017" /> Edit Master Product</div>}
+                        title={<div className="mc-modal-title"><ShieldCheck size={18} color="#D4A017" /> {t('modal.editProduct')}</div>}
                         onClose={goBack}
                         className="sa-mc-modal"
                     >
                         <div className="mc-modal-banner">
-                            Products added here are immediately approved and available to all workshops and suppliers.
+                            {t('banner.productsApproved')}
                         </div>
                         
                         <div className="mc-modal-form">
                             <div className="mc-form-group">
-                                <label>Product Name *</label>
+                                <label>{t('label.productName')}</label>
                                 <input 
                                     type="text" 
                                     value={editingProduct.name} 
@@ -3392,11 +3423,11 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Arabic name</label>
+                                <label>{t('label.arabicName')}</label>
                                 <input
                                     type="text"
                                     dir="rtl"
-                                    placeholder="الاسم بالعربية"
+                                    placeholder={t('ph.arabic')}
                                     value={editingProduct.arabicName ?? ''}
                                     onChange={(e) => setEditingProduct({ ...editingProduct, arabicName: e.target.value })}
                                 />
@@ -3404,7 +3435,7 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>SKU</label>
+                                    <label>{t('label.sku')}</label>
                                     <input 
                                         type="text" 
                                         value={editingProduct.sku || editingProduct.name} 
@@ -3412,10 +3443,10 @@ export default function MasterCatalog() {
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Brand</label>
+                                    <label>{t('label.brand')}</label>
                                     <input 
                                         type="text" 
-                                        placeholder="e.g. Mobil"
+                                        placeholder={t('ph.brand')}
                                         value={editingProduct.brand || ''} 
                                         onChange={(e) => setEditingProduct({...editingProduct, brand: e.target.value})}
                                     />
@@ -3423,7 +3454,7 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Department</label>
+                                <label>{t('label.department')}</label>
                                 <input
                                     type="text"
                                     readOnly
@@ -3438,7 +3469,7 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Category *</label>
+                                <label>{t('label.categoryReq')}</label>
                                 <div className="mc-select-wrapper">
                                     <select
                                         value={editingProduct.categoryId ?? ''}
@@ -3447,7 +3478,7 @@ export default function MasterCatalog() {
                                         }
                                         disabled={editModalProductCategories.length === 0}
                                     >
-                                        <option value="">Select Category</option>
+                                        <option value="">{t('label.selectCategory')}</option>
                                         {editModalProductCategories.map((cat) => (
                                             <option key={cat.id} value={String(cat.id)}>
                                                 {cat.name}
@@ -3458,13 +3489,14 @@ export default function MasterCatalog() {
                                 </div>
                                 {editingProduct.departmentId && editModalProductCategories.length === 0 && (
                                     <p style={{ marginTop: 6, color: '#B91C1C', fontSize: 12 }}>
-                                        No product categories for this department. Create one first.
+                                        {t('hint.noProductCats')}
                                     </p>
                                 )}
                             </div>
 
                             <CatalogUomFields
                                 idPrefix="mc-edit-uom"
+                                t={t}
                                 value={{
                                     warehouseUnit: editingProduct.warehouseUnit,
                                     workshopUnit: editingProduct.workshopUnit,
@@ -3477,14 +3509,14 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>Type</label>
+                                    <label>{t('label.type')}</label>
                                     <div className="mc-select-wrapper">
                                         <select 
                                             value={editingProduct.type} 
                                             onChange={(e) => setEditingProduct({...editingProduct, type: e.target.value})}
                                         >
-                                            <option value="Product">Product</option>
-                                            <option value="Service">Service</option>
+                                            <option value="Product">{t('opt.product')}</option>
+                                            <option value="Service">{t('opt.service')}</option>
                                         </select>
                                         <ChevronDown size={14} />
                                     </div>
@@ -3493,7 +3525,7 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>Default Sale Price (SAR)</label>
+                                    <label>{t('label.salePrice')}</label>
                                     <input 
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         value={editingProduct.salePrice} 
@@ -3501,7 +3533,7 @@ export default function MasterCatalog() {
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Default Purchase Price (SAR)</label>
+                                    <label>{t('label.purchasePrice')}</label>
                                     <input 
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         value={editingProduct.purchasePrice || ''} 
@@ -3512,19 +3544,19 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>Min Corporate Price (SAR)</label>
+                                    <label>{t('label.minCorp')}</label>
                                     <input 
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={editingProduct.minCorpPrice || ''} 
                                         onChange={(e) => setEditingProduct({...editingProduct, minCorpPrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Max Corporate Price (SAR)</label>
+                                    <label>{t('label.maxCorp')}</label>
                                     <input 
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={editingProduct.maxCorpPrice || ''} 
                                         onChange={(e) => setEditingProduct({...editingProduct, maxCorpPrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
@@ -3532,10 +3564,10 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>KM type value (optional)</label>
+                                <label>{t('label.kmType')}</label>
                                 <input
                                     type="number"
-                                    placeholder="Leave empty if not used"
+                                    placeholder={t('ph.kmEmpty')}
                                     value={editingProduct.kmTypeValue ?? ''}
                                     onChange={(e) =>
                                         setEditingProduct({ ...editingProduct, kmTypeValue: e.target.value })
@@ -3544,10 +3576,10 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Description</label>
+                                <label>{t('label.description')}</label>
                                 <input 
                                     type="text" 
-                                    placeholder="Optional description" 
+                                    placeholder={t('ph.description')} 
                                     value={editingProduct.description || ''} 
                                     onChange={(e) => setEditingProduct({...editingProduct, description: e.target.value})}
                                 />
@@ -3556,13 +3588,13 @@ export default function MasterCatalog() {
                             <div className="mc-form-row">
                                 <div className="mc-toggle-box yellow">
                                     <div className="mc-toggle-info">
-                                        <strong>Product Status</strong>
-                                        <span>{editingProduct.isActive !== false ? 'Active' : 'Inactive'}</span>
+                                        <strong>{t('toggle.productStatus')}</strong>
+                                        <span>{editingProduct.isActive !== false ? t('status.active') : t('status.inactive')}</span>
                                     </div>
                                     <div
                                         className={`mc-toggle-switch small${editingProduct.isActive !== false ? ' active' : ''}`}
                                         role="button"
-                                        aria-label="Toggle product active status"
+                                        aria-label={t('toggle.ariaProductActive')}
                                         aria-pressed={editingProduct.isActive !== false}
                                         onClick={() =>
                                             setEditingProduct((prev) => ({
@@ -3597,8 +3629,8 @@ export default function MasterCatalog() {
                                 }}
                             >
                                 <div className="mc-toggle-info">
-                                    <strong>Price Editable on POS</strong>
-                                    <span>{editingProduct.isPriceEditable ? 'Cashier can set custom price' : 'Fixed catalog price'}</span>
+                                    <strong>{t('toggle.priceEditablePos')}</strong>
+                                    <span>{editingProduct.isPriceEditable ? t('toggle.customPrice') : t('toggle.fixedCatalog')}</span>
                                 </div>
                                 <div
                                     className={`mc-toggle-switch small${editingProduct.isPriceEditable ? ' active' : ''}`}
@@ -3608,10 +3640,10 @@ export default function MasterCatalog() {
 
                             {editingProduct.isPriceEditable && (
                                 <div className="mc-form-group">
-                                    <label>Minimum editable price (SAR, VAT inclusive) *</label>
+                                    <label>{t('label.minEditable')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={editingProduct.minPriceEditable ?? ''}
                                         onChange={(e) =>
                                             setEditingProduct({
@@ -3644,8 +3676,8 @@ export default function MasterCatalog() {
                                 }}
                             >
                                 <div className="mc-toggle-info">
-                                    <strong>Allowed Decimal Quantity</strong>
-                                    <span>Enable fractional quantities (e.g. 1.5 liters)</span>
+                                    <strong>{t('toggle.decimalQty')}</strong>
+                                    <span>{t('toggle.decimalQtyHint')}</span>
                                 </div>
                                 <div
                                     className={`mc-toggle-switch small${editingProduct.allowDecimalQty ? ' active' : ''}`}
@@ -3674,8 +3706,8 @@ export default function MasterCatalog() {
                                 }}
                             >
                                 <div className="mc-toggle-info">
-                                    <strong>Minus Qty</strong>
-                                    <span>Allow workshop/POS stock to go below zero (emergency sales)</span>
+                                    <strong>{t('toggle.minusQty')}</strong>
+                                    <span>{t('toggle.minusQtyHint')}</span>
                                 </div>
                                 <div
                                     className={`mc-toggle-switch small${editingProduct.allowMinusQty ? ' active' : ''}`}
@@ -3685,12 +3717,12 @@ export default function MasterCatalog() {
 
                             <div className="mc-modal-footer">
                                 <button className="mc-btn-ghost mc-btn-large" onClick={handleDeleteCatalogProduct} disabled={saving}>
-                                    Delete
+                                    {t('btn.delete')}
                                 </button>
                                 <button className="mc-btn-primary mc-btn-large" onClick={handleUpdateCatalogProduct} disabled={saving}>
-                                    {saving ? 'Saving...' : 'Update Product'}
+                                    {saving ? t('btn.saving') : t('btn.updateProduct')}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>{t('btn.cancel')}</button>
                             </div>
                         </div>
                     </MasterCatalogShell>
@@ -3701,31 +3733,31 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'product-new' && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><CheckCircle2 size={18} color="#D4A017" /> Add to Master Catalog</div>}
+                        title={<div className="mc-modal-title"><CheckCircle2 size={18} color="#D4A017" /> {t('modal.addProduct')}</div>}
                         onClose={goBack}
                         className="sa-mc-modal"
                     >
                         <div className="mc-modal-banner">
-                            Products added here are immediately approved and available to all workshops and suppliers.
+                            {t('banner.productsApproved')}
                         </div>
                         
                         <div className="mc-modal-form">
                             <div className="mc-form-group">
-                                <label>Product Name *</label>
+                                <label>{t('label.productName')}</label>
                                 <input
                                     type="text"
-                                    placeholder="e.g. Mobil 1 5W-30 Engine Oil"
+                                    placeholder={t('ph.productExample')}
                                     value={newProduct.name}
                                     onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
                                 />
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Arabic name</label>
+                                <label>{t('label.arabicName')}</label>
                                 <input
                                     type="text"
                                     dir="rtl"
-                                    placeholder="الاسم بالعربية"
+                                    placeholder={t('ph.arabic')}
                                     value={newProduct.arabicName}
                                     onChange={(e) => setNewProduct({ ...newProduct, arabicName: e.target.value })}
                                 />
@@ -3733,19 +3765,19 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>SKU</label>
+                                    <label>{t('label.sku')}</label>
                                     <input 
                                         type="text" 
-                                        placeholder="MOB-5W30" 
+                                        placeholder={t('ph.skuProduct')} 
                                         value={newProduct.sku}
                                         onChange={(e) => setNewProduct({...newProduct, sku: e.target.value})}
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Brand</label>
+                                    <label>{t('label.brand')}</label>
                                     <input 
                                         type="text" 
-                                        placeholder="e.g. Mobil" 
+                                        placeholder={t('ph.brand')} 
                                         value={newProduct.brand}
                                         onChange={(e) => setNewProduct({...newProduct, brand: e.target.value})}
                                     />
@@ -3753,13 +3785,13 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Department</label>
+                                <label>{t('label.department')}</label>
                                 <div className="mc-select-wrapper">
                                     <select
                                         value={newProduct.departmentId}
                                         onChange={(e) => setNewProduct({ ...newProduct, departmentId: e.target.value, categoryId: '' })}
                                     >
-                                        <option value="">Select Department</option>
+                                        <option value="">{t('label.selectDeptOpt')}</option>
                                         {departments.map((dept) => (
                                             <option key={dept.id} value={String(dept.id)}>{dept.name}</option>
                                         ))}
@@ -3769,14 +3801,14 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Category</label>
+                                <label>{t('label.category')}</label>
                                 <div className="mc-select-wrapper">
                                     <select 
                                         value={newProduct.categoryId}
                                         onChange={(e) => setNewProduct({...newProduct, categoryId: e.target.value})}
                                         disabled={!newProduct.departmentId}
                                     >
-                                        <option value="">Select Category</option>
+                                        <option value="">{t('label.selectCategory')}</option>
                                         {selectedProductCategories.map(cat => (
                                             <option key={cat.id} value={String(cat.id)}>{cat.name}</option>
                                         ))}
@@ -3785,13 +3817,14 @@ export default function MasterCatalog() {
                                 </div>
                                 {newProduct.departmentId && selectedProductCategories.length === 0 && (
                                     <p style={{ marginTop: 6, color: '#B91C1C', fontSize: 12 }}>
-                                        No product categories for this department. Create one first.
+                                        {t('hint.noProductCats')}
                                     </p>
                                 )}
                             </div>
 
                             <CatalogUomFields
                                 idPrefix="mc-new-uom"
+                                t={t}
                                 value={{
                                     warehouseUnit: newProduct.warehouseUnit,
                                     workshopUnit: newProduct.workshopUnit,
@@ -3804,11 +3837,11 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>Type</label>
+                                    <label>{t('label.type')}</label>
                                     <div className="mc-select-wrapper">
                                         <select>
-                                            <option value="Product">Product</option>
-                                            <option value="Service">Service</option>
+                                            <option value="Product">{t('opt.product')}</option>
+                                            <option value="Service">{t('opt.service')}</option>
                                         </select>
                                         <ChevronDown size={14} />
                                     </div>
@@ -3817,19 +3850,19 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>Default Sale Price (SAR)</label>
+                                    <label>{t('label.salePrice')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={newProduct.salePrice}
                                         onChange={(e) => setNewProduct({...newProduct, salePrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Default Purchase Price (SAR)</label>
+                                    <label>{t('label.purchasePrice')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={newProduct.purchasePrice}
                                         onChange={(e) => setNewProduct({...newProduct, purchasePrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
@@ -3838,19 +3871,19 @@ export default function MasterCatalog() {
 
                             <div className="mc-form-row">
                                 <div className="mc-form-group">
-                                    <label>Min Corporate Price (SAR)</label>
+                                    <label>{t('label.minCorp')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={newProduct.minCorpPrice || ''}
                                         onChange={(e) => setNewProduct({...newProduct, minCorpPrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Max Corporate Price (SAR)</label>
+                                    <label>{t('label.maxCorp')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={newProduct.maxCorpPrice || ''}
                                         onChange={(e) => setNewProduct({...newProduct, maxCorpPrice: sanitizeNonNegativeMoneyInput(e.target.value)})}
                                     />
@@ -3858,20 +3891,20 @@ export default function MasterCatalog() {
                             </div>
 
                             <div className="mc-form-group">
-                                <label>KM type value (optional)</label>
+                                <label>{t('label.kmType')}</label>
                                 <input
                                     type="number"
-                                    placeholder="Leave empty if not used"
+                                    placeholder={t('ph.kmEmpty')}
                                     value={newProduct.kmTypeValue ?? ''}
                                     onChange={(e) => setNewProduct({ ...newProduct, kmTypeValue: e.target.value })}
                                 />
                             </div>
 
                             <div className="mc-form-group">
-                                <label>Description</label>
+                                <label>{t('label.description')}</label>
                                 <input
                                     type="text"
-                                    placeholder="Optional description"
+                                    placeholder={t('ph.description')}
                                     value={newProduct.description}
                                     onChange={(e) => setNewProduct({...newProduct, description: e.target.value})}
                                 />
@@ -3879,8 +3912,8 @@ export default function MasterCatalog() {
 
                             <div className="mc-toggle-box yellow">
                                 <div className="mc-toggle-info">
-                                    <strong>Allow Cashier to Edit Price on POS</strong>
-                                    <span>When ON, cashier can negotiate & set custom price at checkout</span>
+                                    <strong>{t('toggle.allowCashierPrice')}</strong>
+                                    <span>{t('toggle.allowCashierPriceHint')}</span>
                                 </div>
                                 <label>
                                     <input
@@ -3899,10 +3932,10 @@ export default function MasterCatalog() {
 
                             {newProduct.isPriceEditable && (
                                 <div className="mc-form-group">
-                                    <label>Minimum editable price (SAR, VAT inclusive) *</label>
+                                    <label>{t('label.minEditable')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                         value={newProduct.minPriceEditable ?? ''}
                                         onChange={(e) =>
                                             setNewProduct({
@@ -3935,8 +3968,8 @@ export default function MasterCatalog() {
                                 }}
                             >
                                 <div className="mc-toggle-info">
-                                    <strong>Allowed Decimal Quantity</strong>
-                                    <span>Enable fractional quantities (e.g. 1.5 liters)</span>
+                                    <strong>{t('toggle.decimalQty')}</strong>
+                                    <span>{t('toggle.decimalQtyHint')}</span>
                                 </div>
                                 <div
                                     className={`mc-toggle-switch small${newProduct.allowDecimalQty ? ' active' : ''}`}
@@ -3965,8 +3998,8 @@ export default function MasterCatalog() {
                                 }}
                             >
                                 <div className="mc-toggle-info">
-                                    <strong>Minus Qty</strong>
-                                    <span>Allow workshop/POS stock to go below zero (emergency sales)</span>
+                                    <strong>{t('toggle.minusQty')}</strong>
+                                    <span>{t('toggle.minusQtyHint')}</span>
                                 </div>
                                 <div
                                     className={`mc-toggle-switch small${newProduct.allowMinusQty ? ' active' : ''}`}
@@ -3976,13 +4009,13 @@ export default function MasterCatalog() {
 
                             <div className="mc-modal-footer">
                                 <button className="mc-btn-primary mc-btn-large" onClick={handleCreateProduct} disabled={saving || !isProductFormValid}>
-                                    {saving ? 'Saving...' : 'Add to Master Catalog'}
+                                    {saving ? t('btn.saving') : t('btn.addToMaster')}
                                 </button>
-                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>Cancel</button>
+                                <button className="mc-btn-ghost mc-btn-large" onClick={goBack}>{t('btn.cancel')}</button>
                             </div>
                             {!isProductFormValid && (
                                 <p style={{ marginTop: 8, color: '#B91C1C', fontSize: 12 }}>
-                                    Product name, department, and category are required.
+                                    {t('val.productRequired')}
                                 </p>
                             )}
                         </div>
@@ -3994,30 +4027,30 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'product-import' && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><Upload size={18} color="#2563EB" /> Bulk Upload Products</div>}
+                        title={<div className="mc-modal-title"><Upload size={18} color="#2563EB" /> {t('modal.bulkProducts')}</div>}
                         onClose={closeBulkProductModal}
                         className="sa-mc-modal"
                     >
                         <div className="mc-bulk-format-card redesigned">
                             <div className="mc-bulk-header">
                                 <Box size={18} />
-                                <strong>Upload Format</strong>
+                                <strong>{t('bulk.uploadFormat')}</strong>
                             </div>
-                            <p>Upload a CSV with the same columns as catalog export, except <strong>created_at</strong> and <strong>updated_at</strong>. Leave <strong>id</strong> blank for new products.</p>
+                            <p>{t('bulk.productIntro')}</p>
                             <div className="mc-bulk-bullets">
-                                <span>• Column names: <strong>{PRODUCT_CSV_COLUMNS.join(', ')}</strong></span>
-                                <span>• Use department_id / category_id; names must match if provided</span>
-                                <span>• Duplicate SKUs are skipped; import runs row-by-row</span>
+                                <span>{t('bulk.productCols', { cols: PRODUCT_CSV_COLUMNS.join(', ') })}</span>
+                                <span>{t('bulk.productDeptHint')}</span>
+                                <span>{t('bulk.productDupHint')}</span>
                             </div>
                         </div>
 
                         <a className="mc-template-btn dashed" href={productsCsvTemplate} download="master-catalog-products-template.csv">
-                            <Download size={18} /> Download CSV Template (with sample data)
+                            <Download size={18} /> {t('btn.downloadTemplate')}
                         </a>
 
                         <label className="mc-upload-dropzone blue-dashed" htmlFor="bulk-csv-upload-input">
                             <Layers size={24} color="#3B82F6" />
-                            <span>{selectedBulkFile ? selectedBulkFile.name : 'Choose CSV File'}</span>
+                            <span>{selectedBulkFile ? selectedBulkFile.name : t('btn.chooseCsv')}</span>
                             <input
                                 ref={bulkFileInputRef}
                                 id="bulk-csv-upload-input"
@@ -4030,7 +4063,7 @@ export default function MasterCatalog() {
 
                         {bulkImportResult && (() => {
                             const payload = getCsvImportPayload(bulkImportResult);
-                            const summary = formatCsvImportSummary(bulkImportResult);
+                            const summary = formatCsvImportSummary(bulkImportResult, t);
                             const vat = payload?.vatWarnings;
                             const rows = payload?.rowDetails;
                             const hasVat = Array.isArray(vat) && vat.length > 0;
@@ -4041,7 +4074,7 @@ export default function MasterCatalog() {
                                     {summary ? <p className="mc-bulk-import-summary">{summary}</p> : null}
                                     {hasVat && (
                                         <details className="mc-bulk-import-details">
-                                            <summary>VAT warnings (up to 100)</summary>
+                                            <summary>{t('bulk.vatWarnings')}</summary>
                                             <ul>
                                                 {vat.slice(0, 100).map((w, i) => (
                                                     <li key={i}>{formatVatWarningItem(w)}</li>
@@ -4051,7 +4084,7 @@ export default function MasterCatalog() {
                                     )}
                                     {hasRows && (
                                         <details className="mc-bulk-import-details">
-                                            <summary>Skipped / failed rows (up to 500)</summary>
+                                            <summary>{t('bulk.skippedRows')}</summary>
                                             <ul>
                                                 {rows.slice(0, 500).map((row, i) => (
                                                     <li key={i}>{formatRowDetailItem(row)}</li>
@@ -4068,7 +4101,7 @@ export default function MasterCatalog() {
 
                         <div className="mc-modal-footer row">
                             <button type="button" className="mc-btn-ghost mc-btn-large" onClick={closeBulkProductModal} disabled={bulkImporting}>
-                                Cancel
+                                {t('btn.cancel')}
                             </button>
                             <button
                                 className={`mc-btn-primary mc-btn-large ${!selectedBulkFile || bulkImporting ? 'disabled-blue' : ''}`}
@@ -4076,7 +4109,7 @@ export default function MasterCatalog() {
                                 disabled={!selectedBulkFile || bulkImporting}
                                 onClick={handleBulkImport}
                             >
-                                {bulkImporting ? 'Importing…' : selectedBulkFile ? 'Import CSV' : 'Upload 0 Products'}
+                                {bulkImporting ? t('btn.importing') : selectedBulkFile ? t('btn.importCsv') : t('btn.upload0Products')}
                             </button>
                         </div>
                     </MasterCatalogShell>
@@ -4087,31 +4120,31 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'service-import' && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><Upload size={18} color="#9333EA" /> Bulk Upload Services</div>}
+                        title={<div className="mc-modal-title"><Upload size={18} color="#9333EA" /> {t('modal.bulkServices')}</div>}
                         onClose={closeBulkServiceModal}
                         className="sa-mc-modal"
                     >
                         <div className="mc-bulk-format-card redesigned">
                             <div className="mc-bulk-header">
                                 <Box size={18} />
-                                <strong>Upload Format</strong>
+                                <strong>{t('bulk.uploadFormat')}</strong>
                             </div>
-                            <p>Upload a CSV file with columns: <strong>{SERVICE_CSV_COLUMNS.join(', ')}</strong></p>
+                            <p>{t('bulk.serviceIntro', { cols: SERVICE_CSV_COLUMNS.join(', ') })}</p>
                             <div className="mc-bulk-bullets">
-                                <span>• Use the same column names and order as the downloaded template</span>
-                                <span>• Column names are case-sensitive and must match exactly</span>
-                                <span>• Keep the header row unchanged when preparing your upload file</span>
-                                <span>• Import runs row-by-row; successful rows are kept if others fail or skip (no whole-file rollback)</span>
+                                <span>{t('bulk.serviceOrder')}</span>
+                                <span>{t('bulk.serviceCase')}</span>
+                                <span>{t('bulk.serviceHeader')}</span>
+                                <span>{t('bulk.serviceRowHint')}</span>
                             </div>
                         </div>
 
                         <a className="mc-template-btn dashed" href={servicesCsvTemplate} download="Services.csv">
-                            <Download size={18} /> Download CSV Template (with sample data)
+                            <Download size={18} /> {t('btn.downloadTemplate')}
                         </a>
 
                         <label className="mc-upload-dropzone blue-dashed" htmlFor="bulk-service-csv-upload-input">
                             <Layers size={24} color="#9333EA" />
-                            <span>{selectedBulkServiceFile ? selectedBulkServiceFile.name : 'Choose CSV File'}</span>
+                            <span>{selectedBulkServiceFile ? selectedBulkServiceFile.name : t('btn.chooseCsv')}</span>
                             <input
                                 ref={bulkServiceFileInputRef}
                                 id="bulk-service-csv-upload-input"
@@ -4124,7 +4157,7 @@ export default function MasterCatalog() {
 
                         {bulkServiceImportResult && (() => {
                             const payload = getCsvImportPayload(bulkServiceImportResult);
-                            const summary = formatCsvImportSummary(bulkServiceImportResult);
+                            const summary = formatCsvImportSummary(bulkServiceImportResult, t);
                             const vat = payload?.vatWarnings;
                             const rows = payload?.rowDetails;
                             const hasVat = Array.isArray(vat) && vat.length > 0;
@@ -4135,7 +4168,7 @@ export default function MasterCatalog() {
                                     {summary ? <p className="mc-bulk-import-summary">{summary}</p> : null}
                                     {hasVat && (
                                         <details className="mc-bulk-import-details">
-                                            <summary>VAT warnings (up to 100)</summary>
+                                            <summary>{t('bulk.vatWarnings')}</summary>
                                             <ul>
                                                 {vat.slice(0, 100).map((w, i) => (
                                                     <li key={i}>{formatVatWarningItem(w)}</li>
@@ -4145,7 +4178,7 @@ export default function MasterCatalog() {
                                     )}
                                     {hasRows && (
                                         <details className="mc-bulk-import-details">
-                                            <summary>Skipped / failed rows (up to 500)</summary>
+                                            <summary>{t('bulk.skippedRows')}</summary>
                                             <ul>
                                                 {rows.slice(0, 500).map((row, i) => (
                                                     <li key={i}>{formatRowDetailItem(row)}</li>
@@ -4162,7 +4195,7 @@ export default function MasterCatalog() {
 
                         <div className="mc-modal-footer row">
                             <button type="button" className="mc-btn-ghost mc-btn-large" onClick={closeBulkServiceModal} disabled={bulkServiceImporting}>
-                                Cancel
+                                {t('btn.cancel')}
                             </button>
                             <button
                                 className={`mc-btn-primary mc-btn-large purple-btn ${!selectedBulkServiceFile || bulkServiceImporting ? 'disabled-blue' : ''}`}
@@ -4170,7 +4203,7 @@ export default function MasterCatalog() {
                                 disabled={!selectedBulkServiceFile || bulkServiceImporting}
                                 onClick={handleBulkServiceImport}
                             >
-                                {bulkServiceImporting ? 'Importing…' : selectedBulkServiceFile ? 'Import CSV' : 'Upload 0 Services'}
+                                {bulkServiceImporting ? t('btn.importing') : selectedBulkServiceFile ? t('btn.importCsv') : t('btn.upload0Services')}
                             </button>
                         </div>
                     </MasterCatalogShell>
@@ -4181,57 +4214,57 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'request-approve' && prApproveTarget && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><CheckCircle2 size={18} color="#15803D" /> Approve Request</div>}
+                        title={<div className="mc-modal-title"><CheckCircle2 size={18} color="#15803D" /> {t('modal.approveRequest')}</div>}
                         onClose={() => !prActionBusy && goBack()}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
                             <p className="mc-pr-modal-lead">
-                                Review and approve <strong>{prApproveTarget.name}</strong>.
+                                {t('approve.review', { name: prApproveTarget.name })}
                             </p>
                             <div className="mc-form-grid two">
                                 <div className="mc-form-group">
-                                    <label>Name *</label>
+                                    <label>{t('label.nameReq')}</label>
                                     <input
                                         type="text"
                                         value={prApproveForm.name}
                                         onChange={(e) => setPrApproveForm((prev) => ({ ...prev, name: e.target.value }))}
                                         disabled={prActionBusy}
-                                        placeholder="Product name"
+                                        placeholder={t('ph.productName')}
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>SKU</label>
+                                    <label>{t('label.sku')}</label>
                                     <input
                                         type="text"
                                         value={prApproveForm.sku}
                                         onChange={(e) => setPrApproveForm((prev) => ({ ...prev, sku: e.target.value }))}
                                         disabled={prActionBusy}
-                                        placeholder="SKU"
+                                        placeholder={t('label.sku')}
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Brand</label>
+                                    <label>{t('pr.brand')}</label>
                                     <input
                                         type="text"
                                         value={prApproveForm.brandName}
                                         onChange={(e) => setPrApproveForm((prev) => ({ ...prev, brandName: e.target.value }))}
                                         disabled={prActionBusy}
-                                        placeholder="Brand"
+                                        placeholder={t('pr.brand')}
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Unit</label>
+                                    <label>{t('label.unit')}</label>
                                     <input
                                         type="text"
                                         value={prApproveForm.unit}
                                         onChange={(e) => setPrApproveForm((prev) => ({ ...prev, unit: e.target.value }))}
                                         disabled={prActionBusy}
-                                        placeholder="pcs"
+                                        placeholder={t('opt.pcs')}
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Expected price</label>
+                                    <label>{t('label.expectedPrice')}</label>
                                     <input
                                         {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
                                         value={prApproveForm.expectedPrice}
@@ -4242,11 +4275,11 @@ export default function MasterCatalog() {
                                             }))
                                         }
                                         disabled={prActionBusy}
-                                        placeholder="0.00"
+                                        placeholder={t('ph.price')}
                                     />
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Department *</label>
+                                    <label>{t('label.selectDept')}</label>
                                     <select
                                         value={prApproveForm.departmentId}
                                         onChange={(e) =>
@@ -4258,20 +4291,20 @@ export default function MasterCatalog() {
                                         }
                                         disabled={prActionBusy}
                                     >
-                                        <option value="">Select department</option>
+                                        <option value="">{t('label.selectDeptOptLower')}</option>
                                         {departments.map((d) => (
                                             <option key={d.id} value={String(d.id)}>{d.name}</option>
                                         ))}
                                     </select>
                                 </div>
                                 <div className="mc-form-group">
-                                    <label>Category</label>
+                                    <label>{t('label.category')}</label>
                                     <select
                                         value={prApproveForm.categoryId}
                                         onChange={(e) => setPrApproveForm((prev) => ({ ...prev, categoryId: e.target.value }))}
                                         disabled={prActionBusy || !prApproveForm.departmentId}
                                     >
-                                        <option value="">No category</option>
+                                        <option value="">{t('label.noCategory')}</option>
                                         {approveProductCategories.map((c) => (
                                             <option key={c.id} value={String(c.id)}>{c.name}</option>
                                         ))}
@@ -4279,30 +4312,30 @@ export default function MasterCatalog() {
                                 </div>
                             </div>
                             <div className="mc-form-group">
-                                <label>Description</label>
+                                <label>{t('label.description')}</label>
                                 <textarea
                                     rows={3}
-                                    placeholder="Description"
+                                    placeholder={t('label.description')}
                                     value={prApproveForm.description}
                                     onChange={(e) => setPrApproveForm((prev) => ({ ...prev, description: e.target.value }))}
                                     disabled={prActionBusy}
                                 />
                             </div>
                             <div className="mc-form-group">
-                                <label>Arabic name</label>
+                                <label>{t('label.arabicName')}</label>
                                 <input
                                     type="text"
                                     value={prApproveForm.arabicName}
                                     onChange={(e) => setPrApproveForm((prev) => ({ ...prev, arabicName: e.target.value }))}
                                     disabled={prActionBusy}
-                                    placeholder="Arabic name"
+                                    placeholder={t('label.arabicName')}
                                 />
                             </div>
                             <div className="mc-form-group">
-                                <label>Remarks (optional)</label>
+                                <label>{t('label.remarks')}</label>
                                 <textarea
                                     rows={3}
-                                    placeholder="Internal note for audit trail"
+                                    placeholder={t('ph.auditNote')}
                                     value={prRemarks}
                                     onChange={(e) => setPrRemarks(e.target.value)}
                                     disabled={prActionBusy}
@@ -4315,7 +4348,7 @@ export default function MasterCatalog() {
                                     onClick={handlePrApproveConfirm}
                                     disabled={prActionBusy}
                                 >
-                                    {prActionBusy ? 'Approving…' : 'Confirm Approve'}
+                                    {prActionBusy ? t('btn.approving') : t('btn.confirmApprove')}
                                 </button>
                                 <button
                                     type="button"
@@ -4323,7 +4356,7 @@ export default function MasterCatalog() {
                                     onClick={goBack}
                                     disabled={prActionBusy}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                             </div>
                         </div>
@@ -4335,25 +4368,25 @@ export default function MasterCatalog() {
             <AnimatePresence>
                 {pageMode && route?.screen === 'request-reject' && prRejectTarget && (
                     <MasterCatalogShell
-                        title={<div className="mc-modal-title"><XCircle size={18} color="#B91C1C" /> Reject Request</div>}
+                        title={<div className="mc-modal-title"><XCircle size={18} color="#B91C1C" /> {t('modal.rejectRequest')}</div>}
                         onClose={() => !prActionBusy && goBack()}
                         className="sa-mc-modal sa-mc-modal-narrow"
                     >
                         <div className="mc-modal-form">
                             <p className="mc-pr-modal-lead">
-                                Reject <strong>{prRejectTarget.name}</strong>?
+                                {t('reject.confirm', { name: prRejectTarget.name })}
                             </p>
                             <div className="mc-form-group">
-                                <label>Reason *</label>
+                                <label>{t('label.reasonReq')}</label>
                                 <textarea
                                     rows={3}
-                                    placeholder="Why is this being rejected?"
+                                    placeholder={t('ph.rejectReason')}
                                     value={prRejectReason}
                                     onChange={(e) => setPrRejectReason(e.target.value)}
                                     disabled={prActionBusy}
                                 />
                                 {!prRejectReason.trim() && (
-                                    <p className="mc-pr-modal-hint">Reason is required.</p>
+                                    <p className="mc-pr-modal-hint">{t('val.reasonRequired')}</p>
                                 )}
                             </div>
                             <div className="mc-modal-footer">
@@ -4364,7 +4397,7 @@ export default function MasterCatalog() {
                                     onClick={handlePrRejectConfirm}
                                     disabled={prActionBusy || !prRejectReason.trim()}
                                 >
-                                    {prActionBusy ? 'Rejecting…' : 'Confirm Reject'}
+                                    {prActionBusy ? t('btn.rejecting') : t('btn.confirmReject')}
                                 </button>
                                 <button
                                     type="button"
@@ -4372,7 +4405,7 @@ export default function MasterCatalog() {
                                     onClick={goBack}
                                     disabled={prActionBusy}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                             </div>
                         </div>

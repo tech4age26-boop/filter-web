@@ -57,7 +57,14 @@ const TRANSLATIONS = {
             'referral-commissions-rm': 'Referral Commissions',
             accounting: 'Accounting',
             'chart-of-accounts': 'Chart of Accounts',
+            'trial-balance': 'Trial Balance',
+            pl: 'Profit & Loss',
+            'balance-sheet': 'Balance Sheet',
             'cash-bank': 'Cash & Bank',
+            activity: 'Activity Log',
+            'workshop-commissions': 'Workshop Commissions',
+            'salary-payroll': 'Salary & Payroll',
+            'employee-ledger': 'Employee Ledger',
             'sales-reports': 'Sales Reports', 'sales-orders': 'Sales Orders',
             'corporate-transactions': 'Corporate Transactions', 'sales-returns': 'Sales Returns',
             'demo-invoices': 'Demo Invoices',
@@ -80,14 +87,21 @@ const TRANSLATIONS = {
             dashboard: 'لوحة التحكم', reports: 'التقارير', pos: 'نقطة البيع / طلب جديد', approvals: 'الموافقات', 'zone-management': 'إدارة المناطق', 'tax-codes': 'أكواد الضريبة', 'legal-pages': 'الصفحات القانونية', 'mobile-app-menu': 'قائمة تطبيق الجوال', permissions: 'الصلاحيات', 'admin-wallets': 'محافظ المشرفين', 'my-wallet': 'محفظتي', 'tier-management': 'إدارة الفئات',
             inventory: 'المخزون', 'master-catalog': 'الكتالوج الرئيسي', 'products-services': 'المنتجات والخدمات', 'stock-movements': 'حركة المخزون', categories: 'الفئات', 'units-of-measure': 'وحدات القياس',
             customers: 'العملاء', 'all-customers': 'جميع العملاء', 'corporate-billing': 'الفواتير المؤسسية',
-            suppliers: 'الموردون', employees: 'الموظفون', branches: 'الفروع', workshop: 'الورشة',
+            suppliers: 'الموردون', 'storage-facility': 'منشأة التخزين', employees: 'الموظفون', branches: 'الفروع', workshop: 'الورشة', 'staff-app': 'تطبيق الموظفين',
             sales: 'المبيعات', 'workshop-sales': 'مبيعات الورشة', 'suppliers-warehouse-sales': 'الموردون ومبيعات المستودع', receipts: 'الإيصالات',
             'referral-commissions': 'العمولات',
             commissions: 'العمولات',
             'referral-commissions-rm': 'عمولات الإحالة',
             accounting: 'المحاسبة',
             'chart-of-accounts': 'دليل الحسابات',
+            'trial-balance': 'ميزان المراجعة',
+            pl: 'الأرباح والخسائر',
+            'balance-sheet': 'الميزانية العمومية',
             'cash-bank': 'النقد والبنك',
+            activity: 'سجل النشاط',
+            'workshop-commissions': 'عمولات الورشة',
+            'salary-payroll': 'الرواتب وكشوف الرواتب',
+            'employee-ledger': 'دفتر الموظف',
             'sales-reports': 'تقارير المبيعات', 'sales-orders': 'طلبات المبيعات',
             'corporate-transactions': 'معاملات الشركات', 'sales-returns': 'مرتجعات المبيعات',
             'demo-invoices': 'فواتير تجريبية',
@@ -393,7 +407,7 @@ function AdminLayoutShell() {
     if (isChatFullscreen) {
         return (
             <div className="admin-layout admin-layout--chat-fullscreen" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
-                <Outlet />
+                <Outlet context={{ locale }} />
             </div>
         );
     }
@@ -500,7 +514,7 @@ function AdminLayoutShell() {
                         </div>
                     </div>
                 </header>
-                <Outlet />
+                <Outlet context={{ locale }} />
             </main>
             {!location.pathname.startsWith('/admin/chat') && hasPermission('chat.view') && (
                 <PlatformChatFab onClick={() => navigate('/admin/chat')} />

@@ -1,38 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { CheckCircle2, Copy, ExternalLink, FileText, Loader2, Save, Shield, UserX } from 'lucide-react';
 import { getLegalPage, updateLegalPage } from '../../services/superAdminApi';
+import { lpT, LP_TAB_DEFS } from '../../utils/legalPagesI18n';
 import '../../styles/admin/LegalPagesPage.css';
 
-const TABS = [
-    {
-        slug: 'privacy-policy',
-        label: 'Privacy Policy',
-        publicPath: '/privacy-policy',
-        icon: Shield,
-    },
-    {
-        slug: 'terms-and-conditions',
-        label: 'Terms & Conditions',
-        publicPath: '/terms-and-conditions',
-        icon: FileText,
-    },
-    {
-        slug: 'account-deletion',
-        label: 'Account Deletion',
-        publicPath: '/account-deletion',
-        icon: UserX,
-        static: true,
-    },
-];
-
-const STATIC_PAGE_SUMMARY = {
-    title: 'Fixed Play Store page',
-    points: [
-        'Content is built into the app and follows Google Play account deletion requirements.',
-        'Always published — no draft or save needed.',
-        'Covers in-app deletion steps, email requests, deleted vs retained data, and processing time.',
-        'Available in English and Arabic on the public URL.',
-    ],
+const TAB_ICONS = {
+    'privacy-policy': Shield,
+    'terms-and-conditions': FileText,
+    'account-deletion': UserX,
 };
 
 const emptyForm = {
@@ -44,7 +20,24 @@ const emptyForm = {
 };
 
 export default function LegalPagesPage() {
-    const [activeSlug, setActiveSlug] = useState(TABS[0].slug);
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => lpT(locale, key, vars), [locale]);
+
+    const tabs = useMemo(
+        () =>
+            LP_TAB_DEFS.map((tab) => ({
+                ...tab,
+                label: t(tab.labelKey),
+                icon: TAB_ICONS[tab.slug],
+            })),
+        [t],
+    );
+
+    const [activeSlug, setActiveSlug] = useState(LP_TAB_DEFS[0].slug);
     const [form, setForm] = useState(emptyForm);
     const [updatedAt, setUpdatedAt] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -54,8 +47,8 @@ export default function LegalPagesPage() {
     const [copied, setCopied] = useState(false);
 
     const activeTab = useMemo(
-        () => TABS.find((t) => t.slug === activeSlug) ?? TABS[0],
-        [activeSlug],
+        () => tabs.find((tab) => tab.slug === activeSlug) ?? tabs[0],
+        [tabs, activeSlug],
     );
 
     const publicUrl = useMemo(() => {
@@ -64,6 +57,11 @@ export default function LegalPagesPage() {
     }, [activeTab.publicPath]);
 
     const isStaticTab = activeTab.static === true;
+
+    const staticPoints = useMemo(
+        () => [t('static.p1'), t('static.p2'), t('static.p3'), t('static.p4')],
+        [t],
+    );
 
     useEffect(() => {
         if (isStaticTab) {
@@ -94,7 +92,7 @@ export default function LegalPagesPage() {
                 setUpdatedAt(page.updatedAt ?? null);
             } catch (e) {
                 if (!mounted) return;
-                setError(e?.message || 'Failed to load legal page');
+                setError(e?.message || t('err.load'));
             } finally {
                 if (mounted) setLoading(false);
             }
@@ -103,7 +101,7 @@ export default function LegalPagesPage() {
         return () => {
             mounted = false;
         };
-    }, [activeSlug, isStaticTab]);
+    }, [activeSlug, isStaticTab, t]);
 
     const handleChange = (field, value) => {
         setForm((prev) => ({ ...prev, [field]: value }));
@@ -126,9 +124,9 @@ export default function LegalPagesPage() {
                 isPublished: page.isPublished === true,
             });
             setUpdatedAt(page.updatedAt ?? null);
-            setSuccess('Saved successfully');
+            setSuccess(t('ok.saved'));
         } catch (err) {
-            setError(err?.message || 'Failed to save');
+            setError(err?.message || t('err.save'));
         } finally {
             setSaving(false);
         }
@@ -140,7 +138,7 @@ export default function LegalPagesPage() {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch {
-            setError('Could not copy link');
+            setError(t('err.copy'));
         }
     };
 
@@ -148,16 +146,13 @@ export default function LegalPagesPage() {
         <div className="legal-pages-page">
             <header className="legal-pages-header">
                 <div>
-                    <h1>Legal Pages</h1>
-                    <p>
-                        Manage public legal pages for Play Store and app store listings.
-                        Privacy Policy and Terms are editable; Account Deletion is a fixed page.
-                    </p>
+                    <h1>{t('page.title')}</h1>
+                    <p>{t('page.subtitle')}</p>
                 </div>
             </header>
 
             <div className="legal-pages-tabs">
-                {TABS.map((tab) => {
+                {tabs.map((tab) => {
                     const Icon = tab.icon;
                     const isActive = tab.slug === activeSlug;
                     return (
@@ -177,7 +172,7 @@ export default function LegalPagesPage() {
             <div className="legal-pages-card">
                 <div className="legal-pages-public-row">
                     <div>
-                        <div className="legal-pages-public-label">Public URL</div>
+                        <div className="legal-pages-public-label">{t('public.label')}</div>
                         <a
                             href={publicUrl}
                             target="_blank"
@@ -188,36 +183,29 @@ export default function LegalPagesPage() {
                             <ExternalLink size={14} />
                         </a>
                         {!isStaticTab && !form.isPublished && (
-                            <div className="legal-pages-draft-note">
-                                Draft — publish to make this URL visible publicly.
-                            </div>
+                            <div className="legal-pages-draft-note">{t('public.draft')}</div>
                         )}
                         {isStaticTab && (
-                            <div className="legal-pages-static-badge">
-                                Static · always live
-                            </div>
+                            <div className="legal-pages-static-badge">{t('public.staticBadge')}</div>
                         )}
                     </div>
                     <button type="button" className="legal-pages-copy-btn" onClick={handleCopyLink}>
                         <Copy size={16} />
-                        {copied ? 'Copied' : 'Copy link'}
+                        {copied ? t('btn.copied') : t('btn.copy')}
                     </button>
                 </div>
 
                 {loading ? (
                     <div className="legal-pages-loading">
                         <Loader2 className="spin" size={28} />
-                        <span>Loading…</span>
+                        <span>{t('loading')}</span>
                     </div>
                 ) : isStaticTab ? (
                     <div className="legal-pages-static-panel">
-                        <h2>{STATIC_PAGE_SUMMARY.title}</h2>
-                        <p className="legal-pages-static-lead">
-                            This page cannot be edited here. Use the public link above for Play Store
-                            and store listings.
-                        </p>
+                        <h2>{t('static.title')}</h2>
+                        <p className="legal-pages-static-lead">{t('static.lead')}</p>
                         <ul className="legal-pages-static-list">
-                            {STATIC_PAGE_SUMMARY.points.map((point) => (
+                            {staticPoints.map((point) => (
                                 <li key={point}>{point}</li>
                             ))}
                         </ul>
@@ -228,7 +216,7 @@ export default function LegalPagesPage() {
                             className="legal-pages-static-preview-btn"
                         >
                             <ExternalLink size={16} />
-                            Preview {activeTab.label}
+                            {t('btn.preview', { label: activeTab.label })}
                         </a>
                     </div>
                 ) : (
@@ -239,55 +227,55 @@ export default function LegalPagesPage() {
                                 checked={form.isPublished}
                                 onChange={(e) => handleChange('isPublished', e.target.checked)}
                             />
-                            <span>Published (visible on public URL)</span>
+                            <span>{t('published')}</span>
                         </label>
 
                         <div className="legal-pages-grid">
                             <label className="legal-pages-field">
-                                <span>Title (English)</span>
+                                <span>{t('label.titleEn')}</span>
                                 <input
                                     type="text"
                                     value={form.titleEn}
                                     onChange={(e) => handleChange('titleEn', e.target.value)}
-                                    placeholder="Privacy Policy"
+                                    placeholder={t('ph.titleEn')}
                                 />
                             </label>
                             <label className="legal-pages-field">
-                                <span>Title (Arabic)</span>
+                                <span>{t('label.titleAr')}</span>
                                 <input
                                     type="text"
                                     value={form.titleAr}
                                     onChange={(e) => handleChange('titleAr', e.target.value)}
                                     dir="rtl"
-                                    placeholder="سياسة الخصوصية"
+                                    placeholder={t('ph.titleAr')}
                                 />
                             </label>
                         </div>
 
                         <label className="legal-pages-field">
-                            <span>Content (English)</span>
+                            <span>{t('label.bodyEn')}</span>
                             <textarea
                                 rows={14}
                                 value={form.bodyEn}
                                 onChange={(e) => handleChange('bodyEn', e.target.value)}
-                                placeholder="Write your privacy policy or terms here. Basic HTML is supported (e.g. &lt;p&gt;, &lt;ul&gt;, &lt;strong&gt;)."
+                                placeholder={t('ph.bodyEn')}
                             />
                         </label>
 
                         <label className="legal-pages-field">
-                            <span>Content (Arabic)</span>
+                            <span>{t('label.bodyAr')}</span>
                             <textarea
                                 rows={14}
                                 value={form.bodyAr}
                                 onChange={(e) => handleChange('bodyAr', e.target.value)}
                                 dir="rtl"
-                                placeholder="اكتب المحتوى بالعربية. يدعم HTML البسيط."
+                                placeholder={t('ph.bodyAr')}
                             />
                         </label>
 
                         {updatedAt && (
                             <div className="legal-pages-updated">
-                                Last updated: {new Date(updatedAt).toLocaleString()}
+                                {t('updated', { date: new Date(updatedAt).toLocaleString(locale === 'ar' ? 'ar-SA' : undefined) })}
                             </div>
                         )}
 
@@ -302,7 +290,7 @@ export default function LegalPagesPage() {
                         <div className="legal-pages-actions">
                             <button type="submit" className="legal-pages-save-btn" disabled={saving}>
                                 {saving ? <Loader2 className="spin" size={18} /> : <Save size={18} />}
-                                Save {activeTab.label}
+                                {t('btn.save', { label: activeTab.label })}
                             </button>
                         </div>
                     </form>

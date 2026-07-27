@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate, useParams, useLocation, useSearchParams, Navigate } from 'react-router-dom';
+import { useNavigate, useParams, useLocation, useSearchParams, useOutletContext, Navigate } from 'react-router-dom';
 import {
     Check, X, Tag, User, Calendar, DollarSign, Package, ShoppingCart,
     RefreshCcw, ArrowRightLeft, FileText, Eye, Users, Settings, CreditCard,
@@ -51,6 +51,7 @@ import ApprovalDetailsModal from './ApprovalDetailsModal';
 import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import { useAuth } from '../../context/AuthContext';
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
+import { apT, entityTypeLabel } from '../../utils/approvalsI18n';
 
 /**
  * Map backend entity-type string (snake_case) → permission code suffix (kebab-case).
@@ -433,7 +434,7 @@ function approvalDetailPath(entityType, id, action = null) {
     return `${base}?action=${encodeURIComponent(action)}`;
 }
 
-function normalizeItem(raw) {
+function normalizeItem(raw, locale = 'en') {
     const entityType = raw.entityType ?? raw.entity_type ?? '';
     const meta = raw.meta ?? {};
     const id = toStringId(raw.requestId ?? raw.id ?? raw._id);
@@ -450,7 +451,7 @@ function normalizeItem(raw) {
         ?? meta.fullName
         ?? raw.businessName
         ?? raw.business_name
-        ?? `${entityType || 'Request'} #${id}`;
+        ?? (entityType ? `${entityTypeLabel(locale, entityType)} #${id}` : apT(locale, 'fallback.request', { id }));
 
     const type = entityType.replace('_registration', '') || 'registration';
     const typeLabel = ENTITY_TYPES.find((e) => e.value === entityType)?.label
@@ -666,18 +667,31 @@ function buildMetaChips(item) {
 /*  Approve / Reject confirmation modals                              */
 /* ------------------------------------------------------------------ */
 
-function ApproveModal({ item, busy, onCancel, onConfirm, asPage = false }) {
+/** Renders an i18n template containing a literal `{title}` placeholder with the
+ *  title wrapped in <strong>, so bolding survives translation. */
+function withBoldTitle(template, title) {
+    const parts = String(template).split('{title}');
+    return (
+        <>
+            {parts[0]}
+            <strong>{title}</strong>
+            {parts[1]}
+        </>
+    );
+}
+
+function ApproveModal({ item, busy, onCancel, onConfirm, asPage = false, t = (k, v) => apT('en', k, v) }) {
     const [remarks, setRemarks] = useState('');
     return (
         <ApprovalShell asPage={asPage}
-            title="Approve Request"
+            title={t('approve.title')}
             onClose={onCancel}
             backDisabled={busy}
             width={460}
             footer={(
                 <>
                     <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -686,22 +700,22 @@ function ApproveModal({ item, busy, onCancel, onConfirm, asPage = false }) {
                         onClick={() => onConfirm(remarks)}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
-                        Approve
+                        {t('btn.approve')}
                     </button>
                 </>
             )}
         >
             <p className="approval-modal-lead">
-                Approve <strong>{item.title}</strong>? You can add optional remarks for the audit log.
+                {withBoldTitle(t('approve.body'), item.title)}
             </p>
             <label className="approval-modal-label" htmlFor="approve-remarks">
-                Remarks <span className="approval-modal-optional">(optional)</span>
+                {t('label.remarks')} <span className="approval-modal-optional">{t('optional')}</span>
             </label>
             <textarea
                 id="approve-remarks"
                 className="approval-modal-textarea"
                 rows={3}
-                placeholder="e.g. Documents verified."
+                placeholder={t('approve.remarksPh')}
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 disabled={busy}
@@ -711,7 +725,7 @@ function ApproveModal({ item, busy, onCancel, onConfirm, asPage = false }) {
 }
 
 /** Approve admin wallet fund request — super admin picks source cash/bank account or wallet. */
-function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, asPage = false }) {
+function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, asPage = false, t = (k, v) => apT('en', k, v) }) {
     const [remarks, setRemarks] = useState('');
     const [fundSourceType, setFundSourceType] = useState(
         () => (item?.meta?.fundSourceType === 'wallet' ? 'wallet' : 'external'),
@@ -793,14 +807,14 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
 
     return (
         <ApprovalShell asPage={asPage}
-            title="Approve Admin Wallet Fund Request"
+            title={t('wallet.fundTitle')}
             onClose={onCancel}
             backDisabled={busy}
             width={520}
             footer={(
                 <>
                     <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -819,7 +833,7 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
                         })}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
-                        Approve &amp; Fund Wallet
+                        {t('wallet.fundBtn')}
                     </button>
                 </>
             )}
@@ -956,7 +970,7 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
             )}
 
             <label className="approval-modal-label" htmlFor="admin-wallet-approve-remarks" style={{ marginTop: 14 }}>
-                Remarks <span className="approval-modal-optional">(optional)</span>
+                {t('label.remarks')} <span className="approval-modal-optional">{t('optional')}</span>
             </label>
             <textarea
                 id="admin-wallet-approve-remarks"
@@ -986,7 +1000,7 @@ function normalizeApprovalCashAccounts(res) {
 }
 
 /** Super Admin: pick HQ cash/bank account for marketing wallet top-up or expense payment. */
-function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 'approve', asPage = false }) {
+function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 'approve', asPage = false, t = (k, v) => apT('en', k, v) }) {
     const [remarks, setRemarks] = useState('');
     const [accounts, setAccounts] = useState([]);
     const [accountsLoading, setAccountsLoading] = useState(true);
@@ -1035,10 +1049,10 @@ function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 
     const selected = accounts.find((a) => a.id === selectedId);
 
     const title = mode === 'pay'
-        ? 'Pay & Post to Chart of Accounts'
+        ? t('mkt.payPost')
         : isBudget
-            ? 'Approve wallet top-up'
-            : 'Approve marketing expense';
+            ? t('mkt.approveTopup')
+            : t('mkt.approveExpense');
 
     const lead = mode === 'pay'
         ? <>Post payment for <strong>{item.title}</strong> to HQ Chart of Accounts.</>
@@ -1059,7 +1073,7 @@ function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 
             footer={(
                 <>
                     <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -1081,7 +1095,7 @@ function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 
                         }}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
-                        {mode === 'pay' ? 'Pay & Post' : 'Approve & Post'}
+                        {mode === 'pay' ? t('mkt.payPostBtn') : t('mkt.approvePost')}
                     </button>
                 </>
             )}
@@ -1124,7 +1138,7 @@ function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 
             )}
 
             <label className="approval-modal-label" htmlFor="payment-approve-remarks" style={{ marginTop: 14 }}>
-                Remarks <span className="approval-modal-optional">(optional)</span>
+                {t('label.remarks')} <span className="approval-modal-optional">{t('optional')}</span>
             </label>
             <textarea
                 id="payment-approve-remarks"
@@ -1140,7 +1154,7 @@ function MarketingPaymentApproveModal({ item, busy, onCancel, onConfirm, mode = 
 }
 
 /** Super-admin: approve corporate_registration with final branch/store list (any workshop). */
-function CorporateApproveModal({ item, busy, onCancel, onConfirm, asPage = false }) {
+function CorporateApproveModal({ item, busy, onCancel, onConfirm, asPage = false, t = (k, v) => apT('en', k, v) }) {
     const [remarks, setRemarks] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [branchSearch, setBranchSearch] = useState('');
@@ -1203,14 +1217,14 @@ function CorporateApproveModal({ item, busy, onCancel, onConfirm, asPage = false
 
     return (
         <ApprovalShell asPage={asPage}
-            title="Approve Corporate Registration"
+            title={t('corp.approveTitle')}
             onClose={onCancel}
             backDisabled={busy}
             width={560}
             footer={(
                 <>
                     <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -1224,26 +1238,25 @@ function CorporateApproveModal({ item, busy, onCancel, onConfirm, asPage = false
                             })}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
-                        Approve &amp; activate
+                        {t('corp.approveActivate')}
                     </button>
                 </>
             )}
         >
             <p className="approval-modal-lead">
-                Approve <strong>{item.title}</strong>. Adjust linked branches/stores across workshops if needed —
-                these IDs are saved on the corporate account before activation.
+                {withBoldTitle(t('corp.approveBody'), item.title)}
             </p>
             {branchLoadErr && (
                 <p style={{ color: '#B91C1C', fontSize: '0.875rem', marginBottom: 8 }}>{branchLoadErr}</p>
             )}
             <label className="approval-modal-label" htmlFor="corp-branch-filter">
-                Search branches
+                {t('corp.searchBranches')}
             </label>
             <input
                 id="corp-branch-filter"
                 className="approval-modal-textarea"
                 style={{ minHeight: 0 }}
-                placeholder="Branch name, workshop, or ID"
+                placeholder={t('corp.searchPh')}
                 value={branchSearch}
                 onChange={(e) => setBranchSearch(e.target.value)}
                 disabled={busy}
@@ -1262,7 +1275,7 @@ function CorporateApproveModal({ item, busy, onCancel, onConfirm, asPage = false
                 }}
             >
                 {filteredBranches.length === 0 ? (
-                    <p className="empty-desc" style={{ margin: 8 }}>No matching branches.</p>
+                    <p className="empty-desc" style={{ margin: 8 }}>{t('corp.noBranches')}</p>
                 ) : (
                     filteredBranches.map((b) => {
                         const idStr = String(b.id);
@@ -1288,7 +1301,7 @@ function CorporateApproveModal({ item, busy, onCancel, onConfirm, asPage = false
                                 <div style={{ flex: 1 }}>
                                     <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{b.name || idStr}</div>
                                     <div style={{ fontSize: '0.75rem', color: '#6B7280' }}>
-                                        {b.workshopName || 'Workshop'}{' '}
+                                        {b.workshopName || t('corp.workshop')}{' '}
                                         <span style={{ fontFamily: 'monospace' }}>({idStr})</span>
                                     </div>
                                 </div>
@@ -1303,13 +1316,13 @@ function CorporateApproveModal({ item, busy, onCancel, onConfirm, asPage = false
             </p>
 
             <label className="approval-modal-label" htmlFor="approve-remarks-corporate">
-                Remarks <span className="approval-modal-optional">(optional)</span>
+                {t('label.remarks')} <span className="approval-modal-optional">{t('optional')}</span>
             </label>
             <textarea
                 id="approve-remarks-corporate"
                 className="approval-modal-textarea"
                 rows={3}
-                placeholder="Audit note."
+                placeholder={t('corp.auditPh')}
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 disabled={busy}
@@ -1663,7 +1676,7 @@ function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onRe
     );
 }
 
-function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error, asPage = false }) {
+function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error, asPage = false, t = (k, v) => apT('en', k, v) }) {
     const [remarks, setRemarks] = useState('');
     const [acct, setAcct] = useState({ blocked: true, loading: true });
     const proofUrl = item?.meta?.proofUrl ?? '';
@@ -1676,14 +1689,14 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
 
     return (
         <ApprovalShell asPage={asPage}
-            title="Approve Admin Wallet Expense"
+            title={t('wallet.expenseTitle')}
             onClose={onCancel}
             backDisabled={busy}
             width={520}
             footer={(
                 <>
                     <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -1702,7 +1715,7 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
                         })}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
-                        Approve Expense
+                        {t('wallet.expenseBtn')}
                     </button>
                 </>
             )}
@@ -1745,7 +1758,7 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
             />
 
             <label className="approval-modal-label" htmlFor="admin-wallet-expense-approve-remarks" style={{ marginTop: 14 }}>
-                Remarks <span className="approval-modal-optional">(optional)</span>
+                {t('label.remarks')} <span className="approval-modal-optional">{t('optional')}</span>
             </label>
             <textarea
                 id="admin-wallet-expense-approve-remarks"
@@ -2798,7 +2811,7 @@ function SalesReturnApprovalDetailsModal({ id, item, onClose, onApprove, onRejec
     );
 }
 
-function RejectModal({ item, busy, onCancel, onConfirm, asPage = false }) {
+function RejectModal({ item, busy, onCancel, onConfirm, asPage = false, t = (k, v) => apT('en', k, v) }) {
     const [reason, setReason] = useState('');
     const [touched, setTouched] = useState(false);
     const trimmed = reason.trim();
@@ -2814,14 +2827,14 @@ function RejectModal({ item, busy, onCancel, onConfirm, asPage = false }) {
 
     return (
         <ApprovalShell asPage={asPage}
-            title="Reject Request"
+            title={t('reject.title')}
             onClose={onCancel}
             backDisabled={busy}
             width={460}
             footer={(
                 <>
                     <button type="button" className="btn-view-details" disabled={busy} onClick={onCancel}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -2830,30 +2843,29 @@ function RejectModal({ item, busy, onCancel, onConfirm, asPage = false }) {
                         onClick={handleConfirm}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <X size={16} />}
-                        Reject
+                        {t('btn.reject')}
                     </button>
                 </>
             )}
         >
             <p className="approval-modal-lead">
-                Reject <strong>{item.title}</strong>? Provide a reason — it will be shown to the
-                submitter.
+                {withBoldTitle(t('reject.body'), item.title)}
             </p>
             <label className="approval-modal-label" htmlFor="reject-reason">
-                Reason <span className="approval-modal-required">(required)</span>
+                {t('label.reason')} <span className="approval-modal-required">{t('required')}</span>
             </label>
             <textarea
                 id="reject-reason"
                 className={`approval-modal-textarea ${touched && !valid ? 'invalid' : ''}`}
                 rows={3}
-                placeholder="e.g. Trade license expired."
+                placeholder={t('reject.reasonPh')}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 onBlur={() => setTouched(true)}
                 disabled={busy}
             />
             {touched && !valid && (
-                <p className="approval-modal-error">A reason is required to reject.</p>
+                <p className="approval-modal-error">{t('reject.required')}</p>
             )}
         </ApprovalShell>
     );
@@ -2891,7 +2903,7 @@ function Toast({ toast }) {
  * corporate account's own per-account toggle. Optimistic flip; parent rolls
  * back on backend error.
  */
-function GlobalAutoApproveToggle({ value, busy, disabled, onChange }) {
+function GlobalAutoApproveToggle({ value, busy, disabled, onChange, t }) {
     return (
         <label
             style={{
@@ -2914,12 +2926,12 @@ function GlobalAutoApproveToggle({ value, busy, disabled, onChange }) {
             }}
             title={
                 disabled
-                    ? 'You do not have permission to change this.'
+                    ? t('walkin.tip.noPerm')
                     : busy
-                        ? 'Saving…'
+                        ? t('walkin.tip.saving')
                         : value
-                            ? 'Global auto-approve is ON — all corporate walk-ins skip this queue.'
-                            : 'Global auto-approve is OFF — corporate walk-ins follow each account\'s own setting.'
+                            ? t('walkin.tip.on')
+                            : t('walkin.tip.off')
             }
         >
             <input
@@ -2946,13 +2958,13 @@ function GlobalAutoApproveToggle({ value, busy, disabled, onChange }) {
                 </span>
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                Auto-approve corporate walk-ins
+                {t('walkin.label')}
                 <span style={{
                     fontSize: '0.65rem', fontWeight: 800, padding: '2px 8px', borderRadius: 999,
                     background: busy ? '#64748b' : value ? '#10b981' : '#94a3b8', color: '#fff',
                     minWidth: 36, textAlign: 'center',
                 }}>
-                    {busy ? 'Saving' : value ? 'ON' : 'OFF'}
+                    {busy ? t('walkin.saving') : value ? t('walkin.on') : t('walkin.off')}
                 </span>
             </span>
         </label>
@@ -2970,6 +2982,12 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const { entityType: routeEntityType, requestId: routeRequestId } = useParams();
     const [searchParams] = useSearchParams();
     const routeAction = searchParams.get('action');
+
+    const outletCtx = useOutletContext() || {};
+    const locale = outletCtx.locale
+        || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null)
+        || 'en';
+    const t = useCallback((key, vars) => apT(locale, key, vars), [locale]);
 
     const goToApprovalsList = useCallback(() => {
         navigate(APPROVALS_LIST_PATH);
@@ -3059,16 +3077,14 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         setAutoApproveWalkIns(next); // optimistic
         try {
             await updateWalkInSettings({ autoApproveCorporateWalkIns: next });
-            showToast(next
-                ? 'Corporate walk-ins will now auto-approve globally.'
-                : 'Global auto-approval of corporate walk-ins turned off.');
+            showToast(next ? t('walkin.toast.on') : t('walkin.toast.off'));
         } catch (err) {
             setAutoApproveWalkIns(!next); // rollback
-            showToast(`Could not update setting: ${err.message}`, 'error');
+            showToast(t('walkin.toast.fail', { msg: err.message }), 'error');
         } finally {
             setWalkInToggleBusy(false);
         }
-    }, [autoApproveWalkIns, showToast]);
+    }, [autoApproveWalkIns, showToast, t]);
 
     const [moduleSettings, setModuleSettings] = useState({
         inventory: { enabled: true, sub: { adjustments: true, transfers: true, uomChanges: false, priceOverrides: true, safetyStock: false } },
@@ -3102,7 +3118,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         const stdReq = entityTypeFilter === 'corporate_payment_approval' || entityTypeFilter === 'sales_return' || entityTypeFilter === 'marketing_budget_request' || entityTypeFilter === 'marketing_promotion' || entityTypeFilter === 'marketing_promo_code'
             ? Promise.resolve([])
             : listApprovals({ status, entityType: entityTypeFilter })
-                .then((data) => unwrapApprovalsListResponse(data).map(normalizeItem))
+                .then((data) => unwrapApprovalsListResponse(data).map((raw) => normalizeItem(raw, locale)))
                 .catch((err) => {
                     console.error('Standard approvals load failed:', err);
                     return [];
@@ -3254,7 +3270,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             });
 
         return () => { cancelled = true; };
-    }, [currentTab, entityTypeFilter, reloadTick, canViewType]);
+    }, [currentTab, entityTypeFilter, reloadTick, canViewType, locale]);
 
     const removeFromList = useCallback((item) => {
         const key = approvalItemKey(item);
@@ -3316,31 +3332,31 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             } else {
                 const res = await approveApi(item.entityType, item.id, payload);
                 if (res?.awaitingWorkshopAdmin || res?.awaitingSuperAdmin) {
-                    showToast(res.message || 'Approval recorded — awaiting the other approver.');
+                    showToast(res.message || t('toast.partial'));
                     setApproveModalError('');
-                    setReloadTick((t) => t + 1);
+                    setReloadTick((tick) => tick + 1);
                     goToApprovalsList();
                     return;
                 }
             }
             removeFromList(item);
             setApproveModalError('');
-            setReloadTick((t) => t + 1);
+            setReloadTick((tick) => tick + 1);
             goToApprovalsList();
             const postedToCao =
                 isMarketingBudgetRequest(item.entityType) || isMarketingExpense(item.entityType);
             showToast(
                 postedToCao
-                    ? 'Approved and posted to Chart of Accounts.'
+                    ? t('toast.postedCoa')
                     : (item.entityType === 'admin_wallet_fund_request' || item.entityType === 'admin_wallet_expense_request')
-                        ? 'Request approved and posted.'
-                        : 'Request approved.',
+                        ? t('toast.approvedPosted')
+                        : t('toast.approved'),
             );
         } catch (err) {
             if (item.entityType === 'admin_wallet_fund_request' || item.entityType === 'admin_wallet_expense_request') {
                 setApproveModalError(err?.message || 'Approve failed');
             } else {
-                showToast(`Approve failed: ${err.message}`, 'error');
+                showToast(t('toast.approveFail', { msg: err.message }), 'error');
             }
         } finally {
             setActionLoading(null);
@@ -3368,11 +3384,11 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 await rejectApi(item.entityType, item.id, reason);
             }
             removeFromList(item);
-            setReloadTick((t) => t + 1);
+            setReloadTick((tick) => tick + 1);
             goToApprovalsList();
-            showToast('Request rejected.');
+            showToast(t('toast.rejected'));
         } catch (err) {
-            showToast(`Reject failed: ${err.message}`, 'error');
+            showToast(t('toast.rejectFail', { msg: err.message }), 'error');
         } finally {
             setActionLoading(null);
         }
@@ -3388,11 +3404,11 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 paymentAccountName: payload.paymentAccountName,
             });
             removeFromList(item);
-            setReloadTick((t) => t + 1);
+            setReloadTick((tick) => tick + 1);
             goToApprovalsList();
-            showToast('Expense paid and posted to Chart of Accounts.');
+            showToast(t('toast.expensePaid'));
         } catch (err) {
-            showToast(`Pay failed: ${err.message}`, 'error');
+            showToast(t('toast.payFail', { msg: err.message }), 'error');
         } finally {
             setActionLoading(null);
         }
@@ -3463,12 +3479,12 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         { key: 'Approved', show: hasPermission('approvals.approved-history.view') },
         { key: 'Rejected', show: hasPermission('approvals.rejected-history.view') },
         { key: 'All',      show: hasPermission('approvals.all-history.view') },
-    ].filter((t) => t.show);
+    ].filter((tab) => tab.show);
 
     // If user lands on a hidden tab (perms changed mid-session), snap back to Pending.
     useEffect(() => {
         if (currentTab === 'Settings') return;
-        if (!tabs.some((t) => t.key === currentTab)) {
+        if (!tabs.some((tab) => tab.key === currentTab)) {
             setCurrentTab(tabs[0]?.key ?? 'Pending');
         }
     }, [tabs, currentTab]);
@@ -3495,7 +3511,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         const effectiveItem = routeItem ?? {
             entityType: routeEntityType,
             id: routeRequestId,
-            title: 'this request',
+            title: t('fallback.thisRequest'),
         };
         const busy = actionLoading === approvalItemKey(effectiveItem);
         const detailApprove = canApproveType(routeEntityType)
@@ -3513,6 +3529,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     busy={busy}
                     onCancel={goToApprovalsList}
                     onConfirm={(reason) => handleRejectConfirm(effectiveItem, reason)}
+                    t={t}
                 />
             );
         }
@@ -3529,6 +3546,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     busy={busy}
                     onCancel={goToApprovalsList}
                     onConfirm={(payload) => handlePayConfirm(effectiveItem, payload)}
+                    t={t}
                 />
             );
         }
@@ -3542,6 +3560,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                         busy={busy}
                         onCancel={goToApprovalsList}
                         onConfirm={(payload) => handleApproveConfirm(effectiveItem, payload)}
+                        t={t}
                     />
                 );
             }
@@ -3557,6 +3576,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                             setApproveModalError('');
                         }}
                         onConfirm={(payload) => handleApproveConfirm(effectiveItem, payload)}
+                        t={t}
                     />
                 );
             }
@@ -3572,6 +3592,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                             setApproveModalError('');
                         }}
                         onConfirm={(payload) => handleApproveConfirm(effectiveItem, payload)}
+                        t={t}
                     />
                 );
             }
@@ -3583,6 +3604,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                         busy={busy}
                         onCancel={goToApprovalsList}
                         onConfirm={(payload) => handleApproveConfirm(effectiveItem, payload)}
+                        t={t}
                     />
                 );
             }
@@ -3593,6 +3615,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     busy={busy}
                     onCancel={goToApprovalsList}
                     onConfirm={(remarks) => handleApproveConfirm(effectiveItem, remarks)}
+                    t={t}
                 />
             );
         }
@@ -3713,7 +3736,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                         ?? data?.title
                         ?? existing?.title
                         ?? data?.meta?.companyName
-                        ?? 'this request';
+                        ?? t('fallback.thisRequest');
                     const branchesRaw =
                         data?.corporateAccount?.selectedBranchIds
                         ?? existing?.meta?.selectedBranchIds
@@ -3737,7 +3760,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     const target = routeItem ?? {
                         id: toStringId(data?.requestId ?? data?.id ?? routeRequestId),
                         entityType: routeEntityType,
-                        title: data?.title ?? data?.meta?.companyName ?? data?.meta?.name ?? 'this request',
+                        title: data?.title ?? data?.meta?.companyName ?? data?.meta?.name ?? t('fallback.thisRequest'),
                     };
                     openApprovalAction(target, 'reject');
                 }}
@@ -3758,7 +3781,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                             className={`tab-item ${currentTab === tab.key ? 'active' : ''}`}
                             onClick={() => setCurrentTab(tab.key)}
                         >
-                            {tab.key}
+                            {t(`tab.${tab.key}`)}
                         </button>
                     ))}
                 </div>
@@ -3772,16 +3795,16 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                         onChange={(e) => setEntityTypeFilter(e.target.value)}
                     >
                         {visibleEntityTypes.map((et) => (
-                            <option key={et.value} value={et.value}>{et.label}</option>
+                            <option key={et.value} value={et.value}>{entityTypeLabel(locale, et.value)}</option>
                         ))}
                     </select>
                     <button
                         type="button"
                         className="btn-view-details approvals-refresh-btn"
-                        onClick={() => setReloadTick((t) => t + 1)}
+                        onClick={() => setReloadTick((tick) => tick + 1)}
                         disabled={loading}
                     >
-                        <RefreshCcw size={14} className={loading ? 'spin' : ''} /> Refresh
+                        <RefreshCcw size={14} className={loading ? 'spin' : ''} /> {t('btn.refresh')}
                     </button>
                     {canSeeWalkInToggle && (
                         <GlobalAutoApproveToggle
@@ -3789,6 +3812,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                             busy={walkInToggleBusy}
                             disabled={!canManageWalkInToggle}
                             onChange={handleToggleAutoApproveWalkIns}
+                            t={t}
                         />
                     )}
                 </div>
@@ -3805,16 +3829,16 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                     </div>
                                     <div className="settings-text-block">
                                         <h4 className="settings-module-name-large">
-                                            {module === 'hr' ? 'Human Resources' : module.charAt(0).toUpperCase() + module.slice(1)}
+                                            {module === 'hr' ? t('settings.hr') : module.charAt(0).toUpperCase() + module.slice(1)}
                                         </h4>
                                         <p className="settings-module-desc-premium">
-                                            Manage granular approval requirements for {module} actions.
+                                            {t('settings.desc', { module })}
                                         </p>
                                     </div>
                                 </div>
                                 <div className="main-toggle-wrapper">
                                     <span className={`toggle-status-label ${data.enabled ? 'enabled' : 'disabled'}`}>
-                                        {data.enabled ? 'ACTIVE' : 'DISABLED'}
+                                        {data.enabled ? t('settings.active') : t('settings.disabled')}
                                     </span>
                                     <label className="switch premium">
                                         <input type="checkbox" checked={data.enabled} onChange={() => toggleModule(module)} />
@@ -3835,7 +3859,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                                     <span className="slider round"></span>
                                                 </label>
                                             </div>
-                                            <p className="sub-setting-info-text">Requires manual admin review for this action.</p>
+                                            <p className="sub-setting-info-text">{t('settings.subHint')}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -3848,14 +3872,14 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             {currentTab !== 'Settings' && loading && (
                 <div className="empty-state-card">
                     <Loader size={24} className="spin" />
-                    <p className="empty-desc">Loading approvals…</p>
+                    <p className="empty-desc">{t('loading')}</p>
                 </div>
             )}
 
             {currentTab !== 'Settings' && !loading && error && (
                 <div className="empty-state-card">
                     <AlertCircle size={24} />
-                    <p className="empty-status">Failed to load</p>
+                    <p className="empty-status">{t('failed')}</p>
                     <p className="empty-desc">{error}</p>
                 </div>
             )}
@@ -3870,7 +3894,10 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                             <div key={item.id} className="approval-card">
                                 <div className="approval-card-header">
                                     <span className={`approval-type-badge type-${item.type}`}>
-                                        {getTypeIcon(item.type)} {item.typeLabel}
+                                        {getTypeIcon(item.type)}{' '}
+                                        {ENTITY_TYPES.some((e) => e.value === item.entityType)
+                                            ? entityTypeLabel(locale, item.entityType)
+                                            : item.typeLabel}
                                     </span>
                                     <div className="header-right">
                                         <span className={`approval-status-badge status-${item.status}`}>{item.status}</span>
@@ -3882,11 +3909,11 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                     <span><Calendar size={14} /> {formatDate(item.date)}</span>
                                     {item.reviewer && (
                                         <span className="approval-reviewer">
-                                            Reviewer: {fmtPerson(item.reviewer)}
+                                            {t('meta.reviewer', { name: fmtPerson(item.reviewer) })}
                                         </span>
                                     )}
                                     {item.reference && (
-                                        <span className="reference-badge">Ref: {item.reference}</span>
+                                        <span className="reference-badge">{t('meta.ref', { ref: item.reference })}</span>
                                     )}
                                 </div>
                                 {chips.length > 0 && (
@@ -3909,7 +3936,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                                     disabled={actionLoading === approvalItemKey(item)}
                                                     onClick={() => openApprovalAction(item, 'approve')}
                                                 >
-                                                    {actionLoading === approvalItemKey(item) ? <Loader size={14} className="spin" /> : <Check size={16} />} Approve
+                                                    {actionLoading === approvalItemKey(item) ? <Loader size={14} className="spin" /> : <Check size={16} />} {t('btn.approve')}
                                                 </button>
                                             )}
                                             {allowReject && (
@@ -3919,7 +3946,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                                     disabled={actionLoading === approvalItemKey(item)}
                                                     onClick={() => openApprovalAction(item, 'reject')}
                                                 >
-                                                    {actionLoading === approvalItemKey(item) ? <Loader size={14} className="spin" /> : <X size={16} />} Reject
+                                                    {actionLoading === approvalItemKey(item) ? <Loader size={14} className="spin" /> : <X size={16} />} {t('btn.reject')}
                                                 </button>
                                             )}
                                         </>
@@ -3929,7 +3956,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                         className="btn-view-details"
                                         onClick={() => openApprovalDetails(item)}
                                     >
-                                        <Eye size={16} /> Details
+                                        <Eye size={16} /> {t('btn.details')}
                                     </button>
                                 </div>
                             </div>
@@ -3940,11 +3967,11 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
 
             {currentTab !== 'Settings' && !loading && !error && items.length === 0 && (
                 <div className="empty-state-card">
-                    <p className="empty-status">0 {currentTab.toLowerCase()} items</p>
+                    <p className="empty-status">{t('empty.count', { tab: t(`tab.${currentTab}`).toLowerCase() })}</p>
                     <p className="empty-desc">
                         {currentTab === 'Pending'
-                            ? 'Nothing is waiting for review right now.'
-                            : 'Nothing to show in this tab.'}
+                            ? t('empty.pendingHint')
+                            : t('empty.otherHint')}
                     </p>
                 </div>
             )}

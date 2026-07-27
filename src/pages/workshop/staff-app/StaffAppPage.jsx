@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { STAFF_APP_NAV_ITEMS } from './constants';
 import StaffAppOverview from './StaffAppOverview';
 import StaffAppExpenses from './StaffAppExpenses';
@@ -11,6 +12,11 @@ import StaffAppChat from './StaffAppChat';
 import StaffAppNotifications from './StaffAppNotifications';
 import StaffAppSettings from './StaffAppSettings';
 import StaffAppPanelErrorBoundary from './StaffAppPanelErrorBoundary';
+import {
+    StaffAppI18nContext,
+    resolveStaffAppLocale,
+    staffAppT,
+} from '../../../utils/staffAppI18n';
 import './StaffApp.css';
 
 export default function StaffAppPage({
@@ -20,7 +26,13 @@ export default function StaffAppPage({
     branchLockedId = null,
     workshopId = null,
     onNavigate,
+    locale: localeProp,
 }) {
+    const outletCtx = useOutletContext() || {};
+    const locale = resolveStaffAppLocale(localeProp, outletCtx.locale);
+    const t = useCallback((key, vars) => staffAppT(locale, key, vars), [locale]);
+    const i18nValue = useMemo(() => ({ locale, t }), [locale, t]);
+
     const renderPanel = () => {
         switch (activeTab) {
             case 'sap-overview':
@@ -59,24 +71,26 @@ export default function StaffAppPage({
     };
 
     return (
-        <div className="staff-app-shell">
-            <nav className="staff-app-subnav" aria-label="Staff App Management">
-                {STAFF_APP_NAV_ITEMS.map((item) => (
-                    <button
-                        key={item.id}
-                        type="button"
-                        className={`staff-app-subnav__btn ${activeTab === item.id ? 'active' : ''}`}
-                        onClick={() => onNavigate?.(item.id)}
-                    >
-                        {item.label}
-                    </button>
-                ))}
-            </nav>
-            <div className="staff-app-panel">
-                <StaffAppPanelErrorBoundary resetKey={activeTab}>
-                    {renderPanel()}
-                </StaffAppPanelErrorBoundary>
+        <StaffAppI18nContext.Provider value={i18nValue}>
+            <div className="staff-app-shell" dir={locale === 'ar' ? 'rtl' : undefined}>
+                <nav className="staff-app-subnav" aria-label={t('nav.aria')}>
+                    {STAFF_APP_NAV_ITEMS.map((item) => (
+                        <button
+                            key={item.id}
+                            type="button"
+                            className={`staff-app-subnav__btn ${activeTab === item.id ? 'active' : ''}`}
+                            onClick={() => onNavigate?.(item.id)}
+                        >
+                            {item.labelKey ? t(item.labelKey) : item.label}
+                        </button>
+                    ))}
+                </nav>
+                <div className="staff-app-panel">
+                    <StaffAppPanelErrorBoundary resetKey={activeTab} locale={locale} t={t}>
+                        {renderPanel()}
+                    </StaffAppPanelErrorBoundary>
+                </div>
             </div>
-        </div>
+        </StaffAppI18nContext.Provider>
     );
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import {
     MessageCircle,
     Plus,
@@ -48,15 +48,11 @@ import {
     formatListDateTime,
     formatMessageDateTime,
 } from '../../utils/platformChatDateTime';
+import { pcT } from '../../utils/platformChatI18n';
 import '../../styles/admin/PlatformChat.css';
 import '../../styles/admin/PlatformChatWallet.css';
 
-const WORKSHOP_ROLE_TABS = [
-    { id: 'all', label: 'All' },
-    { id: 'admin', label: 'Admins' },
-    { id: 'cashier', label: 'Cashiers' },
-    { id: 'technician', label: 'Technicians' },
-];
+const WORKSHOP_ROLE_TAB_IDS = ['all', 'admin', 'cashier', 'technician'];
 
 function getInitials(name) {
     const trimmed = String(name || '').trim();
@@ -109,6 +105,12 @@ function ChatAvatar({ title, type = 'direct', size = 'md' }) {
 export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExit }) {
     const navigate = useNavigate();
     const location = useLocation();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => pcT(locale, key, vars), [locale]);
     const { user, token, hasPermission } = useAuth();
     const viewPermission = chatConfig.viewPermission ?? 'chat.view';
     const createPermission = chatConfig.createPermission ?? 'chat.create';
@@ -116,7 +118,26 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
     const canCreateChat = hasPermission(createPermission);
     const api = chatConfig.api;
     const currentUserId = user?.id ? String(user.id) : null;
-    const workshopRoleTabs = chatConfig.workshopRoleTabs ?? WORKSHOP_ROLE_TABS;
+    const workshopRoleTabs = useMemo(() => {
+        const tabs = chatConfig.workshopRoleTabs
+            ?? WORKSHOP_ROLE_TAB_IDS.map((id) => ({ id, label: id }));
+        return tabs.map((tab) => ({
+            ...tab,
+            label: t(`roleTab.${tab.id}`) !== `roleTab.${tab.id}` ? t(`roleTab.${tab.id}`) : tab.label,
+        }));
+    }, [chatConfig.workshopRoleTabs, t]);
+    const groupCategories = useMemo(() => (
+        (chatConfig.groupCategories || []).map((tab) => {
+            const key = tab.id === 'workshop' && tab.label === 'Team'
+                ? 'groupCat.team'
+                : `groupCat.${tab.id}`;
+            const translated = t(key);
+            return {
+                ...tab,
+                label: translated !== key ? translated : tab.label,
+            };
+        })
+    ), [chatConfig.groupCategories, t]);
 
     const [conversations, setConversations] = useState([]);
     const [activeConversation, setActiveConversation] = useState(null);
@@ -234,9 +255,9 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
         }
         const last = messages[messages.length - 1];
         if (last?.createdAt) {
-            setScrollDateLabel(formatDateSeparator(last.createdAt));
+            setScrollDateLabel(formatDateSeparator(last.createdAt, locale));
         }
-    }, [messages, activeConversation?.id]);
+    }, [messages, activeConversation?.id, locale]);
 
     const scrollToMessage = useCallback((messageId) => {
         if (!messageId) return;
@@ -251,9 +272,9 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
     }, []);
 
     const startReply = useCallback((message) => {
-        setReplyTarget(buildReplyTarget(message));
+        setReplyTarget(buildReplyTarget(message, t));
         window.setTimeout(() => composerInputRef.current?.focus(), 0);
-    }, []);
+    }, [t]);
 
     const clearReply = useCallback(() => setReplyTarget(null), []);
 
@@ -311,9 +332,9 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
         if (!convId || !msg?.id) return;
 
         const preview = msg.type === 'voice'
-            ? '🎤 Voice message'
+            ? t('page.voicePreview')
             : isWalletChatMessage(msg)
-                ? walletMessagePreview(msg)
+                ? walletMessagePreview(msg, t)
                 : msg.content;
         bumpConversationPreview(convId, preview, msg.createdAt);
 
@@ -353,7 +374,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
         });
         setTypingLabel('');
         scrollToBottom();
-    }, [ackConversationReceipts, bumpConversationPreview]);
+    }, [ackConversationReceipts, bumpConversationPreview, t]);
 
     const handleSocketReceiptUpdated = useCallback((payload) => {
         applyReceiptUpdates(payload?.updates);
@@ -423,11 +444,11 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
         if (activeConversation?.id) {
             bumpConversationPreview(
                 activeConversation.id,
-                walletMessagePreview(msg) || msg.content,
+                walletMessagePreview(msg, t) || msg.content,
                 msg.createdAt || new Date().toISOString(),
             );
         }
-    }, [activeConversation?.id, bumpConversationPreview]);
+    }, [activeConversation?.id, bumpConversationPreview, t]);
 
     const handleSocketTyping = useCallback((payload) => {
         if (String(payload?.conversationId) !== String(activeConversationRef.current?.id)) return;
@@ -436,10 +457,10 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             setTypingLabel('');
             return;
         }
-        setTypingLabel(`${payload?.userName || 'Someone'} is typing…`);
+        setTypingLabel(t('page.typing', { name: payload?.userName || t('page.someone') }));
         if (typingClearRef.current) clearTimeout(typingClearRef.current);
         typingClearRef.current = setTimeout(() => setTypingLabel(''), 3000);
-    }, [currentUserId]);
+    }, [currentUserId, t]);
 
     const { emitTyping } = usePlatformChatSocket({
         token,
@@ -462,11 +483,11 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             setConversations(Array.isArray(list) ? list : []);
             setError('');
         } catch (e) {
-            setError(e?.message || 'Could not load conversations.');
+            setError(e?.message || t('err.loadConversations'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [api, t]);
 
     const handleWalletActionComplete = useCallback((res) => {
         const updated = res?.cardMessage;
@@ -513,7 +534,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             }
             if (!silent) setError('');
         } catch (e) {
-            if (!silent) setError(e?.message || 'Could not load messages.');
+            if (!silent) setError(e?.message || t('err.loadMessages'));
         }
     }, [ackConversationReceipts]);
 
@@ -643,7 +664,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                     });
                     selectConversation(conv);
                 })
-                .catch((e) => setError(e?.message || 'Could not open chat'))
+                .catch((e) => setError(e?.message || t('err.openChat')))
                 .finally(finish);
         }
     }, [loading, conversations, location.state, location.pathname, chatConfig.id, api, navigate]);
@@ -674,7 +695,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             emitTyping(activeConversation.id, false);
             setError('');
         } catch (e) {
-            setError(e?.message || 'Could not send message.');
+            setError(e?.message || t('err.sendMessage'));
         } finally {
             setSending(false);
         }
@@ -698,12 +719,12 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                     : 'webm';
             const uploadRes = await api.uploadVoice(blob, `voice.${ext}`);
             const fileUrl = uploadRes?.fileUrl ?? uploadRes?.data?.fileUrl;
-            if (!fileUrl) throw new Error('Voice upload failed');
+            if (!fileUrl) throw new Error(t('err.voiceUpload'));
 
             const res = await api.sendMessage(activeConversation.id, {
                 type: 'voice',
                 fileUrl,
-                content: 'Voice message',
+                content: t('page.voiceContent'),
                 ...(replyTarget?.id ? { replyToMessageId: replyTarget.id } : {}),
             });
             const msg = res?.message ?? res?.data?.message;
@@ -714,13 +735,13 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                 });
                 bumpConversationPreview(
                     activeConversation.id,
-                    '🎤 Voice message',
+                    t('page.voicePreview'),
                     msg.createdAt || new Date().toISOString(),
                 );
             }
             setReplyTarget(null);
         } catch (e) {
-            setError(e?.message || 'Could not send voice message.');
+            setError(e?.message || t('err.sendVoice'));
         } finally {
             setSending(false);
         }
@@ -766,7 +787,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                 closeNewChat();
             }
         } catch (e) {
-            setError(e?.message || 'Could not start chat.');
+            setError(e?.message || t('err.startChat'));
         } finally {
             setCreating(false);
         }
@@ -775,11 +796,11 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
     const createGroup = async () => {
         const name = groupName.trim();
         if (!name) {
-            setError('Group name is required.');
+            setError(t('err.groupNameRequired'));
             return;
         }
         if (groupMembers.length === 0) {
-            setError('Select at least one member.');
+            setError(t('err.selectMember'));
             return;
         }
         setCreating(true);
@@ -797,7 +818,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                 closeNewChat();
             }
         } catch (e) {
-            setError(e?.message || 'Could not create group.');
+            setError(e?.message || t('err.createGroup'));
         } finally {
             setCreating(false);
         }
@@ -811,7 +832,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                 : await api.listContacts(q ? { category: 'admin', q } : { category: 'admin' });
             setContacts(res?.contacts ?? res?.data?.contacts ?? []);
         } catch (e) {
-            setError(e?.message || 'Could not load admins.');
+            setError(e?.message || t('err.loadAdmins'));
             setContacts([]);
         } finally {
             setContactsLoading(false);
@@ -826,7 +847,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                 : await api.listContacts(q ? { category: 'supplier', q } : { category: 'supplier' });
             setContacts(res?.contacts ?? res?.data?.contacts ?? []);
         } catch (e) {
-            setError(e?.message || 'Could not load suppliers.');
+            setError(e?.message || t('err.loadSuppliers'));
             setContacts([]);
         } finally {
             setContactsLoading(false);
@@ -841,7 +862,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                 : await api.listContacts(q ? { category: 'corporate', q } : { category: 'corporate' });
             setContacts(res?.contacts ?? res?.data?.contacts ?? []);
         } catch (e) {
-            setError(e?.message || 'Could not load corporate users.');
+            setError(e?.message || t('err.loadCorporate'));
             setContacts([]);
         } finally {
             setContactsLoading(false);
@@ -857,7 +878,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             const res = await api.listContacts(params);
             setContacts(res?.contacts ?? res?.data?.contacts ?? []);
         } catch (e) {
-            setError(e?.message || 'Could not load team members.');
+            setError(e?.message || t('err.loadTeam'));
             setContacts([]);
         } finally {
             setContactsLoading(false);
@@ -870,7 +891,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             const res = await api.listContacts(q ? { category: 'workshop', q } : { category: 'workshop' });
             setContacts(res?.contacts ?? res?.data?.contacts ?? []);
         } catch (e) {
-            setError(e?.message || 'Could not load contacts.');
+            setError(e?.message || t('err.loadContacts'));
             setContacts([]);
         } finally {
             setContactsLoading(false);
@@ -883,7 +904,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             const res = await api.listWorkshops(q ? { q } : {});
             setWorkshops(res?.workshops ?? res?.data?.workshops ?? []);
         } catch (e) {
-            setError(e?.message || 'Could not load workshops.');
+            setError(e?.message || t('err.loadWorkshops'));
             setWorkshops([]);
         } finally {
             setContactsLoading(false);
@@ -897,7 +918,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             const res = await api.listWorkshopUsers(workshopId, params);
             setContacts(res?.contacts ?? res?.data?.contacts ?? []);
         } catch (e) {
-            setError(e?.message || 'Could not load workshop users.');
+            setError(e?.message || t('err.loadWorkshopUsers'));
             setContacts([]);
         } finally {
             setContactsLoading(false);
@@ -936,7 +957,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             setContacts(Array.isArray(list) ? list : []);
             setWorkshops([]);
         } catch (e) {
-            setError(e?.message || 'Could not search contacts.');
+            setError(e?.message || t('err.searchContacts'));
             setContacts([]);
             setWorkshops([]);
         } finally {
@@ -1045,6 +1066,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                     actionBusy={Boolean(walletApproveTarget || walletRejectTarget)}
                     onApprove={(message, payload) => setWalletApproveTarget({ message, payload })}
                     onReject={(message, payload) => setWalletRejectTarget({ message, payload })}
+                    locale={locale}
+                    t={t}
                 />
             );
         }
@@ -1054,6 +1077,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                     fileUrl={m.fileUrl}
                     isSelf={m.isSelf}
                     onPlayed={!m.isSelf ? () => handleVoicePlayed(m.id) : undefined}
+                    locale={locale}
+                    t={t}
                 />
             );
         }
@@ -1067,6 +1092,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                     reply={m.replyTo}
                     isSelf={m.isSelf}
                     onJump={scrollToMessage}
+                    locale={locale}
+                    t={t}
                 />
             )}
             {renderMessageBody(m)}
@@ -1137,18 +1164,18 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                 <div className="platform-chat-modal" onClick={(e) => e.stopPropagation()} role="dialog">
                     <div className="platform-chat-modal-header">
                         <h3>
-                            {newChatMode === NEW_CHAT_MODES.MENU && 'New chat'}
-                            {newChatMode === NEW_CHAT_MODES.ADMIN && (chatConfig.adminContactLabel || 'Filter Admin')}
-                            {newChatMode === NEW_CHAT_MODES.SUPPLIER && 'Supplier chat'}
-                            {newChatMode === NEW_CHAT_MODES.WORKSHOP && 'Workshop chat'}
+                            {newChatMode === NEW_CHAT_MODES.MENU && t('modal.newChat')}
+                            {newChatMode === NEW_CHAT_MODES.ADMIN && (chatConfig.adminContactLabel === 'Super Admin' ? t('modal.superAdmin') : (chatConfig.adminContactLabel || t('modal.filterAdmin')))}
+                            {newChatMode === NEW_CHAT_MODES.SUPPLIER && t('modal.supplierChat')}
+                            {newChatMode === NEW_CHAT_MODES.WORKSHOP && t('modal.workshopChat')}
                             {newChatMode === NEW_CHAT_MODES.WORKSHOP_USERS && selectedWorkshop?.name}
-                            {newChatMode === NEW_CHAT_MODES.WORKSHOP_TEAM && 'Workshop team'}
-                            {newChatMode === NEW_CHAT_MODES.CORPORATE && 'Corporate chat'}
-                            {newChatMode === NEW_CHAT_MODES.STAFF && 'Team chat'}
-                            {newChatMode === NEW_CHAT_MODES.GROUP && 'Create group'}
+                            {newChatMode === NEW_CHAT_MODES.WORKSHOP_TEAM && t('modal.workshopTeam')}
+                            {newChatMode === NEW_CHAT_MODES.CORPORATE && t('modal.corporateChat')}
+                            {newChatMode === NEW_CHAT_MODES.STAFF && t('modal.teamChat')}
+                            {newChatMode === NEW_CHAT_MODES.GROUP && t('modal.createGroup')}
                             {newChatMode === NEW_CHAT_MODES.GROUP_WORKSHOP_USERS && selectedWorkshop?.name}
                         </h3>
-                        <button type="button" className="platform-chat-modal-close" onClick={closeNewChat} aria-label="Close">
+                        <button type="button" className="platform-chat-modal-close" onClick={closeNewChat} aria-label={t('modal.close')}>
                             <X size={20} />
                         </button>
                     </div>
@@ -1160,43 +1187,43 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 {chatConfig.menuItems.includes('admin') && (
                                     <button type="button" className="platform-chat-option-btn" onClick={() => enterMode(NEW_CHAT_MODES.ADMIN)}>
                                         <Shield size={22} />
-                                        {chatConfig.adminContactLabel || 'Filter Admin'}
+                                        {chatConfig.adminContactLabel === 'Super Admin' ? t('modal.superAdmin') : (chatConfig.adminContactLabel || t('modal.filterAdmin'))}
                                     </button>
                                 )}
                                 {chatConfig.menuItems.includes('supplier') && (
                                     <button type="button" className="platform-chat-option-btn" onClick={() => enterMode(NEW_CHAT_MODES.SUPPLIER)}>
                                         <Truck size={22} />
-                                        Supplier
+                                        {t('modal.supplier')}
                                     </button>
                                 )}
                                 {chatConfig.menuItems.includes('workshop') && (
                                     <button type="button" className="platform-chat-option-btn" onClick={() => enterMode(NEW_CHAT_MODES.WORKSHOP)}>
                                         <Building2 size={22} />
-                                        Workshop
+                                        {t('modal.workshop')}
                                     </button>
                                 )}
                                 {chatConfig.menuItems.includes('workshop_team') && (
                                     <button type="button" className="platform-chat-option-btn" onClick={() => enterMode(NEW_CHAT_MODES.WORKSHOP_TEAM)}>
                                         <Users size={22} />
-                                        Team
+                                        {t('modal.team')}
                                     </button>
                                 )}
                                 {chatConfig.menuItems.includes('corporate') && (
                                     <button type="button" className="platform-chat-option-btn" onClick={() => enterMode(NEW_CHAT_MODES.CORPORATE)}>
                                         <Users size={22} />
-                                        Corporate
+                                        {t('modal.corporate')}
                                     </button>
                                 )}
                                 {chatConfig.menuItems.includes('staff') && (
                                     <button type="button" className="platform-chat-option-btn" onClick={() => enterMode(NEW_CHAT_MODES.STAFF)}>
                                         <Users size={22} />
-                                        Team
+                                        {t('modal.team')}
                                     </button>
                                 )}
                                 {chatConfig.allowGroups && chatConfig.menuItems.includes('group') && (
                                     <button type="button" className="platform-chat-option-btn" onClick={() => enterMode(NEW_CHAT_MODES.GROUP)}>
                                         <UserPlus size={22} />
-                                        Create Group
+                                        {t('modal.createGroupBtn')}
                                     </button>
                                 )}
                             </div>
@@ -1206,12 +1233,12 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                             <>
                                 <input
                                     className="platform-chat-group-name"
-                                    placeholder="Group name"
+                                    placeholder={t('modal.groupName')}
                                     value={groupName}
                                     onChange={(e) => setGroupName(e.target.value)}
                                 />
                                 <div className="platform-chat-role-tabs">
-                                    {chatConfig.groupCategories.map((tab) => (
+                                    {groupCategories.map((tab) => (
                                         <button
                                             key={tab.id}
                                             type="button"
@@ -1225,7 +1252,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 {groupCategory !== 'workshop' && (
                                     <input
                                         className="platform-chat-search"
-                                        placeholder="Search members…"
+                                        placeholder={t('modal.searchMembers')}
                                         value={contactSearch}
                                         onChange={(e) => setContactSearch(e.target.value)}
                                         onKeyDown={(e) =>
@@ -1236,7 +1263,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 {groupCategory === 'workshop' && (chatConfig.useLegacyContacts || chatConfig.id === 'supplier') && (
                                     <input
                                         className="platform-chat-search"
-                                        placeholder="Search workshops…"
+                                        placeholder={t('modal.searchWorkshops')}
                                         value={contactSearch}
                                         onChange={(e) => setContactSearch(e.target.value)}
                                         onKeyDown={(e) =>
@@ -1252,7 +1279,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                 <button
                                                     type="button"
                                                     onClick={() => removeGroupMemberChip(m.userId)}
-                                                    aria-label={`Remove ${m.name}`}
+                                                    aria-label={t('modal.removeMember', { name: m.name })}
                                                 >
                                                     <X size={12} />
                                                 </button>
@@ -1262,10 +1289,10 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 )}
                                 <div className="platform-chat-contact-list">
                                     {contactsLoading ? (
-                                        <p className="platform-chat-contact-meta">Loading…</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.loading')}</p>
                                     ) : groupCategory === 'workshop' && (chatConfig.useLegacyContacts || chatConfig.id === 'supplier') ? (
                                         workshops.length === 0 ? (
-                                            <p className="platform-chat-contact-meta">No workshops found.</p>
+                                            <p className="platform-chat-contact-meta">{t('modal.noWorkshops')}</p>
                                         ) : (
                                             workshops.map((w) => (
                                                 <button
@@ -1279,12 +1306,12 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                     }}
                                                 >
                                                     <span className="platform-chat-contact-name">{w.name}</span>
-                                                    <span className="platform-chat-contact-meta">Pick users or add all</span>
+                                                    <span className="platform-chat-contact-meta">{t('modal.pickUsersOrAll')}</span>
                                                 </button>
                                             ))
                                         )
                                     ) : contacts.length === 0 ? (
-                                        <p className="platform-chat-contact-meta">No contacts found.</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.noContacts')}</p>
                                     ) : (
                                         contacts.map((c) => {
                                             const selected = groupMembers.some(
@@ -1320,7 +1347,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                             loadGroupSearch(contactSearch, 'workshop');
                                         }}
                                     >
-                                        <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> Workshops
+                                        <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> {t('modal.workshops')}
                                     </button>
                                 </div>
                                 <div className="platform-chat-role-tabs">
@@ -1345,13 +1372,13 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                     onClick={addEntireWorkshopToGroup}
                                     disabled={contacts.length === 0}
                                 >
-                                    Add entire workshop ({contacts.length} users)
+                                    {t('modal.addEntireWorkshop', { count: contacts.length })}
                                 </button>
                                 <div className="platform-chat-contact-list">
                                     {contactsLoading ? (
-                                        <p className="platform-chat-contact-meta">Loading…</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.loading')}</p>
                                     ) : contacts.length === 0 ? (
-                                        <p className="platform-chat-contact-meta">No users in this workshop.</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.noWorkshopUsers')}</p>
                                     ) : (
                                         contacts.map((c) => {
                                             const selected = groupMembers.some(
@@ -1378,20 +1405,20 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                             <>
                                 <div className="platform-chat-breadcrumb">
                                     <button type="button" onClick={() => enterMode(NEW_CHAT_MODES.MENU)}>
-                                        <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> Back
+                                        <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> {t('modal.back')}
                                     </button>
                                 </div>
                                 <input
                                     className="platform-chat-search"
-                                    placeholder="Type to search…"
+                                    placeholder={t('modal.typeToSearch')}
                                     value={contactSearch}
                                     onChange={(e) => setContactSearch(e.target.value)}
                                 />
                                 <div className="platform-chat-contact-list">
                                     {contactsLoading ? (
-                                        <p className="platform-chat-contact-meta">Loading…</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.loading')}</p>
                                     ) : contacts.length === 0 ? (
-                                        <p className="platform-chat-contact-meta">No users found.</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.noUsers')}</p>
                                     ) : (
                                         contacts.map((c) => (
                                             <button
@@ -1416,7 +1443,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                             <>
                                 <div className="platform-chat-breadcrumb">
                                     <button type="button" onClick={() => enterMode(NEW_CHAT_MODES.MENU)}>
-                                        <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> Back
+                                        <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> {t('modal.back')}
                                     </button>
                                 </div>
                                 {chatConfig.showWorkshopRoleTabs && (
@@ -1438,7 +1465,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 )}
                                 <input
                                     className="platform-chat-search"
-                                    placeholder="Search team…"
+                                    placeholder={t('modal.searchTeam')}
                                     value={contactSearch}
                                     onChange={(e) => setContactSearch(e.target.value)}
                                     onKeyDown={(e) =>
@@ -1447,9 +1474,9 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 />
                                 <div className="platform-chat-contact-list">
                                     {contactsLoading ? (
-                                        <p className="platform-chat-contact-meta">Loading…</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.loading')}</p>
                                     ) : contacts.length === 0 ? (
-                                        <p className="platform-chat-contact-meta">No team members found.</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.noTeamMembers')}</p>
                                     ) : (
                                         contacts.map((c) => (
                                             <button
@@ -1474,21 +1501,21 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                             <>
                                 <div className="platform-chat-breadcrumb">
                                     <button type="button" onClick={() => enterMode(NEW_CHAT_MODES.MENU)}>
-                                        <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> Back
+                                        <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> {t('modal.back')}
                                     </button>
                                 </div>
                                 <input
                                     className="platform-chat-search"
-                                    placeholder="Search workshops…"
+                                    placeholder={t('modal.searchWorkshops')}
                                     value={contactSearch}
                                     onChange={(e) => setContactSearch(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && loadWorkshopList(contactSearch)}
                                 />
                                 <div className="platform-chat-contact-list">
                                     {contactsLoading ? (
-                                        <p className="platform-chat-contact-meta">Loading…</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.loading')}</p>
                                     ) : workshops.length === 0 ? (
-                                        <p className="platform-chat-contact-meta">No workshops found.</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.noWorkshops')}</p>
                                     ) : (
                                         workshops.map((w) => (
                                             <button
@@ -1521,7 +1548,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                             loadWorkshopList(contactSearch);
                                         }}
                                     >
-                                        <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> Workshops
+                                        <ArrowLeft size={14} style={{ verticalAlign: 'middle' }} /> {t('modal.workshops')}
                                     </button>
                                 </div>
                                 <div className="platform-chat-role-tabs">
@@ -1541,9 +1568,9 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 </div>
                                 <div className="platform-chat-contact-list">
                                     {contactsLoading ? (
-                                        <p className="platform-chat-contact-meta">Loading…</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.loading')}</p>
                                     ) : contacts.length === 0 ? (
-                                        <p className="platform-chat-contact-meta">No users in this workshop.</p>
+                                        <p className="platform-chat-contact-meta">{t('modal.noWorkshopUsers')}</p>
                                     ) : (
                                         contacts.map((c) => (
                                             <button
@@ -1578,7 +1605,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                     }
                                 }}
                             >
-                                Back
+                                {t('modal.back')}
                             </button>
                             <button
                                 type="button"
@@ -1586,7 +1613,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 onClick={createGroup}
                                 disabled={creating}
                             >
-                                Create group
+                                {t('modal.createGroupAction')}
                             </button>
                         </div>
                     )}
@@ -1597,7 +1624,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
 
     const activeSubtitle =
         activeConversation?.type === 'group'
-            ? `${activeConversation.participants?.length ?? 0} members`
+            ? t('page.membersCount', { count: activeConversation.participants?.length ?? 0 })
             : activeConversation?.otherParticipants?.[0]?.entityName ||
               activeConversation?.participants?.find((p) => !p.isSelf)?.entityName ||
               activeConversation?.otherParticipants?.[0]?.role ||
@@ -1635,6 +1662,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                 <PlatformChatContactProfile
                     conversation={activeConversation}
                     onClose={() => setProfileOpen(false)}
+                    locale={locale}
+                    t={t}
                 />
             )}
 
@@ -1645,18 +1674,18 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                             type="button"
                             className="platform-chat-back-btn"
                             onClick={exitChat}
-                            title="Back to admin"
-                            aria-label="Back to admin"
+                            title={t('page.backAdmin')}
+                            aria-label={t('page.backAdmin')}
                         >
                             <ChevronLeft size={22} />
                         </button>
-                        <h2 className="platform-chat-sidebar-title">Chats</h2>
+                        <h2 className="platform-chat-sidebar-title">{t('page.title')}</h2>
                         <div className="platform-chat-sidebar-tools">
                             <button
                                 type="button"
                                 className="platform-chat-tool-btn"
                                 onClick={loadConversations}
-                                title="Refresh"
+                                title={t('page.refresh')}
                             >
                                 <RefreshCw size={18} />
                             </button>
@@ -1667,7 +1696,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                             <Search size={16} className="platform-chat-search-icon" />
                             <input
                                 className="platform-chat-search"
-                                placeholder="Search or start new chat"
+                                placeholder={t('page.searchPlaceholder')}
                                 value={listSearch}
                                 onChange={(e) => setListSearch(e.target.value)}
                             />
@@ -1675,15 +1704,15 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                     </div>
                     <div className="platform-chat-list">
                         {loading ? (
-                            <p className="platform-chat-list-empty">Loading conversations…</p>
+                            <p className="platform-chat-list-empty">{t('page.loadingConversations')}</p>
                         ) : conversations.length === 0 ? (
                             <p className="platform-chat-list-empty">
-                                No chats yet.
+                                {t('page.emptyChats')}
                                 <br />
-                                Tap <strong>+</strong> to start messaging.
+                                {t('page.emptyChatsHint')}
                             </p>
                         ) : filteredConversations.length === 0 ? (
-                            <p className="platform-chat-list-empty">No chats match your search.</p>
+                            <p className="platform-chat-list-empty">{t('page.noMatch')}</p>
                         ) : (
                             filteredConversations.map((c) => {
                                 const convId = String(c.id);
@@ -1709,7 +1738,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                     && !isActiveConv && (
                                                     <span
                                                         className="platform-chat-wallet-pending-badge"
-                                                        title="Pending wallet fund requests"
+                                                        title={t('page.pendingWallet')}
                                                     >
                                                         {c.walletPendingCount}
                                                     </span>
@@ -1718,7 +1747,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                             <div className="platform-chat-list-meta-col">
                                                 {c.lastMessageAt && (
                                                     <div className="platform-chat-list-time">
-                                                        {formatListDateTime(c.lastMessageAt)}
+                                                        {formatListDateTime(c.lastMessageAt, locale)}
                                                     </div>
                                                 )}
                                                 {unread > 0 && !isActiveConv && (
@@ -1733,7 +1762,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                 unread > 0 && !isActiveConv ? ' is-unread' : ''
                                             }`}
                                         >
-                                            {c.lastMessage || 'No messages yet'}
+                                            {c.lastMessage || t('page.noMessagesYet')}
                                         </div>
                                     </div>
                                 </button>
@@ -1745,8 +1774,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                         type="button"
                         className="platform-chat-sidebar-fab"
                         onClick={openNewChat}
-                        title="New chat"
-                        aria-label="New chat"
+                        title={t('page.newChat')}
+                        aria-label={t('page.newChat')}
                         disabled={!canCreateChat}
                         style={!canCreateChat ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
                     >
@@ -1765,13 +1794,13 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 <div className="platform-chat-empty-icon">
                                     <MessageCircle size={40} strokeWidth={1.5} />
                                 </div>
-                                <h3>Filter Platform Chat</h3>
+                                <h3>{t('page.emptyHeroTitle')}</h3>
                                 <p>
-                                    Send and receive messages with suppliers, workshops, and corporate accounts.
+                                    {t('page.emptyHeroBody')}
                                 </p>
                                 <button type="button" className="platform-chat-empty-cta" onClick={openNewChat}>
                                     <Plus size={18} />
-                                    Start a conversation
+                                    {t('page.startConversation')}
                                 </button>
                             </div>
                         </div>
@@ -1786,8 +1815,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                         setSettingsOpen(false);
                                         setProfileOpen(false);
                                     }}
-                                    title="Back to chats"
-                                    aria-label="Back to chats"
+                                    title={t('page.backToChats')}
+                                    aria-label={t('page.backToChats')}
                                 >
                                     <ChevronLeft size={20} />
                                 </button>
@@ -1814,8 +1843,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                             setSettingsOpen(false);
                                             setProfileOpen(true);
                                         }}
-                                        title="Contact info"
-                                        aria-label="Contact info"
+                                        title={t('page.contactInfo')}
+                                        aria-label={t('page.contactInfo')}
                                     >
                                         <Info size={20} />
                                     </button>
@@ -1827,7 +1856,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                 setProfileOpen(false);
                                                 setSettingsOpen((v) => !v);
                                             }}
-                                            title="Group settings"
+                                            title={t('page.groupSettings')}
                                         >
                                             <Settings size={18} />
                                         </button>
@@ -1842,6 +1871,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                     currentUserId={currentUserId}
                                     onUpdated={handleGroupSettingsUpdated}
                                     onClose={() => setSettingsOpen(false)}
+                                    locale={locale}
+                                    t={t}
                                 />
                             )}
 
@@ -1865,7 +1896,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 >
                                 {messages.length === 0 ? (
                                     <p className="platform-chat-messages-empty">
-                                        No messages yet. Say hello!
+                                        {t('page.noMessagesHello')}
                                     </p>
                                 ) : (
                                     messages.map((m, idx) => {
@@ -1911,9 +1942,9 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                     <div
                                                         className="platform-chat-date-sep"
                                                         data-date-sep
-                                                        data-date-label={formatDateSeparator(m.createdAt)}
+                                                        data-date-label={formatDateSeparator(m.createdAt, locale)}
                                                     >
-                                                        <span>{formatDateSeparator(m.createdAt)}</span>
+                                                        <span>{formatDateSeparator(m.createdAt, locale)}</span>
                                                     </div>
                                                 )}
                                                 <div
@@ -1930,8 +1961,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                                 type="button"
                                                                 className="platform-chat-reply-btn"
                                                                 onClick={() => startReply(m)}
-                                                                aria-label="Reply to message"
-                                                                title="Reply"
+                                                                aria-label={t('page.replyAria')}
+                                                                title={t('page.reply')}
                                                             >
                                                                 <Reply size={18} />
                                                             </button>
@@ -1949,11 +1980,12 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                                     <>
                                                                         {renderMessageContent(m)}
                                                                         <span className="platform-chat-bubble-time platform-chat-bubble-time--voice">
-                                                                            {formatMessageDateTime(m.createdAt)}
+                                                                            {formatMessageDateTime(m.createdAt, locale)}
                                                                             {m.isSelf && (
                                                                                 <PlatformChatMessageStatus
                                                                                     status={m.receiptStatus || 'sent'}
                                                                                     isVoice
+                                                                                    locale={locale}
                                                                                 />
                                                                             )}
                                                                         </span>
@@ -1966,10 +1998,11 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                                             {renderMessageContent(m)}
                                                                         </span>
                                                                         <span className="platform-chat-bubble-time">
-                                                                            {formatMessageDateTime(m.createdAt)}
+                                                                            {formatMessageDateTime(m.createdAt, locale)}
                                                                             {m.isSelf && (
                                                                                 <PlatformChatMessageStatus
                                                                                     status={m.receiptStatus || 'sent'}
+                                                                                    locale={locale}
                                                                                 />
                                                                             )}
                                                                         </span>
@@ -1982,8 +2015,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                                 type="button"
                                                                 className="platform-chat-reply-btn"
                                                                 onClick={() => startReply(m)}
-                                                                aria-label="Reply to message"
-                                                                title="Reply"
+                                                                aria-label={t('page.replyAria')}
+                                                                title={t('page.reply')}
                                                             >
                                                                 <Reply size={18} />
                                                             </button>
@@ -2002,6 +2035,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 <PlatformChatReplyComposerBar
                                     replyTarget={replyTarget}
                                     onClear={clearReply}
+                                    locale={locale}
+                                    t={t}
                                 />
                                 <div className="platform-chat-composer-row">
                                     {!voiceRecording && walletChatContext && typeof api.sendWalletFundRequest === 'function' && (
@@ -2017,6 +2052,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                             skipWorkshopFields={walletPlusMenuProps.skipWorkshopFields}
                                             walletApi={walletPlusMenuProps.walletApi}
                                             expenseCategoryOptions={walletPlusMenuProps.expenseCategoryOptions}
+                                            locale={locale}
+                                            t={t}
                                         />
                                     )}
                                     <div
@@ -2028,7 +2065,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                     ref={composerInputRef}
                                                     className="platform-chat-input"
                                                     rows={1}
-                                                    placeholder={replyTarget ? 'Type your reply…' : (canCreateChat ? 'Type a message' : 'You cannot send messages')}
+                                                    placeholder={replyTarget ? t('page.typeReply') : (canCreateChat ? t('page.typeMessage') : t('page.cannotSend'))}
                                                     value={text}
                                                     onChange={handleTextChange}
                                                     disabled={!canCreateChat}
@@ -2050,7 +2087,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                         className="pc-composer-action pc-composer-action--send"
                                                         onClick={handleSend}
                                                         disabled={sending || !canCreateChat}
-                                                        title="Send"
+                                                        title={t('page.send')}
                                                     >
                                                         <Send size={20} />
                                                     </button>
@@ -2064,6 +2101,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                                 onActiveChange={setVoiceRecording}
                                                 onRecordedBlob={handleVoiceBlob}
                                                 disabled={sending || !canCreateChat}
+                                                locale={locale}
+                                                t={t}
                                             />
                                         ) : null}
                                     </div>
@@ -2081,6 +2120,8 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                     onApproveDone={handleWalletActionComplete}
                                     onRejectDone={handleWalletActionComplete}
                                     onError={(msg) => setError(msg)}
+                                    locale={locale}
+                                    t={t}
                                 />
                             )}
                         </>

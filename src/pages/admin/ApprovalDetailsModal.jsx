@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
     Loader, AlertCircle, Check, X, FileText, Download, ExternalLink, MapPin,
 } from 'lucide-react';
 import ApprovalShell from '../../components/admin/ApprovalShell';
 import { details } from '../../services/approvalsApi';
+import { apT } from '../../utils/approvalsI18n';
 
 /* ---------------------------------------------------------------- */
 /*  Formatters                                                       */
@@ -51,6 +53,12 @@ function isImageUrl(url) {
     return /\.(png|jpe?g|gif|webp|svg)(\?|#|$)/i.test(url);
 }
 
+/** Module-level helpers (Field/DocumentCard/GpsField) aren't connected to router
+ *  outlet context, so they read the persisted portal locale directly. */
+function currentLocale() {
+    return (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+}
+
 /* ---------------------------------------------------------------- */
 /*  Generic UI primitives                                            */
 /* ---------------------------------------------------------------- */
@@ -68,7 +76,7 @@ function Field({ label, value, kind, span2 = false }) {
         display = text;
         title = iso || undefined;
     } else if (kind === 'bool') {
-        display = value ? 'Yes' : 'No';
+        display = value ? apT(currentLocale(), 'detail.yes') : apT(currentLocale(), 'detail.no');
     } else if (kind === 'money') {
         display = fmtMoney(value);
     } else if (kind === 'pct') {
@@ -151,7 +159,7 @@ function GpsField({ lat, lng }) {
                         rel="noopener noreferrer"
                         className="approval-doc-link approval-gps-link"
                     >
-                        <MapPin size={12} /> Open in Maps
+                        <MapPin size={12} /> {apT(currentLocale(), 'detail.openMaps')}
                     </a>
                 )}
             </span>
@@ -198,14 +206,14 @@ function DocumentCard({ label, url }) {
                             rel="noopener noreferrer"
                             className="approval-doc-link"
                         >
-                            <ExternalLink size={12} /> Open
+                            <ExternalLink size={12} /> {apT(currentLocale(), 'detail.open')}
                         </a>
                         <a href={url} download className="approval-doc-link subtle">
-                            <Download size={12} /> Download
+                            <Download size={12} /> {apT(currentLocale(), 'detail.download')}
                         </a>
                     </div>
                 ) : (
-                    <span className="approval-doc-empty">Not provided</span>
+                    <span className="approval-doc-empty">{apT(currentLocale(), 'detail.notProvided')}</span>
                 )}
             </div>
         </div>
@@ -1613,6 +1621,12 @@ export default function ApprovalDetailsModal({
     entityType, id, onClose, onApprove, onReject, actionDisabled = false,
     canApprove = true, canReject = true, asPage = false,
 }) {
+    const outletCtx = useOutletContext() || {};
+    const locale = outletCtx.locale
+        || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null)
+        || 'en';
+    const t = useCallback((key, vars) => apT(locale, key, vars), [locale]);
+
     // Modal is mounted fresh per (entityType, id) — start in the loading
     // state and let the effect's promise callbacks transition out. This
     // avoids any synchronous setState inside the effect body.
@@ -1632,11 +1646,11 @@ export default function ApprovalDetailsModal({
             })
             .catch((e) => {
                 if (cancelled) return;
-                setError(e.message || 'Failed to load');
+                setError(e.message || t('failed'));
                 setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [entityType, id]);
+    }, [entityType, id, t]);
 
     const rawStatus = data?.status ?? data?.approvalStatus ?? 'pending';
     const statusClass = String(rawStatus).toLowerCase().replace(/\s+/g, '_');
@@ -1666,10 +1680,11 @@ export default function ApprovalDetailsModal({
     return (
         <ApprovalShell
             asPage={asPage}
-            title={titleSuffix ? `Approval Details — ${titleSuffix}` : 'Approval Details'}
+            title={titleSuffix ? t('detail.titleSuffix', { suffix: titleSuffix }) : t('detail.title')}
             onClose={onClose}
             width={920}
             backDisabled={actionDisabled}
+            backLabel={t('btn.back')}
             footer={showApproveReject && (canApprove || canReject) ? (
                 <div className="approval-details-actions">
                     {canReject && (
@@ -1679,7 +1694,7 @@ export default function ApprovalDetailsModal({
                             disabled={actionDisabled}
                             onClick={() => onReject?.(data)}
                         >
-                            <X size={16} /> Reject
+                            <X size={16} /> {t('btn.reject')}
                         </button>
                     )}
                     {canApprove && (
@@ -1689,7 +1704,7 @@ export default function ApprovalDetailsModal({
                             disabled={actionDisabled}
                             onClick={() => onApprove?.(data)}
                         >
-                            <Check size={16} /> Approve
+                            <Check size={16} /> {t('btn.approve')}
                         </button>
                     )}
                 </div>
@@ -1698,14 +1713,14 @@ export default function ApprovalDetailsModal({
             {loading && (
                 <div className="empty-state-card approval-details-state">
                     <Loader size={20} className="spin" />
-                    <p className="empty-desc">Loading details…</p>
+                    <p className="empty-desc">{t('loading.details')}</p>
                 </div>
             )}
 
             {!loading && error && (
                 <div className="empty-state-card approval-details-state">
                     <AlertCircle size={20} />
-                    <p className="empty-status">Failed to load</p>
+                    <p className="empty-status">{t('failed')}</p>
                     <p className="empty-desc">{error}</p>
                 </div>
             )}

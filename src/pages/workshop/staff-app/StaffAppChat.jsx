@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Plus, Users, MessageCircle, Settings, Paperclip } from 'lucide-react';
+import { RefreshCw, Plus, Users, Settings, Paperclip } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import {
     listStaffChatChannels,
@@ -14,7 +14,8 @@ import { useStaffAppScope, staffAppQueryParams } from '../../../context/StaffApp
 import StaffChatMemberPicker from './StaffChatMemberPicker';
 import StaffChatMentionInput from './StaffChatMentionInput';
 import StaffAppVoiceRecorder from './StaffAppVoiceRecorder';
-import StaffAppGroupSettings, { CHAT_PURPOSE_OPTIONS } from './StaffAppGroupSettings';
+import StaffAppGroupSettings from './StaffAppGroupSettings';
+import { CHAT_PURPOSE_KEYS, staffAppStatusLabel, useStaffAppI18n } from '../../../utils/staffAppI18n';
 
 function asStaffAppList(res, ...keys) {
     if (!res || typeof res !== 'object') return [];
@@ -26,13 +27,10 @@ function asStaffAppList(res, ...keys) {
     return [];
 }
 
-const PURPOSE_LABEL = Object.fromEntries(
-    CHAT_PURPOSE_OPTIONS.map((o) => [o.value, o.label]),
-);
-
 export default function StaffAppChat({ selectedBranchId = 'all' }) {
     const scope = useStaffAppScope();
     const { user } = useAuth();
+    const { locale, t } = useStaffAppI18n();
     const [channels, setChannels] = useState([]);
     const [activeChannel, setActiveChannel] = useState(null);
     const [messages, setMessages] = useState([]);
@@ -53,6 +51,14 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
         members: [],
     });
     const [creating, setCreating] = useState(false);
+
+    const purposeLabel = useCallback(
+        (purpose) => {
+            const found = CHAT_PURPOSE_KEYS.find((o) => o.value === purpose);
+            return found ? t(found.labelKey) : purpose;
+        },
+        [t],
+    );
 
     const isChatAdmin = ['platform_admin', 'admin', 'super_admin', 'admin_user', 'workshop_owner'].includes(
         String(user?.userType || '').toLowerCase(),
@@ -95,11 +101,11 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
             });
             setError('');
         } catch (e) {
-            setError(e?.message || 'Could not load channels.');
+            setError(e?.message || t('chat.errChannels'));
         } finally {
             setLoading(false);
         }
-    }, [scope]);
+    }, [scope, t]);
 
     const loadMessages = useCallback(async (channelId) => {
         if (!channelId) return;
@@ -111,10 +117,10 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
             setMessages(asStaffAppList(res, 'messages', 'items'));
             setError('');
         } catch (e) {
-            setError(e?.message || 'Could not load messages.');
+            setError(e?.message || t('chat.errMessages'));
             setMessages([]);
         }
-    }, [scope]);
+    }, [scope, t]);
 
     const loadChannelMembers = useCallback(async (channelId) => {
         if (!channelId) {
@@ -176,7 +182,7 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
             setText('');
             await refreshActive();
         } catch (e) {
-            setError(e?.message || 'Send failed.');
+            setError(e?.message || t('chat.errSend'));
         }
     };
 
@@ -189,12 +195,12 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
         try {
             await sendStaffChatMessage(
                 activeChannel.id,
-                { content: 'Voice message', type: 'Voice', fileUrl: dataUrl },
+                { content: t('chat.voiceMessage'), type: 'Voice', fileUrl: dataUrl },
                 scope.scopeParams(),
             );
             await refreshActive();
         } catch (e) {
-            setError(e?.message || 'Voice send failed.');
+            setError(e?.message || t('chat.errVoice'));
         }
     };
 
@@ -217,22 +223,22 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
             setRequestPickerOpen(false);
             await refreshActive();
         } catch (e) {
-            setError(e?.message || 'Could not attach request.');
+            setError(e?.message || t('chat.errAttach'));
         }
     };
 
     const handleCreateGroup = async () => {
         const name = createForm.name.trim();
         if (!name) {
-            setError('Group name is required.');
+            setError(t('chat.errName'));
             return;
         }
         if (createForm.type === 'Private' && createForm.members.length === 0) {
-            setError('Add at least one member for a private group.');
+            setError(t('chat.errMembers'));
             return;
         }
         if (createForm.purpose === 'financial' && !createForm.coaAccountId) {
-            setError('Financial groups must be linked to a COA account.');
+            setError(t('chat.errFinancial'));
             return;
         }
         setCreating(true);
@@ -264,7 +270,7 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
             await loadChannels();
             if (created?.id) setActiveChannel(created);
         } catch (e) {
-            setError(e?.message || 'Could not create group.');
+            setError(e?.message || t('chat.errCreate'));
         } finally {
             setCreating(false);
         }
@@ -277,12 +283,15 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
         setActiveChannel(ch);
     };
 
+    const typeLabel = (type) =>
+        type === 'Private' ? t('group.type.private') : type === 'Public' ? t('group.type.public') : staffAppStatusLabel(locale, type);
+
     const renderMessageBody = (m) => {
         if (m.type === 'Voice' && m.fileUrl) {
             return (
                 <audio controls preload="none" className="staff-chat-voice-player">
                     <source src={m.fileUrl} />
-                    Voice message
+                    {t('chat.voiceMessage')}
                 </audio>
             );
         }
@@ -290,10 +299,10 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
             const ref = m.requestRef || {};
             return (
                 <div className="staff-chat-request-card">
-                    <strong>Linked request</strong>
+                    <strong>{t('chat.linkedRequest')}</strong>
                     <div>{m.content || ref.label}</div>
                     {ref.status && (
-                        <span className="staff-app-badge staff-app-badge--pending">{ref.status}</span>
+                        <span className="staff-app-badge staff-app-badge--pending">{staffAppStatusLabel(locale, ref.status)}</span>
                     )}
                 </div>
             );
@@ -304,13 +313,13 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
     return (
         <div>
             <div className="staff-app-toolbar">
-                <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>Chat</h2>
+                <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>{t('chat.title')}</h2>
                 <button
                     type="button"
                     className="staff-app-btn staff-app-btn--primary"
                     onClick={() => setCreateOpen(true)}
                 >
-                    <Plus size={14} /> Create group
+                    <Plus size={14} /> {t('chat.createGroup')}
                 </button>
                 <button type="button" className="staff-app-btn" onClick={loadChannels} disabled={loading}>
                     <RefreshCw size={14} />
@@ -322,12 +331,12 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
             {createOpen && (
                 <div className="staff-app-table-wrap staff-app-table-wrap--dropdown-host staff-chat-panel" style={{ padding: 16, marginBottom: 16 }}>
                     <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Users size={18} /> Create chat group
+                        <Users size={18} /> {t('chat.createGroupTitle')}
                     </h3>
                     <div className="staff-chat-form-grid">
                         <input
                             className="staff-app-btn"
-                            placeholder="Group name (e.g. Branch A — Technicians)"
+                            placeholder={t('chat.ph.groupName')}
                             value={createForm.name}
                             onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
                         />
@@ -342,8 +351,8 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                                 }))
                             }
                         >
-                            {CHAT_PURPOSE_OPTIONS.map((o) => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
+                            {CHAT_PURPOSE_KEYS.map((o) => (
+                                <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
                             ))}
                         </select>
                         {createForm.purpose === 'financial' && (
@@ -354,7 +363,7 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                                     setCreateForm((f) => ({ ...f, coaAccountId: e.target.value }))
                                 }
                             >
-                                <option value="">Link COA account…</option>
+                                <option value="">{t('chat.linkCoa')}</option>
                                 {coaAccounts.map((a) => {
                                     const id = String(a.id ?? a.accountId ?? '');
                                     return (
@@ -376,8 +385,8 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                                 }))
                             }
                         >
-                            <option value="Public">Public — all workshop staff</option>
-                            <option value="Private">Private — selected members only</option>
+                            <option value="Public">{t('chat.typePublic')}</option>
+                            <option value="Private">{t('chat.typePrivate')}</option>
                         </select>
                         {createForm.type === 'Private' && (
                             <StaffChatMemberPicker
@@ -390,9 +399,9 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                         )}
                         <div style={{ display: 'flex', gap: 8 }}>
                             <button type="button" className="staff-app-btn staff-app-btn--primary" onClick={handleCreateGroup} disabled={creating}>
-                                {creating ? 'Creating…' : 'Create group'}
+                                {creating ? t('chat.creating') : t('chat.createGroup')}
                             </button>
-                            <button type="button" className="staff-app-btn" onClick={() => setCreateOpen(false)}>Cancel</button>
+                            <button type="button" className="staff-app-btn" onClick={() => setCreateOpen(false)}>{t('common.cancel')}</button>
                         </div>
                     </div>
                 </div>
@@ -412,24 +421,24 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
 
             <div className="staff-app-chat-layout" style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12, minHeight: 360 }}>
                 <div className="staff-app-table-wrap" style={{ padding: 8 }}>
-                    <p className="staff-chat-groups-label">Groups</p>
+                    <p className="staff-chat-groups-label">{t('chat.groups')}</p>
                     {loading ? (
-                        <p className="staff-app-empty">Loading…</p>
+                        <p className="staff-app-empty">{t('common.loading')}</p>
                     ) : channels.length === 0 ? (
-                        <p className="staff-app-empty">No groups yet.</p>
+                        <p className="staff-app-empty">{t('chat.noGroups')}</p>
                     ) : (
                         channels.map((ch) => (
                             <button
                                 key={ch.id}
                                 type="button"
                                 className={`staff-app-btn ${String(activeChannel?.id) === String(ch.id) ? 'staff-app-btn--primary' : ''}`}
-                                style={{ width: '100%', marginBottom: 4, textAlign: 'left' }}
+                                style={{ width: '100%', marginBottom: 4, textAlign: locale === 'ar' ? 'right' : 'left' }}
                                 onClick={() => selectChannel(ch)}
                             >
                                 <span style={{ display: 'block', fontWeight: 600 }}>{ch.name}</span>
                                 <span style={{ fontSize: '0.7rem', opacity: 0.85 }}>
-                                    {ch.type}
-                                    {ch.purpose ? ` · ${PURPOSE_LABEL[ch.purpose] || ch.purpose}` : ''}
+                                    {typeLabel(ch.type)}
+                                    {ch.purpose ? ` · ${purposeLabel(ch.purpose)}` : ''}
                                 </span>
                             </button>
                         ))
@@ -443,14 +452,14 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                                     <h3 style={{ margin: 0 }}>
                                         {activeChannel.name}
                                         <span className="staff-app-badge staff-app-badge--draft" style={{ marginLeft: 8, fontSize: '0.7rem' }}>
-                                            {activeChannel.type}
+                                            {typeLabel(activeChannel.type)}
                                         </span>
                                     </h3>
                                     {activeChannel.purpose && (
                                         <p className="staff-chat-channel-meta">
-                                            Purpose: {PURPOSE_LABEL[activeChannel.purpose] || activeChannel.purpose}
+                                            {t('chat.purpose', { label: purposeLabel(activeChannel.purpose) })}
                                             {activeChannel.purpose === 'financial' && activeChannel.coaAccountId
-                                                ? ` · COA #${activeChannel.coaAccountId}`
+                                                ? t('chat.coaTag', { id: activeChannel.coaAccountId })
                                                 : ''}
                                         </p>
                                     )}
@@ -460,7 +469,7 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                                         type="button"
                                         className="staff-app-btn"
                                         onClick={() => setSettingsOpen((v) => !v)}
-                                        title="Group settings"
+                                        title={t('chat.groupSettings')}
                                     >
                                         <Settings size={16} />
                                     </button>
@@ -468,7 +477,7 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                             </div>
                             <div className="staff-chat-messages">
                                 {messages.length === 0 ? (
-                                    <p className="staff-app-empty">No messages yet.</p>
+                                    <p className="staff-app-empty">{t('chat.noMessages')}</p>
                                 ) : (
                                     messages.map((m, idx) => (
                                         <div
@@ -482,7 +491,9 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                                             <strong>{m.senderName || m.senderId}</strong>
                                             {(m.type === 'PrivateMention' || m.privateMentionUserId) && (
                                                 <span className="staff-chat-message__private-tag">
-                                                    Private{m.privateMentionUserName ? ` → @${m.privateMentionUserName}` : ''}
+                                                    {m.privateMentionUserName
+                                                        ? t('chat.privateTo', { name: m.privateMentionUserName })
+                                                        : t('chat.private')}
                                                 </span>
                                             )}
                                             <span className="staff-chat-message__time">
@@ -495,9 +506,9 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                             </div>
                             {requestPickerOpen && (
                                 <div className="staff-chat-request-picker">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 600 }}>Attach request for discussion</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 600 }}>{t('chat.attachRequest')}</p>
                                     {linkableRequests.length === 0 ? (
-                                        <p className="staff-app-empty">No requests found.</p>
+                                        <p className="staff-app-empty">{t('chat.noRequests')}</p>
                                     ) : (
                                         <ul>
                                             {linkableRequests.map((item) => (
@@ -508,13 +519,13 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                                                         onClick={() => handleAttachRequest(item)}
                                                     >
                                                         <span>{item.label}</span>
-                                                        <small>{item.status}</small>
+                                                        <small>{staffAppStatusLabel(locale, item.status)}</small>
                                                     </button>
                                                 </li>
                                             ))}
                                         </ul>
                                     )}
-                                    <button type="button" className="staff-app-btn" onClick={() => setRequestPickerOpen(false)}>Close</button>
+                                    <button type="button" className="staff-app-btn" onClick={() => setRequestPickerOpen(false)}>{t('common.close')}</button>
                                 </div>
                             )}
                             <div className="staff-chat-composer">
@@ -522,7 +533,7 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                                 <button
                                     type="button"
                                     className="staff-app-btn"
-                                    title="Attach request"
+                                    title={t('chat.attachRequestTitle')}
                                     onClick={() => {
                                         setRequestPickerOpen((v) => !v);
                                         if (!requestPickerOpen && activeChannel?.id) {
@@ -543,7 +554,7 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                             </div>
                         </>
                     ) : (
-                        <p className="staff-app-empty">Select a group or create a new one.</p>
+                        <p className="staff-app-empty">{t('chat.selectOrCreate')}</p>
                     )}
                 </div>
             </div>

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
   AlertTriangle,
   Bell,
@@ -14,6 +15,7 @@ import {
   marketingGetBudgetOptimizerInsights,
   marketingOptimizeBudget,
 } from '../../services/superAdminMarketingApi';
+import { boT } from '../../utils/budgetOptimizerI18n';
 import './MarketingUniversal.css';
 
 const emptySummary = {
@@ -37,14 +39,16 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function formatSar(value) {
-  return `${toNumber(value).toLocaleString(undefined, {
+function formatSar(value, locale = 'en', currencyLabel = 'SAR') {
+  const numberLocale = locale === 'ar' ? 'ar-SA' : undefined;
+  return `${toNumber(value).toLocaleString(numberLocale, {
     maximumFractionDigits: 0,
-  })} SAR`;
+  })} ${currencyLabel}`;
 }
 
-function formatPercent(value) {
-  return `${toNumber(value).toLocaleString(undefined, {
+function formatPercent(value, locale = 'en') {
+  const numberLocale = locale === 'ar' ? 'ar-SA' : undefined;
+  return `${toNumber(value).toLocaleString(numberLocale, {
     maximumFractionDigits: 1,
   })}%`;
 }
@@ -57,6 +61,15 @@ function humanize(value) {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
+}
+
+function localizeToken(t, prefix, value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  const key = `${prefix}.${raw}`;
+  const translated = t(key);
+  if (translated !== key) return translated;
+  return humanize(value);
 }
 
 function asArray(payload, keys = []) {
@@ -119,7 +132,7 @@ function normalizeSummary(payload) {
   };
 }
 
-function normalizeWarning(item, summary) {
+function normalizeWarning(item, summary, t) {
   const type = item?.type || 'warning';
   const isWalletLow = type === 'wallet_low';
 
@@ -127,20 +140,22 @@ function normalizeWarning(item, summary) {
     type,
     title: item?.title || humanize(type),
     message: isWalletLow
-      ? `Current: ${Math.round(toNumber(summary.walletBalance))} (threshold: 5000)`
+      ? t('warn.walletLow', {
+          balance: Math.round(toNumber(summary.walletBalance)),
+        })
       : item?.message || '',
     severity: isWalletLow ? 'critical' : item?.severity || 'warning',
   };
 }
 
-function extractWarnings(payload, summary) {
+function extractWarnings(payload, summary, t) {
   const root = payload?.data || payload || {};
   return asArray(root, ['warnings', 'alerts']).map((item) =>
-    normalizeWarning(item, summary),
+    normalizeWarning(item, summary, t),
   );
 }
 
-function normalizeRecommendation(item, totalBudget = 0) {
+function normalizeRecommendation(item, totalBudget = 0, t) {
   const recommendedBudget = toNumber(
     item?.recommendedBudget ??
       item?.amount ??
@@ -158,7 +173,7 @@ function normalizeRecommendation(item, totalBudget = 0) {
       item?.campaignName ||
       item?.name ||
       item?.channel ||
-      humanize(item?.platform || 'Campaign'),
+      (item?.platform ? humanize(item.platform) : t('rec.defaultCampaign')),
     platform: item?.platform || 'unknown',
     percentage,
     amount: recommendedBudget,
@@ -171,18 +186,18 @@ function normalizeRecommendation(item, totalBudget = 0) {
     reason:
       item?.reason ||
       item?.recommendation ||
-      'Keep monitoring campaign performance.',
+      t('rec.defaultReason'),
   };
 }
 
-function extractRecommendations(payload, totalBudget = 0) {
+function extractRecommendations(payload, totalBudget = 0, t) {
   const root = payload?.data || payload || {};
 
   return asArray(root, [
     'optimizedBudgets',
     'recommendations',
     'campaigns',
-  ]).map((item) => normalizeRecommendation(item, totalBudget));
+  ]).map((item) => normalizeRecommendation(item, totalBudget, t));
 }
 
 const StatCard = ({ title, value, label, tone = 'dark' }) => (
@@ -193,14 +208,14 @@ const StatCard = ({ title, value, label, tone = 'dark' }) => (
   </div>
 );
 
-const WarningBanner = ({ warning, onClose }) => (
+const WarningBanner = ({ warning, onClose, t }) => (
   <div className="bo-warning-banner">
     <AlertTriangle size={13} strokeWidth={2.1} />
 
     <div className="bo-warning-content">
       <strong>
         {warning.title}
-        <span>{humanize(warning.severity)}</span>
+        <span>{localizeToken(t, 'severity', warning.severity)}</span>
       </strong>
       <p>{warning.message}</p>
     </div>
@@ -211,17 +226,18 @@ const WarningBanner = ({ warning, onClose }) => (
   </div>
 );
 
-const RecommendationCard = ({ item }) => (
+const RecommendationCard = ({ item, t, locale, currencyLabel }) => (
   <div className="bo-rec-card">
     <div className="bo-rec-head">
       <div>
         <h4>{item.campaignName}</h4>
         <p>
-          {humanize(item.platform)} • {humanize(item.action)}
+          {localizeToken(t, 'platform', item.platform)} •{' '}
+          {localizeToken(t, 'action', item.action)}
         </p>
       </div>
 
-      <strong>{formatPercent(item.percentage)}</strong>
+      <strong>{formatPercent(item.percentage, locale)}</strong>
     </div>
 
     <div className="bo-rec-track">
@@ -234,17 +250,17 @@ const RecommendationCard = ({ item }) => (
 
     <div className="bo-rec-meta">
       <div>
-        <span>Recommended</span>
-        <strong>{formatSar(item.amount)}</strong>
+        <span>{t('rec.recommended')}</span>
+        <strong>{formatSar(item.amount, locale, currencyLabel)}</strong>
       </div>
 
       <div>
-        <span>ROI</span>
-        <strong>{formatPercent(item.roi)}</strong>
+        <span>{t('rec.roi')}</span>
+        <strong>{formatPercent(item.roi, locale)}</strong>
       </div>
 
       <div>
-        <span>Leads</span>
+        <span>{t('rec.leads')}</span>
         <strong>{item.leads}</strong>
       </div>
     </div>
@@ -254,6 +270,19 @@ const RecommendationCard = ({ item }) => (
 );
 
 export const BudgetOptimizer = () => {
+  const ctx = useOutletContext() || {};
+  const locale =
+    ctx.locale ||
+    (typeof localStorage !== 'undefined'
+      ? localStorage.getItem('portal-locale')
+      : null) ||
+    (typeof localStorage !== 'undefined'
+      ? localStorage.getItem('marketing-locale')
+      : null) ||
+    'en';
+  const t = useCallback((key, vars) => boT(locale, key, vars), [locale]);
+  const currencyLabel = t('currency.sar');
+
   const [summary, setSummary] = useState(emptySummary);
   const [recommendations, setRecommendations] = useState([]);
   const [warnings, setWarnings] = useState([]);
@@ -294,10 +323,11 @@ export const BudgetOptimizer = () => {
       });
 
       const nextSummary = normalizeSummary(res);
-      const nextWarnings = extractWarnings(res, nextSummary);
+      const nextWarnings = extractWarnings(res, nextSummary, t);
       const nextRecommendations = extractRecommendations(
         res,
         nextSummary.walletBalance || nextSummary.totalBudgetAllocated,
+        t,
       );
 
       setSummary(nextSummary);
@@ -309,7 +339,7 @@ export const BudgetOptimizer = () => {
         setBudget(String(Math.round(nextSummary.walletBalance)));
       }
     } catch (err) {
-      setError(err?.message || 'Failed to load budget optimizer.');
+      setError(err?.message || t('error.load'));
       setSummary(emptySummary);
       setWarnings([]);
       setRecommendations([]);
@@ -327,7 +357,7 @@ export const BudgetOptimizer = () => {
     const value = toNumber(effectiveBudget);
 
     if (value <= 0) {
-      alert('Enter valid budget or fund marketing wallet first.');
+      alert(t('error.invalidBudget'));
       return;
     }
 
@@ -341,11 +371,11 @@ export const BudgetOptimizer = () => {
         applyChanges: false,
       });
 
-      const optimizedRecommendations = extractRecommendations(res, value);
+      const optimizedRecommendations = extractRecommendations(res, value, t);
 
       setRecommendations(optimizedRecommendations);
     } catch (err) {
-      alert(err?.message || 'Failed to optimize budget.');
+      alert(err?.message || t('error.optimize'));
     } finally {
       setOptimizing(false);
     }
@@ -363,7 +393,7 @@ export const BudgetOptimizer = () => {
       const res = await marketingGetBudgetOptimizerInsights({ status: 'all' });
       setInsights(res || null);
     } catch (err) {
-      alert(err?.message || 'Failed to generate AI insights.');
+      alert(err?.message || t('error.insights'));
     } finally {
       setInsightsLoading(false);
     }
@@ -378,15 +408,16 @@ export const BudgetOptimizer = () => {
       }));
 
     if (items.length === 0) {
-      alert('No applicable recommendations to apply.');
+      alert(t('error.noRecommendations'));
       return;
     }
 
-    if (
-      !window.confirm(
-        `Apply ${items.length} AI-recommended budget${items.length === 1 ? '' : 's'} to campaigns?`,
-      )
-    ) {
+    const confirmMsg =
+      items.length === 1
+        ? t('confirm.applyOne')
+        : t('confirm.applyMany', { n: items.length });
+
+    if (!window.confirm(confirmMsg)) {
       return;
     }
 
@@ -395,9 +426,9 @@ export const BudgetOptimizer = () => {
       await marketingApplyBudgetOptimizer({ items });
       await loadOptimizer();
       await loadInsights();
-      alert('AI-recommended budgets applied.');
+      alert(t('success.applied'));
     } catch (err) {
-      alert(err?.message || 'Failed to apply recommendations.');
+      alert(err?.message || t('error.apply'));
     } finally {
       setApplying(false);
     }
@@ -409,6 +440,7 @@ export const BudgetOptimizer = () => {
         <WarningBanner
           key={`${warning.type}-${index}`}
           warning={warning}
+          t={t}
           onClose={() =>
             setDismissedWarnings((prev) => [...prev, `${warning.type}-${index}`])
           }
@@ -423,11 +455,8 @@ export const BudgetOptimizer = () => {
             </div>
 
             <div>
-              <h2>AI Predictive Budget Optimizer</h2>
-              <p>
-                Analyzes campaign history and recommends optimal budget allocation
-                to maximize ROI.
-              </p>
+              <h2>{t('title')}</h2>
+              <p>{t('subtitle')}</p>
             </div>
           </div>
 
@@ -437,7 +466,7 @@ export const BudgetOptimizer = () => {
             onClick={handleManageAlerts}
           >
             <Bell size={13} />
-            Manage Alerts
+            {t('btn.manageAlerts')}
             <span>{warnings.length}</span>
           </button>
         </div>
@@ -446,29 +475,29 @@ export const BudgetOptimizer = () => {
 
         <div className="bo-stat-grid">
           <StatCard
-            title="Wallet"
-            value={formatSar(summary.walletBalance)}
+            title={t('kpi.wallet')}
+            value={formatSar(summary.walletBalance, locale, currencyLabel)}
             label=""
             tone={summary.walletBalance <= 0 ? 'red' : 'dark'}
           />
 
           <StatCard
-            title="Overall ROI"
-            value={formatPercent(summary.overallRoi)}
+            title={t('kpi.overallRoi')}
+            value={formatPercent(summary.overallRoi, locale)}
             label=""
             tone={summary.overallRoi < 0 ? 'red' : 'green'}
           />
 
           <StatCard
-            title="Budget Utilized"
-            value={formatPercent(summary.budgetUtilized)}
+            title={t('kpi.budgetUtilized')}
+            value={formatPercent(summary.budgetUtilized, locale)}
             label=""
             tone="dark"
           />
 
           <StatCard
-            title="Cost Per Lead"
-            value={formatSar(summary.costPerLead)}
+            title={t('kpi.costPerLead')}
+            value={formatSar(summary.costPerLead, locale, currencyLabel)}
             label=""
             tone="dark"
           />
@@ -476,15 +505,17 @@ export const BudgetOptimizer = () => {
 
         <div className="bo-budget-row">
           <div className="bo-budget-field">
-            <label>Total Budget to Optimize (SAR)</label>
+            <label>{t('label.totalBudget')}</label>
             <input
               type="number"
               min="0"
               value={budget}
               onChange={(event) => setBudget(event.target.value)}
-              placeholder={`e.g. ${Math.round(summary.walletBalance || 0)} (wallet balance)`}
+              placeholder={t('placeholder.budget', {
+                amount: Math.round(summary.walletBalance || 0),
+              })}
             />
-            <small>Leave blank to use wallet balance</small>
+            <small>{t('hint.leaveBlank')}</small>
           </div>
 
           <button
@@ -494,7 +525,7 @@ export const BudgetOptimizer = () => {
             disabled={optimizing || loading}
           >
             <Sparkles size={14} />
-            {optimizing ? 'Optimizing...' : 'Optimize Budget'}
+            {optimizing ? t('btn.optimizing') : t('btn.optimize')}
           </button>
 
           <button
@@ -502,7 +533,7 @@ export const BudgetOptimizer = () => {
             className="bo-hidden-refresh"
             onClick={loadOptimizer}
             disabled={loading}
-            title="Refresh"
+            title={t('btn.refresh')}
           >
             <RefreshCw size={14} className={loading ? 'bo-spin' : ''} />
           </button>
@@ -516,11 +547,8 @@ export const BudgetOptimizer = () => {
               <Bot size={18} />
             </div>
             <div>
-              <h2>AI Insights {insights?.llmUsed ? '(LLM)' : ''}</h2>
-              <p>
-                LLM-driven assessment, reallocation recommendations and alert
-                rules.
-              </p>
+              <h2>{insights?.llmUsed ? t('ai.titleLlm') : t('ai.title')}</h2>
+              <p>{t('ai.subtitle')}</p>
             </div>
           </div>
 
@@ -532,7 +560,7 @@ export const BudgetOptimizer = () => {
               disabled={insightsLoading}
             >
               <Sparkles size={13} />
-              {insightsLoading ? 'Analyzing...' : 'Generate AI Insights'}
+              {insightsLoading ? t('btn.analyzing') : t('btn.generateInsights')}
             </button>
 
             {insights?.recommendations?.length ? (
@@ -542,7 +570,7 @@ export const BudgetOptimizer = () => {
                 onClick={handleApplyInsights}
                 disabled={applying}
               >
-                {applying ? 'Applying...' : 'Apply Recommendations'}
+                {applying ? t('btn.applying') : t('btn.applyRecommendations')}
               </button>
             ) : null}
           </div>
@@ -552,7 +580,7 @@ export const BudgetOptimizer = () => {
           <>
             <div className="bo-ai-assessment">
               <div className="bo-ai-score">
-                <span>Performance Score</span>
+                <span>{t('ai.performanceScore')}</span>
                 <strong>{toNumber(insights.performanceScore).toFixed(0)}</strong>
               </div>
               <p>{insights.assessment}</p>
@@ -579,14 +607,18 @@ export const BudgetOptimizer = () => {
                     <div className="bo-ai-rec-main">
                       <strong>{rec.campaignName}</strong>
                       <span className={`bo-action bo-action-${rec.action}`}>
-                        {humanize(rec.action)}
+                        {localizeToken(t, 'action', rec.action)}
                       </span>
                     </div>
                     <p>{rec.rationale}</p>
                     <div className="bo-ai-rec-budget">
-                      <span>{formatSar(rec.currentBudget)}</span>
+                      <span>
+                        {formatSar(rec.currentBudget, locale, currencyLabel)}
+                      </span>
                       <span className="bo-arrow">→</span>
-                      <strong>{formatSar(rec.suggestedBudget)}</strong>
+                      <strong>
+                        {formatSar(rec.suggestedBudget, locale, currencyLabel)}
+                      </strong>
                     </div>
                   </div>
                 ))}
@@ -594,17 +626,15 @@ export const BudgetOptimizer = () => {
             ) : null}
           </>
         ) : (
-          <p className="bo-ai-empty">
-            Click “Generate AI Insights” to analyze your campaigns.
-          </p>
+          <p className="bo-ai-empty">{t('ai.empty')}</p>
         )}
       </section>
 
       {recommendations.length > 0 ? (
         <section className="bo-results-card">
           <div className="bo-results-head">
-            <h3>Recommended Allocation</h3>
-            <span>{recommendations.length} recommendations</span>
+            <h3>{t('results.title')}</h3>
+            <span>{t('results.count', { n: recommendations.length })}</span>
           </div>
 
           <div className="bo-rec-grid">
@@ -612,6 +642,9 @@ export const BudgetOptimizer = () => {
               <RecommendationCard
                 key={`${item.campaignId}-${item.platform}-${item.campaignName}`}
                 item={item}
+                t={t}
+                locale={locale}
+                currencyLabel={currencyLabel}
               />
             ))}
           </div>

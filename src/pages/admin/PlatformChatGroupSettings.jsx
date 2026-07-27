@@ -3,6 +3,7 @@ import { UserMinus, UserPlus } from 'lucide-react';
 import {
     createPlatformChatApi,
 } from '../../services/platformChatApi';
+import { pcT } from '../../utils/platformChatI18n';
 
 const defaultApi = createPlatformChatApi('/super-admin/platform-chat');
 
@@ -12,7 +13,10 @@ export default function PlatformChatGroupSettings({
     currentUserId,
     onUpdated,
     onClose,
+    locale = 'en',
+    t: tProp,
 }) {
+    const t = tProp || ((key, vars) => pcT(locale, key, vars));
     const [conversation, setConversation] = useState(null);
     const [groupName, setGroupName] = useState('');
     const [addSearch, setAddSearch] = useState('');
@@ -35,11 +39,11 @@ export default function PlatformChatGroupSettings({
             setConversation(conv ?? null);
             setGroupName(conv?.name || conv?.title || '');
         } catch (e) {
-            setError(e?.message || 'Could not load group.');
+            setError(e?.message || t('group.errLoad'));
         } finally {
             setLoading(false);
         }
-    }, [conversationId]);
+    }, [conversationId, api, t]);
 
     useEffect(() => {
         load();
@@ -70,7 +74,7 @@ export default function PlatformChatGroupSettings({
     const saveName = async () => {
         const name = groupName.trim();
         if (!name) {
-            setError('Group name is required.');
+            setError(t('group.errNameRequired'));
             return;
         }
         setSaving(true);
@@ -83,7 +87,7 @@ export default function PlatformChatGroupSettings({
                 onUpdated?.(conv);
             }
         } catch (e) {
-            setError(e?.message || 'Could not save group name.');
+            setError(e?.message || t('group.errSaveName'));
         } finally {
             setSaving(false);
         }
@@ -103,7 +107,7 @@ export default function PlatformChatGroupSettings({
                 onUpdated?.(conv);
             }
         } catch (e) {
-            setError(e?.message || 'Could not remove member.');
+            setError(e?.message || t('group.errRemove'));
         } finally {
             setSaving(false);
         }
@@ -124,7 +128,7 @@ export default function PlatformChatGroupSettings({
                 setAddSearch('');
             }
         } catch (e) {
-            setError(e?.message || 'Could not add member.');
+            setError(e?.message || t('group.errAdd'));
         } finally {
             setSaving(false);
         }
@@ -133,7 +137,7 @@ export default function PlatformChatGroupSettings({
     if (loading) {
         return (
             <div className="platform-chat-group-settings">
-                <p className="platform-chat-contact-meta">Loading group…</p>
+                <p className="platform-chat-contact-meta">{t('group.loading')}</p>
             </div>
         );
     }
@@ -149,7 +153,7 @@ export default function PlatformChatGroupSettings({
                     value={groupName}
                     onChange={(e) => setGroupName(e.target.value)}
                     disabled={!isAdmin || saving}
-                    placeholder="Group name"
+                    placeholder={t('group.namePlaceholder')}
                 />
                 {isAdmin && (
                     <button
@@ -158,16 +162,16 @@ export default function PlatformChatGroupSettings({
                         onClick={saveName}
                         disabled={saving}
                     >
-                        Save
+                        {t('group.save')}
                     </button>
                 )}
                 <button type="button" className="platform-chat-btn" onClick={onClose}>
-                    Close
+                    {t('group.close')}
                 </button>
             </div>
 
             <p className="platform-chat-contact-meta" style={{ marginBottom: 8 }}>
-                Members ({conversation?.participants?.length ?? 0})
+                {t('group.membersCount', { count: conversation?.participants?.length ?? 0 })}
             </p>
             <div className="platform-chat-contact-list" style={{ maxHeight: 140, marginBottom: 12 }}>
                 {(conversation?.participants ?? []).map((p) => (
@@ -175,11 +179,11 @@ export default function PlatformChatGroupSettings({
                         <div>
                             <span className="platform-chat-contact-name">
                                 {p.name}
-                                {p.isSelf ? ' (you)' : ''}
+                                {p.isSelf ? t('group.you') : ''}
                             </span>
                             <span className="platform-chat-contact-meta">
                                 {p.role}
-                                {p.memberRole === 'admin' ? ' · Admin' : ''}
+                                {p.memberRole === 'admin' ? t('group.adminSuffix') : ''}
                             </span>
                         </div>
                         {isAdmin && !p.isSelf && (
@@ -188,7 +192,7 @@ export default function PlatformChatGroupSettings({
                                 className="platform-chat-btn"
                                 onClick={() => removeMember(p.userId)}
                                 disabled={saving}
-                                title="Remove member"
+                                title={t('group.removeMember')}
                             >
                                 <UserMinus size={14} />
                             </button>
@@ -200,18 +204,18 @@ export default function PlatformChatGroupSettings({
             {isAdmin && (
                 <>
                     <p className="platform-chat-contact-meta" style={{ marginBottom: 8 }}>
-                        <UserPlus size={14} style={{ verticalAlign: 'middle' }} /> Add members
+                        <UserPlus size={14} style={{ verticalAlign: 'middle' }} /> {t('group.addMembers')}
                     </p>
                     <input
                         className="platform-chat-search"
-                        placeholder="Search suppliers, workshops, corporate…"
+                        placeholder={t('group.searchAdd')}
                         value={addSearch}
                         onChange={(e) => setAddSearch(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && searchToAdd(addSearch)}
                     />
                     <div className="platform-chat-contact-list" style={{ maxHeight: 120 }}>
                         {addCandidates.length === 0 ? (
-                            <p className="platform-chat-contact-meta">No users to add.</p>
+                            <p className="platform-chat-contact-meta">{t('group.noUsersToAdd')}</p>
                         ) : (
                             addCandidates.slice(0, 20).map((c) => (
                                 <button

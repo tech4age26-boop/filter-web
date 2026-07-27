@@ -1,5 +1,11 @@
 import React from 'react';
 import { ArrowLeft } from 'lucide-react';
+import { apT } from '../../utils/approvalsI18n';
+
+function defaultBackLabel() {
+    const locale = (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    return apT(locale, 'btn.back');
+}
 
 /**
  * Full-page shell for super-admin approval detail / action screens (replaces modals).
@@ -7,11 +13,12 @@ import { ArrowLeft } from 'lucide-react';
 export default function ApprovalPageShell({
     title,
     onBack,
-    backLabel = 'Back to Approvals',
+    backLabel,
     children,
     footer = null,
     backDisabled = false,
 }) {
+    const resolvedBackLabel = backLabel ?? defaultBackLabel();
     return (
         <div className="approvals-page approvals-detail-page module-container">
             <button
@@ -21,7 +28,7 @@ export default function ApprovalPageShell({
                 disabled={backDisabled}
             >
                 <ArrowLeft size={16} strokeWidth={2} />
-                {backLabel}
+                {resolvedBackLabel}
             </button>
 
             <div className="approval-page-panel">

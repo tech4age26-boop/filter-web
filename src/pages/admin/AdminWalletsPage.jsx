@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
     Wallet, Search, Loader2, User, Mail, Shield, ChevronLeft, Users, Banknote,
     Check, X, MessageCircle, Receipt, ArrowLeftRight, HandCoins,
@@ -17,6 +17,7 @@ import {
     coerceWalletFieldText,
     formatWalletTxDate,
 } from '../../utils/walletHistory';
+import { awT } from '../../utils/adminWalletsI18n';
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import BudgetWalletSection from '../../components/admin/BudgetWalletSection';
 import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
@@ -39,6 +40,14 @@ function fundStatusClass(status) {
     if (s === 'approved') return 'admin-wallets-status--approved';
     if (s === 'rejected') return 'admin-wallets-status--rejected';
     return 'admin-wallets-status--pending';
+}
+
+function statusLabel(t, status) {
+    const s = String(status || 'pending').toLowerCase();
+    if (s === 'approved') return t('status.approved');
+    if (s === 'rejected') return t('status.rejected');
+    if (s === 'pending') return t('status.pending');
+    return status;
 }
 
 const FILTER_ALL = 'all';
@@ -68,7 +77,7 @@ function parseExpenseDescription(description) {
     };
 }
 
-function ExpensesTable({ rows, loading }) {
+function ExpensesTable({ rows, loading, t }) {
     if (loading) {
         return (
             <div className="admin-wallets-loading">
@@ -79,7 +88,7 @@ function ExpensesTable({ rows, loading }) {
     if (!rows.length) {
         return (
             <div className="admin-wallets-empty" style={{ minHeight: 180, padding: '32px 16px' }}>
-                <p style={{ margin: 0, fontSize: '0.875rem' }}>No expense records for this admin yet.</p>
+                <p style={{ margin: 0, fontSize: '0.875rem' }}>{t('empty.expenses')}</p>
             </div>
         );
     }
@@ -88,27 +97,27 @@ function ExpensesTable({ rows, loading }) {
             <table className="admin-wallets-tx-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Reference</th>
-                        <th>Description</th>
-                        <th>Vendor</th>
-                        <th>Proof</th>
-                        <th>Amount</th>
+                        <th>{t('th.date')}</th>
+                        <th>{t('th.reference')}</th>
+                        <th>{t('th.description')}</th>
+                        <th>{t('th.vendor')}</th>
+                        <th>{t('th.proof')}</th>
+                        <th>{t('th.amount')}</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {rows.map((t) => {
-                        const parsed = parseExpenseDescription(t.description);
-                        const amount = Number(t.amount ?? 0);
+                    {rows.map((row) => {
+                        const parsed = parseExpenseDescription(row.description);
+                        const amount = Number(row.amount ?? 0);
                         return (
-                            <tr key={t.id}>
+                            <tr key={row.id}>
                                 <td style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
-                                    {formatWalletTxDate(t)}
+                                    {formatWalletTxDate(row)}
                                 </td>
-                                <td className="admin-wallets-tx-ref">{t.referenceId || '—'}</td>
+                                <td className="admin-wallets-tx-ref">{row.referenceId || t('empty.emDash')}</td>
                                 <td>{parsed.description}</td>
-                                <td style={{ color: '#64748b' }}>{parsed.vendor || '—'}</td>
-                                <td><ExpenseProofThumbnail proofUrl={t.proofUrl} size={36} /></td>
+                                <td style={{ color: '#64748b' }}>{parsed.vendor || t('empty.emDash')}</td>
+                                <td><ExpenseProofThumbnail proofUrl={row.proofUrl} size={36} /></td>
                                 <td className="admin-wallets-tx-amount--debit">
                                     − SAR {formatSar(Math.abs(amount))}
                                 </td>
@@ -121,7 +130,7 @@ function ExpensesTable({ rows, loading }) {
     );
 }
 
-function TransactionTable({ rows, loading }) {
+function TransactionTable({ rows, loading, t }) {
     if (loading) {
         return (
             <div className="admin-wallets-loading">
@@ -132,7 +141,7 @@ function TransactionTable({ rows, loading }) {
     if (!rows.length) {
         return (
             <div className="admin-wallets-empty" style={{ minHeight: 180, padding: '32px 16px' }}>
-                <p style={{ margin: 0, fontSize: '0.875rem' }}>No transactions yet for this wallet.</p>
+                <p style={{ margin: 0, fontSize: '0.875rem' }}>{t('empty.transactions')}</p>
             </div>
         );
     }
@@ -141,28 +150,33 @@ function TransactionTable({ rows, loading }) {
             <table className="admin-wallets-tx-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Reference</th>
-                        <th>Description</th>
-                        <th>Type</th>
-                        <th>Amount</th>
+                        <th>{t('th.date')}</th>
+                        <th>{t('th.reference')}</th>
+                        <th>{t('th.description')}</th>
+                        <th>{t('th.type')}</th>
+                        <th>{t('th.amount')}</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {rows.map((t) => {
-                        const typeRaw = String(t.type || '').toLowerCase();
-                        const amount = Number(t.amount ?? 0);
+                    {rows.map((row) => {
+                        const typeRaw = String(row.type || '').toLowerCase();
+                        const amount = Number(row.amount ?? 0);
                         const isCredit = typeRaw === 'credit' || (typeRaw !== 'debit' && amount > 0);
+                        const typeLabel = typeRaw === 'credit'
+                            ? t('type.credit')
+                            : typeRaw === 'debit'
+                                ? t('type.debit')
+                                : (row.type || (isCredit ? t('type.credit') : t('type.debit')));
                         return (
-                            <tr key={t.id}>
+                            <tr key={row.id}>
                                 <td style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
-                                    {formatWalletTxDate(t)}
+                                    {formatWalletTxDate(row)}
                                 </td>
-                                <td className="admin-wallets-tx-ref">{t.referenceId || '—'}</td>
-                                <td>{coerceWalletFieldText(t.description)}</td>
+                                <td className="admin-wallets-tx-ref">{row.referenceId || t('empty.emDash')}</td>
+                                <td>{coerceWalletFieldText(row.description)}</td>
                                 <td>
                                     <span className={`admin-wallets-type-pill ${isCredit ? 'admin-wallets-type-pill--credit' : 'admin-wallets-type-pill--debit'}`}>
-                                        {t.type || (isCredit ? 'credit' : 'debit')}
+                                        {typeLabel}
                                     </span>
                                 </td>
                                 <td className={isCredit ? 'admin-wallets-tx-amount--credit' : 'admin-wallets-tx-amount--debit'}>
@@ -185,6 +199,7 @@ function FundRequestsTable({
     actionBusyId,
     onApprove,
     onReject,
+    t,
 }) {
     if (loading) {
         return (
@@ -196,7 +211,7 @@ function FundRequestsTable({
     if (!rows.length) {
         return (
             <div className="admin-wallets-empty" style={{ minHeight: 140, padding: '28px 16px' }}>
-                <p style={{ margin: 0, fontSize: '0.875rem' }}>No fund requests for this admin yet.</p>
+                <p style={{ margin: 0, fontSize: '0.875rem' }}>{t('empty.fundRequests')}</p>
             </div>
         );
     }
@@ -205,12 +220,12 @@ function FundRequestsTable({
             <table className="admin-wallets-tx-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Reference</th>
-                        <th>Purpose</th>
-                        <th>Amount</th>
-                        <th>Status</th>
-                        <th style={{ textAlign: 'right' }}>Actions</th>
+                        <th>{t('th.date')}</th>
+                        <th>{t('th.reference')}</th>
+                        <th>{t('th.purpose')}</th>
+                        <th>{t('th.amount')}</th>
+                        <th>{t('th.status')}</th>
+                        <th style={{ textAlign: 'right' }}>{t('th.actions')}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -228,7 +243,7 @@ function FundRequestsTable({
                                     {r.purpose}
                                     {status === 'approved' && r.sourceAccountName && (
                                         <div className="admin-wallets-fr-meta">
-                                            Funded from {r.sourceAccountName}
+                                            {t('fund.fundedFrom', { name: r.sourceAccountName })}
                                         </div>
                                     )}
                                     {status === 'rejected' && r.rejectionReason && (
@@ -242,7 +257,7 @@ function FundRequestsTable({
                                 </td>
                                 <td>
                                     <span className={`admin-wallets-status ${fundStatusClass(status)}`}>
-                                        {status}
+                                        {statusLabel(t, status)}
                                     </span>
                                 </td>
                                 <td>
@@ -256,7 +271,7 @@ function FundRequestsTable({
                                                     onClick={() => onApprove(r)}
                                                 >
                                                     {busy ? <Loader2 size={12} className="spin" /> : <Check size={12} />}
-                                                    Approve
+                                                    {t('btn.approve')}
                                                 </button>
                                             )}
                                             {canReject && (
@@ -266,12 +281,12 @@ function FundRequestsTable({
                                                     disabled={busy}
                                                     onClick={() => onReject(r)}
                                                 >
-                                                    <X size={12} /> Reject
+                                                    <X size={12} /> {t('btn.reject')}
                                                 </button>
                                             )}
                                         </div>
                                     ) : (
-                                        <span style={{ color: '#cbd5e1' }}>—</span>
+                                        <span style={{ color: '#cbd5e1' }}>{t('empty.emDash')}</span>
                                     )}
                                 </td>
                             </tr>
@@ -283,7 +298,7 @@ function FundRequestsTable({
     );
 }
 
-function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, error }) {
+function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, error, t }) {
     const [remarks, setRemarks] = useState('');
     const [fundSourceType, setFundSourceType] = useState(
         () => (request?.fundSourceType === 'wallet' ? 'wallet' : 'external'),
@@ -295,7 +310,7 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
     const [acct, setAcct] = useState({ blocked: true, loading: true });
 
     const requesterUserId = request?.userId ?? '';
-    const recipientName = requesterName || request?.requestedByName || 'Requester';
+    const recipientName = requesterName || request?.requestedByName || t('approve.requester');
     const lockedWalletPeer = request?.fundSourceType === 'wallet' && request?.sourceUserId;
     const amt = Number(request?.amount ?? 0);
 
@@ -343,11 +358,11 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
     );
     const walletBlockReason = fundSourceType === 'wallet'
         ? (walletUsersLoading
-            ? 'Loading wallet users…'
+            ? t('approve.loadingUsers')
             : !(lockedWalletPeer ? request?.sourceUserId : sourceUserId)
-                ? 'Select a source wallet user.'
+                ? t('approve.selectSource')
                 : (sourceUserBalance != null && amt > 0 && sourceUserBalance < amt)
-                    ? `Insufficient balance in source wallet (SAR ${formatSar(sourceUserBalance)}).`
+                    ? t('approve.insufficient', { balance: formatSar(sourceUserBalance) })
                     : '')
         : '';
 
@@ -356,14 +371,14 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
 
     return (
         <Modal
-            title="Approve fund request"
+            title={t('approve.title')}
             onClose={busy ? undefined : onCancel}
             width={520}
             disableClose={busy}
             footer={(
                 <div className="admin-wallets-modal-footer">
                     <button type="button" className="admin-wallets-modal-btn-cancel" disabled={busy} onClick={onCancel}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -382,7 +397,7 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                         })}
                     >
                         {busy ? <Loader2 size={14} className="spin" /> : <Check size={16} />}
-                        Approve &amp; fund wallet
+                        {t('approve.confirmFund')}
                     </button>
                 </div>
             )}
@@ -393,16 +408,17 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                 </div>
             ) : null}
             <p className="admin-wallets-modal-lead">
-                Approve <strong>{request.requestNumber}</strong> and credit <strong>{recipientName}</strong>&apos;s wallet.
-                Amount <strong>SAR {formatSar(request.amount)}</strong>
+                {t('approve.leadPrefix')} <strong>{request.requestNumber}</strong> {t('approve.leadCredit', { name: recipientName })}
+                {' '}{t('approve.leadAmount')} <strong>SAR {formatSar(request.amount)}</strong>
+                {' '}
                 {fundSourceType === 'wallet'
-                    ? ' will be transferred from the selected admin wallet.'
-                    : ' will be deducted from the selected payment account.'}
+                    ? t('approve.leadWallet')
+                    : t('approve.leadExternal')}
             </p>
 
             {!lockedWalletPeer ? (
                 <div style={{ marginBottom: 14 }}>
-                    <label className="admin-wallets-modal-label">Funding source</label>
+                    <label className="admin-wallets-modal-label">{t('approve.fundingSource')}</label>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <button
                             type="button"
@@ -410,7 +426,7 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                             disabled={busy}
                             onClick={() => setFundSourceType('external')}
                         >
-                            Cash / Bank
+                            {t('approve.cashBank')}
                         </button>
                         <button
                             type="button"
@@ -418,7 +434,7 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                             disabled={busy}
                             onClick={() => setFundSourceType('wallet')}
                         >
-                            Deduct from another wallet
+                            {t('approve.deductWallet')}
                         </button>
                     </div>
                 </div>
@@ -435,12 +451,12 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                     }}
                 >
                     <p style={{ margin: '0 0 8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                        Wallet transfer
+                        {t('approve.walletTransfer')}
                     </p>
                     <p style={{ margin: '0 0 6px', fontSize: '0.875rem' }}>
-                        <strong>From wallet:</strong>{' '}
+                        <strong>{t('approve.fromWallet')}</strong>{' '}
                         {lockedWalletPeer ? (
-                            <>{request?.sourceUserName || 'Source user'}
+                            <>{request?.sourceUserName || t('approve.sourceUser')}
                             {sourceUserBalance != null ? ` — SAR ${formatSar(sourceUserBalance)}` : ''}</>
                         ) : (
                             <select
@@ -451,11 +467,11 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                                 disabled={busy || walletUsersLoading}
                             >
                                 <option value="">
-                                    {walletUsersLoading ? 'Loading…' : 'Select source wallet user'}
+                                    {walletUsersLoading ? t('approve.loading') : t('approve.selectSourceOpt')}
                                 </option>
                                 {walletUsers.map((u) => (
                                     <option key={u.id} value={u.id}>
-                                        {u.name || u.email || `User ${u.id}`}
+                                        {u.name || u.email || t('approve.userFallback', { id: u.id })}
                                         {u.wallet?.balance != null
                                             ? ` — SAR ${formatSar(u.wallet.balance)}`
                                             : ''}
@@ -465,11 +481,11 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                         )}
                     </p>
                     <p style={{ margin: 0, fontSize: '0.875rem' }}>
-                        <strong>To wallet:</strong> {recipientName}
+                        <strong>{t('approve.toWallet')}</strong> {recipientName}
                     </p>
                     {sourceUserBalance != null ? (
                         <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                            Source balance after transfer: SAR {formatSar(Math.max(0, sourceUserBalance - amt))}
+                            {t('approve.sourceAfter', { amount: formatSar(Math.max(0, sourceUserBalance - amt)) })}
                         </p>
                     ) : null}
                 </div>
@@ -485,7 +501,7 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
             )}
 
             <label className="admin-wallets-modal-label" htmlFor="aw-remarks">
-                Remarks (optional)
+                {t('approve.remarks')}
             </label>
             <textarea
                 id="aw-remarks"
@@ -494,26 +510,26 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 disabled={busy}
-                placeholder="e.g. Approved for field visit expenses"
+                placeholder={t('approve.remarksPh')}
             />
         </Modal>
     );
 }
 
-function RejectFundModal({ request, busy, onCancel, onConfirm, error }) {
+function RejectFundModal({ request, busy, onCancel, onConfirm, error, t }) {
     const [reason, setReason] = useState('');
     const valid = reason.trim().length > 0;
 
     return (
         <Modal
-            title="Reject fund request"
+            title={t('reject.title')}
             onClose={busy ? undefined : onCancel}
             width={460}
             disableClose={busy}
             footer={(
                 <div className="admin-wallets-modal-footer">
                     <button type="button" className="admin-wallets-modal-btn-cancel" disabled={busy} onClick={onCancel}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -522,7 +538,7 @@ function RejectFundModal({ request, busy, onCancel, onConfirm, error }) {
                         onClick={() => onConfirm(reason.trim())}
                     >
                         {busy ? <Loader2 size={14} className="spin" /> : <X size={16} />}
-                        Reject
+                        {t('btn.reject')}
                     </button>
                 </div>
             )}
@@ -533,10 +549,10 @@ function RejectFundModal({ request, busy, onCancel, onConfirm, error }) {
                 </div>
             ) : null}
             <p className="admin-wallets-modal-lead">
-                Reject <strong>{request.requestNumber}</strong>? The admin will see your reason.
+                {t('reject.lead', { num: request.requestNumber })}
             </p>
             <label className="admin-wallets-modal-label" htmlFor="aw-reject-reason">
-                Reason *
+                {t('reject.reason')}
             </label>
             <textarea
                 id="aw-reject-reason"
@@ -545,7 +561,7 @@ function RejectFundModal({ request, busy, onCancel, onConfirm, error }) {
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 disabled={busy}
-                placeholder="Why is this request being rejected?"
+                placeholder={t('reject.reasonPh')}
             />
         </Modal>
     );
@@ -553,6 +569,13 @@ function RejectFundModal({ request, busy, onCancel, onConfirm, error }) {
 
 export default function AdminWalletsPage() {
     const navigate = useNavigate();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => awT(locale, key, vars), [locale]);
+
     const { user, hasPermission } = useAuth();
     const canView = hasPermission('admin-wallets.view');
     const canApproveFund = hasPermission('approvals.admin-wallet-fund-request.approve');
@@ -602,17 +625,17 @@ export default function AdminWalletsPage() {
             }
             setItems(rows);
         } catch (err) {
-            setListError(err?.message || 'Failed to load admin wallets');
+            setListError(err?.message || t('err.loadList'));
             setItems([]);
         } finally {
             setListLoading(false);
         }
-    }, [search, walletOnly, walletNone]);
+    }, [search, walletOnly, walletNone, t]);
 
     useEffect(() => {
         if (!canView) return;
-        const t = setTimeout(() => { loadList(); }, search ? 300 : 0);
-        return () => clearTimeout(t);
+        const timer = setTimeout(() => { loadList(); }, search ? 300 : 0);
+        return () => clearTimeout(timer);
     }, [canView, loadList, search, walletFilter]);
 
     const loadDetail = useCallback(async (userId) => {
@@ -637,12 +660,12 @@ export default function AdminWalletsPage() {
             setDetail(null);
             setFundRequests([]);
             setTransactions([]);
-            setListError(err?.message || 'Failed to load wallet detail');
+            setListError(err?.message || t('err.loadDetail'));
         } finally {
             setDetailLoading(false);
             setTxLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         if (selectedId) {
@@ -667,24 +690,24 @@ export default function AdminWalletsPage() {
     const detailTabs = useMemo(() => [
         {
             id: TAB_FUND,
-            label: 'Fund Requests',
+            label: t('tab.fundRequests'),
             icon: HandCoins,
             count: fundRequests.length,
             badge: pendingFundCount > 0 ? pendingFundCount : null,
         },
         {
             id: TAB_EXPENSES,
-            label: 'Expense Records',
+            label: t('tab.expenseRecords'),
             icon: Receipt,
             count: expenseRecords.length,
         },
         {
             id: TAB_TRANSACTIONS,
-            label: 'Transactions',
+            label: t('tab.transactions'),
             icon: ArrowLeftRight,
             count: detail?.transactionCount ?? transactions.length,
         },
-    ], [fundRequests.length, pendingFundCount, expenseRecords.length, detail?.transactionCount, transactions.length]);
+    ], [t, fundRequests.length, pendingFundCount, expenseRecords.length, detail?.transactionCount, transactions.length]);
 
     const handleApproveConfirm = async (body) => {
         if (!approveTarget) return;
@@ -696,7 +719,7 @@ export default function AdminWalletsPage() {
             await loadDetail(selectedId);
             await loadList();
         } catch (err) {
-            setActionError(err?.message || 'Failed to approve fund request');
+            setActionError(err?.message || t('err.approve'));
         } finally {
             setActionBusyId(null);
         }
@@ -711,7 +734,7 @@ export default function AdminWalletsPage() {
             setRejectTarget(null);
             await loadDetail(selectedId);
         } catch (err) {
-            setActionError(err?.message || 'Failed to reject fund request');
+            setActionError(err?.message || t('err.reject'));
         } finally {
             setActionBusyId(null);
         }
@@ -746,7 +769,7 @@ export default function AdminWalletsPage() {
     if (!canView) {
         return (
             <div className="admin-wallets-page ws-module-container">
-                <p style={{ color: '#64748b' }}>You do not have permission to view Admin Wallets.</p>
+                <p style={{ color: '#64748b' }}>{t('page.noPerm')}</p>
             </div>
         );
     }
@@ -759,26 +782,26 @@ export default function AdminWalletsPage() {
         <div className="admin-wallets-page ws-module-container">
             <header className="admin-wallets-header">
                 <div>
-                    <h1 className="admin-wallets-title">Admin Wallets</h1>
+                    <h1 className="admin-wallets-title">{t('page.title')}</h1>
                     <p className="admin-wallets-subtitle">
-                        Monitor platform admin petty-cash wallets. Select a user to review fund requests, balance, and transaction history.
+                        {t('page.subtitle')}
                     </p>
                 </div>
                 {canViewBudget ? (
-                    <div className="admin-wallets-filters" role="tablist" aria-label="Admin wallets view">
+                    <div className="admin-wallets-filters" role="tablist" aria-label={t('page.viewAria')}>
                         <button
                             type="button"
                             className={`admin-wallets-filter-btn${view === 'wallets' ? ' active' : ''}`}
                             onClick={() => setView('wallets')}
                         >
-                            Admin Wallets
+                            {t('tab.adminWallets')}
                         </button>
                         <button
                             type="button"
                             className={`admin-wallets-filter-btn${view === 'budget' ? ' active' : ''}`}
                             onClick={() => setView('budget')}
                         >
-                            Budget Wallet
+                            {t('tab.budgetWallet')}
                         </button>
                     </div>
                 ) : null}
@@ -788,7 +811,6 @@ export default function AdminWalletsPage() {
                 <BudgetWalletSection canCreate={canCreateBudget} canEdit={canEditBudget} />
             ) : (
             <>
-            
 
             {listError && (
                 <div className="admin-wallets-alert" role="alert">{listError}</div>
@@ -796,23 +818,23 @@ export default function AdminWalletsPage() {
 
             <div className="admin-wallets-stats">
                 <div className="admin-wallets-stat">
-                    <div className="admin-wallets-stat-label">Admins shown</div>
+                    <div className="admin-wallets-stat-label">{t('stat.adminsShown')}</div>
                     <div className="admin-wallets-stat-value">{stats.total}</div>
                 </div>
                 <div className="admin-wallets-stat">
-                    <div className="admin-wallets-stat-label">With wallet</div>
+                    <div className="admin-wallets-stat-label">{t('stat.withWallet')}</div>
                     <div className="admin-wallets-stat-value">{stats.withWallet}</div>
                 </div>
                 <div className="admin-wallets-stat">
-                    <div className="admin-wallets-stat-label">Combined balance</div>
+                    <div className="admin-wallets-stat-label">{t('stat.combinedBalance')}</div>
                     <div className="admin-wallets-stat-value admin-wallets-stat-value--gold">
                         SAR {formatSar(stats.totalBalance)}
                     </div>
                 </div>
                 <div className="admin-wallets-stat">
-                    <div className="admin-wallets-stat-label">Selected balance</div>
+                    <div className="admin-wallets-stat-label">{t('stat.selectedBalance')}</div>
                     <div className="admin-wallets-stat-value">
-                        {selectedId ? `SAR ${formatSar(balance)}` : '—'}
+                        {selectedId ? `SAR ${formatSar(balance)}` : t('empty.emDash')}
                     </div>
                 </div>
             </div>
@@ -820,22 +842,22 @@ export default function AdminWalletsPage() {
             <div className={`admin-wallets-shell${selectedId ? ' admin-wallets-shell--detail-open' : ''}`}>
                 <aside className="admin-wallets-panel admin-wallets-list-panel">
                     <div className="admin-wallets-panel-head">
-                        <h2 className="admin-wallets-panel-title">Platform admins</h2>
+                        <h2 className="admin-wallets-panel-title">{t('list.title')}</h2>
                         <div className="admin-wallets-search-wrap">
                             <Search size={16} />
                             <input
                                 type="search"
                                 className="admin-wallets-search"
-                                placeholder="Search by name or email…"
+                                placeholder={t('list.searchPlaceholder')}
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
                             />
                         </div>
                         <div className="admin-wallets-filters">
                             {[
-                                { id: FILTER_ALL, label: 'All' },
-                                { id: FILTER_WITH, label: 'With wallet' },
-                                { id: FILTER_WITHOUT, label: 'No wallet' },
+                                { id: FILTER_ALL, label: t('filter.all') },
+                                { id: FILTER_WITH, label: t('filter.withWallet') },
+                                { id: FILTER_WITHOUT, label: t('filter.noWallet') },
                             ].map((f) => (
                                 <button
                                     key={f.id}
@@ -859,8 +881,8 @@ export default function AdminWalletsPage() {
                                 <div className="admin-wallets-empty-icon">
                                     <Users size={28} />
                                 </div>
-                                <h3>No admins found</h3>
-                                <p>Try a different search or filter. Assign wallets from Permissions when creating users.</p>
+                                <h3>{t('list.emptyTitle')}</h3>
+                                <p>{t('list.emptyBody')}</p>
                             </div>
                         ) : (
                             items.map((row) => {
@@ -881,7 +903,7 @@ export default function AdminWalletsPage() {
                                             <div className="admin-wallets-list-email">{row.email}</div>
                                             <div className="admin-wallets-list-meta">
                                                 <span className={`admin-wallets-badge ${row.walletEnabled ? 'admin-wallets-badge--active' : 'admin-wallets-badge--inactive'}`}>
-                                                    {row.walletEnabled ? 'Wallet active' : 'No wallet'}
+                                                    {row.walletEnabled ? t('badge.walletActive') : t('badge.noWallet')}
                                                 </span>
                                                 {row.walletEnabled && (
                                                     <span className="admin-wallets-balance-pill">
@@ -903,8 +925,8 @@ export default function AdminWalletsPage() {
                             <div className="admin-wallets-empty-icon">
                                 <Wallet size={30} />
                             </div>
-                            <h3>Select an admin</h3>
-                            <p>Choose someone from the list to view fund requests, wallet balance, role, and transaction history.</p>
+                            <h3>{t('detail.selectTitle')}</h3>
+                            <p>{t('detail.selectBody')}</p>
                         </div>
                     ) : (
                         <>
@@ -914,13 +936,13 @@ export default function AdminWalletsPage() {
                                         type="button"
                                         className="admin-wallets-back-btn"
                                         onClick={clearSelection}
-                                        aria-label="Back to list"
+                                        aria-label={t('detail.backAria')}
                                     >
                                         <ChevronLeft size={16} />
-                                        <span className="admin-wallets-back-label">Back</span>
+                                        <span className="admin-wallets-back-label">{t('detail.back')}</span>
                                     </button>
                                     <div className="admin-wallets-detail-title-wrap">
-                                        <h3>{displayUser?.name ?? 'Admin wallet'}</h3>
+                                        <h3>{displayUser?.name ?? t('detail.fallbackTitle')}</h3>
                                         <p>{displayUser?.email}</p>
                                     </div>
                                 </div>
@@ -931,7 +953,7 @@ export default function AdminWalletsPage() {
                                         onClick={() => navigate('/admin/chat', { state: { openUserId: selectedId } })}
                                     >
                                         <MessageCircle size={16} />
-                                        Message in chat
+                                        {t('detail.chat')}
                                     </button>
                                 )}
                             </div>
@@ -948,40 +970,40 @@ export default function AdminWalletsPage() {
                                         )}
 
                                         <div className="admin-wallets-balance-card">
-                                            <p className="admin-wallets-balance-label">Available balance</p>
+                                            <p className="admin-wallets-balance-label">{t('detail.balanceLabel')}</p>
                                             <p className="admin-wallets-balance-amount">
                                                 SAR {formatSar(balance)}
                                             </p>
                                             <div className="admin-wallets-balance-foot">
                                                 <Banknote size={16} />
-                                                {hasWallet ? 'Wallet assigned & active' : 'Wallet not assigned to this user'}
+                                                {hasWallet ? t('detail.walletActive') : t('detail.walletInactive')}
                                             </div>
                                         </div>
 
                                         <div className="admin-wallets-info-grid">
                                             <div className="admin-wallets-info-card">
                                                 <div className="admin-wallets-info-label">
-                                                    <User size={13} /> Name
+                                                    <User size={13} /> {t('detail.labelName')}
                                                 </div>
-                                                <div className="admin-wallets-info-value">{displayUser?.name ?? '—'}</div>
+                                                <div className="admin-wallets-info-value">{displayUser?.name ?? t('empty.emDash')}</div>
                                             </div>
                                             <div className="admin-wallets-info-card">
                                                 <div className="admin-wallets-info-label">
-                                                    <Mail size={13} /> Email
+                                                    <Mail size={13} /> {t('detail.labelEmail')}
                                                 </div>
-                                                <div className="admin-wallets-info-value">{displayUser?.email ?? '—'}</div>
+                                                <div className="admin-wallets-info-value">{displayUser?.email ?? t('empty.emDash')}</div>
                                             </div>
                                             <div className="admin-wallets-info-card">
                                                 <div className="admin-wallets-info-label">
-                                                    <Shield size={13} /> Role
+                                                    <Shield size={13} /> {t('detail.labelRole')}
                                                 </div>
                                                 <div className="admin-wallets-info-value">
-                                                    {displayUser?.role?.name ?? '—'}
+                                                    {displayUser?.role?.name ?? t('empty.emDash')}
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <div className="admin-wallets-tabs" role="tablist" aria-label="Wallet records">
+                                        <div className="admin-wallets-tabs" role="tablist" aria-label={t('detail.tabsAria')}>
                                             {detailTabs.map((tab) => {
                                                 const Icon = tab.icon;
                                                 const active = detailTab === tab.id;
@@ -998,7 +1020,7 @@ export default function AdminWalletsPage() {
                                                         <span>{tab.label}</span>
                                                         {tab.badge != null ? (
                                                             <span className="admin-wallets-tab-badge admin-wallets-tab-badge--pending">
-                                                                {tab.badge} pending
+                                                                {t('tab.pending', { n: tab.badge })}
                                                             </span>
                                                         ) : tab.count > 0 ? (
                                                             <span className="admin-wallets-tab-badge">{tab.count}</span>
@@ -1018,18 +1040,21 @@ export default function AdminWalletsPage() {
                                                     actionBusyId={actionBusyId}
                                                     onApprove={setApproveTarget}
                                                     onReject={setRejectTarget}
+                                                    t={t}
                                                 />
                                             )}
                                             {detailTab === TAB_EXPENSES && (
                                                 <ExpensesTable
                                                     rows={expenseRecords}
                                                     loading={txLoading}
+                                                    t={t}
                                                 />
                                             )}
                                             {detailTab === TAB_TRANSACTIONS && (
                                                 <TransactionTable
                                                     rows={transactions}
                                                     loading={txLoading}
+                                                    t={t}
                                                 />
                                             )}
                                         </div>
@@ -1047,6 +1072,7 @@ export default function AdminWalletsPage() {
                     requesterName={detail?.name}
                     busy={actionBusyId === approveTarget.id}
                     error={actionError}
+                    t={t}
                     onCancel={() => {
                         setApproveTarget(null);
                         setActionError('');
@@ -1060,6 +1086,7 @@ export default function AdminWalletsPage() {
                     request={rejectTarget}
                     busy={actionBusyId === rejectTarget.id}
                     error={actionError}
+                    t={t}
                     onCancel={() => {
                         setRejectTarget(null);
                         setActionError('');

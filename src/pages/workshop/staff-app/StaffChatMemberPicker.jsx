@@ -5,15 +5,16 @@ import { listStaffChatMemberCandidates } from '../../../services/staffAppApi';
 import { loadWorkshopEmployeesCombined } from '../../../services/workshopStaffApi';
 import { staffAppQueryParams } from '../../../context/StaffAppScopeContext';
 import StaffChatSuggestionsPortal from './StaffChatSuggestionsPortal';
+import { useStaffAppI18n } from '../../../utils/staffAppI18n';
 
-function toChatMember(emp) {
+function toChatMember(emp, fallbackName) {
     if (!emp || typeof emp !== 'object') return null;
     const userId =
         emp.userId != null && String(emp.userId).trim() !== ''
             ? String(emp.userId)
             : null;
     if (!userId) return null;
-    const name = String(emp.name || emp.full_name || 'Staff').trim();
+    const name = String(emp.name || emp.full_name || fallbackName || 'Staff').trim();
     return {
         userId,
         name,
@@ -23,11 +24,11 @@ function toChatMember(emp) {
     };
 }
 
-function fromApiMember(row) {
+function fromApiMember(row, fallbackName) {
     if (!row?.userId) return null;
     return {
         userId: String(row.userId),
-        name: String(row.name || 'User').trim(),
+        name: String(row.name || fallbackName || 'User').trim(),
         email: row.email ? String(row.email).trim() : '',
         role: row.role ? String(row.role) : '',
         branch: row.branch ? String(row.branch) : '',
@@ -62,6 +63,7 @@ export default function StaffChatMemberPicker({
     disabled = false,
 }) {
     const { user } = useAuth();
+    const { t } = useStaffAppI18n();
     const isGlobalAdmin = ['platform_admin', 'admin', 'super_admin', 'admin_user'].includes(
         String(user?.userType || '').toLowerCase(),
     );
@@ -96,14 +98,14 @@ export default function StaffChatMemberPicker({
                     ),
                 );
                 const list = (Array.isArray(res?.members) ? res.members : [])
-                    .map(fromApiMember)
+                    .map((row) => fromApiMember(row, t('picker.fallbackUser')))
                     .filter(Boolean)
                     .sort((a, b) => a.name.localeCompare(b.name));
                 setCandidates(list);
                 setScopeLabel(
                     res?.scope === 'global'
-                        ? 'global (all workshops + Super Admin users)'
-                        : 'workshop',
+                        ? t('picker.scope.global')
+                        : t('picker.scope.workshop'),
                 );
                 return;
             }
@@ -120,22 +122,22 @@ export default function StaffChatMemberPicker({
             };
             const { employees } = await loadWorkshopEmployeesCombined(params);
             const list = (employees || [])
-                .map(toChatMember)
+                .map((emp) => toChatMember(emp, t('picker.fallbackStaff')))
                 .filter(Boolean)
                 .sort((a, b) => a.name.localeCompare(b.name));
             setCandidates(list);
             setScopeLabel(
                 selectedBranchId && selectedBranchId !== 'all'
-                    ? 'this branch'
-                    : 'this workshop',
+                    ? t('picker.scope.branch')
+                    : t('picker.scope.thisWorkshop'),
             );
         } catch (e) {
             setCandidates([]);
-            setLoadError(e?.message || 'Could not load members.');
+            setLoadError(e?.message || t('picker.errLoad'));
         } finally {
             setLoading(false);
         }
-    }, [isGlobalAdmin, scope, selectedBranchId]);
+    }, [isGlobalAdmin, scope, selectedBranchId, t]);
 
     useEffect(() => {
         loadCandidates();
@@ -252,14 +254,17 @@ export default function StaffChatMemberPicker({
         return () => document.removeEventListener('mousedown', onDocClick);
     }, []);
 
+    const selectedSuffix = safeValue.length > 0
+        ? t('picker.selected', { count: safeValue.length })
+        : '';
+    const scopeSuffix = scopeLabel ? ` (${scopeLabel})` : '';
+
     return (
         <div className="staff-chat-member-picker" ref={wrapRef}>
             <label className="staff-chat-member-picker__label">
-                Members
+                {t('picker.members')}
                 <span className="staff-chat-member-picker__hint">
-                    {isGlobalAdmin
-                        ? 'Super Admin can add any user globally (all workshops + Super Admin team). Type a name and press comma to add.'
-                        : 'Type a name, pick from suggestions, or press comma to add the next member (Gmail-style).'}
+                    {isGlobalAdmin ? t('picker.hintAdmin') : t('picker.hintWorkshop')}
                 </span>
             </label>
             <div
@@ -277,7 +282,7 @@ export default function StaffChatMemberPicker({
                                 e.stopPropagation();
                                 removeMember(m.userId);
                             }}
-                            aria-label={`Remove ${m.name}`}
+                            aria-label={t('picker.remove', { name: m.name })}
                         >
                             <X size={12} />
                         </button>
@@ -294,9 +299,9 @@ export default function StaffChatMemberPicker({
                     placeholder={
                         safeValue.length === 0
                             ? isGlobalAdmin
-                                ? 'Search any user by name…'
-                                : 'Start typing a name…'
-                            : 'Add another member…'
+                                ? t('picker.ph.adminEmpty')
+                                : t('picker.ph.workshopEmpty')
+                            : t('picker.ph.addAnother')
                     }
                     disabled={disabled || loading}
                     autoComplete="off"
@@ -304,7 +309,7 @@ export default function StaffChatMemberPicker({
             </div>
             {loading && (
                 <p className="staff-chat-member-picker__meta">
-                    {isGlobalAdmin ? 'Loading global users…' : 'Loading workshop members…'}
+                    {isGlobalAdmin ? t('picker.loadingGlobal') : t('picker.loadingWorkshop')}
                 </p>
             )}
             {loadError && (
@@ -312,9 +317,12 @@ export default function StaffChatMemberPicker({
             )}
             {!loading && !loadError && (
                 <p className="staff-chat-member-picker__meta">
-                    {candidates.length} {isGlobalAdmin ? 'users' : 'staff'} in scope
-                    {scopeLabel ? ` (${scopeLabel})` : ''}
-                    {safeValue.length > 0 ? ` · ${safeValue.length} selected` : ''}
+                    {t('picker.meta', {
+                        count: candidates.length,
+                        kind: isGlobalAdmin ? t('picker.kind.users') : t('picker.kind.staff'),
+                        scope: scopeSuffix,
+                        selected: selectedSuffix,
+                    })}
                 </p>
             )}
             {open && !disabled && suggestions.length > 0 && (
@@ -342,9 +350,7 @@ export default function StaffChatMemberPicker({
             )}
             {open && !disabled && !loading && query.trim() && suggestions.length === 0 && (
                 <p className="staff-chat-member-picker__meta">
-                    {isGlobalAdmin
-                        ? 'No matching users in the global directory.'
-                        : 'No matching members in this workshop scope.'}
+                    {isGlobalAdmin ? t('picker.noMatchAdmin') : t('picker.noMatchWorkshop')}
                 </p>
             )}
         </div>

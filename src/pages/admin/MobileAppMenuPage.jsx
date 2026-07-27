@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
     CheckCircle2,
     Loader2,
@@ -12,6 +13,7 @@ import {
     getMobileAppMenu,
     updateMobileAppMenu,
 } from '../../services/superAdminApi';
+import { mamT } from '../../utils/mobileAppMenuI18n';
 import '../../styles/admin/MobileAppMenuPage.css';
 
 const EMPTY_CREATE_FORM = {
@@ -21,7 +23,7 @@ const EMPTY_CREATE_FORM = {
     enabled: true,
 };
 
-function ToggleSwitch({ checked, onChange, label }) {
+function ToggleSwitch({ checked, onChange, label, visibleLabel, hiddenLabel }) {
     return (
         <label className="mobile-app-menu-switch-wrap">
             <button
@@ -35,20 +37,20 @@ function ToggleSwitch({ checked, onChange, label }) {
                 <span className="mobile-app-menu-switch-thumb" />
             </button>
             <span className="mobile-app-menu-switch-label">
-                {checked ? 'Visible' : 'Hidden'}
+                {checked ? visibleLabel : hiddenLabel}
             </span>
         </label>
     );
 }
 
-function MobileAppMenuShimmer() {
+function MobileAppMenuShimmer({ loadingLabel }) {
     return (
         <div
             className="mobile-app-menu-shimmer"
             role="status"
             aria-live="polite"
             aria-busy="true"
-            aria-label="Loading mobile app menu"
+            aria-label={loadingLabel}
         >
             <div className="mobile-app-menu-shimmer-summary" />
             <ul className="mobile-app-menu-shimmer-grid">
@@ -75,6 +77,13 @@ function MobileAppMenuShimmer() {
 }
 
 export default function MobileAppMenuPage() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => mamT(locale, key, vars), [locale]);
+
     const [portals, setPortals] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -91,11 +100,11 @@ export default function MobileAppMenuPage() {
             const res = await getMobileAppMenu();
             setPortals(res?.portals ?? []);
         } catch (e) {
-            setError(e?.message || 'Failed to load mobile app menu');
+            setError(e?.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         load();
@@ -118,9 +127,9 @@ export default function MobileAppMenuPage() {
                 portals: portals.map((p) => ({ key: p.key, enabled: p.enabled })),
             });
             setPortals(res?.portals ?? portals);
-            setSuccess('Saved — mobile app will show only enabled portals.');
+            setSuccess(t('ok.saved'));
         } catch (err) {
-            setError(err?.message || 'Failed to save');
+            setError(err?.message || t('err.save'));
         } finally {
             setSaving(false);
         }
@@ -153,9 +162,9 @@ export default function MobileAppMenuPage() {
             setPortals(res?.portals ?? portals);
             setShowCreateModal(false);
             setCreateForm(EMPTY_CREATE_FORM);
-            setSuccess('Portal created successfully.');
+            setSuccess(t('ok.created'));
         } catch (err) {
-            setError(err?.message || 'Failed to create portal');
+            setError(err?.message || t('err.create'));
         } finally {
             setCreating(false);
         }
@@ -167,11 +176,8 @@ export default function MobileAppMenuPage() {
         <div className="mobile-app-menu-page">
             <header className="mobile-app-menu-header">
                 <div>
-                    <h1>Mobile App Menu</h1>
-                    <p>
-                        Control which portals appear on the Flutter app home screen
-                        (ALL Apps). Only toggled-on portals are visible to users.
-                    </p>
+                    <h1>{t('page.title')}</h1>
+                    <p>{t('page.subtitle')}</p>
                 </div>
                 <button
                     type="button"
@@ -180,19 +186,22 @@ export default function MobileAppMenuPage() {
                     disabled={loading}
                 >
                     <Plus size={18} />
-                    Create Portal
+                    {t('btn.create')}
                 </button>
             </header>
 
             <div className="mobile-app-menu-card">
                 {loading ? (
-                    <MobileAppMenuShimmer />
+                    <MobileAppMenuShimmer loadingLabel={t('loading.aria')} />
                 ) : (
                     <form onSubmit={handleSave} className="mobile-app-menu-form">
                         <div className="mobile-app-menu-summary">
                             <Smartphone size={20} />
                             <span>
-                                {enabledCount} of {portals.length} portal(s) visible in the app
+                                {t('summary.visible', {
+                                    enabled: enabledCount,
+                                    total: portals.length,
+                                })}
                             </span>
                         </div>
 
@@ -206,13 +215,17 @@ export default function MobileAppMenuPage() {
                                         )}
                                         <code>{portal.key}</code>
                                         {portal.isBuiltIn && (
-                                            <span className="mobile-app-menu-badge">Built-in</span>
+                                            <span className="mobile-app-menu-badge">
+                                                {t('badge.builtIn')}
+                                            </span>
                                         )}
                                     </div>
                                     <ToggleSwitch
                                         checked={portal.enabled === true}
                                         onChange={() => togglePortal(portal.key)}
-                                        label={`Toggle ${portal.titleEn}`}
+                                        label={t('toggle.aria', { title: portal.titleEn })}
+                                        visibleLabel={t('toggle.visible')}
+                                        hiddenLabel={t('toggle.hidden')}
                                     />
                                 </li>
                             ))}
@@ -239,7 +252,7 @@ export default function MobileAppMenuPage() {
                                 ) : (
                                     <Save size={18} />
                                 )}
-                                Save menu
+                                {t('btn.save')}
                             </button>
                         </div>
                     </form>
@@ -260,12 +273,12 @@ export default function MobileAppMenuPage() {
                         aria-labelledby="create-portal-title"
                     >
                         <div className="mobile-app-menu-modal-header">
-                            <h2 id="create-portal-title">Create Portal</h2>
+                            <h2 id="create-portal-title">{t('modal.title')}</h2>
                             <button
                                 type="button"
                                 className="mobile-app-menu-modal-close"
                                 onClick={closeCreateModal}
-                                aria-label="Close"
+                                aria-label={t('modal.close')}
                             >
                                 <X size={20} />
                             </button>
@@ -273,7 +286,7 @@ export default function MobileAppMenuPage() {
 
                         <form onSubmit={handleCreate} className="mobile-app-menu-modal-form">
                             <label className="mobile-app-menu-field">
-                                <span>Key (slug)</span>
+                                <span>{t('label.key')}</span>
                                 <input
                                     type="text"
                                     value={createForm.key}
@@ -283,28 +296,28 @@ export default function MobileAppMenuPage() {
                                             key: e.target.value.toLowerCase().replace(/\s+/g, '_'),
                                         }))
                                     }
-                                    placeholder="e.g. corporate_portal"
+                                    placeholder={t('ph.key')}
                                     required
                                     pattern="[a-z][a-z0-9_]*"
-                                    title="Lowercase letters, numbers, and underscores only"
+                                    title={t('key.patternTitle')}
                                 />
                             </label>
 
                             <label className="mobile-app-menu-field">
-                                <span>Title (English)</span>
+                                <span>{t('label.titleEn')}</span>
                                 <input
                                     type="text"
                                     value={createForm.titleEn}
                                     onChange={(e) =>
                                         setCreateForm((f) => ({ ...f, titleEn: e.target.value }))
                                     }
-                                    placeholder="Corporate Portal"
+                                    placeholder={t('ph.titleEn')}
                                     required
                                 />
                             </label>
 
                             <label className="mobile-app-menu-field">
-                                <span>Title (Arabic)</span>
+                                <span>{t('label.titleAr')}</span>
                                 <input
                                     type="text"
                                     dir="rtl"
@@ -312,18 +325,20 @@ export default function MobileAppMenuPage() {
                                     onChange={(e) =>
                                         setCreateForm((f) => ({ ...f, titleAr: e.target.value }))
                                     }
-                                    placeholder="بوابة الشركات"
+                                    placeholder={t('ph.titleAr')}
                                 />
                             </label>
 
                             <div className="mobile-app-menu-modal-toggle-row">
-                                <span>Show in mobile app</span>
+                                <span>{t('label.showInApp')}</span>
                                 <ToggleSwitch
                                     checked={createForm.enabled}
                                     onChange={(enabled) =>
                                         setCreateForm((f) => ({ ...f, enabled }))
                                     }
-                                    label="Show in mobile app"
+                                    label={t('label.showInApp')}
+                                    visibleLabel={t('toggle.visible')}
+                                    hiddenLabel={t('toggle.hidden')}
                                 />
                             </div>
 
@@ -338,7 +353,7 @@ export default function MobileAppMenuPage() {
                                     onClick={closeCreateModal}
                                     disabled={creating}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button
                                     type="submit"
@@ -350,7 +365,7 @@ export default function MobileAppMenuPage() {
                                     ) : (
                                         <Plus size={18} />
                                     )}
-                                    Create
+                                    {t('btn.createSubmit')}
                                 </button>
                             </div>
                         </form>

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search, Loader2, AlertCircle } from 'lucide-react';
+import { promoT } from '../../utils/promoCodesI18n';
 
 const statusOptions = ['Pending Approval', 'Active', 'Inactive', 'Rejected'];
 
@@ -77,28 +78,30 @@ const normalizeOption = (item, fallbackPrefix) => {
   };
 };
 
-const formatPromoWorkshopScope = (item) => {
+const formatPromoWorkshopScope = (item, locale = 'en') => {
   const ids = Array.isArray(item?.workshopIds)
     ? item.workshopIds
     : Array.isArray(item?.workshop_ids)
       ? item.workshop_ids
       : [];
   if (item?.appliesToAllWorkshops || item?.applies_to_all_workshops) {
-    return 'All workshops';
+    return promoT(locale, 'label.allWorkshops');
   }
   if (Array.isArray(item?.applicableWorkshops) && item.applicableWorkshops.length > 0) {
     const names = item.applicableWorkshops
       .map((row) => row?.name)
       .filter(Boolean);
     if (names.length === 1) return names[0];
-    if (names.length > 1) return `${names.length} workshops`;
+    if (names.length > 1) {
+      return promoT(locale, 'label.nWorkshops', { n: names.length });
+    }
   }
-  if (ids.length === 0) return 'All workshops';
-  if (ids.length === 1) return '1 workshop';
-  return `${ids.length} workshops`;
+  if (ids.length === 0) return promoT(locale, 'label.allWorkshops');
+  if (ids.length === 1) return promoT(locale, 'label.oneWorkshop');
+  return promoT(locale, 'label.nWorkshops', { n: ids.length });
 };
 
-const formatPromoBranchScope = (item) => {
+const formatPromoBranchScope = (item, locale = 'en') => {
   const branchIds = Array.isArray(item?.branchIds)
     ? item.branchIds
     : Array.isArray(item?.branch_ids)
@@ -109,15 +112,15 @@ const formatPromoBranchScope = (item) => {
           ? item.applicableBranches
           : [];
   if (item?.appliesToAllBranches || branchIds.length === 0) {
-    return item?.branchScope || 'All branches';
+    return item?.branchScope || promoT(locale, 'label.allBranches');
   }
   if (typeof item?.branchScope === 'string' && item.branchScope.trim()) {
     return item.branchScope;
   }
-  return `${branchIds.length} branches`;
+  return promoT(locale, 'label.nBranches', { n: branchIds.length });
 };
 
-const normalizePromoCode = (item) => {
+const normalizePromoCode = (item, locale = 'en') => {
   const statusRaw = String(
     item?.status || (item?.isActive === false ? 'inactive' : 'active')
   ).toLowerCase();
@@ -171,26 +174,27 @@ const normalizePromoCode = (item) => {
     remainingUsage: item?.remainingUsage ?? item?.remaining_usage ?? null,
     workshopIds: item?.workshopIds ?? item?.workshop_ids ?? [],
     branchIds: item?.branchIds ?? item?.branch_ids ?? [],
-    workshopScope: formatPromoWorkshopScope(item),
-    branchScopeLabel: formatPromoBranchScope(item),
+    workshopScope: formatPromoWorkshopScope(item, locale),
+    branchScopeLabel: formatPromoBranchScope(item, locale),
   };
 };
 
-const formatPromoCodeSar = (value) => {
+const formatPromoCodeSar = (value, locale = 'en') => {
   const amount = Number(value ?? 0);
-  if (!Number.isFinite(amount)) return '0 SAR';
-  return `${amount.toLocaleString(undefined, {
+  const safe = Number.isFinite(amount) ? amount : 0;
+  const formatted = safe.toLocaleString(locale === 'ar' ? 'ar-SA' : undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
-  })} SAR`;
+  });
+  return promoT(locale, 'money.sar', { amount: formatted });
 };
 
-const formatPromoCodeUsageLabel = (item) => {
+const formatPromoCodeUsageLabel = (item, locale = 'en') => {
   const used = Number(item?.currentUsage ?? 0);
   const max = Number(item?.maxUsage ?? 0);
 
-  if (max > 0) return `${used} / ${max}`;
-  return `${used} (unlimited)`;
+  if (max > 0) return promoT(locale, 'usage.limited', { used, max });
+  return promoT(locale, 'usage.unlimited', { used });
 };
 
 const canTogglePromoCodeActivation = (item) => {
@@ -203,27 +207,27 @@ const canTogglePromoCodeActivation = (item) => {
   return !blocked.includes(status);
 };
 
-const activationToggleHint = (item) => {
+const activationToggleHint = (item, locale = 'en') => {
   const status = String(item?.status || '')
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '_');
 
   if (status === 'pending_approval' || status === 'pending') {
-    return 'Waiting for Super Admin approval before POS use.';
+    return promoT(locale, 'activation.hint.pending');
   }
 
   if (status === 'rejected') {
-    return 'Rejected promo codes cannot be activated.';
+    return promoT(locale, 'activation.hint.rejected');
   }
 
   if (status === 'expired') {
-    return 'Expired promo codes cannot be activated.';
+    return promoT(locale, 'activation.hint.expired');
   }
 
   return item?.isActive
-    ? 'Available on POS when customers apply this code.'
-    : 'Disabled — will not apply on POS invoices.';
+    ? promoT(locale, 'activation.hint.active')
+    : promoT(locale, 'activation.hint.inactive');
 };
 
 const isPromoCodeLiveOnPos = (item) =>
@@ -241,12 +245,12 @@ const mapDiscountTypeToBackend = (value) => {
   return 'percentage';
 };
 
-const mapDiscountTypeToUi = (value) => {
+const mapDiscountTypeToUi = (value, locale = 'en') => {
   const raw = String(value || '').toLowerCase();
 
-  if (raw.includes('fixed')) return 'Fixed Amount (SAR)';
+  if (raw.includes('fixed')) return promoT(locale, 'discount.fixed');
 
-  return 'Percentage (%)';
+  return promoT(locale, 'discount.percentage');
 };
 
 const mapStatusToIsActive = (value) => {

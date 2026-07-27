@@ -9,14 +9,14 @@ import {
 import { listCoaAccounts } from '../../../services/workshopAccountingApi';
 import { staffAppQueryParams } from '../../../context/StaffAppScopeContext';
 import StaffChatMemberPicker from './StaffChatMemberPicker';
+import { CHAT_PURPOSE_KEYS, useStaffAppI18n } from '../../../utils/staffAppI18n';
 
-export const CHAT_PURPOSE_OPTIONS = [
-    { value: 'general', label: 'General' },
-    { value: 'operations', label: 'Operations' },
-    { value: 'financial', label: 'Financial (COA linked)' },
-    { value: 'hr', label: 'HR' },
-    { value: 'approvals', label: 'Approvals & requests' },
-];
+/** @deprecated Prefer CHAT_PURPOSE_KEYS + staffAppT; kept for callers expecting {value,label}. */
+export const CHAT_PURPOSE_OPTIONS = CHAT_PURPOSE_KEYS.map((o) => ({
+    value: o.value,
+    label: o.value,
+    labelKey: o.labelKey,
+}));
 
 export default function StaffAppGroupSettings({
     channelId,
@@ -25,6 +25,7 @@ export default function StaffAppGroupSettings({
     onUpdated,
     onClose,
 }) {
+    const { t } = useStaffAppI18n();
     const [channel, setChannel] = useState(null);
     const [members, setMembers] = useState([]);
     const [blocked, setBlocked] = useState([]);
@@ -53,11 +54,11 @@ export default function StaffAppGroupSettings({
                 coaRes?.accounts ?? coaRes?.items ?? coaRes?.data ?? [];
             setCoaAccounts(Array.isArray(coaList) ? coaList : []);
         } catch (e) {
-            setError(e?.message || 'Could not load group settings.');
+            setError(e?.message || t('group.errLoad'));
         } finally {
             setLoading(false);
         }
-    }, [channelId, scopeParams]);
+    }, [channelId, scopeParams, t]);
 
     useEffect(() => {
         load();
@@ -80,7 +81,7 @@ export default function StaffAppGroupSettings({
             );
             onUpdated?.();
         } catch (e) {
-            setError(e?.message || 'Save failed.');
+            setError(e?.message || t('group.errSave'));
         } finally {
             setSaving(false);
         }
@@ -90,7 +91,7 @@ export default function StaffAppGroupSettings({
         if (!channel) return;
         const next = channel.type === 'Public' ? 'Private' : 'Public';
         if (next === 'Private' && members.length === 0 && addMembers.length === 0) {
-            setError('Add at least one member before making the group Private.');
+            setError(t('group.errPrivateMembers'));
             return;
         }
         setSaving(true);
@@ -104,7 +105,7 @@ export default function StaffAppGroupSettings({
             setChannel(res?.channel ?? channel);
             onUpdated?.();
         } catch (e) {
-            setError(e?.message || 'Could not change group privacy.');
+            setError(e?.message || t('group.errPrivacy'));
         } finally {
             setSaving(false);
         }
@@ -123,7 +124,7 @@ export default function StaffAppGroupSettings({
             await load();
             onUpdated?.();
         } catch (e) {
-            setError(e?.message || 'Member action failed.');
+            setError(e?.message || t('group.errMember'));
         } finally {
             setSaving(false);
         }
@@ -138,32 +139,35 @@ export default function StaffAppGroupSettings({
         setAddMembers([]);
     };
 
+    const typeLabel = (type) =>
+        type === 'Private' ? t('group.type.private') : t('group.type.public');
+
     if (!channelId) return null;
 
     return (
         <div className="staff-app-table-wrap staff-app-table-wrap--dropdown-host staff-chat-group-settings">
             <div className="staff-chat-group-settings__header">
                 <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Settings size={18} /> Group settings
+                    <Settings size={18} /> {t('group.title')}
                 </h3>
                 <button type="button" className="staff-app-btn" onClick={onClose}>
-                    Close
+                    {t('common.close')}
                 </button>
             </div>
 
             {loading ? (
-                <p className="staff-app-empty">Loading…</p>
+                <p className="staff-app-empty">{t('common.loading')}</p>
             ) : !channel ? (
-                <p className="staff-app-empty">Group not found.</p>
+                <p className="staff-app-empty">{t('group.notFound')}</p>
             ) : (
                 <div className="staff-chat-group-settings__body">
                     {error && <p className="staff-chat-group-settings__error">{error}</p>}
 
                     <div className="staff-chat-group-settings__row">
                         <label>
-                            Privacy
+                            {t('group.privacy')}
                             <span className="staff-chat-group-settings__hint">
-                                Current: <strong>{channel.type}</strong>
+                                {t('group.current', { type: typeLabel(channel.type) })}
                             </span>
                         </label>
                         <button
@@ -172,12 +176,14 @@ export default function StaffAppGroupSettings({
                             onClick={toggleType}
                             disabled={saving}
                         >
-                            Switch to {channel.type === 'Public' ? 'Private' : 'Public'}
+                            {t('group.switchTo', {
+                                type: channel.type === 'Public' ? t('group.type.private') : t('group.type.public'),
+                            })}
                         </button>
                     </div>
 
                     <div className="staff-chat-group-settings__row">
-                        <label htmlFor="chat-purpose">Purpose</label>
+                        <label htmlFor="chat-purpose">{t('group.purpose')}</label>
                         <select
                             id="chat-purpose"
                             className="staff-app-btn"
@@ -191,9 +197,9 @@ export default function StaffAppGroupSettings({
                                 }))
                             }
                         >
-                            {CHAT_PURPOSE_OPTIONS.map((o) => (
+                            {CHAT_PURPOSE_KEYS.map((o) => (
                                 <option key={o.value} value={o.value}>
-                                    {o.label}
+                                    {t(o.labelKey)}
                                 </option>
                             ))}
                         </select>
@@ -201,7 +207,7 @@ export default function StaffAppGroupSettings({
 
                     {channel.purpose === 'financial' && (
                         <div className="staff-chat-group-settings__row">
-                            <label htmlFor="chat-coa">Chart of Accounts (COA)</label>
+                            <label htmlFor="chat-coa">{t('group.coa')}</label>
                             <select
                                 id="chat-coa"
                                 className="staff-app-btn"
@@ -213,7 +219,7 @@ export default function StaffAppGroupSettings({
                                     }))
                                 }
                             >
-                                <option value="">Select COA account…</option>
+                                <option value="">{t('group.selectCoa')}</option>
                                 {coaAccounts.map((a) => {
                                     const id = String(a.id ?? a.accountId ?? '');
                                     const code = a.code ?? a.accountCode ?? '';
@@ -234,12 +240,12 @@ export default function StaffAppGroupSettings({
                         onClick={saveSettings}
                         disabled={saving}
                     >
-                        Save purpose & COA
+                        {t('group.savePurpose')}
                     </button>
 
                     <hr className="staff-chat-group-settings__divider" />
 
-                    <h4 style={{ margin: '0 0 8px' }}>Members ({members.length})</h4>
+                    <h4 style={{ margin: '0 0 8px' }}>{t('group.members', { count: members.length })}</h4>
                     <ul className="staff-chat-group-settings__member-list">
                         {members.map((m) => (
                             <li key={m.userId}>
@@ -251,7 +257,7 @@ export default function StaffAppGroupSettings({
                                     <button
                                         type="button"
                                         className="staff-app-btn"
-                                        title="Remove from group"
+                                        title={t('group.removeMember')}
                                         onClick={() => memberAction('remove', [m.userId])}
                                         disabled={saving}
                                     >
@@ -260,7 +266,7 @@ export default function StaffAppGroupSettings({
                                     <button
                                         type="button"
                                         className="staff-app-btn"
-                                        title="Block member"
+                                        title={t('group.blockMember')}
                                         onClick={() => memberAction('block', [m.userId])}
                                         disabled={saving}
                                     >
@@ -273,13 +279,13 @@ export default function StaffAppGroupSettings({
 
                     {blocked.length > 0 && (
                         <>
-                            <h4 style={{ margin: '16px 0 8px' }}>Blocked ({blocked.length})</h4>
+                            <h4 style={{ margin: '16px 0 8px' }}>{t('group.blocked', { count: blocked.length })}</h4>
                             <ul className="staff-chat-group-settings__member-list is-blocked">
                                 {blocked.map((m) => (
                                     <li key={m.userId}>
                                         <span>
                                             <strong>{m.name}</strong>
-                                            <small>Blocked</small>
+                                            <small>{t('group.blockedLabel')}</small>
                                         </span>
                                         <button
                                             type="button"
@@ -287,7 +293,7 @@ export default function StaffAppGroupSettings({
                                             onClick={() => memberAction('unblock', [m.userId])}
                                             disabled={saving}
                                         >
-                                            Unblock
+                                            {t('group.unblock')}
                                         </button>
                                     </li>
                                 ))}
@@ -296,7 +302,7 @@ export default function StaffAppGroupSettings({
                     )}
 
                     <h4 style={{ margin: '16px 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <UserPlus size={16} /> Add members
+                        <UserPlus size={16} /> {t('group.addMembers')}
                     </h4>
                     <StaffChatMemberPicker
                         scope={scope}
@@ -312,7 +318,7 @@ export default function StaffAppGroupSettings({
                         onClick={handleAddMembers}
                         disabled={saving || addMembers.length === 0}
                     >
-                        Add selected members
+                        {t('group.addSelected')}
                     </button>
                 </div>
             )}

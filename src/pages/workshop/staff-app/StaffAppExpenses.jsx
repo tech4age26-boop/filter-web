@@ -7,24 +7,26 @@ import {
 } from '../../../services/employeeExpenseApi';
 import { branchScopeParams } from '../../../services/workshopStaffApi';
 import { useStaffAppScope, staffAppQueryParams } from '../../../context/StaffAppScopeContext';
+import { staffAppStatusLabel, useStaffAppI18n } from '../../../utils/staffAppI18n';
 
-const fmt = (n) => {
+const fmt = (n, locale) => {
     const x = Number(n);
     if (!Number.isFinite(x)) return '0.00';
-    return x.toLocaleString('en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return x.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-function statusBadge(status) {
+function StatusBadge({ status, locale }) {
     const s = String(status || '').toLowerCase();
     let cls = 'staff-app-badge--draft';
     if (s === 'approved') cls = 'staff-app-badge--approved';
     if (s === 'rejected') cls = 'staff-app-badge--rejected';
     if (s === 'pending') cls = 'staff-app-badge--pending';
-    return <span className={`staff-app-badge ${cls}`}>{status || '—'}</span>;
+    return <span className={`staff-app-badge ${cls}`}>{staffAppStatusLabel(locale, status)}</span>;
 }
 
 export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
     const scope = useStaffAppScope();
+    const { locale, t } = useStaffAppI18n();
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -40,12 +42,12 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
             );
             setRows(res?.items ?? res?.data?.items ?? []);
         } catch (e) {
-            setError(e?.message || 'Could not load expenses.');
+            setError(e?.message || t('expenses.errLoad'));
             setRows([]);
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId, scope]);
+    }, [selectedBranchId, scope, t]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -61,14 +63,14 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
             await load();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (e) {
-            setError(e?.message || 'Approve failed.');
+            setError(e?.message || t('expenses.errApprove'));
         } finally {
             setActionId(null);
         }
     };
 
     const handleReject = async (id) => {
-        const reason = window.prompt('Rejection reason:');
+        const reason = window.prompt(t('expenses.promptReject'));
         if (!reason?.trim()) return;
         setActionId(id);
         try {
@@ -76,7 +78,7 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
             await load();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (e) {
-            setError(e?.message || 'Reject failed.');
+            setError(e?.message || t('expenses.errReject'));
         } finally {
             setActionId(null);
         }
@@ -85,16 +87,16 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
     return (
         <div>
             <div className="staff-app-toolbar">
-                <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>Expenses</h2>
+                <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>{t('expenses.title')}</h2>
                 <select
                     className="staff-app-btn"
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                 >
-                    <option value="all">All statuses</option>
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                    <option value="rejected">Rejected</option>
+                    <option value="all">{t('expenses.allStatuses')}</option>
+                    <option value="pending">{t('status.pending')}</option>
+                    <option value="approved">{t('status.approved')}</option>
+                    <option value="rejected">{t('status.rejected')}</option>
                 </select>
                 <button type="button" className="staff-app-btn" onClick={load} disabled={loading}>
                     <RefreshCw size={14} />
@@ -103,29 +105,29 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
             {error && <p style={{ color: '#b91c1c', marginBottom: 8 }}>{error}</p>}
             <div className="staff-app-table-wrap">
                 {loading ? (
-                    <p className="staff-app-empty">Loading…</p>
+                    <p className="staff-app-empty">{t('common.loading')}</p>
                 ) : filtered.length === 0 ? (
-                    <p className="staff-app-empty">No expense requests.</p>
+                    <p className="staff-app-empty">{t('expenses.empty')}</p>
                 ) : (
                     <table className="staff-app-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Employee</th>
-                                <th>Category</th>
-                                <th>Amount (SAR)</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th>{t('expenses.th.date')}</th>
+                                <th>{t('expenses.th.employee')}</th>
+                                <th>{t('expenses.th.category')}</th>
+                                <th>{t('expenses.th.amount')}</th>
+                                <th>{t('expenses.th.status')}</th>
+                                <th>{t('expenses.th.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {filtered.map((row) => (
                                 <tr key={row.id}>
-                                    <td>{row.expenseDate || row.createdAt?.slice?.(0, 10) || '—'}</td>
-                                    <td>{row.requestedByName || row.requestedByUserId || '—'}</td>
-                                    <td>{row.categoryName || row.category?.name || '—'}</td>
-                                    <td>{fmt(row.totalAmount ?? row.amount)}</td>
-                                    <td>{statusBadge(row.status)}</td>
+                                    <td>{row.expenseDate || row.createdAt?.slice?.(0, 10) || t('common.emdash')}</td>
+                                    <td>{row.requestedByName || row.requestedByUserId || t('common.emdash')}</td>
+                                    <td>{row.categoryName || row.category?.name || t('common.emdash')}</td>
+                                    <td>{fmt(row.totalAmount ?? row.amount, locale)}</td>
+                                    <td><StatusBadge status={row.status} locale={locale} /></td>
                                     <td>
                                         {String(row.status).toLowerCase() === 'pending' && (
                                             <>
@@ -136,7 +138,7 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
                                                     disabled={actionId === row.id}
                                                     onClick={() => handleApprove(row.id)}
                                                 >
-                                                    Approve
+                                                    {t('common.approve')}
                                                 </button>
                                                 <button
                                                     type="button"
@@ -144,7 +146,7 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
                                                     disabled={actionId === row.id}
                                                     onClick={() => handleReject(row.id)}
                                                 >
-                                                    Reject
+                                                    {t('common.reject')}
                                                 </button>
                                             </>
                                         )}

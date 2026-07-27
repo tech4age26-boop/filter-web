@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import {
   Plus,
   Search,
@@ -19,6 +19,7 @@ import {
   marketingListPromoCodes,
   marketingSetPromoCodeActivation,
 } from '../../services/superAdminMarketingApi';
+import { promoStatusLabel, promoT } from '../../utils/promoCodesI18n';
 import { marketingSectionPath } from './marketingRouteUtils';
 import {
   activationToggleHint,
@@ -32,24 +33,34 @@ import {
 } from './promoCodeShared';
 import './MarketingUniversal.css';
 
-function formatEndDate(validUntil) {
-  if (!validUntil) return 'No end date';
+function formatEndDate(validUntil, locale = 'en') {
+  if (!validUntil) return promoT(locale, 'date.noEnd');
   const date = new Date(validUntil);
-  if (Number.isNaN(date.getTime())) return 'No end date';
+  if (Number.isNaN(date.getTime())) return promoT(locale, 'date.noEnd');
 
   const diffMs = date.getTime() - Date.now();
   const diffDays = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
 
-  return `Ends ${date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: '2-digit',
-    year: '2-digit',
-  })} (${diffDays}d)`;
+  return promoT(locale, 'date.ends', {
+    date: date.toLocaleDateString(locale === 'ar' ? 'ar-SA' : 'en-US', {
+      month: 'short',
+      day: '2-digit',
+      year: '2-digit',
+    }),
+    days: diffDays,
+  });
 }
 
 export const PromoCodes = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => promoT(locale, key, vars), [locale]);
   const listPath = marketingSectionPath(location.pathname, 'promo-codes');
 
   const [codes, setCodes] = useState([]);
@@ -75,9 +86,13 @@ export const PromoCodes = () => {
       setLoadingCodes(true);
       setPageError('');
       const data = await marketingListPromoCodes({ limit: 200, offset: 0, status: 'all' });
-      setCodes(safeArray(data, ['promoCodes', 'items', 'data']).map(normalizePromoCode));
+      setCodes(
+        safeArray(data, ['promoCodes', 'items', 'data']).map((item) =>
+          normalizePromoCode(item, locale)
+        )
+      );
     } catch (error) {
-      setPageError(error?.message || 'Could not load promo codes.');
+      setPageError(error?.message || t('err.load'));
       setCodes([]);
     } finally {
       setLoadingCodes(false);
@@ -93,7 +108,7 @@ export const PromoCodes = () => {
 
   useEffect(() => {
     loadCodes();
-  }, []);
+  }, [locale]);
 
   const openNewPage = () => navigate(`${listPath}/new`);
   const openEditPage = (id) => navigate(`${listPath}/${id}/edit`);
@@ -104,20 +119,20 @@ export const PromoCodes = () => {
   const handleCopy = async (value) => {
     try {
       await navigator.clipboard.writeText(value);
-      setSuccessMessage(`Code "${value}" copied.`);
+      setSuccessMessage(t('msg.copied', { value }));
     } catch {
-      alert('Could not copy code');
+      alert(t('err.copy'));
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this promo code?')) return;
+    if (!window.confirm(t('confirm.delete'))) return;
     try {
       await marketingDeletePromoCode(id);
       await loadCodes();
-      setSuccessMessage('Promo code delete ho gaya.');
+      setSuccessMessage(t('msg.deleted'));
     } catch (error) {
-      alert(error?.message || 'Could not delete promo code.');
+      alert(error?.message || t('err.delete'));
     }
   };
 
@@ -135,7 +150,7 @@ export const PromoCodes = () => {
         response?.promoCode || response?.data || response?.item || response;
 
       if (updated && updated.id) {
-        const normalized = normalizePromoCode(updated);
+        const normalized = normalizePromoCode(updated, locale);
         setCodes((prev) =>
           prev.map((row) => (row.id === normalized.id ? normalized : row))
         );
@@ -144,12 +159,10 @@ export const PromoCodes = () => {
       }
 
       setSuccessMessage(
-        nextActive
-          ? 'Promo code is active and available on POS.'
-          : 'Promo code is inactive and will not apply on POS.'
+        nextActive ? t('msg.activated') : t('msg.deactivated')
       );
     } catch (error) {
-      alert(error?.message || 'Could not update promo code activation.');
+      alert(error?.message || t('err.activation'));
     } finally {
       setTogglingActivationId(null);
     }
@@ -159,15 +172,13 @@ export const PromoCodes = () => {
     <div className="mk-page mk-code-page mkp-page">
       <div className="mk-code-header">
         <div>
-          <h1 className="mk-code-title">Promo Codes</h1>
-          <p className="mk-code-subtitle">
-            Generate and validate promo codes — codes appear on POS and invoices
-          </p>
+          <h1 className="mk-code-title">{t('page.title')}</h1>
+          <p className="mk-code-subtitle">{t('page.subtitle')}</p>
         </div>
 
         <button type="button" onClick={openNewPage} className="mk-code-new-btn">
           <Plus size={15} strokeWidth={2.5} />
-          Generate Code
+          {t('btn.generate')}
         </button>
       </div>
 
@@ -191,7 +202,7 @@ export const PromoCodes = () => {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by code or promotion..."
+            placeholder={t('search.placeholder')}
           />
         </label>
       </div>
@@ -200,12 +211,12 @@ export const PromoCodes = () => {
         {loadingCodes ? (
           <div className="mk-code-empty-state">
             <Loader2 size={34} className="mk-code-spin" />
-            <div>Loading promo codes...</div>
+            <div>{t('empty.loading')}</div>
           </div>
         ) : filteredCodes.length === 0 ? (
           <div className="mk-code-empty-state">
             <Tag size={41} strokeWidth={1.8} />
-            <div>No promo codes yet</div>
+            <div>{t('empty.none')}</div>
           </div>
         ) : (
           <div className="mkp-card-list mk-code-card-list">
@@ -233,13 +244,14 @@ export const PromoCodes = () => {
                   <div className="mkp-card-body">
                     <div className="mkp-card-title">{item.code}</div>
                     <div className="mkp-card-sub">
-                      {item.promotion || 'Standalone code'} •{' '}
-                      {mapDiscountTypeToUi(item.discountType)} • Value:{' '}
+                      {item.promotion || t('label.standalone')} •{' '}
+                      {mapDiscountTypeToUi(item.discountType, locale)} •{' '}
+                      {t('label.value')}{' '}
                       {item.discountValue ?? '-'}
                     </div>
                     <div className="mkp-card-sub" style={{ marginTop: 4 }}>
-                      {item.workshopScope || 'All workshops'} •{' '}
-                      {item.branchScopeLabel || 'All branches'}
+                      {item.workshopScope || t('label.allWorkshops')} •{' '}
+                      {item.branchScopeLabel || t('label.allBranches')}
                     </div>
                   </div>
 
@@ -249,7 +261,7 @@ export const PromoCodes = () => {
                         .toLowerCase()
                         .replace(/\s+/g, '-')}`}
                     >
-                      {item.status}
+                      {promoStatusLabel(locale, item.status)}
                     </span>
                   </div>
                 </div>
@@ -261,35 +273,37 @@ export const PromoCodes = () => {
                     onClick={() => openAutoReportPage(item.id)}
                   >
                     <FileBarChart size={14} />
-                    Auto Report
+                    {t('btn.autoReport')}
                   </button>
                 </div>
 
                 <div className="mkp-card-date">
                   <Clock3 size={13} />
-                  {formatEndDate(item.validUntil)}
+                  {formatEndDate(item.validUntil, locale)}
                 </div>
 
                 <div className="mkp-card-stats">
                   <div className="mkp-card-stat">
-                    <span className="mkp-card-stat-label">Usage</span>
-                    <strong>{formatPromoCodeUsageLabel(item)}</strong>
+                    <span className="mkp-card-stat-label">{t('stat.usage')}</span>
+                    <strong>{formatPromoCodeUsageLabel(item, locale)}</strong>
                   </div>
                   <div className="mkp-card-stat">
-                    <span className="mkp-card-stat-label">Discount given</span>
-                    <strong>{formatPromoCodeSar(item.totalDiscountProvided)}</strong>
+                    <span className="mkp-card-stat-label">{t('stat.discountGiven')}</span>
+                    <strong>{formatPromoCodeSar(item.totalDiscountProvided, locale)}</strong>
                   </div>
                   <div className="mkp-card-stat">
-                    <span className="mkp-card-stat-label">Revenue</span>
-                    <strong>{formatPromoCodeSar(item.totalRevenue)}</strong>
+                    <span className="mkp-card-stat-label">{t('stat.revenue')}</span>
+                    <strong>{formatPromoCodeSar(item.totalRevenue, locale)}</strong>
                   </div>
                 </div>
 
                 <div className="mkp-card-activation">
                   <div className="mkp-card-activation-label">
-                    <span className="mkp-card-activation-title">POS status</span>
+                    <span className="mkp-card-activation-title">
+                      {t('activation.posStatus')}
+                    </span>
                     <span className="mkp-card-activation-hint">
-                      {activationToggleHint(item)}
+                      {activationToggleHint(item, locale)}
                     </span>
                   </div>
 
@@ -304,7 +318,7 @@ export const PromoCodes = () => {
                       togglingActivationId === item.id
                     }
                     aria-pressed={item.isActive}
-                    title={activationToggleHint(item)}
+                    title={activationToggleHint(item, locale)}
                   >
                     {togglingActivationId === item.id ? (
                       <Loader2 size={14} className="mkp-spin" />
@@ -313,29 +327,31 @@ export const PromoCodes = () => {
                         <span />
                       </span>
                     )}
-                    <span>{item.isActive ? 'Active' : 'Inactive'}</span>
+                    <span>
+                      {item.isActive ? t('status.active') : t('status.inactive')}
+                    </span>
                   </button>
                 </div>
 
                 <div className="mkp-card-footer">
                   <button type="button" onClick={() => openDetailsPage(item.id)}>
                     <Eye size={14} />
-                    View
+                    {t('btn.view')}
                   </button>
 
                   <button type="button" onClick={() => openViewPage(item.id)}>
                     <FileBarChart size={14} />
-                    Report
+                    {t('btn.report')}
                   </button>
 
                   <button type="button" onClick={() => openEditPage(item.id)}>
                     <Edit3 size={14} />
-                    Edit
+                    {t('btn.edit')}
                   </button>
 
                   <button type="button" onClick={() => handleCopy(item.code)}>
                     <Copy size={14} />
-                    Copy
+                    {t('btn.copy')}
                   </button>
 
                   <button
@@ -344,7 +360,7 @@ export const PromoCodes = () => {
                     onClick={() => handleDelete(item.id)}
                   >
                     <Trash2 size={14} />
-                    Delete
+                    {t('btn.delete')}
                   </button>
                 </div>
               </div>

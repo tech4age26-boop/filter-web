@@ -1,17 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Filter, RefreshCw, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 import {
     listCashBankTransactionsLog,
     listLogFilterUsers,
 } from '../../../services/accountingLogsApi';
+import { accT } from '../../../utils/accountingI18n';
 import '../../../styles/admin/AccountingPage.css';
 
-const METHOD_OPTIONS = [
-    { value: 'all', label: 'All Methods' },
-    { value: 'cash', label: 'Cash' },
-    { value: 'bank', label: 'Bank' },
-    { value: 'petty_cash', label: 'Petty Cash' },
-];
+const METHOD_VALUES = ['all', 'cash', 'bank', 'petty_cash'];
 
 const fmt = (n) => {
     const x = Number(n);
@@ -29,42 +26,57 @@ function formatFilterUserLabel(u) {
     return role ? `${name} (${role})` : name;
 }
 
-const methodChip = (kind, type) => {
-    const label = type === 'PETTY_CASH'
-        ? 'Petty cash'
-        : type === 'BANK'
-            ? 'Bank'
-            : type === 'CASH'
-                ? 'Cash'
-                : type ?? '—';
-    const color = type === 'PETTY_CASH'
-        ? { bg: '#F0FDF4', fg: '#166534' }
-        : type === 'BANK'
-            ? { bg: '#EFF6FF', fg: '#1E40AF' }
-            : { bg: '#FEF3C7', fg: '#92400E' };
-    return (
-        <span style={{
-            display: 'inline-flex',
-            background: color.bg,
-            color: color.fg,
-            padding: '2px 10px',
-            borderRadius: 12,
-            fontSize: '0.7rem',
-            fontWeight: 600,
-        }}>
-            {label}{kind && kind !== 'OPERATING' ? ` · sys` : ''}
-        </span>
-    );
-};
-
 export default function WorkshopTransactionsLog({
     direction = 'all',
     title,
     subtitle,
-    emptyHint = 'No transactions in this period.',
+    emptyHint,
     branches = [],
     selectedBranchId = 'all',
 }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
+
+    const methodLabel = useCallback((value) => {
+        if (value === 'all') return t('txlog.allMethods');
+        if (value === 'cash') return t('txlog.cash');
+        if (value === 'bank') return t('txlog.bank');
+        if (value === 'petty_cash') return t('txlog.pettyCash');
+        return value;
+    }, [t]);
+
+    const methodChip = useCallback((kind, type) => {
+        const label = type === 'PETTY_CASH'
+            ? t('txlog.pettyCashChip')
+            : type === 'BANK'
+                ? t('txlog.bank')
+                : type === 'CASH'
+                    ? t('txlog.cash')
+                    : type ?? '—';
+        const color = type === 'PETTY_CASH'
+            ? { bg: '#F0FDF4', fg: '#166534' }
+            : type === 'BANK'
+                ? { bg: '#EFF6FF', fg: '#1E40AF' }
+                : { bg: '#FEF3C7', fg: '#92400E' };
+        return (
+            <span style={{
+                display: 'inline-flex',
+                background: color.bg,
+                color: color.fg,
+                padding: '2px 10px',
+                borderRadius: 12,
+                fontSize: '0.7rem',
+                fontWeight: 600,
+            }}>
+                {label}{kind && kind !== 'OPERATING' ? ` · ${t('txlog.sys')}` : ''}
+            </span>
+        );
+    }, [t]);
+
     const [method, setMethod] = useState('all');
     const [branchId, setBranchId] = useState(() => sidebarBranchToFilter(selectedBranchId));
     const [userId, setUserId] = useState('');
@@ -76,6 +88,8 @@ export default function WorkshopTransactionsLog({
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+
+    const resolvedEmpty = emptyHint ?? t('txlog.emptyDefault');
 
     const reload = useCallback(async () => {
         setLoading(true);
@@ -94,11 +108,11 @@ export default function WorkshopTransactionsLog({
             setRows(res?.items ?? []);
             setTotal(res?.total ?? 0);
         } catch (e) {
-            setError(e?.message || 'Could not load transactions.');
+            setError(e?.message || t('txlog.loadFailed'));
         } finally {
             setLoading(false);
         }
-    }, [direction, method, branchId, userId, dateFrom, dateTo, search]);
+    }, [direction, method, branchId, userId, dateFrom, dateTo, search, t]);
 
     useEffect(() => {
         setBranchId(sidebarBranchToFilter(selectedBranchId));
@@ -151,50 +165,50 @@ export default function WorkshopTransactionsLog({
                 border: '1px solid #E2E8F0',
             }}>
                 <div>
-                    <label className="form-label">Method</label>
+                    <label className="form-label">{t('txlog.method')}</label>
                     <select className="form-input-field" value={method} onChange={(e) => setMethod(e.target.value)}>
-                        {METHOD_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>{o.label}</option>
+                        {METHOD_VALUES.map((value) => (
+                            <option key={value} value={value}>{methodLabel(value)}</option>
                         ))}
                     </select>
                 </div>
                 <div>
-                    <label className="form-label">Branch</label>
+                    <label className="form-label">{t('txlog.branch')}</label>
                     <select className="form-input-field" value={branchId} onChange={(e) => {
                         setBranchId(e.target.value);
                         setUserId('');
                     }}>
-                        <option value="">All branches</option>
+                        <option value="">{t('txlog.allBranches')}</option>
                         {branches.map((b) => (
                             <option key={b.id} value={b.id}>{b.name}</option>
                         ))}
                     </select>
                 </div>
                 <div>
-                    <label className="form-label">User (owner)</label>
+                    <label className="form-label">{t('txlog.userOwner')}</label>
                     <select className="form-input-field" value={userId} onChange={(e) => setUserId(e.target.value)}>
-                        <option value="">All users</option>
+                        <option value="">{t('txlog.allUsers')}</option>
                         {users.map((u) => (
                             <option key={u.id} value={u.id}>{formatFilterUserLabel(u)}</option>
                         ))}
                     </select>
                 </div>
                 <div>
-                    <label className="form-label">From</label>
+                    <label className="form-label">{t('date.from')}</label>
                     <input type="date" className="form-input-field" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
                 </div>
                 <div>
-                    <label className="form-label">To</label>
+                    <label className="form-label">{t('date.to')}</label>
                     <input type="date" className="form-input-field" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                 </div>
                 <div>
-                    <label className="form-label">Search</label>
+                    <label className="form-label">{t('txlog.search')}</label>
                     <input type="text" className="form-input-field" value={search} onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Description / reference…" />
+                        placeholder={t('txlog.searchPh')} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                     <button type="button" className="btn-portal" onClick={reload} disabled={loading}>
-                        <Filter size={14} style={{ marginRight: 6 }} /> Apply
+                        <Filter size={14} style={{ marginRight: 6 }} /> {t('txlog.apply')}
                     </button>
                 </div>
             </section>
@@ -204,7 +218,7 @@ export default function WorkshopTransactionsLog({
                     <div className="cash-bank-stat-card">
                         <div className="cash-bank-stat-icon"><ArrowDownCircle size={24} color="#16A34A" /></div>
                         <div>
-                            <p className="cash-bank-stat-label">Total In</p>
+                            <p className="cash-bank-stat-label">{t('txlog.totalIn')}</p>
                             <p className="cash-bank-stat-value">SAR {fmt(totals.inSum)}</p>
                         </div>
                     </div>
@@ -213,7 +227,7 @@ export default function WorkshopTransactionsLog({
                     <div className="cash-bank-stat-card">
                         <div className="cash-bank-stat-icon"><ArrowUpCircle size={24} color="#DC2626" /></div>
                         <div>
-                            <p className="cash-bank-stat-label">Total Out</p>
+                            <p className="cash-bank-stat-label">{t('txlog.totalOut')}</p>
                             <p className="cash-bank-stat-value">SAR {fmt(totals.outSum)}</p>
                         </div>
                     </div>
@@ -221,7 +235,7 @@ export default function WorkshopTransactionsLog({
                 <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Filter size={24} /></div>
                     <div>
-                        <p className="cash-bank-stat-label">Rows</p>
+                        <p className="cash-bank-stat-label">{t('txlog.rows')}</p>
                         <p className="cash-bank-stat-value">{rows.length} / {total}</p>
                     </div>
                 </div>
@@ -229,33 +243,33 @@ export default function WorkshopTransactionsLog({
 
             <section className="premium-table cash-bank-table">
                 <header style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between' }}>
-                    <strong>{loading ? 'Loading…' : `${rows.length} entries`}</strong>
+                    <strong>{loading ? t('loading') : t('txlog.entries', { n: rows.length })}</strong>
                     <button type="button" className="btn-portal-outline" onClick={reload} disabled={loading}>
-                        <RefreshCw size={14} style={{ marginRight: 6 }} /> Refresh
+                        <RefreshCw size={14} style={{ marginRight: 6 }} /> {t('txlog.refresh')}
                     </button>
                 </header>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Date</th>
-                            <th className="table-th">Direction</th>
-                            <th className="table-th">Amount</th>
-                            <th className="table-th">Method</th>
-                            <th className="table-th">Account</th>
-                            <th className="table-th">Branch</th>
-                            <th className="table-th">Owner</th>
-                            <th className="table-th">Reference</th>
-                            <th className="table-th">Description</th>
+                            <th className="table-th">{t('txlog.th.date')}</th>
+                            <th className="table-th">{t('txlog.th.direction')}</th>
+                            <th className="table-th">{t('txlog.th.amount')}</th>
+                            <th className="table-th">{t('txlog.th.method')}</th>
+                            <th className="table-th">{t('txlog.th.account')}</th>
+                            <th className="table-th">{t('txlog.th.branch')}</th>
+                            <th className="table-th">{t('txlog.th.owner')}</th>
+                            <th className="table-th">{t('txlog.th.reference')}</th>
+                            <th className="table-th">{t('txlog.th.description')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {rows.length === 0 ? (
-                            <tr><td colSpan={9} className="table-cell table-empty">{loading ? 'Loading…' : emptyHint}</td></tr>
+                            <tr><td colSpan={9} className="table-cell table-empty">{loading ? t('loading') : resolvedEmpty}</td></tr>
                         ) : rows.map((r) => (
                             <tr key={r.id}>
                                 <td className="table-cell">{new Date(r.entryDate).toLocaleDateString()}</td>
                                 <td className="table-cell" style={{ color: r.direction === 'in' ? '#16A34A' : '#DC2626' }}>
-                                    {r.direction === 'in' ? 'In' : 'Out'}
+                                    {r.direction === 'in' ? t('txlog.dir.in') : t('txlog.dir.out')}
                                 </td>
                                 <td className="table-cell">SAR {fmt(r.amount)}</td>
                                 <td className="table-cell">{methodChip(r.account?.kind, r.account?.type)}</td>

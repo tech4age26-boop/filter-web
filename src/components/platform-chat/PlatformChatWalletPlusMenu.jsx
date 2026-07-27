@@ -7,6 +7,7 @@ import { listMyWalletBranches, listMyWalletWorkshops, myWalletApiForUser } from 
 import { useAuth } from '../../context/AuthContext';
 import { adminWalletExpenseComboboxOptions } from '../../constants/adminWalletExpenseCategories';
 import { formatSar } from './PlatformChatWalletMessage';
+import { pcT } from '../../utils/platformChatI18n';
 import '../../styles/admin/PlatformChatWallet.css';
 
 function workshopIsPlatformHq(workshops, workshopId) {
@@ -27,7 +28,10 @@ export default function PlatformChatWalletPlusMenu({
     walletApi: walletApiProp,
     skipWorkshopFields = false,
     expenseCategoryOptions: expenseCategoryOptionsProp,
+    locale = 'en',
+    t: tProp,
 }) {
+    const t = tProp || ((key, vars) => pcT(locale, key, vars));
     const { user } = useAuth();
     const walletApi = walletApiProp ?? myWalletApiForUser(user);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -163,7 +167,7 @@ export default function PlatformChatWalletPlusMenu({
             const res = await api.getWalletHistory(conversationId, params);
             setHistoryRows(Array.isArray(res?.rows) ? res.rows : []);
         } catch (err) {
-            onError?.(err?.message || 'Failed to load wallet history');
+            onError?.(err?.message || t('plus.errHistory'));
             setHistoryRows([]);
         } finally {
             setHistoryLoading(false);
@@ -198,11 +202,11 @@ export default function PlatformChatWalletPlusMenu({
         const purpose = fundPurpose.trim();
         if (!Number.isFinite(amount) || amount <= 0 || !purpose) return;
         if (!skipWorkshopFields && !fundWorkshopId) {
-            setFundModalError('Select a workshop.');
+            setFundModalError(t('plus.errSelectWorkshop'));
             return;
         }
         if (!skipWorkshopFields && !fundIsHq && !fundBranchId) {
-            setFundModalError('Select a branch.');
+            setFundModalError(t('plus.errSelectBranch'));
             return;
         }
         setFundModalError('');
@@ -224,7 +228,7 @@ export default function PlatformChatWalletPlusMenu({
             setFundBranchId('');
             setMenuOpen(false);
         } catch (err) {
-            const message = err?.message || 'Could not send fund request';
+            const message = err?.message || t('plus.errFund');
             setFundModalError(message);
             onError?.(message);
         } finally {
@@ -238,19 +242,19 @@ export default function PlatformChatWalletPlusMenu({
         const description = expenseDescription.trim();
         if (!Number.isFinite(amount) || amount <= 0 || !description) return;
         if (!expenseCategory) {
-            setExpenseModalError('Select an account category.');
+            setExpenseModalError(t('plus.errCategory'));
             return;
         }
         if (!expenseProofPreview) {
-            setExpenseModalError('Expense proof image is required.');
+            setExpenseModalError(t('plus.errProof'));
             return;
         }
         if (!skipWorkshopFields && !expenseWorkshopId) {
-            setExpenseModalError('Select a workshop.');
+            setExpenseModalError(t('plus.errSelectWorkshop'));
             return;
         }
         if (!skipWorkshopFields && !expenseIsHq && !expenseBranchId) {
-            setExpenseModalError('Select a branch.');
+            setExpenseModalError(t('plus.errSelectBranch'));
             return;
         }
         setExpenseModalError('');
@@ -279,7 +283,7 @@ export default function PlatformChatWalletPlusMenu({
             setExpenseBranchId('');
             setMenuOpen(false);
         } catch (err) {
-            const message = err?.message || 'Could not record expense';
+            const message = err?.message || t('plus.errExpense');
             setExpenseModalError(message);
             onError?.(message);
         } finally {
@@ -303,7 +307,7 @@ export default function PlatformChatWalletPlusMenu({
             if (msg) onMessageSent?.(msg);
             setHistoryOpen(false);
         } catch (err) {
-            onError?.(err?.message || 'Could not send reference');
+            onError?.(err?.message || t('plus.errReference'));
         } finally {
             setBusy(false);
         }
@@ -311,7 +315,7 @@ export default function PlatformChatWalletPlusMenu({
 
     const workshopSelect = (id, value, onChange, onBranchReset) => (
         <>
-            <label className="pc-wallet-field-label">Workshop *</label>
+            <label className="pc-wallet-field-label">{t('plus.workshop')}</label>
             <select
                 className="pc-wallet-field"
                 value={value}
@@ -323,7 +327,7 @@ export default function PlatformChatWalletPlusMenu({
                 required
             >
                 <option value="">
-                    {workshopsLoading ? 'Loading workshops…' : 'Select workshop'}
+                    {workshopsLoading ? t('plus.loadingWorkshops') : t('plus.selectWorkshop')}
                 </option>
                 {workshopOptions.map((w) => (
                     <option key={w.id} value={w.id}>
@@ -336,7 +340,7 @@ export default function PlatformChatWalletPlusMenu({
 
     const branchSelect = (workshopId, value, onChange, branches, loading) => (
         <>
-            <label className="pc-wallet-field-label">Branch *</label>
+            <label className="pc-wallet-field-label">{t('plus.branch')}</label>
             <select
                 className="pc-wallet-field"
                 value={value}
@@ -346,10 +350,10 @@ export default function PlatformChatWalletPlusMenu({
             >
                 <option value="">
                     {!workshopId
-                        ? 'Select workshop first'
+                        ? t('plus.selectWorkshopFirst')
                         : loading
-                            ? 'Loading branches…'
-                            : 'Select branch'}
+                            ? t('plus.loadingBranches')
+                            : t('plus.selectBranch')}
                 </option>
                 {branches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name}</option>
@@ -366,8 +370,8 @@ export default function PlatformChatWalletPlusMenu({
                     className="pc-wallet-plus-btn"
                     disabled={disabled || busy}
                     onClick={() => setMenuOpen((v) => !v)}
-                    title="Wallet actions"
-                    aria-label="Wallet actions"
+                    title={t('plus.walletActions')}
+                    aria-label={t('plus.walletActions')}
                 >
                     <Plus size={20} />
                 </button>
@@ -384,7 +388,7 @@ export default function PlatformChatWalletPlusMenu({
                                     setFundOpen(true);
                                 }}
                             >
-                                <Banknote size={16} /> Request Funds
+                                <Banknote size={16} /> {t('plus.requestFunds')}
                             </button>
                         )}
                         {showRecordExpense && (
@@ -396,12 +400,12 @@ export default function PlatformChatWalletPlusMenu({
                                     setExpenseOpen(true);
                                 }}
                             >
-                                <Receipt size={16} /> Record Expense
+                                <Receipt size={16} /> {t('plus.recordExpense')}
                             </button>
                         )}
                         {showTransactionHistory && (
                             <button type="button" role="menuitem" onClick={openHistory}>
-                                <History size={16} /> Transaction History
+                                <History size={16} /> {t('plus.txHistory')}
                             </button>
                         )}
                     </div>
@@ -410,7 +414,7 @@ export default function PlatformChatWalletPlusMenu({
 
             {fundOpen && (
                 <Modal
-                    title="Request Funds"
+                    title={t('plus.requestFunds')}
                     onClose={busy ? undefined : () => setFundOpen(false)}
                     width={480}
                     className="pc-wallet-modal"
@@ -418,10 +422,10 @@ export default function PlatformChatWalletPlusMenu({
                     footer={(
                         <>
                             <button type="button" className="pc-wallet-modal-cancel" disabled={busy} onClick={() => setFundOpen(false)}>
-                                Cancel
+                                {t('plus.cancel')}
                             </button>
                             <button type="button" className="pc-wallet-modal-primary" disabled={busy} onClick={submitFundRequest}>
-                                {busy ? <Loader2 size={14} className="spin" /> : 'Send to chat'}
+                                {busy ? <Loader2 size={14} className="spin" /> : t('plus.sendToChat')}
                             </button>
                         </>
                     )}
@@ -445,10 +449,10 @@ export default function PlatformChatWalletPlusMenu({
                         ) : null}
                         {!skipWorkshopFields && fundIsHq ? (
                             <p className="pc-wallet-modal-hint" style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: '#64748b' }}>
-                                Platform HQ — posts to HQ My Books. Super Admin approval only.
+                                {t('plus.hqHint')}
                             </p>
                         ) : null}
-                        <label className="pc-wallet-field-label">Amount (SAR) *</label>
+                        <label className="pc-wallet-field-label">{t('plus.amountSar')}</label>
                         <input
                             type="number"
                             min="0.01"
@@ -458,13 +462,13 @@ export default function PlatformChatWalletPlusMenu({
                             onChange={(e) => setFundAmount(e.target.value)}
                             required
                         />
-                        <label className="pc-wallet-field-label">Reason / Purpose *</label>
+                        <label className="pc-wallet-field-label">{t('plus.reasonPurpose')}</label>
                         <textarea
                             className="pc-wallet-field"
                             rows={3}
                             value={fundPurpose}
                             onChange={(e) => setFundPurpose(e.target.value)}
-                            placeholder="What do you need these funds for?"
+                            placeholder={t('plus.purposePlaceholder')}
                             required
                         />
                     </form>
@@ -473,7 +477,7 @@ export default function PlatformChatWalletPlusMenu({
 
             {expenseOpen && (
                 <Modal
-                    title="Record Expense"
+                    title={t('plus.recordExpense')}
                     onClose={busy ? undefined : () => setExpenseOpen(false)}
                     width={480}
                     className="pc-wallet-modal"
@@ -481,10 +485,10 @@ export default function PlatformChatWalletPlusMenu({
                     footer={(
                         <>
                             <button type="button" className="pc-wallet-modal-cancel" disabled={busy} onClick={() => setExpenseOpen(false)}>
-                                Cancel
+                                {t('plus.cancel')}
                             </button>
                             <button type="button" className="pc-wallet-modal-primary" disabled={busy} onClick={submitExpense}>
-                                {busy ? <Loader2 size={14} className="spin" /> : 'Record & share in chat'}
+                                {busy ? <Loader2 size={14} className="spin" /> : t('plus.recordShare')}
                             </button>
                         </>
                     )}
@@ -508,10 +512,10 @@ export default function PlatformChatWalletPlusMenu({
                         ) : null}
                         {!skipWorkshopFields && expenseIsHq ? (
                             <p className="pc-wallet-modal-hint" style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: '#64748b' }}>
-                                Platform HQ — posts to HQ My Books. Super Admin approval only.
+                                {t('plus.hqHint')}
                             </p>
                         ) : null}
-                        <label className="pc-wallet-field-label">Amount (SAR) *</label>
+                        <label className="pc-wallet-field-label">{t('plus.amountSar')}</label>
                         <input
                             type="number"
                             min="0.01"
@@ -521,7 +525,7 @@ export default function PlatformChatWalletPlusMenu({
                             onChange={(e) => setExpenseAmount(e.target.value)}
                             required
                         />
-                        <label className="pc-wallet-field-label">Account category *</label>
+                        <label className="pc-wallet-field-label">{t('plus.accountCategory')}</label>
                         <SearchableEntityCombobox
                             id="pc-wallet-expense-category"
                             required
@@ -536,28 +540,28 @@ export default function PlatformChatWalletPlusMenu({
                                 setExpenseCategory(opt?.id || '');
                                 setExpenseCategorySearch(opt?.label || '');
                             }}
-                            placeholder="Type to search — ↑↓ to navigate, Enter to select"
+                            placeholder={t('plus.categorySearch')}
                             entityLabel="category"
                             maxInitial={30}
                             maxFiltered={30}
                             disabled={busy}
                         />
-                        <label className="pc-wallet-field-label">Description *</label>
+                        <label className="pc-wallet-field-label">{t('plus.descLabel')}</label>
                         <input
                             type="text"
                             className="pc-wallet-field"
                             value={expenseDescription}
                             onChange={(e) => setExpenseDescription(e.target.value)}
-                            placeholder="What was this expense for?"
+                            placeholder={t('plus.descPlaceholder')}
                             required
                         />
-                        <label className="pc-wallet-field-label">Vendor (optional)</label>
+                        <label className="pc-wallet-field-label">{t('plus.vendor')}</label>
                         <input
                             type="text"
                             className="pc-wallet-field"
                             value={expenseVendor}
                             onChange={(e) => setExpenseVendor(e.target.value)}
-                            placeholder="e.g. Careem, Jarir"
+                            placeholder={t('plus.vendorPlaceholder')}
                         />
                         <ExpenseProofPicker
                             id="pc-wallet-expense-proof"
@@ -571,25 +575,25 @@ export default function PlatformChatWalletPlusMenu({
 
             {historyOpen && (
                 <Modal
-                    title="Wallet transaction history"
+                    title={t('plus.historyTitle')}
                     onClose={busy ? undefined : () => setHistoryOpen(false)}
                     width={560}
                     disableClose={busy}
                     footer={(
                         <button type="button" className="pc-wallet-modal-cancel" onClick={() => setHistoryOpen(false)}>
-                            Close
+                            {t('modal.close')}
                         </button>
                     )}
                 >
                     <div className="pc-wallet-history-filters">
-                        <label className="pc-wallet-field-label">From</label>
+                        <label className="pc-wallet-field-label">{t('plus.from')}</label>
                         <input
                             type="datetime-local"
                             className="pc-wallet-field"
                             value={historyDateFrom}
                             onChange={(e) => setHistoryDateFrom(e.target.value)}
                         />
-                        <label className="pc-wallet-field-label">To</label>
+                        <label className="pc-wallet-field-label">{t('plus.to')}</label>
                         <input
                             type="datetime-local"
                             className="pc-wallet-field"
@@ -602,13 +606,13 @@ export default function PlatformChatWalletPlusMenu({
                             disabled={historyLoading}
                             onClick={() => loadHistory()}
                         >
-                            {historyLoading ? <Loader2 size={14} className="spin" /> : 'Apply filter'}
+                            {historyLoading ? <Loader2 size={14} className="spin" /> : t('plus.applyFilter')}
                         </button>
                     </div>
                     {historyLoading ? (
                         <div className="pc-wallet-loading"><Loader2 className="spin" size={24} /></div>
                     ) : historyRows.length === 0 ? (
-                        <p className="pc-wallet-empty">No wallet activity yet.</p>
+                        <p className="pc-wallet-empty">{t('plus.noActivity')}</p>
                     ) : (
                         <ul className="pc-wallet-history-list">
                             {historyRows.map((row) => (
@@ -639,7 +643,7 @@ export default function PlatformChatWalletPlusMenu({
                             ))}
                         </ul>
                     )}
-                    <p className="pc-wallet-history-hint">Tap a row to quote it in the chat.</p>
+                    <p className="pc-wallet-history-hint">{t('plus.historyHint')}</p>
                 </Modal>
             )}
         </>

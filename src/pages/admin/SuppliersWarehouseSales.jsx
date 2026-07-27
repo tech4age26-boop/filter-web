@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { Truck, Search, Loader } from 'lucide-react';
 import '../../styles/admin/SalesOrders.css';
 import '../workshop/Workshop.css';
@@ -14,6 +15,14 @@ import {
 } from '../../services/superAdminApi';
 import { ExportMenu } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
+import {
+    swsT,
+    formatSwsStatusLabel,
+    SWS_STATUS_FILTER_VALUES,
+    SWS_REVIEW_FILTER_VALUES,
+    SWS_STATUS_FILTER_KEYS,
+    SWS_REVIEW_FILTER_KEYS,
+} from '../../utils/suppliersWarehouseSalesI18n';
 
 const PAGE_SIZE = 25;
 const EXPORT_LIMIT = 5000;
@@ -24,44 +33,21 @@ const PAYMENT_STATUS_CLASS = {
     partial: 'so-status-pending',
 };
 
-const REVIEW_STATUS_OPTIONS = [
-    { value: '', label: 'All Review Status' },
-    { value: 'pending', label: 'Pending review' },
-    { value: 'accepted', label: 'Accepted' },
-    { value: 'rejected', label: 'Rejected' },
-];
-
-const STATUS_OPTIONS = [
-    { value: '', label: 'All Status' },
-    { value: 'pending_payment', label: 'Pending payment' },
-    { value: 'partially_paid', label: 'Partially paid' },
-    { value: 'paid', label: 'Paid' },
-    { value: 'cancelled', label: 'Cancelled' },
-];
-
 const toNumber = (v) => {
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
 };
 
-function formatStatusLabel(status) {
-    if (status == null || String(status).trim() === '') return '—';
-    return String(status)
-        .trim()
-        .replace(/_/g, ' ')
-        .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function PaymentBadge({ status }) {
+function PaymentBadge({ status, t }) {
     const key = String(status ?? '').trim().toLowerCase();
     return (
         <span className={`so-status-badge ${PAYMENT_STATUS_CLASS[key] ?? 'so-status-pending'}`}>
-            {formatStatusLabel(status)}
+            {formatSwsStatusLabel(status, t)}
         </span>
     );
 }
 
-function ReviewBadge({ status }) {
+function ReviewBadge({ status, t }) {
     const key = String(status ?? '').trim().toLowerCase();
     const cls =
         key === 'accepted'
@@ -71,22 +57,18 @@ function ReviewBadge({ status }) {
               : 'so-status-pending';
     return (
         <span className={`so-status-badge ${cls}`}>
-            {status ? formatStatusLabel(status) : 'Pending'}
+            {status ? formatSwsStatusLabel(status, t) : t('review.pendingShort')}
         </span>
     );
 }
 
-function AffiliationBadge({ isAffiliated }) {
+function AffiliationBadge({ isAffiliated, t }) {
     return (
         <span
             className={`so-status-badge ${isAffiliated ? 'so-status-completed' : 'so-status-pending'}`}
-            title={
-                isAffiliated
-                    ? 'Supplier is linked to this workshop via WorkshopSupplier.'
-                    : 'No active WorkshopSupplier link between this supplier and workshop.'
-            }
+            title={isAffiliated ? t('aff.titleYes') : t('aff.titleNo')}
         >
-            {isAffiliated ? 'Affiliated' : 'Non-affiliated'}
+            {isAffiliated ? t('aff.yes') : t('aff.no')}
         </span>
     );
 }
@@ -115,12 +97,12 @@ function formatDateTime(raw) {
     });
 }
 
-function formatDiscountCell(mode, value) {
-    const t = String(mode ?? '').toLowerCase();
+function formatDiscountCell(mode, value, t) {
+    const typ = String(mode ?? '').toLowerCase();
     const v = toNumber(value);
     if (!v) return '—';
-    if (t === 'percent' || t === 'percentage') return `${v}%`;
-    return `SAR ${v.toLocaleString()}`;
+    if (typ === 'percent' || typ === 'percentage') return `${v}%`;
+    return t('money.sar', { amount: v.toLocaleString() });
 }
 
 function localDateTimeToIso(localValue) {
@@ -131,34 +113,53 @@ function localDateTimeToIso(localValue) {
 }
 
 /** Build {headers, rows} mirroring the on-screen table — used for PDF/Excel export. */
-function buildSupplierSalesExportRows(invoices) {
+function buildSupplierSalesExportRows(invoices, t) {
     const headers = [
-        'Invoice No', 'Status', 'Invoice Date', 'Due Date', 'Supplier', 'Supplier Mobile',
-        'Affiliation', 'Workshop', 'Branch', 'Items', 'Total (SAR)', 'Paid (SAR)', 'Balance (SAR)',
-        'Payment', 'Review',
+        t('exp.invNo'),
+        t('exp.status'),
+        t('exp.invoiceDate'),
+        t('exp.dueDate'),
+        t('exp.supplier'),
+        t('exp.supplierMobile'),
+        t('exp.affiliation'),
+        t('exp.workshop'),
+        t('exp.branch'),
+        t('exp.items'),
+        t('exp.total'),
+        t('exp.paid'),
+        t('exp.balance'),
+        t('exp.payment'),
+        t('exp.review'),
     ];
     const n2 = (v) => Number(toNumber(v).toFixed(2));
     const rows = (invoices || []).map((inv) => [
         inv.invoiceNo ?? '—',
-        formatStatusLabel(inv.status),
+        formatSwsStatusLabel(inv.status, t),
         formatDateOnly(inv.invoiceDate),
         formatDateOnly(inv.dueDate),
         inv.supplierName ?? '—',
         inv.supplierMobile ?? '—',
-        inv.isAffiliated ? 'Affiliated' : 'Non-affiliated',
+        inv.isAffiliated ? t('aff.yes') : t('aff.no'),
         inv.workshopName ?? '—',
         inv.branchName ?? '—',
         n2(inv.itemsCount),
         n2(inv.grandTotal),
         n2(inv.paidAmount),
         n2(inv.balance),
-        formatStatusLabel(inv.paymentStatus),
-        formatStatusLabel(inv.workshopReviewStatus),
+        formatSwsStatusLabel(inv.paymentStatus, t),
+        formatSwsStatusLabel(inv.workshopReviewStatus, t),
     ]);
     return { headers, rows };
 }
 
 export default function SuppliersWarehouseSales() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => swsT(locale, key, vars), [locale]);
+
     const [workshopOptions, setWorkshopOptions] = useState([]);
     const [workshopOptionsLoading, setWorkshopOptionsLoading] = useState(true);
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
@@ -203,7 +204,10 @@ export default function SuppliersWarehouseSales() {
                       : [];
                 if (!cancelled) {
                     setWorkshopOptions(
-                        list.map((w) => ({ id: String(w.id), name: String(w.name || '').trim() || 'Workshop' })),
+                        list.map((w) => ({
+                            id: String(w.id),
+                            name: String(w.name || '').trim() || 'Workshop',
+                        })),
                     );
                 }
             } catch {
@@ -232,7 +236,10 @@ export default function SuppliersWarehouseSales() {
                       : [];
                 if (!cancelled) {
                     setSupplierOptions(
-                        list.map((s) => ({ id: String(s.id), name: String(s.name || '').trim() || 'Supplier' })),
+                        list.map((s) => ({
+                            id: String(s.id),
+                            name: String(s.name || '').trim() || 'Supplier',
+                        })),
                     );
                     setSelectedSupplierId('');
                 }
@@ -268,7 +275,10 @@ export default function SuppliersWarehouseSales() {
                       : [];
                 if (!cancelled) {
                     setBranchOptions(
-                        list.map((b) => ({ id: String(b.id), name: String(b.name || '').trim() || 'Branch' })),
+                        list.map((b) => ({
+                            id: String(b.id),
+                            name: String(b.name || '').trim() || 'Branch',
+                        })),
                     );
                     setSelectedBranchId('');
                 }
@@ -287,8 +297,8 @@ export default function SuppliersWarehouseSales() {
     }, [selectedWorkshopId]);
 
     useEffect(() => {
-        const t = setTimeout(() => setSearchDebounced(searchInput.trim()), 380);
-        return () => clearTimeout(t);
+        const timer = setTimeout(() => setSearchDebounced(searchInput.trim()), 380);
+        return () => clearTimeout(timer);
     }, [searchInput]);
 
     useEffect(() => {
@@ -335,7 +345,7 @@ export default function SuppliersWarehouseSales() {
         } catch (e) {
             setInvoices([]);
             setTotal(0);
-            setLoadError(e?.message || 'Failed to load supplier sales invoices.');
+            setLoadError(e?.message || t('err.load'));
         } finally {
             setLoading(false);
         }
@@ -349,6 +359,7 @@ export default function SuppliersWarehouseSales() {
         dateFrom,
         dateTo,
         page,
+        t,
     ]);
 
     useEffect(() => {
@@ -374,21 +385,42 @@ export default function SuppliersWarehouseSales() {
             });
             const list = Array.isArray(res?.supplierInvoices) ? res.supplierInvoices
                 : Array.isArray(res?.data?.supplierInvoices) ? res.data.supplierInvoices : [];
-            const { headers, rows } = buildSupplierSalesExportRows(list);
-            const subtitle = `${rows.length} invoice(s)`
+            const { headers, rows } = buildSupplierSalesExportRows(list, t);
+            const subtitle = t('export.subtitle', { n: rows.length })
                 + (dateFrom || dateTo ? ` · ${dateFrom || '…'} → ${dateTo || '…'}` : '')
-                + (statusFilter ? ` · status: ${statusFilter}` : '');
+                + (statusFilter ? t('export.statusPart', { status: statusFilter }) : '');
             if (kind === 'pdf') {
-                exportRowsToPdf({ title: 'Suppliers & Warehouse Sales', subtitle, headers, rows, filenameBase: 'suppliers-warehouse-sales' });
+                exportRowsToPdf({
+                    title: t('export.title'),
+                    subtitle,
+                    headers,
+                    rows,
+                    filenameBase: 'suppliers-warehouse-sales',
+                });
             } else {
-                exportRowsToExcel({ sheetName: 'Supplier Sales', headers, rows, filenameBase: 'suppliers-warehouse-sales' });
+                exportRowsToExcel({
+                    sheetName: t('export.sheet'),
+                    headers,
+                    rows,
+                    filenameBase: 'suppliers-warehouse-sales',
+                });
             }
         } catch (e) {
-            setLoadError(e?.message || 'Export failed');
+            setLoadError(e?.message || t('err.export'));
         } finally {
             setExporting(false);
         }
-    }, [selectedWorkshopId, selectedBranchId, selectedSupplierId, statusFilter, reviewStatusFilter, searchDebounced, dateFrom, dateTo]);
+    }, [
+        selectedWorkshopId,
+        selectedBranchId,
+        selectedSupplierId,
+        statusFilter,
+        reviewStatusFilter,
+        searchDebounced,
+        dateFrom,
+        dateTo,
+        t,
+    ]);
 
     const openDetails = useCallback(async (invoiceId, source) => {
         if (!invoiceId) return;
@@ -405,11 +437,11 @@ export default function SuppliersWarehouseSales() {
                     : res;
             setDetailData(payload && typeof payload === 'object' ? payload : null);
         } catch (e) {
-            setDetailError(e?.message || 'Failed to load invoice details.');
+            setDetailError(e?.message || t('err.detail'));
         } finally {
             setDetailLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const closeDetails = () => {
         setDetailId('');
@@ -422,38 +454,35 @@ export default function SuppliersWarehouseSales() {
         const totalIssued = invoices.reduce((acc, i) => acc + toNumber(i.grandTotal), 0);
         const totalPaid = invoices.reduce((acc, i) => acc + toNumber(i.paidAmount), 0);
         const totalBalance = invoices.reduce((acc, i) => acc + toNumber(i.balance), 0);
+        const money = (n) => t('money.sar', {
+            amount: n.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+        });
         return [
-            { label: 'Total Invoices (matching)', value: total.toLocaleString() },
-            {
-                label: 'Issued (this page)',
-                value: `SAR ${totalIssued.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
-            },
-            {
-                label: 'Collected (this page)',
-                value: `SAR ${totalPaid.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
-                className: 'revenue',
-            },
-            {
-                label: 'Outstanding (this page)',
-                value: `SAR ${totalBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
-            },
+            { label: t('kpi.total'), value: total.toLocaleString() },
+            { label: t('kpi.issued'), value: money(totalIssued) },
+            { label: t('kpi.collected'), value: money(totalPaid), className: 'revenue' },
+            { label: t('kpi.outstanding'), value: money(totalBalance) },
         ];
-    }, [invoices, total]);
+    }, [invoices, total, t]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const rangeFrom = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
     const rangeTo = Math.min(page * PAGE_SIZE, total);
+
+    const detailKind =
+        detailData?.source === 'local' ? t('detail.titleLocal') : t('detail.titleSupplier');
+    const detailTitle = detailData?.invoiceNo
+        ? t('detail.titleWithNo', { kind: detailKind, no: detailData.invoiceNo })
+        : t('detail.titleFallback', { kind: detailKind });
 
     return (
         <div className="so-container">
             <header className="so-header">
                 <div>
                     <h2 className="so-title">
-                        <Truck size={20} color="#F59E0B" /> Suppliers &amp; Warehouse Sales
+                        <Truck size={20} color="#F59E0B" /> {t('page.title')}
                     </h2>
-                    <p className="so-sub">
-                        Sales invoices issued by suppliers / warehouses to workshops
-                    </p>
+                    <p className="so-sub">{t('page.sub')}</p>
                 </div>
                 <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                     <ExportMenu
@@ -461,8 +490,12 @@ export default function SuppliersWarehouseSales() {
                         onExcel={() => runExport('excel')}
                         busy={exporting}
                         disabled={loading}
+                        locale={locale}
+                        t={t}
                     />
-                    <div className="so-order-count-badge">{total.toLocaleString()} invoices</div>
+                    <div className="so-order-count-badge">
+                        {t('page.count', { n: total.toLocaleString() })}
+                    </div>
                 </div>
             </header>
 
@@ -481,7 +514,7 @@ export default function SuppliersWarehouseSales() {
                     <input
                         type="text"
                         className="so-search-input"
-                        placeholder="Search invoice no, supplier, mobile, workshop, branch…"
+                        placeholder={t('search.placeholder')}
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
                     />
@@ -491,9 +524,11 @@ export default function SuppliersWarehouseSales() {
                     value={selectedWorkshopId}
                     onChange={(e) => setSelectedWorkshopId(e.target.value)}
                     disabled={workshopOptionsLoading}
-                    aria-label="Workshop filter"
+                    aria-label={t('filter.workshop')}
                 >
-                    <option value="">{workshopOptionsLoading ? 'Loading workshops…' : 'All Workshops'}</option>
+                    <option value="">
+                        {workshopOptionsLoading ? t('opt.loadingWorkshops') : t('opt.allWorkshops')}
+                    </option>
                     {workshopOptions.map((w) => (
                         <option key={w.id} value={w.id}>{w.name}</option>
                     ))}
@@ -503,10 +538,10 @@ export default function SuppliersWarehouseSales() {
                     value={selectedBranchId}
                     onChange={(e) => setSelectedBranchId(e.target.value)}
                     disabled={!selectedWorkshopId || branchOptionsLoading}
-                    aria-label="Branch filter"
+                    aria-label={t('filter.branch')}
                 >
                     <option value="">
-                        {selectedWorkshopId ? 'All Branches' : 'Select workshop first'}
+                        {selectedWorkshopId ? t('opt.allBranches') : t('opt.selectWorkshopFirst')}
                     </option>
                     {branchOptions.map((b) => (
                         <option key={b.id} value={b.id}>{b.name}</option>
@@ -517,9 +552,11 @@ export default function SuppliersWarehouseSales() {
                     value={selectedSupplierId}
                     onChange={(e) => setSelectedSupplierId(e.target.value)}
                     disabled={supplierOptionsLoading}
-                    aria-label="Supplier filter"
+                    aria-label={t('filter.supplier')}
                 >
-                    <option value="">{supplierOptionsLoading ? 'Loading suppliers…' : 'All Suppliers'}</option>
+                    <option value="">
+                        {supplierOptionsLoading ? t('opt.loadingSuppliers') : t('opt.allSuppliers')}
+                    </option>
                     {supplierOptions.map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
@@ -528,20 +565,24 @@ export default function SuppliersWarehouseSales() {
                     className="so-select"
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    aria-label="Status filter"
+                    aria-label={t('filter.status')}
                 >
-                    {STATUS_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    {SWS_STATUS_FILTER_VALUES.map((value) => (
+                        <option key={value || 'all'} value={value}>
+                            {t(SWS_STATUS_FILTER_KEYS[value] || 'status.all')}
+                        </option>
                     ))}
                 </select>
                 <select
                     className="so-select"
                     value={reviewStatusFilter}
                     onChange={(e) => setReviewStatusFilter(e.target.value)}
-                    aria-label="Workshop review status filter"
+                    aria-label={t('filter.review')}
                 >
-                    {REVIEW_STATUS_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    {SWS_REVIEW_FILTER_VALUES.map((value) => (
+                        <option key={value || 'all'} value={value}>
+                            {t(SWS_REVIEW_FILTER_KEYS[value] || 'review.all')}
+                        </option>
                     ))}
                 </select>
                 <div className="so-date-group">
@@ -551,7 +592,7 @@ export default function SuppliersWarehouseSales() {
                         value={dateFrom}
                         onChange={(e) => setDateFrom(e.target.value)}
                         step={60}
-                        aria-label="From date and time"
+                        aria-label={t('date.from')}
                     />
                     <input
                         type="datetime-local"
@@ -559,7 +600,7 @@ export default function SuppliersWarehouseSales() {
                         value={dateTo}
                         onChange={(e) => setDateTo(e.target.value)}
                         step={60}
-                        aria-label="To date and time"
+                        aria-label={t('date.to')}
                     />
                 </div>
             </div>
@@ -584,32 +625,32 @@ export default function SuppliersWarehouseSales() {
                 <table className="so-table">
                     <thead>
                         <tr>
-                            <th>Invoice #</th>
-                            <th>Invoice Date</th>
-                            <th>Due Date</th>
-                            <th>Supplier</th>
-                            <th>Affiliation</th>
-                            <th>Workshop</th>
-                            <th>Branch</th>
-                            <th>Items</th>
-                            <th>Total (SAR)</th>
-                            <th>Paid (SAR)</th>
-                            <th>Balance (SAR)</th>
-                            <th>Payment</th>
-                            <th>Review</th>
+                            <th>{t('th.invoice')}</th>
+                            <th>{t('th.invoiceDate')}</th>
+                            <th>{t('th.dueDate')}</th>
+                            <th>{t('th.supplier')}</th>
+                            <th>{t('th.affiliation')}</th>
+                            <th>{t('th.workshop')}</th>
+                            <th>{t('th.branch')}</th>
+                            <th>{t('th.items')}</th>
+                            <th>{t('th.total')}</th>
+                            <th>{t('th.paid')}</th>
+                            <th>{t('th.balance')}</th>
+                            <th>{t('th.payment')}</th>
+                            <th>{t('th.review')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading && invoices.length === 0 ? (
                             <tr>
                                 <td colSpan={13} style={{ textAlign: 'center', padding: 24 }}>
-                                    <Loader size={18} className="spin" /> Loading…
+                                    <Loader size={18} className="spin" /> {t('loading')}
                                 </td>
                             </tr>
                         ) : invoices.length === 0 ? (
                             <tr>
                                 <td colSpan={13} style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>
-                                    No supplier sales invoices match these filters.
+                                    {t('empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -623,7 +664,9 @@ export default function SuppliersWarehouseSales() {
                                         <div className="so-customer-info">
                                             <strong className="so-inv-link">{inv.invoiceNo ?? '—'}</strong>
                                             <span className="so-customer-mobile">
-                                                Status: {formatStatusLabel(inv.status)}
+                                                {t('row.status', {
+                                                    status: formatSwsStatusLabel(inv.status, t),
+                                                })}
                                             </span>
                                         </div>
                                     </td>
@@ -635,7 +678,7 @@ export default function SuppliersWarehouseSales() {
                                             <span className="so-customer-mobile">{inv.supplierMobile ?? '—'}</span>
                                         </div>
                                     </td>
-                                    <td><AffiliationBadge isAffiliated={!!inv.isAffiliated} /></td>
+                                    <td><AffiliationBadge isAffiliated={!!inv.isAffiliated} t={t} /></td>
                                     <td className="so-text-dim">{inv.workshopName ?? '—'}</td>
                                     <td className="so-text-dim">{inv.branchName ?? '—'}</td>
                                     <td>{toNumber(inv.itemsCount)}</td>
@@ -657,8 +700,8 @@ export default function SuppliersWarehouseSales() {
                                             maximumFractionDigits: 2,
                                         })}
                                     </td>
-                                    <td><PaymentBadge status={inv.paymentStatus} /></td>
-                                    <td><ReviewBadge status={inv.workshopReviewStatus} /></td>
+                                    <td><PaymentBadge status={inv.paymentStatus} t={t} /></td>
+                                    <td><ReviewBadge status={inv.workshopReviewStatus} t={t} /></td>
                                 </tr>
                             ))
                         )}
@@ -669,20 +712,23 @@ export default function SuppliersWarehouseSales() {
             {total > 0 && (
                 <div className="ws-report-pagination" style={{ marginTop: 12 }}>
                     <p className="ws-report-pagination__info">
-                        Showing <strong>{rangeFrom}</strong>–<strong>{rangeTo}</strong> of{' '}
-                        <strong>{total.toLocaleString()}</strong>
-                        {loading ? <span> · Loading…</span> : null}
+                        {t('page.showing', {
+                            from: rangeFrom,
+                            to: rangeTo,
+                            total: total.toLocaleString(),
+                        })}
+                        {loading ? <span> · {t('loading')}</span> : null}
                     </p>
-                    <nav className="ws-report-pagination__nav" aria-label="Supplier invoices pages">
+                    <nav className="ws-report-pagination__nav" aria-label={t('page.aria')}>
                         <button
                             type="button"
                             className="ws-report-pagination__edge"
                             disabled={page <= 1 || loading}
                             onClick={() => setPage((p) => Math.max(1, p - 1))}
                         >
-                            Previous
+                            {t('page.prev')}
                         </button>
-                        <div className="ws-report-pagination__pages" role="group" aria-label="Page numbers">
+                        <div className="ws-report-pagination__pages" role="group" aria-label={t('page.nums')}>
                             {(() => {
                                 const totalP = totalPages;
                                 const cur = page;
@@ -712,7 +758,7 @@ export default function SuppliersWarehouseSales() {
                             disabled={page >= totalPages || loading}
                             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                         >
-                            Next
+                            {t('page.next')}
                         </button>
                     </nav>
                 </div>
@@ -720,7 +766,7 @@ export default function SuppliersWarehouseSales() {
 
             {detailId && (
                 <Modal
-                    title={`${detailData?.source === 'local' ? 'Local Supplier Purchase Invoice' : 'Supplier Invoice'} ${detailData?.invoiceNo ? `- ${detailData.invoiceNo}` : 'Details'}`}
+                    title={detailTitle}
                     onClose={closeDetails}
                     width="min(1100px, 98vw)"
                     contentClassName="ws-modal-order-details"
@@ -734,17 +780,19 @@ export default function SuppliersWarehouseSales() {
                             <div className="ws-report-table-wrapper">
                                 <table className="ws-table">
                                     <tbody>
-                                        <tr><th>INVOICE NO</th><td>{detailData.invoiceNo ?? '—'}</td></tr>
-                                        <tr><th>INVOICE DATE</th><td>{formatDateOnly(detailData.invoiceDate)}</td></tr>
-                                        <tr><th>DUE DATE</th><td>{formatDateOnly(detailData.dueDate)}</td></tr>
+                                        <tr><th>{t('d.invoiceNo')}</th><td>{detailData.invoiceNo ?? '—'}</td></tr>
+                                        <tr><th>{t('d.invoiceDate')}</th><td>{formatDateOnly(detailData.invoiceDate)}</td></tr>
+                                        <tr><th>{t('d.dueDate')}</th><td>{formatDateOnly(detailData.dueDate)}</td></tr>
                                         {detailData.paymentTerms ? (
-                                            <tr><th>PAYMENT TERMS</th><td>{detailData.paymentTerms}</td></tr>
+                                            <tr><th>{t('d.paymentTerms')}</th><td>{detailData.paymentTerms}</td></tr>
                                         ) : null}
-                                        <tr><th>STATUS</th><td>{formatStatusLabel(detailData.status)}</td></tr>
+                                        <tr><th>{t('d.status')}</th><td>{formatSwsStatusLabel(detailData.status, t)}</td></tr>
                                         <tr>
-                                            <th>WORKSHOP REVIEW</th>
+                                            <th>{t('d.workshopReview')}</th>
                                             <td>
-                                                {formatStatusLabel(detailData.workshopReviewStatus) || 'Pending'}
+                                                {detailData.workshopReviewStatus
+                                                    ? formatSwsStatusLabel(detailData.workshopReviewStatus, t)
+                                                    : t('review.pendingShort')}
                                                 {detailData.workshopReviewedAt
                                                     ? ` · ${formatDateTime(detailData.workshopReviewedAt)}`
                                                     : ''}
@@ -752,12 +800,12 @@ export default function SuppliersWarehouseSales() {
                                         </tr>
                                         {detailData.workshopRejectionReason ? (
                                             <tr>
-                                                <th>REJECTION REASON</th>
+                                                <th>{t('d.rejectionReason')}</th>
                                                 <td>{detailData.workshopRejectionReason}</td>
                                             </tr>
                                         ) : null}
                                         <tr>
-                                            <th>SUPPLIER</th>
+                                            <th>{t('d.supplier')}</th>
                                             <td>
                                                 <div style={{ fontWeight: 600 }}>{detailData.supplier?.name ?? '—'}</div>
                                                 <div style={{ fontSize: 12, color: '#6B7280' }}>
@@ -767,50 +815,80 @@ export default function SuppliersWarehouseSales() {
                                                 </div>
                                                 {detailData.supplier?.vatId ? (
                                                     <div style={{ fontSize: 12, color: '#6B7280' }}>
-                                                        VAT: {detailData.supplier.vatId}
+                                                        {t('d.vatId', { id: detailData.supplier.vatId })}
                                                     </div>
                                                 ) : null}
                                             </td>
                                         </tr>
-                                        <tr><th>WORKSHOP</th><td>{detailData.workshop?.name ?? '—'}</td></tr>
-                                        <tr><th>BRANCH</th><td>{detailData.branch?.name ?? '—'}</td></tr>
+                                        <tr><th>{t('d.workshop')}</th><td>{detailData.workshop?.name ?? '—'}</td></tr>
+                                        <tr><th>{t('d.branch')}</th><td>{detailData.branch?.name ?? '—'}</td></tr>
                                         {detailData.po ? (
                                             <tr>
-                                                <th>PURCHASE ORDER</th>
-                                                <td>#{detailData.po.id} · {formatStatusLabel(detailData.po.status)}</td>
+                                                <th>{t('d.po')}</th>
+                                                <td>
+                                                    {t('d.poLine', {
+                                                        id: detailData.po.id,
+                                                        status: formatSwsStatusLabel(detailData.po.status, t),
+                                                    })}
+                                                </td>
                                             </tr>
                                         ) : null}
-                                        <tr><th>SUBTOTAL</th><td>SAR {toNumber(detailData.subtotal).toLocaleString()}</td></tr>
-                                        <tr><th>INVOICE DISCOUNT</th><td>SAR {toNumber(detailData.invoiceDiscount).toLocaleString()}</td></tr>
-                                        <tr><th>FREIGHT IN</th><td>SAR {toNumber(detailData.freightIn).toLocaleString()}</td></tr>
-                                        <tr><th>VAT</th><td>SAR {toNumber(detailData.vatAmount).toLocaleString()}</td></tr>
                                         <tr>
-                                            <th>GRAND TOTAL</th>
+                                            <th>{t('d.subtotal')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.subtotal).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.invoiceDiscount')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.invoiceDiscount).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.freightIn')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.freightIn).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.vat')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.vatAmount).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.grandTotal')}</th>
                                             <td className="ws-font-bold">
-                                                SAR {toNumber(detailData.grandTotal).toLocaleString()}
+                                                {t('money.sar', { amount: toNumber(detailData.grandTotal).toLocaleString() })}
                                             </td>
                                         </tr>
-                                        <tr><th>PAID</th><td>SAR {toNumber(detailData.paidAmount).toLocaleString()}</td></tr>
-                                        <tr><th>BALANCE</th><td className="ws-font-bold">SAR {toNumber(detailData.balance).toLocaleString()}</td></tr>
-                                        <tr><th>PAYMENT</th><td>{formatStatusLabel(detailData.paymentStatus)}</td></tr>
+                                        <tr>
+                                            <th>{t('d.paid')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.paidAmount).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.balance')}</th>
+                                            <td className="ws-font-bold">
+                                                {t('money.sar', { amount: toNumber(detailData.balance).toLocaleString() })}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.payment')}</th>
+                                            <td>{formatSwsStatusLabel(detailData.paymentStatus, t)}</td>
+                                        </tr>
                                     </tbody>
                                 </table>
                             </div>
 
                             {Array.isArray(detailData.items) && detailData.items.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Line items</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
+                                        {t('d.lineItems')}
+                                    </p>
                                     <div className="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Item</th>
-                                                    <th>Description</th>
-                                                    <th>Qty</th>
-                                                    <th>Unit (SAR)</th>
-                                                    <th>Discount</th>
-                                                    <th>VAT</th>
-                                                    <th>Line (SAR)</th>
+                                                    <th>{t('d.th.item')}</th>
+                                                    <th>{t('d.th.description')}</th>
+                                                    <th>{t('d.th.qty')}</th>
+                                                    <th>{t('d.th.unit')}</th>
+                                                    <th>{t('d.th.discount')}</th>
+                                                    <th>{t('d.th.vat')}</th>
+                                                    <th>{t('d.th.line')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -822,7 +900,7 @@ export default function SuppliersWarehouseSales() {
                                                         </td>
                                                         <td>{it.qty}</td>
                                                         <td>{toNumber(it.unitPrice).toLocaleString()}</td>
-                                                        <td>{formatDiscountCell(it.lineDiscountMode, it.lineDiscountValue)}</td>
+                                                        <td>{formatDiscountCell(it.lineDiscountMode, it.lineDiscountValue, t)}</td>
                                                         <td>{toNumber(it.vatRate)}%</td>
                                                         <td className="ws-font-bold">
                                                             {toNumber(it.lineTotal).toLocaleString()}
@@ -837,15 +915,17 @@ export default function SuppliersWarehouseSales() {
 
                             {Array.isArray(detailData.payments) && detailData.payments.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Payments</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
+                                        {t('d.payments')}
+                                    </p>
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>Method</th>
-                                                <th>Amount (SAR)</th>
-                                                <th>Paid on</th>
-                                                <th>Reference</th>
-                                                <th>Recorded by</th>
+                                                <th>{t('d.th.method')}</th>
+                                                <th>{t('d.th.amount')}</th>
+                                                <th>{t('d.th.paidOn')}</th>
+                                                <th>{t('d.th.reference')}</th>
+                                                <th>{t('d.th.recordedBy')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -867,14 +947,16 @@ export default function SuppliersWarehouseSales() {
 
                             {Array.isArray(detailData.returns) && detailData.returns.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Returns</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
+                                        {t('d.returns')}
+                                    </p>
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>Return #</th>
-                                                <th>Date</th>
-                                                <th>Status</th>
-                                                <th>Total (SAR)</th>
+                                                <th>{t('d.th.returnNo')}</th>
+                                                <th>{t('d.th.date')}</th>
+                                                <th>{t('d.th.status')}</th>
+                                                <th>{t('d.th.total')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -882,7 +964,7 @@ export default function SuppliersWarehouseSales() {
                                                 <tr key={r.id}>
                                                     <td>{r.returnNo ?? '—'}</td>
                                                     <td>{formatDateOnly(r.returnDate)}</td>
-                                                    <td>{formatStatusLabel(r.status)}</td>
+                                                    <td>{formatSwsStatusLabel(r.status, t)}</td>
                                                     <td className="ws-font-bold">
                                                         {toNumber(r.grandTotal).toLocaleString()}
                                                     </td>

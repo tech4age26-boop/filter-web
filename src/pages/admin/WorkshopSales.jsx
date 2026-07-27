@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { FileText, Search, Loader } from 'lucide-react';
 import '../../styles/admin/SalesOrders.css';
 import '../workshop/Workshop.css';
@@ -12,6 +13,7 @@ import {
 } from '../../services/superAdminApi';
 import { ExportMenu } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
+import { salesT, SALES_PAY_STATUS_KEYS } from '../../utils/salesI18n';
 
 const PAGE_SIZE = 50;
 /** Backend `listInvoices` caps each request at 200 rows. */
@@ -59,10 +61,19 @@ function buildInvoiceListQuery({
 }
 
 /** Build {headers, rows} mirroring the on-screen table — used for PDF/Excel export. */
-function buildWorkshopSalesExportRows(invoices, fmtDateTime) {
+function buildWorkshopSalesExportRows(invoices, fmtDateTime, t) {
     const headers = [
-        'Invoice No', 'Order #', 'Date / Time', 'Workshop', 'Branch',
-        'Customer', 'Mobile', 'Vehicle', 'Items', 'Total (SAR)', 'Payment',
+        t('ws.exp.invNo'),
+        t('ws.exp.order'),
+        t('ws.exp.datetime'),
+        t('ws.exp.workshop'),
+        t('ws.exp.branch'),
+        t('ws.exp.customer'),
+        t('ws.exp.mobile'),
+        t('ws.exp.vehicle'),
+        t('ws.exp.items'),
+        t('ws.exp.total'),
+        t('ws.exp.payment'),
     ];
     const n2 = (v) => { const x = Number(v); return Number.isFinite(x) ? Number(x.toFixed(2)) : 0; };
     const rows = (invoices || []).map((inv) => [
@@ -71,7 +82,7 @@ function buildWorkshopSalesExportRows(invoices, fmtDateTime) {
         fmtDateTime(inv?.issuedAt ?? inv?.invoiceDate),
         inv.workshopName ?? '—',
         inv.branchName ?? '—',
-        inv.customerName ?? 'Walk-in',
+        inv.customerName ?? t('ws.walkIn'),
         inv.customerMobile ?? '—',
         inv.plateNo ?? '—',
         n2(inv.itemsCount),
@@ -81,12 +92,7 @@ function buildWorkshopSalesExportRows(invoices, fmtDateTime) {
     return { headers, rows };
 }
 
-const PAYMENT_STATUS_OPTIONS = [
-    { value: '', label: 'All Payment Status' },
-    { value: 'paid', label: 'Paid' },
-    { value: 'unpaid', label: 'Unpaid' },
-    { value: 'partial', label: 'Partial' },
-];
+const PAYMENT_STATUS_OPTIONS = ['', 'paid', 'unpaid', 'partial'];
 
 const PAYMENT_STATUS_CLASS = {
     paid: 'so-status-completed',
@@ -107,11 +113,13 @@ function formatStatusLabel(status) {
         .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function PaymentStatusBadge({ status }) {
+function PaymentStatusBadge({ status, t }) {
     const key = String(status ?? '').trim().toLowerCase();
+    const labelKey = SALES_PAY_STATUS_KEYS[key];
+    const label = labelKey ? t(labelKey) : formatStatusLabel(status);
     return (
         <span className={`so-status-badge ${PAYMENT_STATUS_CLASS[key] ?? 'so-status-pending'}`}>
-            {formatStatusLabel(status)}
+            {label}
         </span>
     );
 }
@@ -133,15 +141,28 @@ function formatInvoiceDateTime(inv) {
     return formatDateTime(inv?.issuedAt ?? inv?.invoiceDate);
 }
 
-function formatDiscountCell(discountType, discountValue) {
-    const t = String(discountType ?? '').toLowerCase();
+function formatDiscountCell(discountType, discountValue, t) {
+    const dtype = String(discountType ?? '').toLowerCase();
     const v = toNumber(discountValue);
     if (!v) return '—';
-    if (t === 'percent' || t === 'percentage') return `${v}%`;
-    return `SAR ${v.toLocaleString()}`;
+    if (dtype === 'percent' || dtype === 'percentage') return `${v}%`;
+    return t('money.sar', { amount: v.toLocaleString() });
+}
+
+function formatPayStatusLabel(status, t) {
+    const key = String(status ?? '').trim().toLowerCase();
+    const labelKey = SALES_PAY_STATUS_KEYS[key];
+    return labelKey ? t(labelKey) : formatStatusLabel(status);
 }
 
 export default function WorkshopSales() {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => salesT(locale, key, vars), [locale]);
+
     const [workshopOptions, setWorkshopOptions] = useState([]);
     const [workshopOptionsLoading, setWorkshopOptionsLoading] = useState(true);
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
@@ -232,8 +253,8 @@ export default function WorkshopSales() {
     }, [selectedWorkshopId]);
 
     useEffect(() => {
-        const t = setTimeout(() => setSearchDebounced(searchInput.trim()), 380);
-        return () => clearTimeout(t);
+        const timer = setTimeout(() => setSearchDebounced(searchInput.trim()), 380);
+        return () => clearTimeout(timer);
     }, [searchInput]);
 
     useLayoutEffect(() => {
@@ -269,11 +290,11 @@ export default function WorkshopSales() {
         } catch (e) {
             setInvoices([]);
             setTotal(0);
-            setLoadError(e?.message || 'Failed to load workshop sales.');
+            setLoadError(e?.message || t('ws.errLoad'));
         } finally {
             setLoading(false);
         }
-    }, [listQueryBase, page]);
+    }, [listQueryBase, page, t]);
 
     useEffect(() => {
         void fetchInvoices();
@@ -306,21 +327,22 @@ export default function WorkshopSales() {
         setLoadError('');
         try {
             const list = await fetchAllFilteredInvoices();
-            const { headers, rows } = buildWorkshopSalesExportRows(list, formatDateTime);
-            const subtitle = `${rows.length} invoice(s)`
+            const { headers, rows } = buildWorkshopSalesExportRows(list, formatDateTime, t);
+            const subtitle = t('ws.count', { n: rows.length })
                 + (dateFrom || dateTo ? ` · ${dateFrom || '…'} → ${dateTo || '…'}` : '')
-                + (paymentStatusFilter ? ` · payment: ${paymentStatusFilter}` : '');
+                + (paymentStatusFilter ? ` · ${formatPayStatusLabel(paymentStatusFilter, t)}` : '');
+            const title = t('ws.exportTitle');
             if (kind === 'pdf') {
-                exportRowsToPdf({ title: 'Workshop Sales', subtitle, headers, rows, filenameBase: 'workshop-sales' });
+                exportRowsToPdf({ title, subtitle, headers, rows, filenameBase: 'workshop-sales' });
             } else {
-                exportRowsToExcel({ sheetName: 'Workshop Sales', headers, rows, filenameBase: 'workshop-sales' });
+                exportRowsToExcel({ sheetName: title, headers, rows, filenameBase: 'workshop-sales' });
             }
         } catch (e) {
-            setLoadError(e?.message || 'Export failed');
+            setLoadError(e?.message || t('ws.errExport'));
         } finally {
             setExporting(false);
         }
-    }, [fetchAllFilteredInvoices, dateFrom, dateTo, paymentStatusFilter]);
+    }, [fetchAllFilteredInvoices, dateFrom, dateTo, paymentStatusFilter, t]);
 
     const openDetails = useCallback(async (invoiceId) => {
         if (!invoiceId) return;
@@ -336,11 +358,11 @@ export default function WorkshopSales() {
                     : res;
             setDetailData(payload && typeof payload === 'object' ? payload : null);
         } catch (e) {
-            setDetailError(e?.message || 'Failed to load invoice details.');
+            setDetailError(e?.message || t('ws.errDetail'));
         } finally {
             setDetailLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const closeDetails = () => {
         setDetailId('');
@@ -357,33 +379,33 @@ export default function WorkshopSales() {
         const unpaidCount = invoices.filter(
             (i) => String(i.paymentStatus ?? '').toLowerCase() !== 'paid',
         ).length;
+        const money = (n) => t('money.sar', {
+            amount: n.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+        });
         return [
-            { label: 'Total Invoices (matching)', value: total.toLocaleString() },
-            {
-                label: 'Issued (this page)',
-                value: `SAR ${totalIssued.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
-            },
-            {
-                label: 'Collected (this page)',
-                value: `SAR ${totalPaid.toLocaleString(undefined, { maximumFractionDigits: 2 })}`,
-                className: 'revenue',
-            },
-            { label: 'Unpaid / Partial (this page)', value: unpaidCount.toLocaleString() },
+            { label: t('ws.kpi.total'), value: total.toLocaleString() },
+            { label: t('ws.kpi.issued'), value: money(totalIssued) },
+            { label: t('ws.kpi.collected'), value: money(totalPaid), className: 'revenue' },
+            { label: t('ws.kpi.unpaid'), value: unpaidCount.toLocaleString() },
         ];
-    }, [invoices, total]);
+    }, [invoices, total, t]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     const rangeFrom = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
     const rangeTo = Math.min(page * PAGE_SIZE, total);
+
+    const detailTitle = detailData?.invoiceNo
+        ? t('ws.detail.titleNo', { no: detailData.invoiceNo })
+        : t('ws.detail.title');
 
     return (
         <div className="so-container">
             <header className="so-header">
                 <div>
                     <h2 className="so-title">
-                        <FileText size={20} color="#F59E0B" /> Workshop Sales
+                        <FileText size={20} color="#F59E0B" /> {t('ws.title')}
                     </h2>
-                    <p className="so-sub">POS invoices across all workshops &amp; branches</p>
+                    <p className="so-sub">{t('ws.sub')}</p>
                 </div>
                 <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                     <ExportMenu
@@ -391,8 +413,10 @@ export default function WorkshopSales() {
                         onExcel={() => runExport('excel')}
                         busy={exporting}
                         disabled={loading}
+                        t={t}
+                        locale={locale}
                     />
-                    <div className="so-order-count-badge">{total.toLocaleString()} invoices</div>
+                    <div className="so-order-count-badge">{t('ws.count', { n: total.toLocaleString() })}</div>
                 </div>
             </header>
 
@@ -411,7 +435,7 @@ export default function WorkshopSales() {
                     <input
                         type="text"
                         className="so-search-input"
-                        placeholder="Search invoice no, customer, mobile, plate, order id…"
+                        placeholder={t('ws.search')}
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
                     />
@@ -421,9 +445,9 @@ export default function WorkshopSales() {
                     value={selectedWorkshopId}
                     onChange={(e) => setSelectedWorkshopId(e.target.value)}
                     disabled={workshopOptionsLoading}
-                    aria-label="Workshop filter"
+                    aria-label={t('ws.filter.workshop')}
                 >
-                    <option value="">{workshopOptionsLoading ? 'Loading workshops…' : 'All Workshops'}</option>
+                    <option value="">{workshopOptionsLoading ? t('ws.loadingWorkshops') : t('ws.allWorkshops')}</option>
                     {workshopOptions.map((w) => (
                         <option key={w.id} value={w.id}>{w.name}</option>
                     ))}
@@ -433,10 +457,10 @@ export default function WorkshopSales() {
                     value={selectedBranchId}
                     onChange={(e) => setSelectedBranchId(e.target.value)}
                     disabled={!selectedWorkshopId || branchOptionsLoading}
-                    aria-label="Branch filter"
+                    aria-label={t('ws.filter.branch')}
                 >
                     <option value="">
-                        {selectedWorkshopId ? 'All Branches' : 'Select workshop first'}
+                        {selectedWorkshopId ? t('ws.allBranches') : t('ws.selectWorkshopFirst')}
                     </option>
                     {branchOptions.map((b) => (
                         <option key={b.id} value={b.id}>{b.name}</option>
@@ -446,10 +470,12 @@ export default function WorkshopSales() {
                     className="so-select"
                     value={paymentStatusFilter}
                     onChange={(e) => setPaymentStatusFilter(e.target.value)}
-                    aria-label="Payment status filter"
+                    aria-label={t('ws.filter.payment')}
                 >
-                    {PAYMENT_STATUS_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    {PAYMENT_STATUS_OPTIONS.map((value) => (
+                        <option key={value || 'all'} value={value}>
+                            {t(SALES_PAY_STATUS_KEYS[value] || 'ws.pay.all')}
+                        </option>
                     ))}
                 </select>
                 <div className="so-date-group">
@@ -459,7 +485,7 @@ export default function WorkshopSales() {
                         value={dateFrom}
                         onChange={(e) => setDateFrom(e.target.value)}
                         step={60}
-                        aria-label="From date and time"
+                        aria-label={t('date.from')}
                     />
                     <input
                         type="datetime-local"
@@ -467,7 +493,7 @@ export default function WorkshopSales() {
                         value={dateTo}
                         onChange={(e) => setDateTo(e.target.value)}
                         step={60}
-                        aria-label="To date and time"
+                        aria-label={t('date.to')}
                     />
                 </div>
             </div>
@@ -492,28 +518,28 @@ export default function WorkshopSales() {
                 <table className="so-table">
                     <thead>
                         <tr>
-                            <th>Invoice #</th>
-                            <th>Date / Time</th>
-                            <th>Workshop</th>
-                            <th>Branch</th>
-                            <th>Customer</th>
-                            <th>Vehicle</th>
-                            <th>Items</th>
-                            <th>Total (SAR)</th>
-                            <th>Payment</th>
+                            <th>{t('ws.th.invoice')}</th>
+                            <th>{t('ws.th.datetime')}</th>
+                            <th>{t('ws.th.workshop')}</th>
+                            <th>{t('ws.th.branch')}</th>
+                            <th>{t('ws.th.customer')}</th>
+                            <th>{t('ws.th.vehicle')}</th>
+                            <th>{t('ws.th.items')}</th>
+                            <th>{t('ws.th.total')}</th>
+                            <th>{t('ws.th.payment')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading && invoices.length === 0 ? (
                             <tr>
                                 <td colSpan={9} style={{ textAlign: 'center', padding: 24 }}>
-                                    <Loader size={18} className="spin" /> Loading…
+                                    <Loader size={18} className="spin" /> {t('ws.loading')}
                                 </td>
                             </tr>
                         ) : invoices.length === 0 ? (
                             <tr>
                                 <td colSpan={9} style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>
-                                    No invoices match these filters.
+                                    {t('ws.empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -526,7 +552,9 @@ export default function WorkshopSales() {
                                     <td>
                                         <div className="so-customer-info">
                                             <strong className="so-inv-link">{inv.invoiceNo ?? '—'}</strong>
-                                            <span className="so-customer-mobile">Order #{inv.salesOrderId}</span>
+                                            <span className="so-customer-mobile">
+                                                {t('ws.orderNo', { id: inv.salesOrderId })}
+                                            </span>
                                         </div>
                                     </td>
                                     <td>{formatInvoiceDateTime(inv)}</td>
@@ -534,7 +562,7 @@ export default function WorkshopSales() {
                                     <td className="so-text-dim">{inv.branchName ?? '—'}</td>
                                     <td>
                                         <div className="so-customer-info">
-                                            <strong>{inv.customerName ?? 'Walk-in'}</strong>
+                                            <strong>{inv.customerName ?? t('ws.walkIn')}</strong>
                                             <span className="so-customer-mobile">{inv.customerMobile ?? '—'}</span>
                                         </div>
                                     </td>
@@ -547,7 +575,7 @@ export default function WorkshopSales() {
                                         })}
                                     </td>
                                     <td>
-                                        <PaymentStatusBadge status={inv.paymentStatus} />
+                                        <PaymentStatusBadge status={inv.paymentStatus} t={t} />
                                     </td>
                                 </tr>
                             ))
@@ -559,20 +587,23 @@ export default function WorkshopSales() {
             {total > 0 && (
                 <div className="ws-report-pagination" style={{ marginTop: 12 }}>
                     <p className="ws-report-pagination__info">
-                        Showing <strong>{rangeFrom}</strong>–<strong>{rangeTo}</strong> of{' '}
-                        <strong>{total.toLocaleString()}</strong>
-                        {loading ? <span> · Loading…</span> : null}
+                        {t('ws.showing', {
+                            from: rangeFrom,
+                            to: rangeTo,
+                            total: total.toLocaleString(),
+                        })}
+                        {loading ? <span> · {t('ws.loading')}</span> : null}
                     </p>
-                    <nav className="ws-report-pagination__nav" aria-label="Workshop sales pages">
+                    <nav className="ws-report-pagination__nav" aria-label={t('ws.pageAria')}>
                         <button
                             type="button"
                             className="ws-report-pagination__edge"
                             disabled={page <= 1 || loading}
                             onClick={() => setPage((p) => Math.max(1, p - 1))}
                         >
-                            Previous
+                            {t('ws.prev')}
                         </button>
-                        <div className="ws-report-pagination__pages" role="group" aria-label="Page numbers">
+                        <div className="ws-report-pagination__pages" role="group" aria-label={t('ws.pageNums')}>
                             {(() => {
                                 const totalP = totalPages;
                                 const cur = page;
@@ -602,7 +633,7 @@ export default function WorkshopSales() {
                             disabled={page >= totalPages || loading}
                             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                         >
-                            Next
+                            {t('ws.next')}
                         </button>
                     </nav>
                 </div>
@@ -610,7 +641,7 @@ export default function WorkshopSales() {
 
             {detailId && (
                 <Modal
-                    title={`Invoice ${detailData?.invoiceNo ? `- ${detailData.invoiceNo}` : 'Details'}`}
+                    title={detailTitle}
                     onClose={closeDetails}
                     width="min(1100px, 98vw)"
                     contentClassName="ws-modal-order-details"
@@ -624,23 +655,23 @@ export default function WorkshopSales() {
                             <div className="ws-report-table-wrapper">
                                 <table className="ws-table">
                                     <tbody>
-                                        <tr><th>INVOICE NO</th><td>{detailData.invoiceNo ?? '—'}</td></tr>
+                                        <tr><th>{t('ws.d.invoiceNo')}</th><td>{detailData.invoiceNo ?? '—'}</td></tr>
                                         <tr>
-                                            <th>INVOICE DATE &amp; TIME</th>
+                                            <th>{t('ws.d.datetime')}</th>
                                             <td>{formatDateTime(detailData.issuedAt ?? detailData.invoiceDate)}</td>
                                         </tr>
-                                        <tr><th>WORKSHOP</th><td>{detailData.workshopName ?? '—'}</td></tr>
-                                        <tr><th>BRANCH</th><td>{detailData.branchName ?? '—'}</td></tr>
-                                        <tr><th>ORDER SOURCE</th><td>{formatStatusLabel(detailData.salesOrder?.source)}</td></tr>
-                                        <tr><th>ORDER STATUS</th><td>{formatStatusLabel(detailData.salesOrder?.status)}</td></tr>
+                                        <tr><th>{t('ws.d.workshop')}</th><td>{detailData.workshopName ?? '—'}</td></tr>
+                                        <tr><th>{t('ws.d.branch')}</th><td>{detailData.branchName ?? '—'}</td></tr>
+                                        <tr><th>{t('ws.d.source')}</th><td>{formatStatusLabel(detailData.salesOrder?.source)}</td></tr>
+                                        <tr><th>{t('ws.d.orderStatus')}</th><td>{formatStatusLabel(detailData.salesOrder?.status)}</td></tr>
                                         <tr>
-                                            <th>ORDER PLACED</th>
+                                            <th>{t('ws.d.placed')}</th>
                                             <td>{formatDateTime(detailData.salesOrder?.createdAt)}</td>
                                         </tr>
-                                        <tr><th>CUSTOMER NAME</th><td>{detailData.customer?.name ?? '—'}</td></tr>
-                                        <tr><th>PHONE</th><td>{detailData.customer?.mobile ?? '—'}</td></tr>
+                                        <tr><th>{t('ws.d.customer')}</th><td>{detailData.customer?.name ?? '—'}</td></tr>
+                                        <tr><th>{t('ws.d.phone')}</th><td>{detailData.customer?.mobile ?? '—'}</td></tr>
                                         <tr>
-                                            <th>VEHICLE</th>
+                                            <th>{t('ws.d.vehicle')}</th>
                                             <td>
                                                 {detailData.vehicle?.plateNo ?? '—'}
                                                 {detailData.vehicle &&
@@ -651,28 +682,37 @@ export default function WorkshopSales() {
                                                     : ''}
                                             </td>
                                         </tr>
-                                        <tr><th>SUBTOTAL</th><td>SAR {toNumber(detailData.subtotal).toLocaleString()}</td></tr>
-                                        <tr><th>VAT</th><td>SAR {toNumber(detailData.vatAmount).toLocaleString()}</td></tr>
-                                        <tr><th>DISCOUNT</th><td>SAR {toNumber(detailData.discountAmount).toLocaleString()}</td></tr>
                                         <tr>
-                                            <th>TOTAL AMOUNT</th>
+                                            <th>{t('ws.d.subtotal')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.subtotal).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('ws.d.vat')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.vatAmount).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('ws.d.discount')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.discountAmount).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('ws.d.total')}</th>
                                             <td className="ws-font-bold">
-                                                SAR {toNumber(detailData.totalAmount).toLocaleString()}
+                                                {t('money.sar', { amount: toNumber(detailData.totalAmount).toLocaleString() })}
                                             </td>
                                         </tr>
                                         <tr>
-                                            <th>PAYMENT STATUS</th>
-                                            <td>{formatStatusLabel(detailData.paymentStatus)}</td>
+                                            <th>{t('ws.d.payStatus')}</th>
+                                            <td>{formatPayStatusLabel(detailData.paymentStatus, t)}</td>
                                         </tr>
                                         {detailData.deferredPaymentMethod ? (
                                             <tr>
-                                                <th>DEFERRED METHOD</th>
+                                                <th>{t('ws.d.deferred')}</th>
                                                 <td>{detailData.deferredPaymentMethod}</td>
                                             </tr>
                                         ) : null}
                                         {detailData.createdBy ? (
                                             <tr>
-                                                <th>CREATED BY</th>
+                                                <th>{t('ws.d.createdBy')}</th>
                                                 <td>
                                                     {detailData.createdBy.name ?? detailData.createdBy.email ?? '—'}
                                                     {detailData.createdBy.userType ? ` · ${formatStatusLabel(detailData.createdBy.userType)}` : ''}
@@ -689,27 +729,30 @@ export default function WorkshopSales() {
                                 detailData.orderDiscount.promoCode) ? (
                                 <div className="ws-report-table-wrapper">
                                     <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
-                                        Order discount &amp; promo
+                                        {t('ws.d.promoTitle')}
                                     </p>
                                     <table className="ws-table">
                                         <tbody>
                                             <tr>
-                                                <th>Order-level discount</th>
+                                                <th>{t('ws.d.orderDisc')}</th>
                                                 <td>
                                                     {formatDiscountCell(
                                                         detailData.orderDiscount.totalDiscountType,
                                                         detailData.orderDiscount.totalDiscountValue,
+                                                        t,
                                                     )}
                                                 </td>
                                             </tr>
                                             <tr>
-                                                <th>Promo discount (order)</th>
+                                                <th>{t('ws.d.promoDisc')}</th>
                                                 <td>
-                                                    SAR {toNumber(detailData.orderDiscount.promoDiscountAmount).toLocaleString()}
+                                                    {t('money.sar', {
+                                                        amount: toNumber(detailData.orderDiscount.promoDiscountAmount).toLocaleString(),
+                                                    })}
                                                 </td>
                                             </tr>
                                             <tr>
-                                                <th>Promo code</th>
+                                                <th>{t('ws.d.promoCode')}</th>
                                                 <td>{detailData.orderDiscount.promoCode ?? '—'}</td>
                                             </tr>
                                         </tbody>
@@ -719,21 +762,21 @@ export default function WorkshopSales() {
 
                             {Array.isArray(detailData.jobs) && detailData.jobs.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Jobs</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('ws.d.jobs')}</p>
                                     <div className="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Job #</th>
-                                                    <th>Department</th>
-                                                    <th>Status</th>
-                                                    <th>Opened</th>
-                                                    <th>Completed</th>
-                                                    <th>Before disc.</th>
-                                                    <th>After disc.</th>
-                                                    <th>VAT</th>
-                                                    <th>Job total</th>
-                                                    <th>Technicians</th>
+                                                    <th>{t('ws.d.jobNo')}</th>
+                                                    <th>{t('ws.d.dept')}</th>
+                                                    <th>{t('ws.d.status')}</th>
+                                                    <th>{t('ws.d.opened')}</th>
+                                                    <th>{t('ws.d.completed')}</th>
+                                                    <th>{t('ws.d.beforeDisc')}</th>
+                                                    <th>{t('ws.d.afterDisc')}</th>
+                                                    <th>{t('ws.d.vat')}</th>
+                                                    <th>{t('ws.d.jobTotal')}</th>
+                                                    <th>{t('ws.d.techs')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -748,11 +791,11 @@ export default function WorkshopSales() {
                                                         <td style={{ fontSize: '0.8125rem' }}>
                                                             {job.completedAt ? formatDateTime(job.completedAt) : '—'}
                                                         </td>
-                                                        <td>SAR {toNumber(job.amountBeforeDiscount).toLocaleString()}</td>
-                                                        <td>SAR {toNumber(job.amountAfterDiscount).toLocaleString()}</td>
-                                                        <td>SAR {toNumber(job.vatAmount).toLocaleString()}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.amountBeforeDiscount).toLocaleString() })}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.amountAfterDiscount).toLocaleString() })}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.vatAmount).toLocaleString() })}</td>
                                                         <td className="ws-font-bold">
-                                                            SAR {toNumber(job.totalAmount).toLocaleString()}
+                                                            {t('money.sar', { amount: toNumber(job.totalAmount).toLocaleString() })}
                                                         </td>
                                                         <td style={{ fontSize: '0.8125rem', minWidth: 160 }}>
                                                             {(job.assignments ?? []).length === 0
@@ -772,20 +815,20 @@ export default function WorkshopSales() {
 
                             {Array.isArray(detailData.lineItems) && detailData.lineItems.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Line items</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('ws.d.lines')}</p>
                                     <div className="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Job #</th>
-                                                    <th>Dept</th>
-                                                    <th>Item</th>
-                                                    <th>Type</th>
-                                                    <th>Qty</th>
-                                                    <th>Unit (SAR)</th>
-                                                    <th>Discount</th>
-                                                    <th>VAT</th>
-                                                    <th>Line (SAR)</th>
+                                                    <th>{t('ws.d.jobNo')}</th>
+                                                    <th>{t('ws.d.deptShort')}</th>
+                                                    <th>{t('ws.d.item')}</th>
+                                                    <th>{t('ws.d.type')}</th>
+                                                    <th>{t('ws.d.qty')}</th>
+                                                    <th>{t('ws.d.unit')}</th>
+                                                    <th>{t('ws.d.discount')}</th>
+                                                    <th>{t('ws.d.vat')}</th>
+                                                    <th>{t('ws.d.lineTotal')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -797,7 +840,7 @@ export default function WorkshopSales() {
                                                         <td>{row.itemType ?? '—'}</td>
                                                         <td>{row.qty}</td>
                                                         <td>{toNumber(row.unitPrice).toLocaleString()}</td>
-                                                        <td>{formatDiscountCell(row.discountType, row.discountValue)}</td>
+                                                        <td>{formatDiscountCell(row.discountType, row.discountValue, t)}</td>
                                                         <td style={{ fontSize: '0.8125rem' }}>
                                                             {toNumber(row.vatPercent)}% · {String(row.vatMode ?? '—')}
                                                         </td>
@@ -814,13 +857,13 @@ export default function WorkshopSales() {
 
                             {Array.isArray(detailData.payments) && detailData.payments.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Payments</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('ws.d.payments')}</p>
                                     <table className="ws-table">
                                         <thead>
                                             <tr>
-                                                <th>Method</th>
-                                                <th>Amount (SAR)</th>
-                                                <th>Paid at</th>
+                                                <th>{t('ws.d.method')}</th>
+                                                <th>{t('ws.d.amount')}</th>
+                                                <th>{t('ws.d.paidAt')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>

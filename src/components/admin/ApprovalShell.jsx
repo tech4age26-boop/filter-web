@@ -1,6 +1,12 @@
 import React from 'react';
 import Modal from '../Modal';
 import ApprovalPageShell from './ApprovalPageShell';
+import { apT } from '../../utils/approvalsI18n';
+
+function defaultBackLabel() {
+    const locale = (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    return apT(locale, 'btn.back');
+}
 
 /**
  * Renders approval UI either as a modal (legacy) or full page with back navigation.
@@ -12,15 +18,16 @@ export default function ApprovalShell({
     width,
     footer,
     children,
-    backLabel = 'Back to Approvals',
+    backLabel,
     backDisabled = false,
 }) {
+    const resolvedBackLabel = backLabel ?? defaultBackLabel();
     if (asPage) {
         return (
             <ApprovalPageShell
                 title={title}
                 onBack={onClose}
-                backLabel={backLabel}
+                backLabel={resolvedBackLabel}
                 footer={footer}
                 backDisabled={backDisabled}
             >

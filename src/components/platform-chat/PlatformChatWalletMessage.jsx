@@ -1,7 +1,9 @@
 import { Wallet, Receipt, Link2, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { formatCardDateTime } from '../../utils/platformChatDateTime';
 import PlatformChatMessageStatus from '../../pages/admin/PlatformChatMessageStatus';
+import { pcT } from '../../utils/platformChatI18n';
 import '../../styles/admin/PlatformChatWallet.css';
+
 function formatSar(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return '0.00';
@@ -25,16 +27,15 @@ function statusClass(status) {
     return 'pc-wallet-status--pending';
 }
 
-function statusLabel(status) {
+function statusLabel(status, t) {
     const s = String(status || 'pending').toLowerCase();
-    if (s === 'approved') return 'Approved';
-    if (s === 'rejected') return 'Rejected';
-    if (s === 'completed') return 'Completed';
-    if (s === 'pending') return 'Pending';
+    const key = `wallet.status.${s}`;
+    const translated = t(key);
+    if (translated !== key) return translated;
     return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, t }) {
     const s = String(status || 'pending').toLowerCase();
     const Icon = s === 'approved' || s === 'completed'
         ? CheckCircle2
@@ -44,18 +45,18 @@ function StatusBadge({ status }) {
     return (
         <span className={`pc-wallet-status ${statusClass(status)}`}>
             <Icon size={12} strokeWidth={2.5} aria-hidden />
-            {statusLabel(status)}
+            {statusLabel(status, t)}
         </span>
     );
 }
 
-function WalletCardDateTime({ createdAt, isSelf, receiptStatus }) {
+function WalletCardDateTime({ createdAt, isSelf, receiptStatus, locale }) {
     if (!createdAt) return null;
     return (
         <div className="pc-wallet-card-datetime">
-            <span>{formatCardDateTime(createdAt)}</span>
+            <span>{formatCardDateTime(createdAt, locale)}</span>
             {isSelf && (
-                <PlatformChatMessageStatus status={receiptStatus || 'sent'} />
+                <PlatformChatMessageStatus status={receiptStatus || 'sent'} locale={locale} />
             )}
         </div>
     );
@@ -65,35 +66,48 @@ function isExpenseStatusEvent(p) {
     return p?.kind === 'expense' || Boolean(p?.expenseRequestId);
 }
 
-function statusEventTitle(p, approved) {
+function statusEventTitle(p, approved, t) {
     const isExpense = isExpenseStatusEvent(p);
     if (approved) {
-        return isExpense ? 'Expense request approved' : 'Fund request approved';
+        return isExpense ? t('wallet.expenseApproved') : t('wallet.fundApproved');
     }
-    return isExpense ? 'Expense request rejected' : 'Fund request rejected';
+    return isExpense ? t('wallet.expenseRejected') : t('wallet.fundRejected');
 }
 
 export function isWalletChatMessage(m) {
     return ['wallet_fund_request', 'wallet_status_event', 'wallet_tx_reference', 'wallet_expense_event'].includes(m?.type);
 }
 
-export function walletMessagePreview(m) {
+export function walletMessagePreview(m, t) {
+    const translate = t || ((key, vars) => pcT('en', key, vars));
     const p = parsePayload(m);
     if (m?.type === 'wallet_fund_request' && p) {
-        return `💰 Fund request · ${p.currencyCode || 'SAR'} ${formatSar(p.amount)}`;
+        return translate('wallet.preview.fund', {
+            currency: p.currencyCode || 'SAR',
+            amount: formatSar(p.amount),
+        });
     }
     if (m?.type === 'wallet_expense_event' && p) {
-        return `💸 Expense · SAR ${formatSar(p.amount)}`;
+        return translate('wallet.preview.expense', { amount: formatSar(p.amount) });
     }
     if (m?.type === 'wallet_status_event' && p) {
         const s = String(p.status || '').toLowerCase();
         const isExpense = isExpenseStatusEvent(p);
-        const label = isExpense ? 'Expense' : 'Fund';
-        if (s === 'approved') return `✅ ${label} approved · ${p.requestNumber || ''}`;
-        if (s === 'rejected') return `❌ ${label} rejected · ${p.requestNumber || ''}`;
+        if (s === 'approved') {
+            return translate(isExpense ? 'wallet.preview.expenseApproved' : 'wallet.preview.fundApproved', {
+                ref: p.requestNumber || '',
+            });
+        }
+        if (s === 'rejected') {
+            return translate(isExpense ? 'wallet.preview.expenseRejected' : 'wallet.preview.fundRejected', {
+                ref: p.requestNumber || '',
+            });
+        }
     }
     if (m?.type === 'wallet_tx_reference' && p) {
-        return `📎 Wallet reference · ${p.reference || 'item'}`;
+        return translate('wallet.preview.ref', {
+            ref: p.reference || translate('wallet.preview.item'),
+        });
     }
     return m?.content || '';
 }
@@ -108,10 +122,13 @@ export function PlatformChatWalletMessage({
     actionBusy,
     onApprove,
     onReject,
+    locale = 'en',
+    t: tProp,
 }) {
+    const t = tProp || ((key, vars) => pcT(locale, key, vars));
     const p = parsePayload(message);
     if (!p) {
-        return <span className="platform-chat-bubble-text">Wallet message</span>;
+        return <span className="platform-chat-bubble-text">{t('wallet.fallback')}</span>;
     }
 
     const isWalletPeerFund =
@@ -135,14 +152,14 @@ export function PlatformChatWalletMessage({
                         <Wallet size={18} strokeWidth={2.25} />
                     </div>
                     <div className="pc-wallet-card-head-text">
-                        <div className="pc-wallet-card-title">Fund Request</div>
+                        <div className="pc-wallet-card-title">{t('wallet.fundRequest')}</div>
                         <div className="pc-wallet-card-ref">{p.requestNumber}</div>
                     </div>
-                    <StatusBadge status={status} />
+                    <StatusBadge status={status} t={t} />
                 </div>
                 <div className="pc-wallet-card-body">
                     <div className="pc-wallet-card-amount">
-                        <span className="pc-wallet-card-amount-label">Requested amount</span>
+                        <span className="pc-wallet-card-amount-label">{t('wallet.requestedAmount')}</span>
                         <span className="pc-wallet-card-amount-value">
                             <span className="pc-wallet-card-currency">{p.currencyCode || 'SAR'}</span>
                             {formatSar(p.amount)}
@@ -150,13 +167,13 @@ export function PlatformChatWalletMessage({
                     </div>
                     {p.purpose && (
                         <div className="pc-wallet-card-detail">
-                            <span className="pc-wallet-card-detail-label">Purpose</span>
+                            <span className="pc-wallet-card-detail-label">{t('wallet.purpose')}</span>
                             <p className="pc-wallet-card-detail-value">{p.purpose}</p>
                         </div>
                     )}
                     {(p.workshopName || p.branchName) && (
                         <div className="pc-wallet-card-detail">
-                            <span className="pc-wallet-card-detail-label">Workshop / Branch</span>
+                            <span className="pc-wallet-card-detail-label">{t('wallet.workshopBranch')}</span>
                             <p className="pc-wallet-card-detail-value">
                                 {[p.workshopName, p.branchName].filter(Boolean).join(' · ')}
                             </p>
@@ -164,21 +181,24 @@ export function PlatformChatWalletMessage({
                     )}
                     {isWalletPeerFund && (
                         <div className="pc-wallet-card-detail">
-                            <span className="pc-wallet-card-detail-label">Wallet request</span>
+                            <span className="pc-wallet-card-detail-label">{t('wallet.walletRequest')}</span>
                             <p className="pc-wallet-card-detail-value">
-                                {p.requesterName ? `${p.requesterName} requested from your wallet` : 'Intra-wallet transfer request'}
+                                {p.requesterName
+                                    ? t('wallet.requestedFromWallet', { name: p.requesterName })
+                                    : t('wallet.intraTransfer')}
                             </p>
                         </div>
                     )}
                     {!isPending && p.balanceAfter != null && (
                         <div className="pc-wallet-card-meta">
-                            Balance after: SAR {formatSar(p.balanceAfter)}
+                            {t('wallet.balanceAfter', { amount: formatSar(p.balanceAfter) })}
                         </div>
                     )}
                     <WalletCardDateTime
                         createdAt={message.createdAt}
                         isSelf={message.isSelf}
                         receiptStatus={message.receiptStatus}
+                        locale={locale}
                     />
                 </div>
                 {isPending && !message.isSelf && (effectiveCanApproveFund || effectiveCanRejectFund) && (
@@ -190,7 +210,7 @@ export function PlatformChatWalletMessage({
                                 disabled={actionBusy}
                                 onClick={() => onReject?.(message, p)}
                             >
-                                Reject
+                                {t('wallet.reject')}
                             </button>
                         )}
                         {effectiveCanApproveFund && (
@@ -200,7 +220,7 @@ export function PlatformChatWalletMessage({
                                 disabled={actionBusy}
                                 onClick={() => onApprove?.(message, p)}
                             >
-                                Approve
+                                {t('wallet.approve')}
                             </button>
                         )}
                     </div>
@@ -224,30 +244,33 @@ export function PlatformChatWalletMessage({
                     )}
                     <span>
                         {isTransferOut
-                            ? 'Wallet debited for transfer'
-                            : statusEventTitle(p, approved)}
+                            ? t('wallet.debitedTransfer')
+                            : statusEventTitle(p, approved, t)}
                     </span>
                 </div>
                 <div className="pc-wallet-card-ref">{p.requestNumber}</div>
                 <div className="pc-wallet-card-amount pc-wallet-card-amount--compact">
-                    <span className="pc-wallet-card-amount-label">{isExpense ? 'Amount debited' : 'Amount'}</span>
+                    <span className="pc-wallet-card-amount-label">{isExpense ? t('wallet.amountDebited') : t('wallet.amount')}</span>
                     <span className="pc-wallet-card-amount-value">
                         <span className="pc-wallet-card-currency">{p.currencyCode || 'SAR'}</span>
                         {formatSar(p.amount)}
                     </span>
                 </div>
                 {approved && !isExpense && p.sourceAccountName && !isTransferOut && (
-                    <div className="pc-wallet-card-meta">Funded from {p.sourceAccountName}</div>
+                    <div className="pc-wallet-card-meta">{t('wallet.fundedFrom', { name: p.sourceAccountName })}</div>
                 )}
                 {isTransferOut && (
                     <div className="pc-wallet-card-meta">
-                        SAR {formatSar(p.amount)} transferred to {p.requesterName || 'recipient'}
-                        {p.approvedByName ? ` · approved by ${p.approvedByName}` : ''}
+                        {t('wallet.transferredTo', {
+                            amount: formatSar(p.amount),
+                            name: p.requesterName || t('wallet.recipient'),
+                        })}
+                        {p.approvedByName ? t('wallet.approvedBy', { name: p.approvedByName }) : ''}
                     </div>
                 )}
                 {approved && p.balanceAfter != null && (
                     <div className="pc-wallet-card-meta">
-                        Balance after: SAR {formatSar(p.balanceAfter)}
+                        {t('wallet.balanceAfter', { amount: formatSar(p.balanceAfter) })}
                     </div>
                 )}
                 {!approved && p.rejectionReason && (
@@ -257,6 +280,7 @@ export function PlatformChatWalletMessage({
                     createdAt={message.createdAt}
                     isSelf={message.isSelf}
                     receiptStatus={message.receiptStatus}
+                    locale={locale}
                 />
             </div>
         );
@@ -274,12 +298,12 @@ export function PlatformChatWalletMessage({
                         <div className="pc-wallet-card-title">{typeLabel}</div>
                         {p.reference && <div className="pc-wallet-card-ref">{p.reference}</div>}
                     </div>
-                    {p.status && <StatusBadge status={p.status} />}
+                    {p.status && <StatusBadge status={p.status} t={t} />}
                 </div>
                 <div className="pc-wallet-card-body">
                     {p.amount != null && (
                         <div className="pc-wallet-card-amount pc-wallet-card-amount--compact">
-                            <span className="pc-wallet-card-amount-label">Amount</span>
+                            <span className="pc-wallet-card-amount-label">{t('wallet.amount')}</span>
                             <span className="pc-wallet-card-amount-value">
                                 <span className="pc-wallet-card-currency">SAR</span>
                                 {formatSar(p.amount)}
@@ -288,7 +312,7 @@ export function PlatformChatWalletMessage({
                     )}
                     {p.description && (
                         <div className="pc-wallet-card-detail">
-                            <span className="pc-wallet-card-detail-label">Details</span>
+                            <span className="pc-wallet-card-detail-label">{t('wallet.details')}</span>
                             <p className="pc-wallet-card-detail-value">{p.description}</p>
                         </div>
                     )}
@@ -296,6 +320,7 @@ export function PlatformChatWalletMessage({
                         createdAt={message.createdAt}
                         isSelf={message.isSelf}
                         receiptStatus={message.receiptStatus}
+                        locale={locale}
                     />
                 </div>
             </div>
@@ -314,16 +339,16 @@ export function PlatformChatWalletMessage({
                         <Receipt size={18} strokeWidth={2.25} />
                     </div>
                     <div className="pc-wallet-card-head-text">
-                        <div className="pc-wallet-card-title">{isPending ? 'Expense Request' : 'Expense recorded'}</div>
+                        <div className="pc-wallet-card-title">{isPending ? t('wallet.expenseRequest') : t('wallet.expenseRecorded')}</div>
                         {(p.requestNumber || p.referenceId) && (
                             <div className="pc-wallet-card-ref">{p.requestNumber || p.referenceId}</div>
                         )}
                     </div>
-                    <StatusBadge status={status} />
+                    <StatusBadge status={status} t={t} />
                 </div>
                 <div className="pc-wallet-card-body">
                     <div className="pc-wallet-card-amount pc-wallet-card-amount--expense">
-                        <span className="pc-wallet-card-amount-label">{isPending ? 'Requested amount' : 'Amount debited'}</span>
+                        <span className="pc-wallet-card-amount-label">{isPending ? t('wallet.requestedAmount') : t('wallet.amountDebited')}</span>
                         <span className="pc-wallet-card-amount-value">
                             <span className="pc-wallet-card-currency">{p.currencyCode || 'SAR'}</span>
                             {formatSar(p.amount)}
@@ -331,13 +356,13 @@ export function PlatformChatWalletMessage({
                     </div>
                     {p.description && (
                         <div className="pc-wallet-card-detail">
-                            <span className="pc-wallet-card-detail-label">Description</span>
+                            <span className="pc-wallet-card-detail-label">{t('wallet.description')}</span>
                             <p className="pc-wallet-card-detail-value">{p.description}</p>
                         </div>
                     )}
                     {(p.workshopName || p.branchName) && (
                         <div className="pc-wallet-card-detail">
-                            <span className="pc-wallet-card-detail-label">Workshop / Branch</span>
+                            <span className="pc-wallet-card-detail-label">{t('wallet.workshopBranch')}</span>
                             <p className="pc-wallet-card-detail-value">
                                 {[p.workshopName, p.branchName].filter(Boolean).join(' · ')}
                             </p>
@@ -345,13 +370,14 @@ export function PlatformChatWalletMessage({
                     )}
                     {!isPending && p.balanceAfter != null && (
                         <div className="pc-wallet-card-meta">
-                            Balance after: SAR {formatSar(p.balanceAfter)}
+                            {t('wallet.balanceAfter', { amount: formatSar(p.balanceAfter) })}
                         </div>
                     )}
                     <WalletCardDateTime
                         createdAt={message.createdAt}
                         isSelf={message.isSelf}
                         receiptStatus={message.receiptStatus}
+                        locale={locale}
                     />
                 </div>
                 {isPending && !message.isSelf && (canApprove || canReject) && (
@@ -363,7 +389,7 @@ export function PlatformChatWalletMessage({
                                 disabled={actionBusy}
                                 onClick={() => onReject?.(message, p)}
                             >
-                                Reject
+                                {t('wallet.reject')}
                             </button>
                         )}
                         {canApprove && (
@@ -373,7 +399,7 @@ export function PlatformChatWalletMessage({
                                 disabled={actionBusy}
                                 onClick={() => onApprove?.(message, p)}
                             >
-                                Approve
+                                {t('wallet.approve')}
                             </button>
                         )}
                     </div>

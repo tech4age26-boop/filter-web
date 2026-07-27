@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
     CreditCard,
     RefreshCw,
@@ -34,16 +34,17 @@ import {
     generateSettlement,
 } from '../../services/settlementApi';
 import { useAuth } from '../../context/AuthContext';
+import { softPosT } from '../../utils/softPosSettlementI18n';
 
 const SAR = (n) => `SAR ${(Number(n) || 0).toFixed(2)}`;
 
 const TABS = [
-    { key: 'transactions', label: 'Transactions',        icon: Receipt,         permission: 'softpos-settlement.transactions.view' },
-    { key: 'terminals',    label: 'Terminals',           icon: CreditCard,      permission: 'softpos-settlement.terminals.view' },
-    { key: 'batches',      label: 'Settlement Batches',  icon: ArrowDownToLine, permission: 'softpos-settlement.batches.view' },
-    { key: 'hqsettlement', label: 'HQ Settlement',       icon: Banknote,        permission: 'softpos-settlement.batches.view' },
-    { key: 'rules',        label: 'Bank Rules',          icon: Settings,        permission: 'softpos-settlement.rules.view' },
-    { key: 'refunds',      label: 'Refunds',             icon: RefreshCw,       permission: 'softpos-settlement.refunds.view' },
+    { key: 'transactions', labelKey: 'tab.transactions', icon: Receipt,         permission: 'softpos-settlement.transactions.view' },
+    { key: 'terminals',    labelKey: 'tab.terminals',    icon: CreditCard,      permission: 'softpos-settlement.terminals.view' },
+    { key: 'batches',      labelKey: 'tab.batches',      icon: ArrowDownToLine, permission: 'softpos-settlement.batches.view' },
+    { key: 'hqsettlement', labelKey: 'tab.hqsettlement', icon: Banknote,        permission: 'softpos-settlement.batches.view' },
+    { key: 'rules',        labelKey: 'tab.rules',        icon: Settings,        permission: 'softpos-settlement.rules.view' },
+    { key: 'refunds',      labelKey: 'tab.refunds',      icon: RefreshCw,       permission: 'softpos-settlement.refunds.view' },
 ];
 
 const card = {
@@ -98,11 +99,24 @@ function pickArr(res, key = 'items') {
     return [];
 }
 
+function statusLabel(t, status) {
+    if (status == null || status === '') return t('common.emDash');
+    const key = `status.${status}`;
+    const translated = t(key);
+    return translated === key ? status : translated;
+}
+
 export default function SoftPosSettlement() {
     const { hasPermission } = useAuth();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => softPosT(locale, key, vars), [locale]);
     const [searchParams] = useSearchParams();
     const tabFromUrl = searchParams.get('tab') || '';
-    const visibleTabs = TABS.filter((t) => hasPermission(t.permission));
+    const visibleTabs = TABS.filter((tab) => hasPermission(tab.permission));
     const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.key ?? 'transactions');
     const [stats, setStats] = useState(null);
     const [statsLoading, setStatsLoading] = useState(true);
@@ -111,14 +125,14 @@ export default function SoftPosSettlement() {
     // Auto-snap to first allowed tab if current becomes hidden.
     useEffect(() => {
         if (visibleTabs.length === 0) return;
-        if (!visibleTabs.some((t) => t.key === activeTab)) {
+        if (!visibleTabs.some((tab) => tab.key === activeTab)) {
             setActiveTab(visibleTabs[0].key);
         }
     }, [visibleTabs, activeTab]);
 
     useEffect(() => {
         if (!tabFromUrl) return;
-        if (visibleTabs.some((t) => t.key === tabFromUrl)) {
+        if (visibleTabs.some((tab) => tab.key === tabFromUrl)) {
             setActiveTab(tabFromUrl);
         }
     }, [tabFromUrl, visibleTabs]);
@@ -130,7 +144,7 @@ export default function SoftPosSettlement() {
                 const res = await getSoftPosStats();
                 if (!cancelled) setStats(res);
             } catch (err) {
-                if (!cancelled) setError(err?.message || 'Failed to load stats');
+                if (!cancelled) setError(err?.message || t('err.loadStats'));
             } finally {
                 if (!cancelled) setStatsLoading(false);
             }
@@ -138,18 +152,18 @@ export default function SoftPosSettlement() {
         return () => {
             cancelled = true;
         };
-    }, [activeTab]);
+    }, [activeTab, t]);
 
     return (
         <div style={{ padding: 24, background: '#f5f5f5', minHeight: '100%' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                 <CreditCard size={24} />
                 <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700 }}>
-                    SoftPOS Tap-to-Pay Settlement
+                    {t('page.title')}
                 </h1>
             </div>
             <p style={{ margin: 0, color: '#6b7280', fontSize: 13 }}>
-                Monitor merchant terminals, bank fees, platform commission, and process refunds.
+                {t('page.subtitle')}
             </p>
 
             <div
@@ -162,25 +176,25 @@ export default function SoftPosSettlement() {
                 }}
             >
                 <SummaryCard
-                    label="Active Terminals"
+                    label={t('kpi.activeTerminals')}
                     value={statsLoading ? '...' : (stats?.activeTerminals ?? 0)}
                     icon={<CreditCard size={18} color="#1d4ed8" />}
                     color="#1d4ed8"
                 />
                 <SummaryCard
-                    label="Captured Volume"
+                    label={t('kpi.capturedVolume')}
                     value={statsLoading ? '...' : SAR(stats?.gross || 0)}
                     icon={<DollarSign size={18} color="#16a34a" />}
                     color="#16a34a"
                 />
                 <SummaryCard
-                    label="Platform Income"
+                    label={t('kpi.platformIncome')}
                     value={statsLoading ? '...' : SAR(stats?.platformIncome || 0)}
                     icon={<Banknote size={18} color="#D4A017" />}
                     color="#D4A017"
                 />
                 <SummaryCard
-                    label="Refunds"
+                    label={t('kpi.refunds')}
                     value={statsLoading ? '...' : `${stats?.refundsCount ?? 0} · ${SAR(stats?.refundsAmount || 0)}`}
                     icon={<RefreshCw size={18} color="#dc2626" />}
                     color="#dc2626"
@@ -200,14 +214,14 @@ export default function SoftPosSettlement() {
                     borderBottomColor: '#e5e7eb',
                 }}
             >
-                {visibleTabs.map((t) => {
-                    const active = t.key === activeTab;
-                    const Icon = t.icon;
+                {visibleTabs.map((tab) => {
+                    const active = tab.key === activeTab;
+                    const Icon = tab.icon;
                     return (
                         <button
-                            key={t.key}
+                            key={tab.key}
                             type="button"
-                            onClick={() => setActiveTab(t.key)}
+                            onClick={() => setActiveTab(tab.key)}
                             style={{
                                 background: 'transparent',
                                 border: 'none',
@@ -222,7 +236,7 @@ export default function SoftPosSettlement() {
                             }}
                         >
                             <Icon size={16} />
-                            {t.label}
+                            {t(tab.labelKey)}
                         </button>
                     );
                 })}
@@ -243,15 +257,15 @@ export default function SoftPosSettlement() {
                 </div>
             )}
 
-            {activeTab === 'transactions' && hasPermission('softpos-settlement.transactions.view') && <TransactionsTab onError={setError} />}
-            {activeTab === 'terminals'    && hasPermission('softpos-settlement.terminals.view')    && <TerminalsTab onError={setError} />}
-            {activeTab === 'batches'      && hasPermission('softpos-settlement.batches.view')      && <BatchesTab onError={setError} />}
-            {activeTab === 'hqsettlement' && hasPermission('softpos-settlement.batches.view')      && <HqSettlementTab onError={setError} />}
-            {activeTab === 'rules'        && hasPermission('softpos-settlement.rules.view')        && <RulesTab onError={setError} />}
-            {activeTab === 'refunds'      && hasPermission('softpos-settlement.refunds.view')      && <RefundsTab onError={setError} />}
+            {activeTab === 'transactions' && hasPermission('softpos-settlement.transactions.view') && <TransactionsTab onError={setError} t={t} />}
+            {activeTab === 'terminals'    && hasPermission('softpos-settlement.terminals.view')    && <TerminalsTab onError={setError} t={t} />}
+            {activeTab === 'batches'      && hasPermission('softpos-settlement.batches.view')      && <BatchesTab onError={setError} t={t} />}
+            {activeTab === 'hqsettlement' && hasPermission('softpos-settlement.batches.view')      && <HqSettlementTab onError={setError} t={t} />}
+            {activeTab === 'rules'        && hasPermission('softpos-settlement.rules.view')        && <RulesTab onError={setError} t={t} />}
+            {activeTab === 'refunds'      && hasPermission('softpos-settlement.refunds.view')      && <RefundsTab onError={setError} t={t} />}
             {visibleTabs.length === 0 && (
                 <div style={{ padding: 30, textAlign: 'center', color: '#94a3b8' }}>
-                    You don't have permission to view any SoftPOS Settlement sections.
+                    {t('page.noPerm')}
                 </div>
             )}
         </div>
@@ -271,7 +285,7 @@ function SummaryCard({ label, value, icon, color }) {
 }
 
 // ===== Transactions =====
-function TransactionsTab({ onError }) {
+function TransactionsTab({ onError, t }) {
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [totals, setTotals] = useState({ gross: 0, bankFee: 0, platformFee: 0, netToMerchant: 0 });
@@ -299,7 +313,7 @@ function TransactionsTab({ onError }) {
                 setTotal(Number(res?.total || 0));
                 setTotals(res?.totals || {});
             } catch (err) {
-                if (!cancelled) onError(err?.message || 'Failed to load transactions');
+                if (!cancelled) onError(err?.message || t('err.loadTransactions'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -308,6 +322,19 @@ function TransactionsTab({ onError }) {
             cancelled = true;
         };
     }, [reload]);
+
+    const headers = [
+        'th.captured',
+        'th.terminal',
+        'th.workshopBranch',
+        'th.invoice',
+        'th.gross',
+        'th.bankFee',
+        'th.platform',
+        'th.net',
+        'th.status',
+        'th.actions',
+    ];
 
     return (
         <div style={card}>
@@ -321,25 +348,25 @@ function TransactionsTab({ onError }) {
                 }}
             >
                 <input
-                    placeholder="Search ref"
+                    placeholder={t('tx.ph.searchRef')}
                     value={filters.search}
                     onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))}
                     style={inputStyle}
                 />
                 <input
-                    placeholder="Workshop ID"
+                    placeholder={t('tx.ph.workshopId')}
                     value={filters.workshopId}
                     onChange={(e) => setFilters((p) => ({ ...p, workshopId: e.target.value }))}
                     style={inputStyle}
                 />
                 <input
-                    placeholder="Branch ID"
+                    placeholder={t('tx.ph.branchId')}
                     value={filters.branchId}
                     onChange={(e) => setFilters((p) => ({ ...p, branchId: e.target.value }))}
                     style={inputStyle}
                 />
                 <input
-                    placeholder="Terminal ID"
+                    placeholder={t('tx.ph.terminalId')}
                     value={filters.terminalId}
                     onChange={(e) => setFilters((p) => ({ ...p, terminalId: e.target.value }))}
                     style={inputStyle}
@@ -357,7 +384,7 @@ function TransactionsTab({ onError }) {
                     style={inputStyle}
                 />
                 <button type="button" style={btnPrimary} onClick={() => setReload((x) => x + 1)}>
-                    Apply
+                    {t('common.apply')}
                 </button>
             </div>
 
@@ -372,16 +399,16 @@ function TransactionsTab({ onError }) {
                 }}
             >
                 <div>
-                    <strong>Gross:</strong> {SAR(totals.gross)}
+                    <strong>{t('tx.gross')}</strong> {SAR(totals.gross)}
                 </div>
                 <div>
-                    <strong>Bank Fee:</strong> {SAR(totals.bankFee)}
+                    <strong>{t('tx.bankFee')}</strong> {SAR(totals.bankFee)}
                 </div>
                 <div>
-                    <strong>Platform Fee:</strong> {SAR(totals.platformFee)}
+                    <strong>{t('tx.platformFee')}</strong> {SAR(totals.platformFee)}
                 </div>
                 <div>
-                    <strong>Net to Merchants:</strong> {SAR(totals.netToMerchant)}
+                    <strong>{t('tx.netToMerchants')}</strong> {SAR(totals.netToMerchant)}
                 </div>
             </div>
 
@@ -389,37 +416,35 @@ function TransactionsTab({ onError }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: '#fafafa' }}>
-                            {['Captured', 'Terminal', 'Workshop / Branch', 'Invoice', 'Gross', 'Bank Fee', 'Platform', 'Net', 'Status', 'Actions'].map(
-                                (h) => (
-                                    <th
-                                        key={h}
-                                        style={{
-                                            textAlign: 'left',
-                                            padding: '8px 10px',
-                                            fontSize: 11,
-                                            color: '#6b7280',
-                                            borderBottom: '1px solid #e5e7eb',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: 1,
-                                        }}
-                                    >
-                                        {h}
-                                    </th>
-                                ),
-                            )}
+                            {headers.map((h) => (
+                                <th
+                                    key={h}
+                                    style={{
+                                        textAlign: 'left',
+                                        padding: '8px 10px',
+                                        fontSize: 11,
+                                        color: '#6b7280',
+                                        borderBottom: '1px solid #e5e7eb',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: 1,
+                                    }}
+                                >
+                                    {t(h)}
+                                </th>
+                            ))}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
                                 <td colSpan={10} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    Loading...
+                                    {t('common.loading')}
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
                                 <td colSpan={10} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    No SoftPOS transactions for this filter.
+                                    {t('tx.empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -428,20 +453,20 @@ function TransactionsTab({ onError }) {
                                 return (
                                     <tr key={r.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                         <td style={{ padding: '8px 10px', fontSize: 12 }}>
-                                            {r.capturedAt ? new Date(r.capturedAt).toLocaleString() : '—'}
+                                            {r.capturedAt ? new Date(r.capturedAt).toLocaleString() : t('common.emDash')}
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                            <div style={{ fontWeight: 600 }}>{r.terminalCode || '—'}</div>
+                                            <div style={{ fontWeight: 600 }}>{r.terminalCode || t('common.emDash')}</div>
                                             {r.terminalLabel && (
                                                 <div style={{ color: '#6b7280', fontSize: 11 }}>{r.terminalLabel}</div>
                                             )}
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                            <div>{r.workshopName || '—'}</div>
-                                            <div style={{ color: '#6b7280', fontSize: 11 }}>{r.branchName || '—'}</div>
+                                            <div>{r.workshopName || t('common.emDash')}</div>
+                                            <div style={{ color: '#6b7280', fontSize: 11 }}>{r.branchName || t('common.emDash')}</div>
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                            {r.invoiceNo || r.reference || '—'}
+                                            {r.invoiceNo || r.reference || t('common.emDash')}
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>
                                             {SAR(r.gross)}
@@ -466,7 +491,7 @@ function TransactionsTab({ onError }) {
                                                     fontWeight: 600,
                                                 }}
                                             >
-                                                {r.status}
+                                                {statusLabel(t, r.status)}
                                             </span>
                                         </td>
                                         <td style={{ padding: '8px 10px' }}>
@@ -481,7 +506,7 @@ function TransactionsTab({ onError }) {
                                                     }}
                                                     onClick={() => setRefundOpen(r)}
                                                 >
-                                                    Refund
+                                                    {t('tx.refund')}
                                                 </button>
                                             )}
                                         </td>
@@ -494,12 +519,13 @@ function TransactionsTab({ onError }) {
             </div>
 
             <div style={{ marginTop: 8, color: '#6b7280', fontSize: 12 }}>
-                Showing {rows.length} of {total}
+                {t('tx.showing', { n: rows.length, total })}
             </div>
 
             {refundOpen && (
                 <RefundModal
                     transaction={refundOpen}
+                    t={t}
                     onClose={() => setRefundOpen(null)}
                     onDone={() => {
                         setRefundOpen(null);
@@ -511,7 +537,7 @@ function TransactionsTab({ onError }) {
     );
 }
 
-function RefundModal({ transaction, onClose, onDone }) {
+function RefundModal({ transaction, onClose, onDone, t }) {
     const [amount, setAmount] = useState(Number(transaction.gross || 0));
     const [reason, setReason] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -527,17 +553,17 @@ function RefundModal({ transaction, onClose, onDone }) {
             });
             onDone();
         } catch (e) {
-            setErr(e?.message || 'Refund failed');
+            setErr(e?.message || t('err.refundFailed'));
         } finally {
             setSubmitting(false);
         }
     };
 
     return (
-        <ModalShell title={`Refund ${transaction.reference || transaction.id}`} onClose={onClose}>
+        <ModalShell title={t('refund.title', { ref: transaction.reference || transaction.id })} onClose={onClose}>
             <div style={{ display: 'grid', gap: 10 }}>
                 <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#374151', marginBottom: 4 }}>Amount (SAR)</label>
+                    <label style={{ display: 'block', fontSize: 12, color: '#374151', marginBottom: 4 }}>{t('refund.amount')}</label>
                     <input
                         type="number"
                         step="0.01"
@@ -547,11 +573,11 @@ function RefundModal({ transaction, onClose, onDone }) {
                         style={inputStyle}
                     />
                     <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
-                        Max refundable: {SAR(transaction.gross)}
+                        {t('refund.max', { amount: SAR(transaction.gross) })}
                     </div>
                 </div>
                 <div>
-                    <label style={{ display: 'block', fontSize: 12, color: '#374151', marginBottom: 4 }}>Reason</label>
+                    <label style={{ display: 'block', fontSize: 12, color: '#374151', marginBottom: 4 }}>{t('refund.reason')}</label>
                     <textarea
                         rows={3}
                         value={reason}
@@ -562,10 +588,10 @@ function RefundModal({ transaction, onClose, onDone }) {
                 {err && <div style={{ color: '#dc2626', fontSize: 13 }}>{err}</div>}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                     <button type="button" style={btn} onClick={onClose} disabled={submitting}>
-                        Cancel
+                        {t('common.cancel')}
                     </button>
                     <button type="button" style={btnPrimary} onClick={submit} disabled={submitting}>
-                        {submitting ? 'Submitting...' : 'Submit Refund'}
+                        {submitting ? t('common.submitting') : t('refund.submit')}
                     </button>
                 </div>
             </div>
@@ -574,7 +600,7 @@ function RefundModal({ transaction, onClose, onDone }) {
 }
 
 // ===== Terminals =====
-function TerminalsTab({ onError }) {
+function TerminalsTab({ onError, t }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -589,7 +615,7 @@ function TerminalsTab({ onError }) {
                 const res = await listSoftPosTerminals({ search });
                 if (!cancelled) setRows(pickArr(res));
             } catch (err) {
-                if (!cancelled) onError(err?.message || 'Failed to load terminals');
+                if (!cancelled) onError(err?.message || t('err.loadTerminals'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -600,14 +626,25 @@ function TerminalsTab({ onError }) {
     }, [reload]);
 
     const onDelete = async (id) => {
-        if (!window.confirm('Delete terminal?')) return;
+        if (!window.confirm(t('term.confirmDelete'))) return;
         try {
             await deleteSoftPosTerminal(id);
             setReload((x) => x + 1);
         } catch (e) {
-            onError(e?.message || 'Delete failed');
+            onError(e?.message || t('err.deleteFailed'));
         }
     };
+
+    const headers = [
+        'th.terminalCode',
+        'th.merchant',
+        'th.workshopBranch',
+        'th.bankAc',
+        'th.bankPct',
+        'th.platformPct',
+        'th.status',
+        'th.actions',
+    ];
 
     return (
         <div style={card}>
@@ -619,7 +656,7 @@ function TerminalsTab({ onError }) {
                         style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }}
                     />
                     <input
-                        placeholder="Search terminal code / merchant / label"
+                        placeholder={t('term.ph.search')}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         onKeyDown={(e) => {
@@ -629,14 +666,14 @@ function TerminalsTab({ onError }) {
                     />
                 </div>
                 <button type="button" style={btn} onClick={() => setReload((x) => x + 1)}>
-                    Apply
+                    {t('common.apply')}
                 </button>
                 <button
                     type="button"
                     style={{ ...btnPrimary, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                     onClick={() => setEditing({})}
                 >
-                    <Plus size={14} /> New Terminal
+                    <Plus size={14} /> {t('term.new')}
                 </button>
             </div>
 
@@ -644,16 +681,7 @@ function TerminalsTab({ onError }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: '#fafafa' }}>
-                            {[
-                                'Terminal Code',
-                                'Merchant',
-                                'Workshop / Branch',
-                                'Bank A/C',
-                                'Bank %',
-                                'Platform %',
-                                'Status',
-                                'Actions',
-                            ].map((h) => (
+                            {headers.map((h) => (
                                 <th
                                     key={h}
                                     style={{
@@ -666,7 +694,7 @@ function TerminalsTab({ onError }) {
                                         letterSpacing: 1,
                                     }}
                                 >
-                                    {h}
+                                    {t(h)}
                                 </th>
                             ))}
                         </tr>
@@ -675,50 +703,50 @@ function TerminalsTab({ onError }) {
                         {loading ? (
                             <tr>
                                 <td colSpan={8} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    Loading...
+                                    {t('common.loading')}
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
                                 <td colSpan={8} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    No terminals registered yet.
+                                    {t('term.empty')}
                                 </td>
                             </tr>
                         ) : (
-                            rows.map((t) => (
-                                <tr key={t.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                            rows.map((term) => (
+                                <tr key={term.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                     <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>
-                                        {t.terminalCode}
-                                        {t.label && (
-                                            <div style={{ color: '#6b7280', fontSize: 11 }}>{t.label}</div>
+                                        {term.terminalCode}
+                                        {term.label && (
+                                            <div style={{ color: '#6b7280', fontSize: 11 }}>{term.label}</div>
                                         )}
                                     </td>
-                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{t.merchantCode}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{term.merchantCode}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                        <div>{t.workshopName || '—'}</div>
-                                        <div style={{ color: '#6b7280', fontSize: 11 }}>{t.branchName || '—'}</div>
+                                        <div>{term.workshopName || t('common.emDash')}</div>
+                                        <div style={{ color: '#6b7280', fontSize: 11 }}>{term.branchName || t('common.emDash')}</div>
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                        {t.bankCashBankAccountName || '—'}
+                                        {term.bankCashBankAccountName || t('common.emDash')}
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                        {t.bankFeePercent != null ? `${t.bankFeePercent}%` : '—'}
+                                        {term.bankFeePercent != null ? `${term.bankFeePercent}%` : t('common.emDash')}
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                        {t.platformFeePercent != null ? `${t.platformFeePercent}%` : '—'}
+                                        {term.platformFeePercent != null ? `${term.platformFeePercent}%` : t('common.emDash')}
                                     </td>
                                     <td style={{ padding: '8px 10px' }}>
                                         <span
                                             style={{
-                                                background: t.status === 'active' ? '#dcfce7' : '#fee2e2',
-                                                color: t.status === 'active' ? '#16a34a' : '#dc2626',
+                                                background: term.status === 'active' ? '#dcfce7' : '#fee2e2',
+                                                color: term.status === 'active' ? '#16a34a' : '#dc2626',
                                                 padding: '2px 8px',
                                                 borderRadius: 999,
                                                 fontSize: 11,
                                                 fontWeight: 600,
                                             }}
                                         >
-                                            {t.status}
+                                            {statusLabel(t, term.status)}
                                         </span>
                                     </td>
                                     <td style={{ padding: '8px 10px' }}>
@@ -726,16 +754,16 @@ function TerminalsTab({ onError }) {
                                             <button
                                                 type="button"
                                                 style={{ ...btn, border: 'none', padding: 0 }}
-                                                title="Edit"
-                                                onClick={() => setEditing(t)}
+                                                title={t('common.edit')}
+                                                onClick={() => setEditing(term)}
                                             >
                                                 <Pencil size={14} color="#6b7280" />
                                             </button>
                                             <button
                                                 type="button"
                                                 style={{ ...btn, border: 'none', padding: 0 }}
-                                                title="Delete"
-                                                onClick={() => onDelete(t.id)}
+                                                title={t('common.delete')}
+                                                onClick={() => onDelete(term.id)}
                                             >
                                                 <Trash2 size={14} color="#dc2626" />
                                             </button>
@@ -751,6 +779,7 @@ function TerminalsTab({ onError }) {
             {editing && (
                 <TerminalModal
                     initial={editing.id ? editing : {}}
+                    t={t}
                     onClose={() => setEditing(null)}
                     onDone={() => {
                         setEditing(null);
@@ -763,7 +792,7 @@ function TerminalsTab({ onError }) {
     );
 }
 
-function TerminalModal({ initial = {}, onClose, onDone, onError }) {
+function TerminalModal({ initial = {}, onClose, onDone, onError, t }) {
     const [form, setForm] = useState({
         workshopId: initial.workshopId || '',
         branchId: initial.branchId || '',
@@ -796,16 +825,16 @@ function TerminalModal({ initial = {}, onClose, onDone, onError }) {
             }
             onDone();
         } catch (e) {
-            setErr(e?.message || 'Save failed');
+            setErr(e?.message || t('err.saveFailed'));
         } finally {
             setSaving(false);
         }
     };
 
     return (
-        <ModalShell title={initial.id ? 'Edit Terminal' : 'New Terminal'} onClose={onClose}>
+        <ModalShell title={initial.id ? t('term.editTitle') : t('term.newTitle')} onClose={onClose}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <Field label="Workshop ID *">
+                <Field label={t('term.workshopId')}>
                     <input
                         value={form.workshopId}
                         onChange={(e) => setForm((p) => ({ ...p, workshopId: e.target.value }))}
@@ -813,7 +842,7 @@ function TerminalModal({ initial = {}, onClose, onDone, onError }) {
                         disabled={!!initial.id}
                     />
                 </Field>
-                <Field label="Branch ID *">
+                <Field label={t('term.branchId')}>
                     <input
                         value={form.branchId}
                         onChange={(e) => setForm((p) => ({ ...p, branchId: e.target.value }))}
@@ -821,28 +850,28 @@ function TerminalModal({ initial = {}, onClose, onDone, onError }) {
                         disabled={!!initial.id}
                     />
                 </Field>
-                <Field label="Merchant Code *">
+                <Field label={t('term.merchantCode')}>
                     <input
                         value={form.merchantCode}
                         onChange={(e) => setForm((p) => ({ ...p, merchantCode: e.target.value }))}
                         style={inputStyle}
                     />
                 </Field>
-                <Field label="Terminal Code *">
+                <Field label={t('term.terminalCode')}>
                     <input
                         value={form.terminalCode}
                         onChange={(e) => setForm((p) => ({ ...p, terminalCode: e.target.value }))}
                         style={inputStyle}
                     />
                 </Field>
-                <Field label="Label" full>
+                <Field label={t('term.label')} full>
                     <input
                         value={form.label}
                         onChange={(e) => setForm((p) => ({ ...p, label: e.target.value }))}
                         style={inputStyle}
                     />
                 </Field>
-                <Field label="Bank CashBankAccount ID">
+                <Field label={t('term.bankCashBankAccountId')}>
                     <input
                         value={form.bankCashBankAccountId}
                         onChange={(e) =>
@@ -851,27 +880,27 @@ function TerminalModal({ initial = {}, onClose, onDone, onError }) {
                         style={inputStyle}
                     />
                 </Field>
-                <Field label="Status">
+                <Field label={t('term.status')}>
                     <select
                         value={form.status}
                         onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
                         style={inputStyle}
                     >
-                        <option value="active">active</option>
-                        <option value="inactive">inactive</option>
+                        <option value="active">{t('status.active')}</option>
+                        <option value="inactive">{t('status.inactive')}</option>
                     </select>
                 </Field>
-                <Field label="Bank Fee % (override)">
+                <Field label={t('term.bankFeeOverride')}>
                     <input
                         type="number"
                         step="0.0001"
                         value={form.bankFeePercent}
                         onChange={(e) => setForm((p) => ({ ...p, bankFeePercent: e.target.value }))}
                         style={inputStyle}
-                        placeholder="default rule"
+                        placeholder={t('term.ph.defaultRule')}
                     />
                 </Field>
-                <Field label="Platform Fee % (override)">
+                <Field label={t('term.platformFeeOverride')}>
                     <input
                         type="number"
                         step="0.0001"
@@ -880,16 +909,16 @@ function TerminalModal({ initial = {}, onClose, onDone, onError }) {
                             setForm((p) => ({ ...p, platformFeePercent: e.target.value }))
                         }
                         style={inputStyle}
-                        placeholder="default rule"
+                        placeholder={t('term.ph.defaultRule')}
                     />
                 </Field>
                 {err && <div style={{ gridColumn: 'span 2', color: '#dc2626', fontSize: 13 }}>{err}</div>}
                 <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                     <button type="button" style={btn} onClick={onClose} disabled={saving}>
-                        Cancel
+                        {t('common.cancel')}
                     </button>
                     <button type="button" style={btnPrimary} onClick={submit} disabled={saving}>
-                        {saving ? 'Saving...' : initial.id ? 'Update' : 'Create'}
+                        {saving ? t('common.saving') : initial.id ? t('common.update') : t('common.create')}
                     </button>
                 </div>
             </div>
@@ -898,7 +927,7 @@ function TerminalModal({ initial = {}, onClose, onDone, onError }) {
 }
 
 // ===== Batches =====
-function BatchesTab({ onError }) {
+function BatchesTab({ onError, t }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({ workshopId: '', branchId: '', fromDate: '', toDate: '' });
@@ -912,7 +941,7 @@ function BatchesTab({ onError }) {
                 const res = await listSoftPosBatches(filters);
                 if (!cancelled) setRows(Array.isArray(res) ? res : []);
             } catch (err) {
-                if (!cancelled) onError(err?.message || 'Failed to load batches');
+                if (!cancelled) onError(err?.message || t('err.loadBatches'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -922,17 +951,29 @@ function BatchesTab({ onError }) {
         };
     }, [reload]);
 
+    const headers = [
+        'th.date',
+        'th.terminal',
+        'th.workshop',
+        'th.branch',
+        'th.count',
+        'th.gross',
+        'th.bankFee',
+        'th.platform',
+        'th.net',
+    ];
+
     return (
         <div style={card}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                 <input
-                    placeholder="Workshop ID"
+                    placeholder={t('tx.ph.workshopId')}
                     value={filters.workshopId}
                     onChange={(e) => setFilters((p) => ({ ...p, workshopId: e.target.value }))}
                     style={inputStyle}
                 />
                 <input
-                    placeholder="Branch ID"
+                    placeholder={t('tx.ph.branchId')}
                     value={filters.branchId}
                     onChange={(e) => setFilters((p) => ({ ...p, branchId: e.target.value }))}
                     style={inputStyle}
@@ -950,44 +991,42 @@ function BatchesTab({ onError }) {
                     style={inputStyle}
                 />
                 <button type="button" style={btnPrimary} onClick={() => setReload((x) => x + 1)}>
-                    Apply
+                    {t('common.apply')}
                 </button>
             </div>
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: '#fafafa' }}>
-                            {['Date', 'Terminal', 'Workshop', 'Branch', 'Count', 'Gross', 'Bank Fee', 'Platform', 'Net'].map(
-                                (h) => (
-                                    <th
-                                        key={h}
-                                        style={{
-                                            textAlign: 'left',
-                                            padding: '8px 10px',
-                                            fontSize: 11,
-                                            color: '#6b7280',
-                                            borderBottom: '1px solid #e5e7eb',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: 1,
-                                        }}
-                                    >
-                                        {h}
-                                    </th>
-                                ),
-                            )}
+                            {headers.map((h) => (
+                                <th
+                                    key={h}
+                                    style={{
+                                        textAlign: 'left',
+                                        padding: '8px 10px',
+                                        fontSize: 11,
+                                        color: '#6b7280',
+                                        borderBottom: '1px solid #e5e7eb',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: 1,
+                                    }}
+                                >
+                                    {t(h)}
+                                </th>
+                            ))}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
                                 <td colSpan={9} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    Loading...
+                                    {t('common.loading')}
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
                                 <td colSpan={9} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    No settlement batches yet.
+                                    {t('batch.empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -1013,7 +1052,7 @@ function BatchesTab({ onError }) {
 }
 
 // ===== Rules =====
-function RulesTab({ onError }) {
+function RulesTab({ onError, t }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({ terminalId: '', workshopId: '', isActive: '' });
@@ -1028,7 +1067,7 @@ function RulesTab({ onError }) {
                 const res = await listSoftPosRules(filters);
                 if (!cancelled) setRows(pickArr(res));
             } catch (err) {
-                if (!cancelled) onError(err?.message || 'Failed to load rules');
+                if (!cancelled) onError(err?.message || t('err.loadRules'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -1039,26 +1078,37 @@ function RulesTab({ onError }) {
     }, [reload]);
 
     const onDelete = async (id) => {
-        if (!window.confirm('Delete rule?')) return;
+        if (!window.confirm(t('rule.confirmDelete'))) return;
         try {
             await deleteSoftPosRule(id);
             setReload((x) => x + 1);
         } catch (e) {
-            onError(e?.message || 'Delete failed');
+            onError(e?.message || t('err.deleteFailed'));
         }
     };
+
+    const headers = [
+        'th.scope',
+        'th.terminalWorkshop',
+        'th.bankPct',
+        'th.platformPct',
+        'th.from',
+        'th.to',
+        'th.status',
+        'th.actions',
+    ];
 
     return (
         <div style={card}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                 <input
-                    placeholder="Terminal ID"
+                    placeholder={t('tx.ph.terminalId')}
                     value={filters.terminalId}
                     onChange={(e) => setFilters((p) => ({ ...p, terminalId: e.target.value }))}
                     style={inputStyle}
                 />
                 <input
-                    placeholder="Workshop ID"
+                    placeholder={t('tx.ph.workshopId')}
                     value={filters.workshopId}
                     onChange={(e) => setFilters((p) => ({ ...p, workshopId: e.target.value }))}
                     style={inputStyle}
@@ -1068,19 +1118,19 @@ function RulesTab({ onError }) {
                     onChange={(e) => setFilters((p) => ({ ...p, isActive: e.target.value }))}
                     style={{ ...inputStyle, width: 'auto' }}
                 >
-                    <option value="">All</option>
-                    <option value="true">Active</option>
-                    <option value="false">Inactive</option>
+                    <option value="">{t('common.all')}</option>
+                    <option value="true">{t('common.active')}</option>
+                    <option value="false">{t('common.inactive')}</option>
                 </select>
                 <button type="button" style={btn} onClick={() => setReload((x) => x + 1)}>
-                    Apply
+                    {t('common.apply')}
                 </button>
                 <button
                     type="button"
                     style={{ ...btnPrimary, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                     onClick={() => setEditing({})}
                 >
-                    <Plus size={14} /> New Rule
+                    <Plus size={14} /> {t('rule.new')}
                 </button>
             </div>
 
@@ -1088,16 +1138,7 @@ function RulesTab({ onError }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: '#fafafa' }}>
-                            {[
-                                'Scope',
-                                'Terminal / Workshop',
-                                'Bank %',
-                                'Platform %',
-                                'From',
-                                'To',
-                                'Status',
-                                'Actions',
-                            ].map((h) => (
+                            {headers.map((h) => (
                                 <th
                                     key={h}
                                     style={{
@@ -1110,7 +1151,7 @@ function RulesTab({ onError }) {
                                         letterSpacing: 1,
                                     }}
                                 >
-                                    {h}
+                                    {t(h)}
                                 </th>
                             ))}
                         </tr>
@@ -1119,13 +1160,13 @@ function RulesTab({ onError }) {
                         {loading ? (
                             <tr>
                                 <td colSpan={8} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    Loading...
+                                    {t('common.loading')}
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
                                 <td colSpan={8} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    No settlement rules yet.
+                                    {t('rule.empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -1133,15 +1174,15 @@ function RulesTab({ onError }) {
                                 <tr key={r.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.scope}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                        {r.terminalCode || r.workshopName || 'Default (global)'}
+                                        {r.terminalCode || r.workshopName || t('rule.defaultGlobal')}
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.bankFeePercent}%</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.platformFeePercent}%</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                        {r.effectiveFrom ? new Date(r.effectiveFrom).toLocaleDateString() : '—'}
+                                        {r.effectiveFrom ? new Date(r.effectiveFrom).toLocaleDateString() : t('common.emDash')}
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                        {r.effectiveTo ? new Date(r.effectiveTo).toLocaleDateString() : '—'}
+                                        {r.effectiveTo ? new Date(r.effectiveTo).toLocaleDateString() : t('common.emDash')}
                                     </td>
                                     <td style={{ padding: '8px 10px' }}>
                                         <span
@@ -1154,15 +1195,15 @@ function RulesTab({ onError }) {
                                                 fontWeight: 600,
                                             }}
                                         >
-                                            {r.isActive ? 'active' : 'inactive'}
+                                            {r.isActive ? t('status.active') : t('status.inactive')}
                                         </span>
                                     </td>
                                     <td style={{ padding: '8px 10px' }}>
                                         <div style={{ display: 'inline-flex', gap: 12 }}>
-                                            <button type="button" style={{ ...btn, border: 'none', padding: 0 }} onClick={() => setEditing(r)}>
+                                            <button type="button" style={{ ...btn, border: 'none', padding: 0 }} title={t('common.edit')} onClick={() => setEditing(r)}>
                                                 <Pencil size={14} color="#6b7280" />
                                             </button>
-                                            <button type="button" style={{ ...btn, border: 'none', padding: 0 }} onClick={() => onDelete(r.id)}>
+                                            <button type="button" style={{ ...btn, border: 'none', padding: 0 }} title={t('common.delete')} onClick={() => onDelete(r.id)}>
                                                 <Trash2 size={14} color="#dc2626" />
                                             </button>
                                         </div>
@@ -1177,6 +1218,7 @@ function RulesTab({ onError }) {
             {editing && (
                 <RuleModal
                     initial={editing.id ? editing : {}}
+                    t={t}
                     onClose={() => setEditing(null)}
                     onDone={() => {
                         setEditing(null);
@@ -1188,7 +1230,7 @@ function RulesTab({ onError }) {
     );
 }
 
-function RuleModal({ initial = {}, onClose, onDone }) {
+function RuleModal({ initial = {}, onClose, onDone, t }) {
     const today = new Date().toISOString().slice(0, 10);
     const [form, setForm] = useState({
         terminalId: initial.terminalId || '',
@@ -1224,30 +1266,30 @@ function RuleModal({ initial = {}, onClose, onDone }) {
             }
             onDone();
         } catch (e) {
-            setErr(e?.message || 'Save failed');
+            setErr(e?.message || t('err.saveFailed'));
         } finally {
             setSaving(false);
         }
     };
 
     return (
-        <ModalShell title={initial.id ? 'Edit Rule' : 'New Rule'} onClose={onClose}>
+        <ModalShell title={initial.id ? t('rule.editTitle') : t('rule.newTitle')} onClose={onClose}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <Field label="Terminal ID (optional)">
+                <Field label={t('rule.terminalIdOpt')}>
                     <input
                         value={form.terminalId}
                         onChange={(e) => setForm((p) => ({ ...p, terminalId: e.target.value }))}
                         style={inputStyle}
                     />
                 </Field>
-                <Field label="Workshop ID (optional)">
+                <Field label={t('rule.workshopIdOpt')}>
                     <input
                         value={form.workshopId}
                         onChange={(e) => setForm((p) => ({ ...p, workshopId: e.target.value }))}
                         style={inputStyle}
                     />
                 </Field>
-                <Field label="Bank Fee %">
+                <Field label={t('rule.bankFeePct')}>
                     <input
                         type="number"
                         step="0.0001"
@@ -1256,7 +1298,7 @@ function RuleModal({ initial = {}, onClose, onDone }) {
                         style={inputStyle}
                     />
                 </Field>
-                <Field label="Platform Fee %">
+                <Field label={t('rule.platformFeePct')}>
                     <input
                         type="number"
                         step="0.0001"
@@ -1265,7 +1307,7 @@ function RuleModal({ initial = {}, onClose, onDone }) {
                         style={inputStyle}
                     />
                 </Field>
-                <Field label="Effective From">
+                <Field label={t('rule.effectiveFrom')}>
                     <input
                         type="date"
                         value={form.effectiveFrom}
@@ -1273,7 +1315,7 @@ function RuleModal({ initial = {}, onClose, onDone }) {
                         style={inputStyle}
                     />
                 </Field>
-                <Field label="Effective To (optional)">
+                <Field label={t('rule.effectiveTo')}>
                     <input
                         type="date"
                         value={form.effectiveTo}
@@ -1281,17 +1323,17 @@ function RuleModal({ initial = {}, onClose, onDone }) {
                         style={inputStyle}
                     />
                 </Field>
-                <Field label="Active">
+                <Field label={t('rule.active')}>
                     <select
                         value={form.isActive ? 'true' : 'false'}
                         onChange={(e) => setForm((p) => ({ ...p, isActive: e.target.value === 'true' }))}
                         style={inputStyle}
                     >
-                        <option value="true">active</option>
-                        <option value="false">inactive</option>
+                        <option value="true">{t('status.active')}</option>
+                        <option value="false">{t('status.inactive')}</option>
                     </select>
                 </Field>
-                <Field label="Notes" full>
+                <Field label={t('rule.notes')} full>
                     <textarea
                         rows={2}
                         value={form.notes}
@@ -1302,10 +1344,10 @@ function RuleModal({ initial = {}, onClose, onDone }) {
                 {err && <div style={{ gridColumn: 'span 2', color: '#dc2626', fontSize: 13 }}>{err}</div>}
                 <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                     <button type="button" style={btn} onClick={onClose} disabled={saving}>
-                        Cancel
+                        {t('common.cancel')}
                     </button>
                     <button type="button" style={btnPrimary} onClick={submit} disabled={saving}>
-                        {saving ? 'Saving...' : initial.id ? 'Update' : 'Create'}
+                        {saving ? t('common.saving') : initial.id ? t('common.update') : t('common.create')}
                     </button>
                 </div>
             </div>
@@ -1314,7 +1356,7 @@ function RuleModal({ initial = {}, onClose, onDone }) {
 }
 
 // ===== Refunds =====
-function RefundsTab({ onError }) {
+function RefundsTab({ onError, t }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [reload, setReload] = useState(0);
@@ -1327,7 +1369,7 @@ function RefundsTab({ onError }) {
                 const res = await listSoftPosTransactions({ status: 'refund', limit: 200 });
                 if (!cancelled) setRows(pickArr(res, 'items'));
             } catch (err) {
-                if (!cancelled) onError(err?.message || 'Failed to load refunds');
+                if (!cancelled) onError(err?.message || t('err.loadRefunds'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -1337,18 +1379,30 @@ function RefundsTab({ onError }) {
         };
     }, [reload]);
 
+    const headers = [
+        'th.when',
+        'th.reference',
+        'th.originalTx',
+        'th.workshop',
+        'th.branch',
+        'th.amount',
+        'th.bankReversal',
+        'th.platformReversal',
+        'th.netReversal',
+    ];
+
     return (
         <div style={card}>
             <div style={{ marginBottom: 8 }}>
                 <button type="button" style={btn} onClick={() => setReload((x) => x + 1)}>
-                    Refresh
+                    {t('common.refresh')}
                 </button>
             </div>
             <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr style={{ background: '#fafafa' }}>
-                            {['When', 'Reference', 'Original Tx', 'Workshop', 'Branch', 'Amount', 'Bank Reversal', 'Platform Reversal', 'Net Reversal'].map((h) => (
+                            {headers.map((h) => (
                                 <th
                                     key={h}
                                     style={{
@@ -1361,7 +1415,7 @@ function RefundsTab({ onError }) {
                                         letterSpacing: 1,
                                     }}
                                 >
-                                    {h}
+                                    {t(h)}
                                 </th>
                             ))}
                         </tr>
@@ -1370,25 +1424,25 @@ function RefundsTab({ onError }) {
                         {loading ? (
                             <tr>
                                 <td colSpan={9} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    Loading...
+                                    {t('common.loading')}
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
                                 <td colSpan={9} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    No refunds.
+                                    {t('refund.empty')}
                                 </td>
                             </tr>
                         ) : (
                             rows.map((r) => (
                                 <tr key={r.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                     <td style={{ padding: '8px 10px', fontSize: 12 }}>
-                                        {r.capturedAt ? new Date(r.capturedAt).toLocaleString() : '—'}
+                                        {r.capturedAt ? new Date(r.capturedAt).toLocaleString() : t('common.emDash')}
                                     </td>
-                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.reference || '—'}</td>
-                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.refundOfId || '—'}</td>
-                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.workshopName || '—'}</td>
-                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.branchName || '—'}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.reference || t('common.emDash')}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.refundOfId || t('common.emDash')}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.workshopName || t('common.emDash')}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.branchName || t('common.emDash')}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>{SAR(r.gross)}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{SAR(r.bankFee)}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{SAR(r.platformFee)}</td>
@@ -1404,7 +1458,7 @@ function RefundsTab({ onError }) {
 }
 
 // ===== HQ Settlement (net HQ-owes vs workshop-owes → payout voucher) =====
-function HqSettlementTab({ onError }) {
+function HqSettlementTab({ onError, t }) {
     const firstOfMonth = new Date();
     firstOfMonth.setDate(1);
     const [form, setForm] = useState({
@@ -1425,7 +1479,7 @@ function HqSettlementTab({ onError }) {
                 const res = await listSettlements({ limit: 100 });
                 if (!cancelled) setStatements(Array.isArray(res) ? res : []);
             } catch (err) {
-                if (!cancelled) onError(err?.message || 'Failed to load settlements');
+                if (!cancelled) onError(err?.message || t('err.loadSettlements'));
             }
         })();
         return () => {
@@ -1435,7 +1489,7 @@ function HqSettlementTab({ onError }) {
 
     const runPreview = async () => {
         if (!form.workshopId) {
-            onError('Workshop ID is required');
+            onError(t('err.workshopRequired'));
             return;
         }
         setLoadingPreview(true);
@@ -1444,7 +1498,7 @@ function HqSettlementTab({ onError }) {
             const res = await previewSettlement(form);
             setPreview(res);
         } catch (err) {
-            onError(err?.message || 'Preview failed');
+            onError(err?.message || t('err.previewFailed'));
         } finally {
             setLoadingPreview(false);
         }
@@ -1452,34 +1506,44 @@ function HqSettlementTab({ onError }) {
 
     const runGenerate = async () => {
         if (!form.workshopId) {
-            onError('Workshop ID is required');
+            onError(t('err.workshopRequired'));
             return;
         }
-        if (!window.confirm('Generate settlement and post the clearing journals?')) return;
+        if (!window.confirm(t('hq.confirmGenerate'))) return;
         setGenerating(true);
         try {
             await generateSettlement(form);
             setPreview(null);
             setReload((x) => x + 1);
         } catch (err) {
-            onError(err?.message || 'Generate failed');
+            onError(err?.message || t('err.generateFailed'));
         } finally {
             setGenerating(false);
         }
     };
 
+    const entryHeaders = ['th.direction', 'th.source', 'th.description', 'th.amount'];
+    const statementHeaders = [
+        'th.voucher',
+        'th.workshop',
+        'th.period',
+        'th.hqOwesCol',
+        'th.wsOwesCol',
+        'th.net',
+        'th.status',
+        'th.paid',
+    ];
+
     return (
         <div style={{ display: 'grid', gap: 16 }}>
             <div style={card}>
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>Net Settlement</div>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>{t('hq.title')}</div>
                 <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: 13 }}>
-                    Nets what HQ owes the workshop (SoftPOS net, corporate share, commission payouts)
-                    against what the workshop owes HQ (franchise fees), then posts the payout voucher
-                    and clears the inter-company accounts on both ledgers.
+                    {t('hq.subtitle')}
                 </p>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     <input
-                        placeholder="Workshop ID"
+                        placeholder={t('tx.ph.workshopId')}
                         value={form.workshopId}
                         onChange={(e) => setForm((p) => ({ ...p, workshopId: e.target.value }))}
                         style={{ ...inputStyle, width: 160 }}
@@ -1497,10 +1561,10 @@ function HqSettlementTab({ onError }) {
                         style={{ ...inputStyle, width: 170 }}
                     />
                     <button type="button" style={btn} onClick={runPreview} disabled={loadingPreview}>
-                        {loadingPreview ? 'Loading...' : 'Preview'}
+                        {loadingPreview ? t('common.loading') : t('hq.preview')}
                     </button>
                     <button type="button" style={btnPrimary} onClick={runGenerate} disabled={generating}>
-                        {generating ? 'Posting...' : 'Generate & Post'}
+                        {generating ? t('hq.posting') : t('hq.generate')}
                     </button>
                 </div>
 
@@ -1515,13 +1579,13 @@ function HqSettlementTab({ onError }) {
                             }}
                         >
                             <SummaryCard
-                                label="HQ owes workshop"
+                                label={t('hq.hqOwes')}
                                 value={SAR(preview.hqOwesWorkshop)}
                                 icon={<ArrowDownToLine size={18} color="#16a34a" />}
                                 color="#16a34a"
                             />
                             <SummaryCard
-                                label="Workshop owes HQ"
+                                label={t('hq.wsOwes')}
                                 value={SAR(preview.workshopOwesHq)}
                                 icon={<ArrowDownToLine size={18} color="#dc2626" />}
                                 color="#dc2626"
@@ -1529,8 +1593,8 @@ function HqSettlementTab({ onError }) {
                             <SummaryCard
                                 label={
                                     preview.netToWorkshop >= 0
-                                        ? 'Net payout to workshop'
-                                        : 'Net to collect from workshop'
+                                        ? t('hq.netPayout')
+                                        : t('hq.netCollect')
                                 }
                                 value={SAR(Math.abs(preview.netToWorkshop))}
                                 icon={<Banknote size={18} color="#D4A017" />}
@@ -1538,13 +1602,15 @@ function HqSettlementTab({ onError }) {
                             />
                         </div>
                         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>
-                            {preview.entryCount} open entr{preview.entryCount === 1 ? 'y' : 'ies'} in period
+                            {t(preview.entryCount === 1 ? 'hq.openEntry' : 'hq.openEntries', {
+                                n: preview.entryCount,
+                            })}
                         </div>
                         {Array.isArray(preview.entries) && preview.entries.length > 0 && (
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ background: '#fafafa' }}>
-                                        {['Direction', 'Source', 'Description', 'Amount'].map((h) => (
+                                        {entryHeaders.map((h) => (
                                             <th
                                                 key={h}
                                                 style={{
@@ -1556,7 +1622,7 @@ function HqSettlementTab({ onError }) {
                                                     textTransform: 'uppercase',
                                                 }}
                                             >
-                                                {h}
+                                                {t(h)}
                                             </th>
                                         ))}
                                     </tr>
@@ -1565,10 +1631,10 @@ function HqSettlementTab({ onError }) {
                                     {preview.entries.map((e) => (
                                         <tr key={e.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                             <td style={{ padding: '6px 8px', fontSize: 12 }}>
-                                                {e.direction === 'hq_owes_workshop' ? 'HQ → Workshop' : 'Workshop → HQ'}
+                                                {e.direction === 'hq_owes_workshop' ? t('dir.hqToWs') : t('dir.wsToHq')}
                                             </td>
                                             <td style={{ padding: '6px 8px', fontSize: 12 }}>{e.source}</td>
-                                            <td style={{ padding: '6px 8px', fontSize: 12 }}>{e.description || '—'}</td>
+                                            <td style={{ padding: '6px 8px', fontSize: 12 }}>{e.description || t('common.emDash')}</td>
                                             <td style={{ padding: '6px 8px', fontSize: 12, fontWeight: 600 }}>{SAR(e.amount)}</td>
                                         </tr>
                                     ))}
@@ -1581,16 +1647,16 @@ function HqSettlementTab({ onError }) {
 
             <div style={card}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700 }}>Settlement Statements</div>
+                    <div style={{ fontWeight: 700 }}>{t('hq.statements')}</div>
                     <button type="button" style={btn} onClick={() => setReload((x) => x + 1)}>
-                        Refresh
+                        {t('common.refresh')}
                     </button>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr style={{ background: '#fafafa' }}>
-                                {['Voucher', 'Workshop', 'Period', 'HQ Owes', 'WS Owes', 'Net', 'Status', 'Paid'].map((h) => (
+                                {statementHeaders.map((h) => (
                                     <th
                                         key={h}
                                         style={{
@@ -1603,7 +1669,7 @@ function HqSettlementTab({ onError }) {
                                             letterSpacing: 1,
                                         }}
                                     >
-                                        {h}
+                                        {t(h)}
                                     </th>
                                 ))}
                             </tr>
@@ -1612,7 +1678,7 @@ function HqSettlementTab({ onError }) {
                             {statements.length === 0 ? (
                                 <tr>
                                     <td colSpan={8} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                        No settlement statements yet.
+                                        {t('hq.statementsEmpty')}
                                     </td>
                                 </tr>
                             ) : (
@@ -1626,9 +1692,9 @@ function HqSettlementTab({ onError }) {
                                         <td style={{ padding: '8px 10px', fontSize: 13, color: '#16a34a' }}>{SAR(s.hqOwesWorkshop)}</td>
                                         <td style={{ padding: '8px 10px', fontSize: 13, color: '#dc2626' }}>{SAR(s.workshopOwesHq)}</td>
                                         <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>{SAR(s.netToWorkshop)}</td>
-                                        <td style={{ padding: '8px 10px', fontSize: 12 }}>{s.status}</td>
+                                        <td style={{ padding: '8px 10px', fontSize: 12 }}>{statusLabel(t, s.status)}</td>
                                         <td style={{ padding: '8px 10px', fontSize: 12 }}>
-                                            {s.paidAt ? new Date(s.paidAt).toLocaleDateString() : '—'}
+                                            {s.paidAt ? new Date(s.paidAt).toLocaleDateString() : t('common.emDash')}
                                         </td>
                                     </tr>
                                 ))

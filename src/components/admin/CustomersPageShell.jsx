@@ -1,5 +1,7 @@
 import React from 'react';
+import { useOutletContext } from 'react-router-dom';
 import ApprovalPageShell from './ApprovalPageShell';
+import { custT } from '../../utils/customersI18n';
 
 /**
  * Full-page shell for All Customers create/edit/detail screens (replaces modals).
@@ -7,18 +9,25 @@ import ApprovalPageShell from './ApprovalPageShell';
 export default function CustomersPageShell({
     title,
     onClose,
-    backLabel = 'Back to All Customers',
+    backLabel,
     children,
     footer = null,
     backDisabled = false,
     fullWidth = false,
 }) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const resolvedBack = backLabel ?? custT(locale, 'shell.back');
+
     return (
         <div className={`customers-form-page-wrap${fullWidth ? ' customers-form-page-wrap--full' : ''}`}>
             <ApprovalPageShell
                 title={title}
                 onBack={onClose}
-                backLabel={backLabel}
+                backLabel={resolvedBack}
                 backDisabled={backDisabled}
                 footer={footer}
             >

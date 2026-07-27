@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { Wallet, Plus } from 'lucide-react';
 import {
   marketingGetWallet,
   marketingListBudgetRequests,
   marketingListWalletTransactions,
 } from '../../services/superAdminMarketingApi';
+import { refMgtStatusLabel, refMgtT } from '../../utils/referralManagementI18n';
 import { marketingSectionPath } from './marketingRouteUtils';
 import './MarketingUniversal.css';
 
@@ -16,14 +17,19 @@ const initialWallet = {
   currencyCode: 'SAR',
 };
 
-function formatSar(value) {
+function formatSar(value, locale = 'en') {
   const n = Number(value);
+  const numberLocale = locale === 'ar' ? 'ar-SA' : undefined;
 
-  if (!Number.isFinite(n)) return '0 SAR';
+  if (!Number.isFinite(n)) {
+    return refMgtT(locale, 'format.sar', { amount: '0' });
+  }
 
-  return `${n.toLocaleString(undefined, {
-    maximumFractionDigits: 0,
-  })} SAR`;
+  return refMgtT(locale, 'format.sar', {
+    amount: n.toLocaleString(numberLocale, {
+      maximumFractionDigits: 0,
+    }),
+  });
 }
 
 function safeString(value, fallback = '') {
@@ -57,68 +63,6 @@ function normalizeWalletPayload(payload) {
       payload?.currency_code ||
       'SAR',
   };
-}
-
-function normalizeCashAccountsPayload(payload) {
-  const rows = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.accounts)
-      ? payload.accounts
-      : Array.isArray(payload?.cashAccounts)
-        ? payload.cashAccounts
-        : Array.isArray(payload?.items)
-          ? payload.items
-          : Array.isArray(payload?.data)
-            ? payload.data
-            : Array.isArray(payload?.data?.accounts)
-              ? payload.data.accounts
-              : Array.isArray(payload?.data?.cashAccounts)
-                ? payload.data.cashAccounts
-                : Array.isArray(payload?.data?.items)
-                  ? payload.data.items
-                  : [];
-
-  return rows
-    .map((account) => {
-      const id =
-        account.id ??
-        account._id ??
-        account.accountId ??
-        account.cashAccountId ??
-        account.code ??
-        account.accountCode;
-
-      const name =
-        account.name ??
-        account.accountName ??
-        account.account_name ??
-        account.title ??
-        account.label ??
-        'Cash Account';
-
-      const code =
-        account.code ??
-        account.accountCode ??
-        account.account_code ??
-        account.number ??
-        account.accountNumber ??
-        '';
-
-      const balance =
-        account.currentBalance ??
-        account.current_balance ??
-        account.balance ??
-        0;
-
-      return {
-        id: id != null ? String(id) : '',
-        name: String(name),
-        code: code != null ? String(code) : '',
-        balance: Number(balance || 0),
-        label: code ? `${name} - ${code}` : String(name),
-      };
-    })
-    .filter((account) => account.id);
 }
 
 function normalizeBudgetRequestsPayload(payload) {
@@ -185,7 +129,7 @@ function normalizeBudgetRequestsPayload(payload) {
   }));
 }
 
-function normalizeTransactionsPayload(payload) {
+function normalizeTransactionsPayload(payload, locale = 'en') {
   const rows = Array.isArray(payload)
     ? payload
     : Array.isArray(payload?.transactions)
@@ -209,7 +153,7 @@ function normalizeTransactionsPayload(payload) {
       transaction.title ||
       transaction.purpose ||
       transaction.type ||
-      'Wallet Transaction',
+      refMgtT(locale, 'tx.fallbackTitle'),
     date:
       transaction.createdAt ||
       transaction.created_at ||
@@ -222,22 +166,16 @@ function normalizeTransactionsPayload(payload) {
   }));
 }
 
-function formatDate(value) {
-  if (!value) return '—';
+function formatDate(value, locale = 'en') {
+  if (!value) return refMgtT(locale, 'dash');
 
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '—';
+  if (Number.isNaN(d.getTime())) return refMgtT(locale, 'dash');
 
-  return d.toLocaleDateString();
+  return d.toLocaleDateString(locale === 'ar' ? 'ar-SA' : undefined);
 }
 
-function humanizeStatus(value) {
-  return String(value || 'pending')
-    .toLowerCase()
-    .replace(/_/g, ' ');
-}
-
-const StatusBadge = ({ status }) => {
+const StatusBadge = ({ status, locale }) => {
   const value = String(status || 'pending').toLowerCase();
 
   const classNameMap = {
@@ -250,7 +188,7 @@ const StatusBadge = ({ status }) => {
 
   return (
     <span className={`mk-status ${classNameMap[value] || 'mk-status-pending'}`}>
-      {humanizeStatus(value)}
+      {refMgtStatusLabel(locale, value)}
     </span>
   );
 };
@@ -258,6 +196,14 @@ const StatusBadge = ({ status }) => {
 export const ReferralManagement = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => refMgtT(locale, key, vars), [locale]);
+
   const walletBase = location.pathname.includes('marketing-wallet')
     ? marketingSectionPath(location.pathname, 'marketing-wallet')
     : marketingSectionPath(location.pathname, 'referral-management');
@@ -283,6 +229,7 @@ export const ReferralManagement = () => {
 
     const transactionsFromWallet = normalizeTransactionsPayload(
       res?.recentTransactions || res?.recent_transactions || [],
+      locale,
     );
 
     if (pendingFromWallet.length > 0) {
@@ -299,7 +246,7 @@ export const ReferralManagement = () => {
     if (transactionsFromWallet.length > 0) {
       setTransactions(transactionsFromWallet);
     }
-  }, []);
+  }, [locale]);
 
   const loadBudgetRequests = useCallback(async () => {
     setRequestsLoading(true);
@@ -314,11 +261,11 @@ export const ReferralManagement = () => {
       setBudgetRequests(normalizeBudgetRequestsPayload(res));
     } catch (err) {
       setBudgetRequests([]);
-      setError(err?.message || 'Failed to load budget requests.');
+      setError(err?.message || t('err.loadRequests'));
     } finally {
       setRequestsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const loadTransactions = useCallback(async () => {
     setTransactionsLoading(true);
@@ -329,14 +276,14 @@ export const ReferralManagement = () => {
         offset: 0,
       });
 
-      setTransactions(normalizeTransactionsPayload(res));
+      setTransactions(normalizeTransactionsPayload(res, locale));
     } catch (err) {
       setTransactions([]);
-      setError(err?.message || 'Failed to load transactions.');
+      setError(err?.message || t('err.loadTransactions'));
     } finally {
       setTransactionsLoading(false);
     }
-  }, []);
+  }, [locale, t]);
 
   const loadPageData = useCallback(async () => {
     setPageLoading(true);
@@ -349,11 +296,11 @@ export const ReferralManagement = () => {
         loadTransactions(),
       ]);
     } catch (err) {
-      setError(err?.message || 'Failed to load marketing wallet.');
+      setError(err?.message || t('err.loadWallet'));
     } finally {
       setPageLoading(false);
     }
-  }, [loadWallet, loadBudgetRequests, loadTransactions]);
+  }, [loadWallet, loadBudgetRequests, loadTransactions, t]);
 
   useEffect(() => {
     loadPageData();
@@ -363,27 +310,39 @@ export const ReferralManagement = () => {
     navigate(`${walletBase}/budget-request`);
   };
 
+  const numberLocale = locale === 'ar' ? 'ar-SA' : undefined;
+  const currencyDisplay =
+    wallet.currencyCode === 'SAR' || !wallet.currencyCode
+      ? t('wallet.currencySar')
+      : wallet.currencyCode;
+
   return (
-    <div className="mk-page">
+    <div className="mk-page" dir={locale === 'ar' ? 'rtl' : undefined}>
       <section className="mk-wallet-hero">
         <div>
-          <div className="mk-wallet-hero-label">Marketing Wallet</div>
+          <div className="mk-wallet-hero-label">{t('wallet.label')}</div>
 
           <div className="mk-wallet-balance-row">
             <span className="mk-wallet-balance">
-              {Number(wallet.balance).toLocaleString(undefined, {
+              {Number(wallet.balance).toLocaleString(numberLocale, {
                 maximumFractionDigits: 0,
               })}
             </span>
 
-            <span className="mk-wallet-currency">
-              {wallet.currencyCode || 'SAR'}
-            </span>
+            <span className="mk-wallet-currency">{currencyDisplay}</span>
           </div>
 
           <div className="mk-wallet-meta">
-            <span>Total Funded: {formatSar(wallet.totalFunded)}</span>
-            <span>Total Spent: {formatSar(wallet.totalSpent)}</span>
+            <span>
+              {t('wallet.totalFunded', {
+                amount: formatSar(wallet.totalFunded, locale),
+              })}
+            </span>
+            <span>
+              {t('wallet.totalSpent', {
+                amount: formatSar(wallet.totalSpent, locale),
+              })}
+            </span>
           </div>
 
           <button
@@ -392,7 +351,7 @@ export const ReferralManagement = () => {
             onClick={openBudgetRequestPage}
           >
             <Plus size={16} strokeWidth={2.5} />
-            Request Budget Top-up
+            {t('wallet.requestTopup')}
           </button>
         </div>
 
@@ -403,23 +362,23 @@ export const ReferralManagement = () => {
 
       <div className="mk-wallet-grid">
         <section className="mk-card mk-wallet-panel">
-          <h3 className="mk-card-title">Budget Requests</h3>
+          <h3 className="mk-card-title">{t('requests.title')}</h3>
 
           {requestsLoading || pageLoading ? (
-            <div className="mk-panel-empty">Loading requests...</div>
+            <div className="mk-panel-empty">{t('requests.loading')}</div>
           ) : budgetRequests.length === 0 ? (
-            <div className="mk-panel-empty">No budget requests yet</div>
+            <div className="mk-panel-empty">{t('requests.empty')}</div>
           ) : (
             <div className="mk-wallet-list">
               {budgetRequests.map((request) => (
                 <div key={request.id} className="mk-wallet-list-item">
                   <div>
                     <div className="mk-wallet-request-amount">
-                      {formatSar(request.amount)}
+                      {formatSar(request.amount, locale)}
                     </div>
 
                     <div className="mk-wallet-request-purpose">
-                      {request.purpose || '—'}
+                      {request.purpose || t('dash')}
                     </div>
 
                     {(request.accountName || request.accountCode) ? (
@@ -431,13 +390,13 @@ export const ReferralManagement = () => {
 
                     {request.createdAt ? (
                       <div className="mk-wallet-request-account">
-                        {formatDate(request.createdAt)}
+                        {formatDate(request.createdAt, locale)}
                       </div>
                     ) : null}
                   </div>
 
                   <div className="mk-wallet-request-right">
-                    <StatusBadge status={request.status} />
+                    <StatusBadge status={request.status} locale={locale} />
                   </div>
                 </div>
               ))}
@@ -446,12 +405,12 @@ export const ReferralManagement = () => {
         </section>
 
         <section className="mk-card mk-wallet-panel">
-          <h3 className="mk-card-title">Transaction History</h3>
+          <h3 className="mk-card-title">{t('tx.title')}</h3>
 
           {transactionsLoading || pageLoading ? (
-            <div className="mk-panel-empty">Loading transactions...</div>
+            <div className="mk-panel-empty">{t('tx.loading')}</div>
           ) : transactions.length === 0 ? (
-            <div className="mk-panel-empty">No transactions yet</div>
+            <div className="mk-panel-empty">{t('tx.empty')}</div>
           ) : (
             <div className="mk-wallet-list">
               {transactions.map((transaction) => {
@@ -467,7 +426,7 @@ export const ReferralManagement = () => {
                       </div>
 
                       <div className="mk-wallet-request-purpose">
-                        {formatDate(transaction.date)}
+                        {formatDate(transaction.date, locale)}
                       </div>
                     </div>
 
@@ -477,7 +436,7 @@ export const ReferralManagement = () => {
                       }
                     >
                       {isDebit ? '-' : '+'}
-                      {formatSar(transaction.amount)}
+                      {formatSar(transaction.amount, locale)}
                     </div>
                   </div>
                 );

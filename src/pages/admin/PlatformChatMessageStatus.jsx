@@ -1,19 +1,14 @@
 import React from 'react';
 import { Check, CheckCheck } from 'lucide-react';
-
-const LABELS = {
-    sent: 'Sent',
-    delivered: 'Delivered',
-    read: 'Read',
-    played: 'Played',
-};
+import { pcT } from '../../utils/platformChatI18n';
 
 /**
  * WhatsApp-style message ticks for outgoing messages.
  */
-export default function PlatformChatMessageStatus({ status = 'sent', isVoice = false }) {
+export default function PlatformChatMessageStatus({ status = 'sent', isVoice = false, locale = 'en' }) {
     const resolved = status === 'played' && !isVoice ? 'read' : status;
-    const label = LABELS[resolved] || LABELS.sent;
+    const key = `status.${resolved}`;
+    const label = pcT(locale, key) === key ? pcT(locale, 'status.sent') : pcT(locale, key);
     const isDouble = resolved === 'delivered' || resolved === 'read' || resolved === 'played';
     const isBlue = resolved === 'read' || resolved === 'played';
 

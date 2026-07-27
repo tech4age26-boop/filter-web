@@ -1,12 +1,29 @@
 import React, { useEffect } from 'react';
 import { X, Mail, Phone, Building2, Truck, Users, Briefcase, User } from 'lucide-react';
+import { pcT } from '../../utils/platformChatI18n';
 
-const CATEGORY_META = {
-    supplier: { label: 'Supplier', icon: Truck, accent: '#B45309', soft: '#FFF7ED' },
-    workshop: { label: 'Workshop', icon: Building2, accent: '#23262D', soft: '#F3F4F6' },
-    corporate: { label: 'Corporate', icon: Briefcase, accent: '#1D4ED8', soft: '#EFF6FF' },
-    platform: { label: 'Platform', icon: Users, accent: '#6B7280', soft: '#F9FAFB' },
+const CATEGORY_ICONS = {
+    supplier: Truck,
+    workshop: Building2,
+    corporate: Briefcase,
+    platform: Users,
 };
+
+const CATEGORY_COLORS = {
+    supplier: { accent: '#B45309', soft: '#FFF7ED' },
+    workshop: { accent: '#23262D', soft: '#F3F4F6' },
+    corporate: { accent: '#1D4ED8', soft: '#EFF6FF' },
+    platform: { accent: '#6B7280', soft: '#F9FAFB' },
+};
+
+function categoryMeta(category, t) {
+    const id = CATEGORY_COLORS[category] ? category : 'platform';
+    return {
+        label: t(`profile.cat.${id}`),
+        icon: CATEGORY_ICONS[id],
+        ...CATEGORY_COLORS[id],
+    };
+}
 
 function getInitials(name) {
     const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -14,8 +31,8 @@ function getInitials(name) {
     return String(name || '?').slice(0, 2).toUpperCase();
 }
 
-function DrawerAvatar({ name, category, isGroup = false, size = 'lg' }) {
-    const meta = CATEGORY_META[category] || CATEGORY_META.platform;
+function DrawerAvatar({ name, category, isGroup = false, size = 'lg', t }) {
+    const meta = categoryMeta(category, t);
     const dim = size === 'lg' ? 96 : 48;
     return (
         <div
@@ -54,12 +71,12 @@ function InfoCard({ icon: Icon, label, value, href }) {
     return <div className="pc-drawer-card">{inner}</div>;
 }
 
-function MemberRow({ person }) {
-    const meta = CATEGORY_META[person.category] || CATEGORY_META.platform;
+function MemberRow({ person, t }) {
+    const meta = categoryMeta(person.category, t);
     const Icon = meta.icon;
     return (
         <div className="pc-drawer-member">
-            <DrawerAvatar name={person.name} category={person.category} size="sm" />
+            <DrawerAvatar name={person.name} category={person.category} size="sm" t={t} />
             <div className="pc-drawer-member__body">
                 <div className="pc-drawer-member__name">{person.name}</div>
                 <div className="pc-drawer-member__sub">
@@ -80,7 +97,9 @@ function MemberRow({ person }) {
     );
 }
 
-export default function PlatformChatContactProfile({ conversation, onClose }) {
+export default function PlatformChatContactProfile({ conversation, onClose, locale = 'en', t: tProp }) {
+    const t = tProp || ((key, vars) => pcT(locale, key, vars));
+
     useEffect(() => {
         const onKey = (e) => {
             if (e.key === 'Escape') onClose?.();
@@ -97,9 +116,7 @@ export default function PlatformChatContactProfile({ conversation, onClose }) {
         conversation.otherParticipants ??
         [];
     const direct = others[0];
-    const meta = direct
-        ? CATEGORY_META[direct.category] || CATEGORY_META.platform
-        : CATEGORY_META.platform;
+    const meta = categoryMeta(direct?.category || 'platform', t);
 
     return (
         <div className="pc-drawer-root" role="presentation">
@@ -107,15 +124,15 @@ export default function PlatformChatContactProfile({ conversation, onClose }) {
                 type="button"
                 className="pc-drawer-backdrop"
                 onClick={onClose}
-                aria-label="Close contact info"
+                aria-label={t('profile.closeInfo')}
             />
-            <aside className="pc-drawer" role="dialog" aria-label="Contact information">
+            <aside className="pc-drawer" role="dialog" aria-label={t('profile.contactInfo')}>
                 <div className="pc-drawer__hero">
                     <button
                         type="button"
                         className="pc-drawer__close"
                         onClick={onClose}
-                        aria-label="Close"
+                        aria-label={t('profile.close')}
                     >
                         <X size={22} />
                     </button>
@@ -123,6 +140,7 @@ export default function PlatformChatContactProfile({ conversation, onClose }) {
                         name={isGroup ? conversation.title : direct?.name}
                         category={direct?.category || 'platform'}
                         isGroup={isGroup}
+                        t={t}
                     />
                     <h2 className="pc-drawer__name">
                         {isGroup ? conversation.title : direct?.name || conversation.title}
@@ -138,7 +156,7 @@ export default function PlatformChatContactProfile({ conversation, onClose }) {
                     )}
                     {isGroup && (
                         <p className="pc-drawer__meta">
-                            Group · {conversation.participants?.length ?? 0} members
+                            {t('profile.groupMeta', { count: conversation.participants?.length ?? 0 })}
                         </p>
                     )}
                     {!isGroup && direct?.entityName && (
@@ -149,43 +167,43 @@ export default function PlatformChatContactProfile({ conversation, onClose }) {
                 <div className="pc-drawer__scroll">
                     {isGroup ? (
                         <section className="pc-drawer__section">
-                            <h3>Members</h3>
+                            <h3>{t('profile.members')}</h3>
                             <div className="pc-drawer-members">
                                 {conversation.participants
                                     ?.filter((p) => !p.isSelf)
                                     .map((p) => (
-                                        <MemberRow key={p.userId} person={p} />
+                                        <MemberRow key={p.userId} person={p} t={t} />
                                     ))}
                             </div>
                         </section>
                     ) : direct ? (
                         <>
                             <section className="pc-drawer__section">
-                                <h3>About</h3>
+                                <h3>{t('profile.about')}</h3>
                                 <InfoCard icon={meta.icon} label={meta.label} value={direct.entityName} />
                                 {direct.branchName && (
-                                    <InfoCard icon={Building2} label="Branch" value={direct.branchName} />
+                                    <InfoCard icon={Building2} label={t('profile.branch')} value={direct.branchName} />
                                 )}
-                                <InfoCard icon={User} label="Portal role" value={direct.role} />
+                                <InfoCard icon={User} label={t('profile.portalRole')} value={direct.role} />
                             </section>
                             <section className="pc-drawer__section">
-                                <h3>Contact</h3>
+                                <h3>{t('profile.contact')}</h3>
                                 <InfoCard
                                     icon={Mail}
-                                    label="Email"
+                                    label={t('profile.email')}
                                     value={direct.email}
                                     href={direct.email ? `mailto:${direct.email}` : undefined}
                                 />
                                 <InfoCard
                                     icon={Phone}
-                                    label="Mobile"
+                                    label={t('profile.mobile')}
                                     value={direct.mobile}
                                     href={direct.mobile ? `tel:${direct.mobile}` : undefined}
                                 />
                             </section>
                         </>
                     ) : (
-                        <p className="pc-drawer-empty">No contact details available.</p>
+                        <p className="pc-drawer-empty">{t('profile.empty')}</p>
                     )}
                 </div>
             </aside>

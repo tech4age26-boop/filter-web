@@ -1,18 +1,25 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import {
   marketingCreateBudgetRequest,
   marketingGetWallet,
   marketingListWalletCashAccounts,
 } from '../../services/superAdminMarketingApi';
+import { refMgtT } from '../../utils/referralManagementI18n';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
 import './MarketingUniversal.css';
 
-function formatSar(value) {
+function formatSar(value, locale = 'en') {
   const n = Number(value);
-  if (!Number.isFinite(n)) return '0 SAR';
-  return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} SAR`;
+  if (!Number.isFinite(n)) {
+    return refMgtT(locale, 'format.sar', { amount: '0' });
+  }
+  return refMgtT(locale, 'format.sar', {
+    amount: n.toLocaleString(locale === 'ar' ? 'ar-SA' : undefined, {
+      maximumFractionDigits: 0,
+    }),
+  });
 }
 
 function normalizeWalletPayload(res) {
@@ -24,7 +31,7 @@ function normalizeWalletPayload(res) {
   };
 }
 
-function normalizeCashAccountsPayload(res) {
+function normalizeCashAccountsPayload(res, locale = 'en') {
   const rows = Array.isArray(res)
     ? res
     : Array.isArray(res?.accounts)
@@ -37,7 +44,11 @@ function normalizeCashAccountsPayload(res) {
 
   return rows.map((row) => {
     const id = String(row.id || row.accountId || row.account_id || '');
-    const name = row.name || row.accountName || row.account_name || 'Account';
+    const name =
+      row.name ||
+      row.accountName ||
+      row.account_name ||
+      refMgtT(locale, 'form.fallbackAccount');
     const code = row.code || row.accountCode || row.account_code || '';
     return {
       id,
@@ -51,6 +62,14 @@ function normalizeCashAccountsPayload(res) {
 export default function MarketingWalletBudgetRequestPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => refMgtT(locale, key, vars), [locale]);
+
   const section = location.pathname.includes('marketing-wallet')
     ? 'marketing-wallet'
     : 'referral-management';
@@ -88,14 +107,14 @@ export default function MarketingWalletBudgetRequestPage() {
         setAccountsError('');
         const res = await marketingListWalletCashAccounts();
         if (cancelled) return;
-        const normalized = normalizeCashAccountsPayload(res);
+        const normalized = normalizeCashAccountsPayload(res, locale);
         setCashAccounts(normalized);
         if (normalized.length > 0) {
           setSourceCashAccountId(normalized[0].id);
         }
       } catch (err) {
         if (!cancelled) {
-          setAccountsError(err?.message || 'Failed to load cash accounts.');
+          setAccountsError(err?.message || t('err.loadAccounts'));
         }
       } finally {
         if (!cancelled) setAccountsLoading(false);
@@ -105,22 +124,22 @@ export default function MarketingWalletBudgetRequestPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [locale, t]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const value = Number(amount);
 
     if (!Number.isFinite(value) || value <= 0) {
-      alert('Enter valid amount.');
+      alert(t('alert.amountInvalid'));
       return;
     }
     if (!purpose.trim()) {
-      alert('Purpose is required.');
+      alert(t('alert.purposeRequired'));
       return;
     }
     if (!sourceCashAccountId) {
-      alert('Select source cash account.');
+      alert(t('alert.selectAccount'));
       return;
     }
 
@@ -133,10 +152,10 @@ export default function MarketingWalletBudgetRequestPage() {
         sourceAccountName: selectedAccount?.name || '',
         currencyCode: wallet.currencyCode || 'SAR',
       });
-      alert('Budget top-up request has been sent to Super Admin Approvals.');
+      alert(t('alert.success'));
       goBack();
     } catch (err) {
-      alert(err?.message || 'Failed to submit budget request.');
+      alert(err?.message || t('err.submit'));
     } finally {
       setSaving(false);
     }
@@ -144,15 +163,19 @@ export default function MarketingWalletBudgetRequestPage() {
 
   return (
     <MarketingFormShell
-      title="Request Budget Top-up"
-      subtitle="Submit a wallet top-up request. Balance updates only after Super Admin approval."
-      backLabel="Back to Marketing Wallet"
+      title={t('form.title')}
+      subtitle={t('form.subtitle')}
+      backLabel={t('form.back')}
       onBack={goBack}
       className="mk-page mkp-form-page"
     >
-      <form onSubmit={handleSubmit} className="mkp-form-page-body">
+      <form
+        onSubmit={handleSubmit}
+        className="mkp-form-page-body"
+        dir={locale === 'ar' ? 'rtl' : undefined}
+      >
         <div className="mk-form-group">
-          <label className="mk-label">Amount (SAR)</label>
+          <label className="mk-label">{t('form.amount')}</label>
           <input
             autoFocus
             type="number"
@@ -164,18 +187,18 @@ export default function MarketingWalletBudgetRequestPage() {
         </div>
 
         <div className="mk-form-group">
-          <label className="mk-label">Purpose</label>
+          <label className="mk-label">{t('form.purpose')}</label>
           <input
             type="text"
             className="mk-input"
             value={purpose}
             onChange={(e) => setPurpose(e.target.value)}
-            placeholder="e.g. Meta ads campaign budget"
+            placeholder={t('form.purposePlaceholder')}
           />
         </div>
 
         <div className="mk-form-group">
-          <label className="mk-label">Source Cash Account</label>
+          <label className="mk-label">{t('form.sourceAccount')}</label>
           <select
             className="mk-input mk-input-focus"
             value={sourceCashAccountId}
@@ -183,29 +206,24 @@ export default function MarketingWalletBudgetRequestPage() {
             disabled={accountsLoading}
           >
             <option value="">
-              {accountsLoading ? 'Loading accounts...' : 'Select account...'}
+              {accountsLoading ? t('form.loadingAccounts') : t('form.selectAccount')}
             </option>
             {cashAccounts.map((account) => (
               <option key={account.id} value={account.id}>
                 {account.label}
                 {Number.isFinite(account.balance)
-                  ? ` — ${formatSar(account.balance)}`
+                  ? ` — ${formatSar(account.balance, locale)}`
                   : ''}
               </option>
             ))}
           </select>
           {accountsError ? <div className="mk-field-error">{accountsError}</div> : null}
           {!accountsLoading && cashAccounts.length === 0 ? (
-            <div className="mk-field-error">
-              No cash/bank accounts found. Add account from accounting module first.
-            </div>
+            <div className="mk-field-error">{t('form.noAccounts')}</div>
           ) : null}
         </div>
 
-        <div className="mk-wallet-request-note">
-          This request will be sent to Super Admin Approvals. Wallet balance will update only
-          after approval.
-        </div>
+        <div className="mk-wallet-request-note">{t('form.note')}</div>
 
         <div className="mkp-form-page-footer">
           <button
@@ -214,14 +232,14 @@ export default function MarketingWalletBudgetRequestPage() {
             onClick={goBack}
             disabled={saving}
           >
-            Cancel
+            {t('form.cancel')}
           </button>
           <button
             type="submit"
             className="mk-btn-primary"
             disabled={saving || accountsLoading || cashAccounts.length === 0}
           >
-            {saving ? 'Submitting...' : 'Submit Request'}
+            {saving ? t('form.submitting') : t('form.submit')}
           </button>
         </div>
       </form>

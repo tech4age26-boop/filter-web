@@ -1,5 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  useLocation,
+  useNavigate,
+  useOutletContext,
+  useParams,
+} from 'react-router-dom';
 import {
   Banknote,
   Calendar,
@@ -18,6 +23,7 @@ import {
   marketingListCampaigns,
   marketingUpdateExpense,
 } from '../../services/superAdminMarketingApi';
+import { mktExpT } from '../../utils/marketingExpensesI18n';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
 import {
@@ -34,6 +40,13 @@ export default function ExpenseFormPage() {
   const isEdit = Boolean(id);
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktExpT(locale, key, vars), [locale]);
   const listPath = marketingSectionPath(location.pathname, 'expenses');
 
   const [form, setForm] = useState({
@@ -67,7 +80,7 @@ export default function ExpenseFormPage() {
       try {
         setCampaignsLoading(true);
         const res = await marketingListCampaigns({ limit: 100, offset: 0, status: 'all' });
-        if (!cancelled) setCampaigns(extractCampaigns(res));
+        if (!cancelled) setCampaigns(extractCampaigns(res, locale));
       } catch {
         if (!cancelled) setCampaigns([]);
       } finally {
@@ -77,7 +90,7 @@ export default function ExpenseFormPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     if (!isEdit) return;
@@ -94,7 +107,7 @@ export default function ExpenseFormPage() {
           res?.item ||
           extractExpenses(res)[0] ||
           res;
-        if (!row?.id) throw new Error('Expense not found.');
+        if (!row?.id) throw new Error(t('err.notFound'));
         if (!cancelled) {
           setForm({
             id: String(row.id),
@@ -111,7 +124,7 @@ export default function ExpenseFormPage() {
           });
         }
       } catch (err) {
-        if (!cancelled) setPageError(err?.message || 'Failed to load expense.');
+        if (!cancelled) setPageError(err?.message || t('err.load'));
       } finally {
         if (!cancelled) setLoadingPage(false);
       }
@@ -120,7 +133,7 @@ export default function ExpenseFormPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, isEdit]);
+  }, [id, isEdit, t]);
 
   const buildPayload = () => {
     const payload = {
@@ -142,18 +155,18 @@ export default function ExpenseFormPage() {
     e.preventDefault();
 
     if (!form.expenseCategory) {
-      setPageError('Please select an expense category.');
+      setPageError(t('err.categoryRequired'));
       return;
     }
 
     const amount = Number(form.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      setPageError('Enter a valid amount greater than zero.');
+      setPageError(t('err.amountInvalid'));
       return;
     }
 
     if (!form.expenseDate) {
-      setPageError('Expense date is required.');
+      setPageError(t('err.dateRequired'));
       return;
     }
 
@@ -168,7 +181,7 @@ export default function ExpenseFormPage() {
       }
       goBack();
     } catch (err) {
-      setPageError(err?.message || 'Failed to save expense.');
+      setPageError(err?.message || t('err.save'));
     } finally {
       setSaving(false);
     }
@@ -178,9 +191,9 @@ export default function ExpenseFormPage() {
 
   return (
     <MarketingFormShell
-      title={isEdit ? 'Edit Marketing Expense' : 'New Marketing Expense'}
-      subtitle="Record a marketing spend and send it through Super Admin approval."
-      backLabel="Back to Expenses"
+      title={isEdit ? t('form.titleEdit') : t('form.titleNew')}
+      subtitle={t('form.subtitle')}
+      backLabel={t('form.back')}
       onBack={goBack}
       className="mk-page mkp-form-page mk-expense-form-page"
     >
@@ -189,7 +202,7 @@ export default function ExpenseFormPage() {
       {loadingPage ? (
         <div className="mk-expense-form-loading">
           <Loader2 size={28} className="mk-expense-spin" />
-          <span>Loading expense...</span>
+          <span>{t('loading.expense')}</span>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="mkp-form-page-body mk-expense-form-card">
@@ -197,40 +210,39 @@ export default function ExpenseFormPage() {
             <div className="mk-expense-info-banner" role="note">
               <ShieldCheck size={22} strokeWidth={2} className="mk-expense-info-icon" />
               <div>
-                <strong>Approval workflow</strong>
-                Submitting sends this expense to Super Admin Approvals. After approval,
-                finance can pay it from the same queue — that posts to HQ Chart of Accounts
-                and debits the marketing wallet.
+                <strong>{t('banner.title')}</strong>
+                {t('banner.body')}
               </div>
             </div>
           )}
 
           <section className="mkp-section mk-expense-section">
-            <div className="mkp-section-title">Expense details</div>
+            <div className="mkp-section-title">{t('section.details')}</div>
 
             <div className="mkp-form-group">
               <label className="mkp-label">
                 <Tag size={13} strokeWidth={2} />
-                Category <span className="mk-expense-required">*</span>
+                {t('label.category')} <span className="mk-expense-required">*</span>
               </label>
               <SelectField
                 value={form.expenseCategory}
                 onChange={(value) => updateForm('expenseCategory', value)}
                 options={categoryOptions}
+                locale={locale}
               />
-              <p className="mk-expense-field-hint">Type of marketing spend (ads, events, tools, etc.)</p>
+              <p className="mk-expense-field-hint">{t('hint.category')}</p>
             </div>
 
             <div className="mkp-form-group">
               <label className="mkp-label">
                 <Store size={13} strokeWidth={2} />
-                Vendor name
+                {t('label.vendor')}
               </label>
               <input
                 className="mkp-input"
                 value={form.vendorName}
                 onChange={(e) => updateForm('vendorName', e.target.value)}
-                placeholder="e.g. Meta, Google Ads, agency name"
+                placeholder={t('placeholder.vendor')}
                 maxLength={160}
               />
             </div>
@@ -238,13 +250,13 @@ export default function ExpenseFormPage() {
             <div className="mkp-form-group">
               <label className="mkp-label">
                 <FileText size={13} strokeWidth={2} />
-                Description
+                {t('label.description')}
               </label>
               <textarea
                 className="mkp-textarea"
                 value={form.description}
                 onChange={(e) => updateForm('description', e.target.value)}
-                placeholder="Briefly describe what this expense covers..."
+                placeholder={t('placeholder.description')}
                 rows={3}
                 maxLength={2000}
               />
@@ -252,13 +264,13 @@ export default function ExpenseFormPage() {
           </section>
 
           <section className="mkp-section mk-expense-section">
-            <div className="mkp-section-title">Amount &amp; date</div>
+            <div className="mkp-section-title">{t('section.amountDate')}</div>
 
             <div className="mkp-two-col">
               <div className="mkp-form-group">
                 <label className="mkp-label">
                   <Banknote size={13} strokeWidth={2} />
-                  Amount <span className="mk-expense-required">*</span>
+                  {t('label.amount')} <span className="mk-expense-required">*</span>
                 </label>
                 <div className="mk-expense-amount-wrap">
                   <span className="mk-expense-amount-prefix">SAR</span>
@@ -277,7 +289,7 @@ export default function ExpenseFormPage() {
               <div className="mkp-form-group">
                 <label className="mkp-label">
                   <Calendar size={13} strokeWidth={2} />
-                  Expense date <span className="mk-expense-required">*</span>
+                  {t('label.date')} <span className="mk-expense-required">*</span>
                 </label>
                 <input
                   type="date"
@@ -290,50 +302,51 @@ export default function ExpenseFormPage() {
           </section>
 
           <section className="mkp-section mk-expense-section">
-            <div className="mkp-section-title">Optional links</div>
+            <div className="mkp-section-title">{t('section.optional')}</div>
 
             <div className="mkp-form-group">
               <label className="mkp-label">
                 <Megaphone size={13} strokeWidth={2} />
-                Linked campaign
+                {t('label.campaign')}
               </label>
               <SelectField
                 value={form.campaignId}
                 onChange={updateLinkedCampaign}
                 options={campaignOptions}
+                locale={locale}
                 placeholder={
-                  campaignsLoading ? 'Loading campaigns...' : 'Select campaign (optional)'
+                  campaignsLoading
+                    ? t('placeholder.campaignLoading')
+                    : t('placeholder.campaign')
                 }
               />
-              <p className="mk-expense-field-hint">
-                Tie spend to a campaign for budget tracking and reports
-              </p>
+              <p className="mk-expense-field-hint">{t('hint.campaign')}</p>
             </div>
 
             <div className="mkp-form-group">
               <label className="mkp-label">
                 <Link2 size={13} strokeWidth={2} />
-                Receipt URL
+                {t('label.receiptUrl')}
               </label>
               <input
                 className="mkp-input"
                 type="url"
                 value={form.receiptUrl}
                 onChange={(e) => updateForm('receiptUrl', e.target.value)}
-                placeholder="https://drive.google.com/... or invoice link"
+                placeholder={t('placeholder.receiptUrl')}
               />
             </div>
 
             <div className="mkp-form-group">
               <label className="mkp-label">
                 <Receipt size={13} strokeWidth={2} />
-                Notes for approvers
+                {t('label.notes')}
               </label>
               <textarea
                 className="mkp-textarea"
                 value={form.notes}
                 onChange={(e) => updateForm('notes', e.target.value)}
-                placeholder="Any context Super Admin should see when reviewing..."
+                placeholder={t('placeholder.notes')}
                 rows={2}
               />
             </div>
@@ -346,18 +359,18 @@ export default function ExpenseFormPage() {
               onClick={goBack}
               disabled={saving}
             >
-              Cancel
+              {t('btn.cancel')}
             </button>
             <button type="submit" className="mk-expense-submit-btn" disabled={saving}>
               {saving ? (
                 <>
                   <Loader2 size={15} className="mk-expense-spin" />
-                  Submitting...
+                  {t('btn.submitting')}
                 </>
               ) : isEdit ? (
-                'Save changes'
+                t('btn.save')
               ) : (
-                'Submit for approval'
+                t('btn.submit')
               )}
             </button>
           </div>

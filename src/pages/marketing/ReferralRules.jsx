@@ -1,7 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { Search, Plus, Pencil } from 'lucide-react';
 import { marketingListExpenses } from '../../services/superAdminMarketingApi';
+import {
+  mktExpCategoryLabel,
+  mktExpT,
+} from '../../utils/marketingExpensesI18n';
 import { marketingSectionPath } from './marketingRouteUtils';
 import {
   canEditExpense,
@@ -9,13 +13,19 @@ import {
   extractExpenses,
   formatDate,
   formatSar,
-  humanize,
 } from './expenseShared';
 import './MarketingUniversal.css';
 
 export const ReferralRules = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktExpT(locale, key, vars), [locale]);
   const listPath = marketingSectionPath(location.pathname, 'expenses');
 
   const [expenses, setExpenses] = useState([]);
@@ -35,7 +45,7 @@ export const ReferralRules = () => {
       });
       setExpenses(extractExpenses(res));
     } catch (err) {
-      setError(err?.message || 'Failed to load expenses.');
+      setError(err?.message || t('err.loadList'));
       setExpenses([]);
     } finally {
       setLoading(false);
@@ -55,6 +65,7 @@ export const ReferralRules = () => {
         item.expenseNumber,
         item.campaignName,
         item.expenseCategory,
+        mktExpCategoryLabel(locale, item.expenseCategory),
         item.vendorName,
         item.description,
         item.status,
@@ -64,7 +75,9 @@ export const ReferralRules = () => {
         .toLowerCase();
       return text.includes(q);
     });
-  }, [expenses, search]);
+  }, [expenses, search, locale]);
+
+  const dash = t('dash');
 
   return (
     <div className="mk-page">
@@ -77,7 +90,7 @@ export const ReferralRules = () => {
             onKeyDown={(e) => {
               if (e.key === 'Enter') loadExpenses();
             }}
-            placeholder="Search expenses..."
+            placeholder={t('search.placeholder')}
           />
         </label>
 
@@ -87,7 +100,7 @@ export const ReferralRules = () => {
           onClick={() => navigate(`${listPath}/new`)}
         >
           <Plus size={16} strokeWidth={2.5} />
-          New Expense
+          {t('btn.newExpense')}
         </button>
       </div>
 
@@ -97,24 +110,24 @@ export const ReferralRules = () => {
         <table className="mk-table mk-expenses-table">
           <thead>
             <tr>
-              <th>Expense #</th>
-              <th>Campaign</th>
-              <th>Category</th>
-              <th>Vendor</th>
-              <th>Amount</th>
-              <th>Date</th>
-              <th>Status</th>
-              <th>Actions</th>
+              <th>{t('th.expenseNumber')}</th>
+              <th>{t('th.campaign')}</th>
+              <th>{t('th.category')}</th>
+              <th>{t('th.vendor')}</th>
+              <th>{t('th.amount')}</th>
+              <th>{t('th.date')}</th>
+              <th>{t('th.status')}</th>
+              <th>{t('th.actions')}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="mk-empty-table">Loading expenses...</td>
+                <td colSpan={8} className="mk-empty-table">{t('empty.loading')}</td>
               </tr>
             ) : filteredExpenses.length === 0 ? (
               <tr>
-                <td colSpan={8} className="mk-empty-table">No expenses found</td>
+                <td colSpan={8} className="mk-empty-table">{t('empty.none')}</td>
               </tr>
             ) : (
               filteredExpenses.map((item) => {
@@ -126,27 +139,27 @@ export const ReferralRules = () => {
                         {item.expenseNumber || `#${item.id}`}
                       </div>
                     </td>
-                    <td>{item.campaignName || '—'}</td>
-                    <td>{humanize(item.expenseCategory)}</td>
-                    <td>{item.vendorName || '—'}</td>
+                    <td>{item.campaignName === '—' ? dash : item.campaignName || dash}</td>
+                    <td>{mktExpCategoryLabel(locale, item.expenseCategory)}</td>
+                    <td>{item.vendorName === '—' ? dash : item.vendorName || dash}</td>
                     <td>{formatSar(item.amount)}</td>
-                    <td>{formatDate(item.expenseDate)}</td>
+                    <td>{formatDate(item.expenseDate, locale)}</td>
                     <td>
-                      <ExpenseStatus status={item.status} />
+                      <ExpenseStatus status={item.status} locale={locale} />
                     </td>
                     <td>
                       <div className="mk-icon-actions mk-expense-actions">
                         {editable ? (
                           <button
                             type="button"
-                            title="Edit"
+                            title={t('action.edit')}
                             className="mk-action-edit"
                             onClick={() => navigate(`${listPath}/${item.id}/edit`)}
                           >
                             <Pencil size={15} />
                           </button>
                         ) : (
-                          <span className="mk-action-empty">—</span>
+                          <span className="mk-action-empty">{dash}</span>
                         )}
                       </div>
                     </td>

@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import { Plus, Pencil, ChevronDown, Loader } from 'lucide-react';
 import SuppliersPageShell from '../../components/admin/SuppliersPageShell';
 import '../../styles/admin/SuppliersPage.css';
 import '../../styles/admin/ApprovalsPage.css';
 import { getSuppliers, getSupplier, createSupplier, updateSupplier } from '../../services/superAdminApi';
 import { parseSuppliersRoute, suppliersRoutes, SUPPLIERS_BASE } from '../../utils/suppliersRoutes';
+import { supT } from '../../utils/suppliersI18n';
 
 const EMPTY_SUPPLIER_FORM = {
     name: '',
@@ -53,73 +54,78 @@ function normalizeSupplier(s) {
     };
 }
 
-function CategorySelect({ value, onChange }) {
+function categoryLabel(t, cat) {
+    const key = `cat.${normalizeCategory(cat)}`;
+    return t(key);
+}
+
+function CategorySelect({ value, onChange, t }) {
     return (
         <div className="select-wrapper">
             <select className="form-input-field" value={value} onChange={onChange}>
-                <option value="supplier">Supplier</option>
-                <option value="warehouse">Warehouse</option>
-                <option value="other">Other</option>
+                <option value="supplier">{t('cat.supplier')}</option>
+                <option value="warehouse">{t('cat.warehouse')}</option>
+                <option value="other">{t('cat.other')}</option>
             </select>
             <ChevronDown className="select-icon" size={16} />
         </div>
     );
 }
 
-function StatusSelect({ value, onChange }) {
+function StatusSelect({ value, onChange, t }) {
     return (
         <div className="select-wrapper">
             <select className="form-input-field" value={value} onChange={onChange}>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
+                <option value="active">{t('status.active')}</option>
+                <option value="inactive">{t('status.inactive')}</option>
             </select>
             <ChevronDown className="select-icon" size={16} />
         </div>
     );
 }
 
-function SupplierFormFields({ values, onFieldChange, isEdit = false }) {
+function SupplierFormFields({ values, onFieldChange, isEdit = false, t }) {
     const set = (field) => (e) => onFieldChange(field, e.target.value);
 
     return (
         <div className="suppliers-form-layout">
             <section className="suppliers-form-section">
-                <h2 className="suppliers-form-section-title">Company & registration</h2>
+                <h2 className="suppliers-form-section-title">{t('section.company')}</h2>
                 <div className="suppliers-form-grid suppliers-form-grid--4">
                     <div className="form-group span-2">
-                        <label className="form-label">Company name *</label>
+                        <label className="form-label">{t('label.name')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="e.g. Al-Fahd Trading"
+                            placeholder={t('ph.name')}
                             value={values.name}
                             onChange={set('name')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Category</label>
-                        <CategorySelect value={values.category} onChange={set('category')} />
+                        <label className="form-label">{t('label.category')}</label>
+                        <CategorySelect value={values.category} onChange={set('category')} t={t} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Status</label>
-                        <StatusSelect value={values.status} onChange={set('status')} />
+                        <label className="form-label">{t('label.status')}</label>
+                        <StatusSelect value={values.status} onChange={set('status')} t={t} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">VAT ID</label>
+                        <label className="form-label">{t('label.vat')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="VAT number"
+                            placeholder={t('ph.vat')}
                             value={values.vatId}
                             onChange={set('vatId')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">CR number</label>
+                        <label className="form-label">{t('label.cr')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Commercial registration"
+                            placeholder={t('ph.cr')}
                             value={values.crNumber}
                             onChange={set('crNumber')}
                         />
@@ -128,34 +134,34 @@ function SupplierFormFields({ values, onFieldChange, isEdit = false }) {
             </section>
 
             <section className="suppliers-form-section">
-                <h2 className="suppliers-form-section-title">Contact</h2>
+                <h2 className="suppliers-form-section-title">{t('section.contact')}</h2>
                 <div className="suppliers-form-grid suppliers-form-grid--3">
                     <div className="form-group">
-                        <label className="form-label">Contact person</label>
+                        <label className="form-label">{t('label.contact')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Primary contact"
+                            placeholder={t('ph.contact')}
                             value={values.contactPerson}
                             onChange={set('contactPerson')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Phone</label>
+                        <label className="form-label">{t('label.phone')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="+966..."
+                            placeholder={t('ph.phone')}
                             value={values.phone}
                             onChange={set('phone')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Email</label>
+                        <label className="form-label">{t('label.email')}</label>
                         <input
                             type="email"
                             className="form-input-field"
-                            placeholder="login@supplier.com"
+                            placeholder={t('ph.email')}
                             autoComplete="off"
                             value={values.email}
                             onChange={set('email')}
@@ -165,34 +171,34 @@ function SupplierFormFields({ values, onFieldChange, isEdit = false }) {
             </section>
 
             <section className="suppliers-form-section">
-                <h2 className="suppliers-form-section-title">Address</h2>
+                <h2 className="suppliers-form-section-title">{t('section.address')}</h2>
                 <div className="suppliers-form-grid suppliers-form-grid--3">
                     <div className="form-group">
-                        <label className="form-label">Street</label>
+                        <label className="form-label">{t('label.street')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Street"
+                            placeholder={t('ph.street')}
                             value={values.street || ''}
                             onChange={set('street')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">City / district</label>
+                        <label className="form-label">{t('label.city')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="City or district"
+                            placeholder={t('ph.city')}
                             value={values.cityDistrict || ''}
                             onChange={set('cityDistrict')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Full address</label>
+                        <label className="form-label">{t('label.address')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Office address"
+                            placeholder={t('ph.address')}
                             value={values.address}
                             onChange={set('address')}
                         />
@@ -201,15 +207,15 @@ function SupplierFormFields({ values, onFieldChange, isEdit = false }) {
             </section>
 
             <section className="suppliers-form-section">
-                <h2 className="suppliers-form-section-title">Portal login</h2>
+                <h2 className="suppliers-form-section-title">{t('section.portal')}</h2>
                 <div className="suppliers-form-grid">
                     <div className="form-group">
-                        <label className="form-label">{isEdit ? 'New password' : 'Password *'}</label>
+                        <label className="form-label">{isEdit ? t('label.newPassword') : t('label.password')}</label>
                         <input
                             type="password"
                             className="form-input-field"
-                            placeholder={isEdit ? 'Leave blank to keep current password' : 'Set login password'}
-                            autoComplete={isEdit ? 'new-password' : 'new-password'}
+                            placeholder={isEdit ? t('ph.passwordKeep') : t('ph.password')}
+                            autoComplete="new-password"
                             value={values.password || ''}
                             onChange={set('password')}
                         />
@@ -218,24 +224,24 @@ function SupplierFormFields({ values, onFieldChange, isEdit = false }) {
             </section>
 
             <section className="suppliers-form-section">
-                <h2 className="suppliers-form-section-title">Banking</h2>
+                <h2 className="suppliers-form-section-title">{t('section.bank')}</h2>
                 <div className="suppliers-form-grid">
                     <div className="form-group">
-                        <label className="form-label">Bank name</label>
+                        <label className="form-label">{t('label.bankName')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="e.g. Al Rajhi Bank"
+                            placeholder={t('ph.bank')}
                             value={values.bankName}
                             onChange={set('bankName')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Bank IBAN</label>
+                        <label className="form-label">{t('label.iban')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="SA..."
+                            placeholder={t('ph.iban')}
                             value={values.bankIban}
                             onChange={set('bankIban')}
                         />
@@ -249,6 +255,13 @@ function SupplierFormFields({ values, onFieldChange, isEdit = false }) {
 export default function SuppliersPage() {
     const navigate = useNavigate();
     const location = useLocation();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => supT(locale, key, vars), [locale]);
+
     const route = parseSuppliersRoute(location.pathname);
     const pageMode = Boolean(route);
 
@@ -336,11 +349,11 @@ export default function SuppliersPage() {
 
     const handleSaveNew = async () => {
         if (!String(supplierForm.password || '').trim()) {
-            alert('Password is required for login-ready supplier.');
+            alert(t('err.password'));
             return;
         }
         if (!String(supplierForm.name || '').trim()) {
-            alert('Company name is required.');
+            alert(t('err.name'));
             return;
         }
         setSaving(true);
@@ -359,7 +372,7 @@ export default function SuppliersPage() {
     const handleSaveEdit = async () => {
         if (!editingSupplier) return;
         if (!String(editingSupplier.name || '').trim()) {
-            alert('Company name is required.');
+            alert(t('err.name'));
             return;
         }
         setSaving(true);
@@ -387,9 +400,9 @@ export default function SuppliersPage() {
 
     const formFooter = (onCancel, onSave, saveLabel, disabled) => (
         <>
-            <button type="button" className="btn-secondary" onClick={onCancel} disabled={saving}>Cancel</button>
+            <button type="button" className="btn-secondary" onClick={onCancel} disabled={saving}>{t('btn.cancel')}</button>
             <button type="button" className="btn-portal btn-black" onClick={onSave} disabled={disabled}>
-                {saving ? <><Loader size={14} className="spin" /> Saving…</> : saveLabel}
+                {saving ? <><Loader size={14} className="spin" /> {t('btn.saving')}</> : saveLabel}
             </button>
         </>
     );
@@ -399,43 +412,41 @@ export default function SuppliersPage() {
             <>
                 {route?.screen === 'create' && (
                     <SuppliersPageShell
-                        title="Add New Supplier"
+                        title={t('create.title')}
                         onClose={goBack}
                         backDisabled={saving}
-                        footer={formFooter(goBack, handleSaveNew, 'Create Supplier', saving)}
+                        footer={formFooter(goBack, handleSaveNew, t('btn.create'), saving)}
                     >
-                        <p className="suppliers-form-lead">
-                            Register a supplier or warehouse with portal login. All fields except company name and password are optional unless noted.
-                        </p>
+                        <p className="suppliers-form-lead">{t('create.lead')}</p>
                         <SupplierFormFields
                             values={supplierForm}
                             onFieldChange={handleSupplierFormField}
+                            t={t}
                         />
                     </SuppliersPageShell>
                 )}
 
                 {route?.screen === 'edit' && (
                     <SuppliersPageShell
-                        title="Edit Supplier"
+                        title={t('edit.title')}
                         onClose={closeEdit}
                         backDisabled={saving}
-                        footer={formFooter(closeEdit, handleSaveEdit, 'Save Changes', saving || editFormLoading || !editingSupplier)}
+                        footer={formFooter(closeEdit, handleSaveEdit, t('btn.save'), saving || editFormLoading || !editingSupplier)}
                     >
                         {editFormLoading && !editingSupplier ? (
-                            <div className="table-empty"><Loader size={18} className="spin" /> Loading supplier…</div>
+                            <div className="table-empty"><Loader size={18} className="spin" /> {t('loading.supplier')}</div>
                         ) : editingSupplier ? (
                             <>
-                                <p className="suppliers-form-lead">
-                                    Update supplier profile, contact details, and portal credentials.
-                                </p>
+                                <p className="suppliers-form-lead">{t('edit.lead')}</p>
                                 <SupplierFormFields
                                     values={editingSupplier}
                                     onFieldChange={handleEditingField}
                                     isEdit
+                                    t={t}
                                 />
                             </>
                         ) : (
-                            <div className="table-empty">Supplier not found.</div>
+                            <div className="table-empty">{t('notFound')}</div>
                         )}
                     </SuppliersPageShell>
                 )}
@@ -447,15 +458,15 @@ export default function SuppliersPage() {
         <div className="suppliers-page module-container">
             <header className="suppliers-page-header">
                 <div>
-                    <h1 className="suppliers-title">Suppliers</h1>
-                    <p className="suppliers-count">{suppliers.length} suppliers registered</p>
+                    <h1 className="suppliers-title">{t('page.title')}</h1>
+                    <p className="suppliers-count">{t('page.count', { n: suppliers.length })}</p>
                 </div>
                 <button
                     type="button"
                     className="btn-portal"
                     onClick={() => navigate(suppliersRoutes.create())}
                 >
-                    <Plus size={16} /> Add Supplier
+                    <Plus size={16} /> {t('btn.add')}
                 </button>
             </header>
 
@@ -463,20 +474,20 @@ export default function SuppliersPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Supplier</th>
-                            <th className="table-th">Category</th>
-                            <th className="table-th">Phone</th>
-                            <th className="table-th">VAT ID</th>
-                            <th className="table-th">CR Number</th>
-                            <th className="table-th">Status</th>
-                            <th className="table-th">Actions</th>
+                            <th className="table-th">{t('th.supplier')}</th>
+                            <th className="table-th">{t('th.category')}</th>
+                            <th className="table-th">{t('th.phone')}</th>
+                            <th className="table-th">{t('th.vat')}</th>
+                            <th className="table-th">{t('th.cr')}</th>
+                            <th className="table-th">{t('th.status')}</th>
+                            <th className="table-th">{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={7} className="table-cell table-empty"><Loader size={18} className="spin" /> Loading…</td></tr>
+                            <tr><td colSpan={7} className="table-cell table-empty"><Loader size={18} className="spin" /> {t('loading')}</td></tr>
                         ) : suppliers.length === 0 ? (
-                            <tr><td colSpan={7} className="table-cell table-empty">No suppliers yet. Add your first supplier.</td></tr>
+                            <tr><td colSpan={7} className="table-cell table-empty">{t('empty')}</td></tr>
                         ) : (
                             suppliers.map((s) => (
                                 <tr key={s.id} className="table-row">
@@ -484,13 +495,13 @@ export default function SuppliersPage() {
                                         <div className="cell-main-text">{s.name}</div>
                                         <div className="cell-sub-text">{s.contactPerson}</div>
                                     </td>
-                                    <td className="table-cell"><span className="cat-badge">{s.category}</span></td>
+                                    <td className="table-cell"><span className="cat-badge">{categoryLabel(t, s.category)}</span></td>
                                     <td className="table-cell">{s.phone}</td>
                                     <td className="table-cell font-mono">{s.vatId || '—'}</td>
                                     <td className="table-cell font-mono">{s.crNumber || '—'}</td>
                                     <td className="table-cell">
                                         <span className={`status-badge ${s.status === 'active' ? 'status-completed' : 'status-warning'}`}>
-                                            {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
+                                            {s.status === 'active' ? t('status.active') : t('status.inactive')}
                                         </span>
                                     </td>
                                     <td className="table-cell">

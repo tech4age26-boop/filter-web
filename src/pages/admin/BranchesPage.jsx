@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import {
     Plus,
     Building2,
@@ -25,6 +25,7 @@ import {
     getWorkshopOptions,
 } from '../../services/superAdminApi';
 import { parseBranchesRoute, branchesRoutes, BRANCHES_BASE } from '../../utils/branchesRoutes';
+import { brT, BR_STATUS_TAB_KEYS } from '../../utils/branchesI18n';
 
 const EMPTY_BRANCH = {
     name: '',
@@ -41,12 +42,6 @@ const EMPTY_BRANCH = {
     mainWorkshopId: '',
     workshopIds: [],
 };
-
-const STATUS_TABS = [
-    { id: 'all', label: 'All' },
-    { id: 'active', label: 'Active' },
-    { id: 'inactive', label: 'Inactive' },
-];
 
 function normalizeWorkshop(w) {
     return {
@@ -113,7 +108,7 @@ function SelectField({ value, onChange, disabled, children, className = '' }) {
     );
 }
 
-function WorkshopMultiSelect({ value = [], onChange, options = [] }) {
+function WorkshopMultiSelect({ value = [], onChange, options = [], t }) {
     const [open, setOpen] = useState(false);
     const [q, setQ] = useState('');
     const filtered = useMemo(
@@ -137,7 +132,7 @@ function WorkshopMultiSelect({ value = [], onChange, options = [] }) {
             <button type="button" className="wsms-trigger" onClick={() => setOpen((v) => !v)}>
                 <div className="wsms-chips">
                     {selected.length === 0 ? (
-                        <span className="wsms-placeholder">Select linked workshops…</span>
+                        <span className="wsms-placeholder">{t('wsms.placeholder')}</span>
                     ) : (
                         selected.slice(0, 4).map((s) => (
                             <span key={s} className="wsms-chip">
@@ -158,7 +153,7 @@ function WorkshopMultiSelect({ value = [], onChange, options = [] }) {
                         ))
                     )}
                     {selected.length > 4 ? (
-                        <span className="wsms-more">+{selected.length - 4} more</span>
+                        <span className="wsms-more">{t('wsms.more', { n: selected.length - 4 })}</span>
                     ) : null}
                 </div>
                 <span className="wsms-caret">{open ? '▴' : '▾'}</span>
@@ -168,14 +163,14 @@ function WorkshopMultiSelect({ value = [], onChange, options = [] }) {
                 <div className="wsms-pop">
                     <input
                         className="wsms-search"
-                        placeholder="Search workshops…"
+                        placeholder={t('wsms.search')}
                         value={q}
                         onChange={(e) => setQ(e.target.value)}
                         autoFocus
                     />
                     <div className="wsms-list">
                         {filtered.length === 0 ? (
-                            <div className="wsms-empty">No workshops found</div>
+                            <div className="wsms-empty">{t('wsms.empty')}</div>
                         ) : (
                             filtered.map((opt) => {
                                 const optId = String(opt.id);
@@ -203,10 +198,10 @@ function WorkshopMultiSelect({ value = [], onChange, options = [] }) {
                             onClick={() => onChange([])}
                             disabled={selected.length === 0}
                         >
-                            Clear
+                            {t('btn.clear')}
                         </button>
                         <button type="button" className="wsms-done" onClick={() => setOpen(false)}>
-                            Done
+                            {t('btn.done')}
                         </button>
                     </div>
                 </div>
@@ -215,100 +210,101 @@ function WorkshopMultiSelect({ value = [], onChange, options = [] }) {
     );
 }
 
-function BranchFormFields({ values, onChange, workshopOptions }) {
+function BranchFormFields({ values, onChange, workshopOptions, t }) {
     const set = (field) => (e) => onChange(field, e.target.value);
 
     return (
         <div className="branches-form-layout">
             <section className="branches-form-section">
-                <h2 className="branches-form-section-title">Branch details</h2>
+                <h2 className="branches-form-section-title">{t('section.details')}</h2>
                 <div className="branches-form-grid branches-form-grid--4">
                     <div className="form-group span-2">
-                        <label className="form-label">Branch name *</label>
+                        <label className="form-label">{t('label.name')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="e.g. Riyadh Main"
+                            placeholder={t('ph.name')}
                             value={values.name}
                             onChange={set('name')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Branch code</label>
+                        <label className="form-label">{t('label.code')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="RYD-01"
+                            placeholder={t('ph.code')}
                             value={values.branchCode}
                             onChange={set('branchCode')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Status</label>
+                        <label className="form-label">{t('label.status')}</label>
                         <SelectField value={values.status} onChange={set('status')}>
-                            <option value="active">Active</option>
-                            <option value="inactive">Inactive</option>
+                            <option value="active">{t('status.active')}</option>
+                            <option value="inactive">{t('status.inactive')}</option>
                         </SelectField>
                     </div>
                 </div>
             </section>
 
             <section className="branches-form-section">
-                <h2 className="branches-form-section-title">Workshop assignment</h2>
+                <h2 className="branches-form-section-title">{t('section.workshop')}</h2>
                 <div className="branches-form-grid branches-form-grid--2">
                     <div className="form-group">
-                        <label className="form-label">Main workshop *</label>
+                        <label className="form-label">{t('label.mainWorkshop')}</label>
                         <SelectField value={values.mainWorkshopId} onChange={set('mainWorkshopId')}>
-                            <option value="">Select workshop</option>
+                            <option value="">{t('opt.selectWorkshop')}</option>
                             {workshopOptions.map((w) => (
                                 <option key={w.id} value={w.id}>
                                     {w.name}
                                 </option>
                             ))}
                         </SelectField>
-                        <p className="branches-form-hint">Primary workshop for this branch.</p>
+                        <p className="branches-form-hint">{t('hint.mainWorkshop')}</p>
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Linked workshops</label>
+                        <label className="form-label">{t('label.linked')}</label>
                         <WorkshopMultiSelect
                             options={workshopOptions}
                             value={values.workshopIds}
                             onChange={(next) => onChange('workshopIds', next)}
+                            t={t}
                         />
-                        <p className="branches-form-hint">Optional — share branch across multiple workshops.</p>
+                        <p className="branches-form-hint">{t('hint.linked')}</p>
                     </div>
                 </div>
             </section>
 
             <section className="branches-form-section">
-                <h2 className="branches-form-section-title">Location</h2>
+                <h2 className="branches-form-section-title">{t('section.location')}</h2>
                 <div className="branches-form-grid branches-form-grid--3">
                     <div className="form-group span-3">
-                        <label className="form-label">Address</label>
+                        <label className="form-label">{t('label.address')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Street, district, city"
+                            placeholder={t('ph.address')}
                             value={values.address}
                             onChange={set('address')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">GPS latitude</label>
+                        <label className="form-label">{t('label.lat')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="24.7136"
+                            placeholder={t('ph.lat')}
                             value={values.gpsLat}
                             onChange={set('gpsLat')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">GPS longitude</label>
+                        <label className="form-label">{t('label.lng')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="46.6753"
+                            placeholder={t('ph.lng')}
                             value={values.gpsLng}
                             onChange={set('gpsLng')}
                         />
@@ -317,34 +313,34 @@ function BranchFormFields({ values, onChange, workshopOptions }) {
             </section>
 
             <section className="branches-form-section">
-                <h2 className="branches-form-section-title">Contact</h2>
+                <h2 className="branches-form-section-title">{t('section.contact')}</h2>
                 <div className="branches-form-grid branches-form-grid--3">
                     <div className="form-group">
-                        <label className="form-label">Contact person</label>
+                        <label className="form-label">{t('label.contact')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Branch manager"
+                            placeholder={t('ph.contact')}
                             value={values.contactPerson}
                             onChange={set('contactPerson')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Phone</label>
+                        <label className="form-label">{t('label.phone')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="05XXXXXXXX"
+                            placeholder={t('ph.phone')}
                             value={values.phone}
                             onChange={set('phone')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">Email</label>
+                        <label className="form-label">{t('label.email')}</label>
                         <input
                             type="email"
                             className="form-input-field"
-                            placeholder="branch@workshop.com"
+                            placeholder={t('ph.email')}
                             value={values.email}
                             onChange={set('email')}
                         />
@@ -353,24 +349,24 @@ function BranchFormFields({ values, onChange, workshopOptions }) {
             </section>
 
             <section className="branches-form-section">
-                <h2 className="branches-form-section-title">Registration</h2>
+                <h2 className="branches-form-section-title">{t('section.registration')}</h2>
                 <div className="branches-form-grid branches-form-grid--2">
                     <div className="form-group">
-                        <label className="form-label">VAT ID</label>
+                        <label className="form-label">{t('label.vat')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="VAT number"
+                            placeholder={t('ph.vat')}
                             value={values.vatId}
                             onChange={set('vatId')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">CR number</label>
+                        <label className="form-label">{t('label.cr')}</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder="Commercial registration"
+                            placeholder={t('ph.cr')}
                             value={values.crNumber}
                             onChange={set('crNumber')}
                         />
@@ -408,6 +404,13 @@ function buildBranchPayload(form) {
 export default function BranchesPage() {
     const navigate = useNavigate();
     const location = useLocation();
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => brT(locale, key, vars), [locale]);
+
     const route = parseBranchesRoute(location.pathname);
     const pageMode = Boolean(route);
 
@@ -525,12 +528,12 @@ export default function BranchesPage() {
     const handleSaveCreate = async () => {
         const name = String(form.name || '').trim();
         if (!name) {
-            window.alert('Branch name is required.');
+            window.alert(t('err.name'));
             return;
         }
         const mainWorkshopId = String(form.mainWorkshopId || form.workshopIds?.[0] || '');
         if (!mainWorkshopId) {
-            window.alert('Main workshop is required.');
+            window.alert(t('err.mainWorkshop'));
             return;
         }
         setSaving(true);
@@ -539,7 +542,7 @@ export default function BranchesPage() {
             await refreshBranches();
             goBack();
         } catch (err) {
-            window.alert(err?.message || 'Could not create branch');
+            window.alert(err?.message || t('err.create'));
         } finally {
             setSaving(false);
         }
@@ -553,7 +556,7 @@ export default function BranchesPage() {
             await refreshBranches();
             goBack();
         } catch (err) {
-            window.alert(err?.message || 'Could not update branch');
+            window.alert(err?.message || t('err.update'));
         } finally {
             setSaving(false);
         }
@@ -562,33 +565,31 @@ export default function BranchesPage() {
     if (route?.screen === 'create') {
         return (
             <BranchesPageShell
-                title="Add Branch"
+                title={t('create.title')}
                 onClose={goBack}
                 footer={
                     <>
                         <button type="button" className="btn-secondary" onClick={goBack}>
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button type="button" className="btn-submit" onClick={handleSaveCreate} disabled={saving}>
                             {saving ? (
                                 <>
-                                    <Loader size={14} className="spin" /> Creating…
+                                    <Loader size={14} className="spin" /> {t('btn.creating')}
                                 </>
                             ) : (
-                                'Create Branch'
+                                t('btn.create')
                             )}
                         </button>
                     </>
                 }
             >
-                <p className="branches-form-lead">
-                    Register a workshop branch with location, contact details, and optional multi-workshop
-                    linking.
-                </p>
+                <p className="branches-form-lead">{t('create.lead')}</p>
                 <BranchFormFields
                     values={form}
                     onChange={onFormField}
                     workshopOptions={workshopDropdownOptions}
+                    t={t}
                 />
             </BranchesPageShell>
         );
@@ -597,12 +598,12 @@ export default function BranchesPage() {
     if (route?.screen === 'edit') {
         return (
             <BranchesPageShell
-                title="Edit Branch"
+                title={t('edit.title')}
                 onClose={goBack}
                 footer={
                     <>
                         <button type="button" className="btn-secondary" onClick={goBack}>
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button
                             type="button"
@@ -612,10 +613,10 @@ export default function BranchesPage() {
                         >
                             {saving ? (
                                 <>
-                                    <Loader size={14} className="spin" /> Saving…
+                                    <Loader size={14} className="spin" /> {t('btn.saving')}
                                 </>
                             ) : (
-                                'Save Changes'
+                                t('btn.save')
                             )}
                         </button>
                     </>
@@ -623,17 +624,16 @@ export default function BranchesPage() {
             >
                 {editLoading ? (
                     <div className="table-empty">
-                        <Loader size={18} className="spin" /> Loading branch…
+                        <Loader size={18} className="spin" /> {t('loading')}
                     </div>
                 ) : (
                     <>
-                        <p className="branches-form-lead">
-                            Update branch profile, workshop links, and registration details.
-                        </p>
+                        <p className="branches-form-lead">{t('edit.lead')}</p>
                         <BranchFormFields
                             values={form}
                             onChange={onFormField}
                             workshopOptions={workshopDropdownOptions}
+                            t={t}
                         />
                     </>
                 )}
@@ -645,15 +645,15 @@ export default function BranchesPage() {
         <div className="branches-page module-container">
             <header className="branches-page-header">
                 <div className="branches-page-header-text">
-                    <h1 className="branches-title">Branches</h1>
-                    <p className="branches-subtitle">Workshop locations across the platform</p>
+                    <h1 className="branches-title">{t('page.title')}</h1>
+                    <p className="branches-subtitle">{t('page.subtitle')}</p>
                 </div>
                 <button
                     type="button"
                     className="btn-portal branches-header-add"
                     onClick={() => navigate(branchesRoutes.create())}
                 >
-                    <Plus size={16} /> Add Branch
+                    <Plus size={16} /> {t('btn.add')}
                 </button>
             </header>
 
@@ -663,7 +663,7 @@ export default function BranchesPage() {
                         <GitBranch size={18} />
                     </span>
                     <div>
-                        <p className="branches-stat-label">Total</p>
+                        <p className="branches-stat-label">{t('stat.total')}</p>
                         <p className="branches-stat-value">{total}</p>
                     </div>
                 </div>
@@ -672,7 +672,7 @@ export default function BranchesPage() {
                         <UserCheck size={18} />
                     </span>
                     <div>
-                        <p className="branches-stat-label">Active</p>
+                        <p className="branches-stat-label">{t('stat.active')}</p>
                         <p className="branches-stat-value">{activeCount}</p>
                     </div>
                 </div>
@@ -681,7 +681,7 @@ export default function BranchesPage() {
                         <Building2 size={18} />
                     </span>
                     <div>
-                        <p className="branches-stat-label">Workshops</p>
+                        <p className="branches-stat-label">{t('stat.workshops')}</p>
                         <p className="branches-stat-value">{workshopCount}</p>
                     </div>
                 </div>
@@ -692,23 +692,23 @@ export default function BranchesPage() {
                     <Search size={16} />
                     <input
                         type="text"
-                        placeholder="Search branch, code, address…"
+                        placeholder={t('search.placeholder')}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
 
-                <div className="branches-segment" role="tablist" aria-label="Filter by status">
-                    {STATUS_TABS.map((t) => (
+                <div className="branches-segment" role="tablist" aria-label={t('filter.statusAria')}>
+                    {BR_STATUS_TAB_KEYS.map((tab) => (
                         <button
-                            key={t.id}
+                            key={tab.id}
                             type="button"
                             role="tab"
-                            aria-selected={statusFilter === t.id}
-                            className={`branches-segment-btn ${statusFilter === t.id ? 'active' : ''}`}
-                            onClick={() => setStatusFilter(t.id)}
+                            aria-selected={statusFilter === tab.id}
+                            className={`branches-segment-btn ${statusFilter === tab.id ? 'active' : ''}`}
+                            onClick={() => setStatusFilter(tab.id)}
                         >
-                            {t.label}
+                            {t(tab.labelKey)}
                         </button>
                     ))}
                 </div>
@@ -718,7 +718,7 @@ export default function BranchesPage() {
                     onChange={(e) => setWorkshopFilter(e.target.value)}
                     className="branches-filter-select"
                 >
-                    <option value="">All workshops</option>
+                    <option value="">{t('filter.allWorkshops')}</option>
                     {workshopDropdownOptions.map((w) => (
                         <option key={w.id} value={w.id}>
                             {w.name}
@@ -731,12 +731,12 @@ export default function BranchesPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Branch</th>
-                            <th className="table-th">Address</th>
-                            <th className="table-th">Workshop</th>
-                            <th className="table-th">Contact</th>
-                            <th className="table-th">VAT / CR</th>
-                            <th className="table-th">Status</th>
+                            <th className="table-th">{t('th.branch')}</th>
+                            <th className="table-th">{t('th.address')}</th>
+                            <th className="table-th">{t('th.workshop')}</th>
+                            <th className="table-th">{t('th.contact')}</th>
+                            <th className="table-th">{t('th.vatCr')}</th>
+                            <th className="table-th">{t('th.status')}</th>
                             <th className="table-th" />
                         </tr>
                     </thead>
@@ -751,8 +751,8 @@ export default function BranchesPage() {
                             <tr>
                                 <td colSpan={7} className="table-cell table-empty branches-empty">
                                     <Building2 size={40} strokeWidth={1.25} />
-                                    <p>No branches found</p>
-                                    <span>Adjust filters or add a new branch.</span>
+                                    <p>{t('empty.title')}</p>
+                                    <span>{t('empty.hint')}</span>
                                 </td>
                             </tr>
                         ) : (
@@ -812,14 +812,14 @@ export default function BranchesPage() {
                                                 b.isActive ? 'status-completed' : 'status-warning'
                                             }`}
                                         >
-                                            {b.isActive ? 'Active' : 'Inactive'}
+                                            {b.isActive ? t('status.active') : t('status.inactive')}
                                         </span>
                                     </td>
                                     <td className="table-cell branches-actions-cell">
                                         <button
                                             type="button"
                                             className="btn-edit-icon"
-                                            title="Edit"
+                                            title={t('btn.edit')}
                                             onClick={() =>
                                                 navigate(branchesRoutes.edit(b.id), {
                                                     state: { branch: b },
