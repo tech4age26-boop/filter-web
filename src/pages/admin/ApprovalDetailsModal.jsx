@@ -344,8 +344,6 @@ function WorkshopBody({ data }) {
                     <Field label="Mobile" value={w.mobile} />
                     <Field label="Email" value={w.email} />
                     <Field label="Tax ID" value={w.taxId} />
-                    <Field label="CR Number" value={w.crNumber} />
-                    <Field label="Address" value={w.address} span2 />
                     <GpsField lat={w.gpsLat} lng={w.gpsLng} />
                     <Field label="Currency Code" value={w.currencyCode} />
                     <Field label="VAT Percent" kind="pct" value={w.vatPercent} />
@@ -874,6 +872,9 @@ function TechnicianBody({ data }) {
                         <Field label="Name" value={branch.name} />
                         <Field label="Branch Code" value={branch.branchCode} />
                         <Field label="Address" value={branch.address} span2 />
+                        <Field label="VAT ID" value={branch.vatId} />
+                        <Field label="CR Number" value={branch.crNumber} />
+                        <Field label="EGS Serial" value={branch.egsSerial} span2 />
                         <Field label="Phone" value={branch.phone} />
                         <Field label="Email" value={branch.email} />
                     </KVGrid>

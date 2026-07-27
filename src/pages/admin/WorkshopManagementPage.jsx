@@ -116,6 +116,22 @@ function WorkshopCreateForm({ values, onChange, onDetectGps, isDetectingLocation
                             onChange={set('branchName')}
                         />
                     </div>
+            <section className="workshop-form-section">
+                <div className="workshop-form-section-head">
+                    <h2 className="workshop-form-section-title">Default branch (ZATCA)</h2>
+                    <button
+                        type="button"
+                        className="workshop-gps-btn"
+                        onClick={onDetectGps}
+                        disabled={isDetectingLocation}
+                    >
+                        {isDetectingLocation ? 'Detecting…' : 'Detect GPS location'}
+                    </button>
+                </div>
+                <p className="workshop-form-hint" style={{ marginTop: 0 }}>
+                    CR, address, and EGS are stored on the default branch — not the workshop.
+                </p>
+                <div className="workshop-form-grid workshop-form-grid--3">
                     <div className="form-group">
                         <label className="form-label">VAT ID</label>
                         <input
@@ -136,22 +152,16 @@ function WorkshopCreateForm({ values, onChange, onDetectGps, isDetectingLocation
                             onChange={set('crNumber')}
                         />
                     </div>
-                </div>
-            </section>
-
-            <section className="workshop-form-section">
-                <div className="workshop-form-section-head">
-                    <h2 className="workshop-form-section-title">Address</h2>
-                    <button
-                        type="button"
-                        className="workshop-gps-btn"
-                        onClick={onDetectGps}
-                        disabled={isDetectingLocation}
-                    >
-                        {isDetectingLocation ? 'Detecting…' : 'Detect GPS location'}
-                    </button>
-                </div>
-                <div className="workshop-form-grid workshop-form-grid--3">
+                    <div className="form-group">
+                        <label className="form-label">EGS serial</label>
+                        <input
+                            type="text"
+                            className="form-input-field"
+                            placeholder="1-Filter|2-EGS|3-id"
+                            value={values.egsSerial}
+                            onChange={set('egsSerial')}
+                        />
+                    </div>
                     <div className="form-group span-3">
                         <label className="form-label">Street</label>
                         <input
@@ -300,27 +310,9 @@ function WorkshopEditForm({ values, onChange }) {
                         <label className="form-label">Email</label>
                         <input type="email" className="form-input-field" value={values.email} onChange={set('email')} />
                     </div>
-                    <div className="form-group span-2">
-                        <label className="form-label">Address</label>
-                        <textarea
-                            className="form-input-field"
-                            rows={3}
-                            value={values.address}
-                            onChange={set('address')}
-                        />
-                    </div>
                     <div className="form-group">
                         <label className="form-label">Tax ID</label>
                         <input type="text" className="form-input-field" value={values.taxId} onChange={set('taxId')} />
-                    </div>
-                    <div className="form-group">
-                        <label className="form-label">CR number</label>
-                        <input
-                            type="text"
-                            className="form-input-field"
-                            value={values.crNumber}
-                            onChange={set('crNumber')}
-                        />
                     </div>
                     <div className="form-group">
                         <label className="form-label">GPS latitude</label>
@@ -393,7 +385,6 @@ function WorkshopDetailPanel({ workshop }) {
                                     : null,
                         },
                         { label: 'Status', value: status.label },
-                        { label: 'Address', value: workshop.address },
                         {
                             label: 'Registered',
                             value: workshop.createdAt
@@ -590,10 +581,8 @@ export default function WorkshopManagementPage() {
                 w.ownerName,
                 w.mobile,
                 w.email,
-                w.address,
                 w.workshopCode,
                 w.taxId,
-                w.crNumber,
             ]
                 .join(' ')
                 .toLowerCase()
@@ -677,13 +666,14 @@ export default function WorkshopManagementPage() {
                 email: newWorkshop.email,
                 taxId: newWorkshop.vatId || undefined,
                 crNumber: newWorkshop.crNumber || undefined,
+                egsSerial: newWorkshop.egsSerial || undefined,
                 address: [newWorkshop.street, newWorkshop.city, newWorkshop.postalCode].filter(Boolean).join(', '),
                 gpsLat: newWorkshop.gpsLat || undefined,
                 gpsLng: newWorkshop.gpsLng || undefined,
                 ownerUserEmail: newWorkshop.ownerUserEmail || newWorkshop.email,
                 ownerUserPassword: ownerPassword,
-                createDefaultBranch: !!newWorkshop.branchName,
-                defaultBranchName: newWorkshop.branchName || undefined,
+                createDefaultBranch: true,
+                defaultBranchName: newWorkshop.branchName || 'Main Branch',
             });
             const list = await refreshWorkshops();
             let workshopId = extractCreatedWorkshopId(createRes);

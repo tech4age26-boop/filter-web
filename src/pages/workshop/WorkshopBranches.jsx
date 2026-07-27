@@ -31,6 +31,7 @@ function BranchFormModal({ branch, onClose, onSave, isSaving }) {
         email: branch?.email || '',
         vat_id: branch?.vatId ?? branch?.vat_id ?? '',
         cr_no: branch?.crNumber ?? branch?.cr_no ?? '',
+        egs_serial: branch?.egsSerial ?? branch?.egs_serial ?? '',
         contact_person: branch?.contactPerson ?? branch?.contact_person ?? '',
         status: branch?.status || (branch?.isActive === false ? 'inactive' : 'active'),
         gpsLat: branch?.gpsLat ?? '',
@@ -61,8 +62,9 @@ function BranchFormModal({ branch, onClose, onSave, isSaving }) {
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Email</label><input type="email" value={form.email} onChange={e => set('email', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>GPS Latitude</label><input type="number" value={form.gpsLat} onChange={e => set('gpsLat', e.target.value)} placeholder="e.g. 24.7136" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>GPS Longitude</label><input type="number" value={form.gpsLng} onChange={e => set('gpsLng', e.target.value)} placeholder="e.g. 46.6753" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>VAT ID</label><input type="text" value={form.vat_id} onChange={e => set('vat_id', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>VAT ID</label><input type="text" value={form.vat_id} onChange={e => set('vat_id', e.target.value)} placeholder="15-digit VAT (3…3)" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>CR Number</label><input type="text" value={form.cr_no} onChange={e => set('cr_no', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
+                    <div style={{ gridColumn: '1/-1' }}><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>EGS Serial</label><input type="text" value={form.egs_serial} onChange={e => set('egs_serial', e.target.value)} placeholder="1-Filter|2-EGS|3-device-id" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Contact Person</label><input type="text" value={form.contact_person} onChange={e => set('contact_person', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div style={{ gridColumn: '1/-1' }}><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Address</label><textarea value={form.address} onChange={e => set('address', e.target.value)} rows={2} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', resize: 'vertical' }}/></div>
                 </div>
@@ -273,6 +275,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
             gpsLng: optNum(data.gpsLng),
             vatId: optStr(data.vat_id),
             crNumber: optStr(data.cr_no),
+            egsSerial: optStr(data.egs_serial),
             contactPerson: optStr(data.contact_person),
             address: optStr(data.address),
         };

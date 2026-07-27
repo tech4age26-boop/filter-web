@@ -313,7 +313,7 @@ export function normalizeCashierInvoice(raw) {
     branchAddress: raw.branchAddress || branch.address,
     workshopName: raw.workshopName || workshop.name,
     workshopTaxId: raw.workshopTaxId || workshop.taxId || workshop.tax_id,
-    workshopAddress: raw.workshopAddress || workshop.address,
+    workshopAddress: raw.workshopAddress || branch.address || workshop.address,
     customerName: raw.customerName || customer.name,
     customerMobile: raw.customerMobile || customer.mobile,
     customerTaxId: raw.customerTaxId || customer.taxId || customer.tax_id,
