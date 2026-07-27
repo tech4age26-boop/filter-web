@@ -89,13 +89,16 @@
   flex-shrink: 0;
   background: #fff;
   border-radius: 8px;
-  padding: 7px;
+  padding: 8px;
 }
 
 .cti-qr-wrap img {
   display: block;
-  width: 112px;
-  height: 112px;
+  /* Dense Phase-2 TLV needs ~160–180 CSS px to stay scannable on screen. */
+  width: 168px;
+  height: 168px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 .cti-ribbon {
