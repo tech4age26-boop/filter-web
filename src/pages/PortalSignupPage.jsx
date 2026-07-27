@@ -52,6 +52,7 @@ export default function PortalSignupPage() {
         name: '',
         workshopCode: '',
         branchName: '',
+        industryType: 'automotive',
         vatId: '',
         crNumber: '',
         street: '',
@@ -304,6 +305,7 @@ export default function PortalSignupPage() {
             mobile: phone,
             email: emailVal,
             ...(text(workshopForm.vatId) ? { taxId: text(workshopForm.vatId) } : {}),
+            industryType: text(workshopForm.industryType) || 'automotive',
             ...(text(workshopForm.crNumber) ? { crNumber: text(workshopForm.crNumber) } : {}),
             ...(addr ? { address: addr } : {}),
             ownerUserEmail: emailVal,
@@ -509,6 +511,10 @@ export default function PortalSignupPage() {
                                     <div className="form-group">
                                         <label>Workshop Code</label>
                                         <input className="signin-input" value={workshopForm.workshopCode} onChange={(e) => setWorkshopForm((p) => ({ ...p, workshopCode: e.target.value }))} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Industry Type</label>
+                                        <input className="signin-input" value={workshopForm.industryType} onChange={(e) => setWorkshopForm((p) => ({ ...p, industryType: e.target.value }))} placeholder="automotive" />
                                     </div>
                                     <div className="form-group">
                                         <label>VAT ID</label>

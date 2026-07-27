@@ -12,6 +12,7 @@ export const EMPTY_NEW_WORKSHOP = {
     name: '',
     workshopCode: '',
     branchName: '',
+    industryType: 'automotive',
     vatId: '',
     crNumber: '',
     egsSerial: '',
@@ -278,6 +279,7 @@ export function workshopRowToEditForm(w) {
             mobile: '',
             email: '',
             taxId: '',
+            industryType: 'automotive',
             workshopCode: '',
             gpsLat: '',
             gpsLng: '',
@@ -291,6 +293,7 @@ export function workshopRowToEditForm(w) {
         mobile: String(w.mobile ?? resolveWorkshopPhone(w) ?? '').trim(),
         email: tryNonEmptyEmail(w.email) || resolveWorkshopContactEmail(w) || '',
         taxId: String(w.taxId ?? w.vatId ?? '').trim(),
+        industryType: String(w.industryType ?? 'automotive').trim() || 'automotive',
         workshopCode: String(w.workshopCode ?? '').trim(),
         gpsLat: w.gpsLat != null && w.gpsLat !== '' ? String(w.gpsLat) : '',
         gpsLng: w.gpsLng != null && w.gpsLng !== '' ? String(w.gpsLng) : '',
@@ -312,6 +315,7 @@ export function buildUpdateWorkshopBody(form) {
     t('mobile', form.mobile);
     t('email', form.email);
     t('taxId', form.taxId);
+    t('industryType', form.industryType);
     t('workshopCode', form.workshopCode);
     if (form.status) t('status', form.status);
     const lat = form.gpsLat === '' || form.gpsLat == null ? NaN : Number(form.gpsLat);

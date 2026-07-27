@@ -344,6 +344,7 @@ function WorkshopBody({ data }) {
                     <Field label="Mobile" value={w.mobile} />
                     <Field label="Email" value={w.email} />
                     <Field label="Tax ID" value={w.taxId} />
+                    <Field label="Industry Type" value={w.industryType} />
                     <GpsField lat={w.gpsLat} lng={w.gpsLng} />
                     <Field label="Currency Code" value={w.currencyCode} />
                     <Field label="VAT Percent" kind="pct" value={w.vatPercent} />

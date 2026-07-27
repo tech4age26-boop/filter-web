@@ -116,6 +116,17 @@ function WorkshopCreateForm({ values, onChange, onDetectGps, isDetectingLocation
                             onChange={set('branchName')}
                         />
                     </div>
+                    <div className="form-group">
+                        <label className="form-label">Industry type *</label>
+                        <input
+                            type="text"
+                            className="form-input-field"
+                            placeholder="automotive"
+                            value={values.industryType}
+                            onChange={set('industryType')}
+                        />
+                        <p className="workshop-form-hint">ZATCA CSR business category (default: automotive)</p>
+                    </div>
                 </div>
             </section>
 
@@ -318,6 +329,17 @@ function WorkshopEditForm({ values, onChange }) {
                         <input type="text" className="form-input-field" value={values.taxId} onChange={set('taxId')} />
                     </div>
                     <div className="form-group">
+                        <label className="form-label">Industry type *</label>
+                        <input
+                            type="text"
+                            className="form-input-field"
+                            placeholder="automotive"
+                            value={values.industryType}
+                            onChange={set('industryType')}
+                        />
+                        <p className="workshop-form-hint">ZATCA CSR business category</p>
+                    </div>
+                    <div className="form-group">
                         <label className="form-label">GPS latitude</label>
                         <input
                             type="text"
@@ -380,6 +402,7 @@ function WorkshopDetailPanel({ workshop }) {
                         { label: 'Mobile', value: workshop.mobile || resolveWorkshopPhone(workshop) },
                         { label: 'Email', value: email },
                         { label: 'Tax ID', value: workshop.taxId },
+                        { label: 'Industry type', value: workshop.industryType },
                         {
                             label: 'Currency',
                             value:
@@ -668,6 +691,7 @@ export default function WorkshopManagementPage() {
                 mobile: newWorkshop.phone,
                 email: newWorkshop.email,
                 taxId: newWorkshop.vatId || undefined,
+                industryType: newWorkshop.industryType || 'automotive',
                 crNumber: newWorkshop.crNumber || undefined,
                 egsSerial: newWorkshop.egsSerial || undefined,
                 address: [newWorkshop.street, newWorkshop.city, newWorkshop.postalCode].filter(Boolean).join(', '),
