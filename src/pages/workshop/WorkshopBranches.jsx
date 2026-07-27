@@ -40,7 +40,7 @@ function BranchFormModal({ branch, onClose, onSave, isSaving }) {
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
     const handleSave = () => { onSave?.({ ...form, id: branch?.id }); };
     return (
-        <Modal title={branch?.id ? 'Edit Branch' : 'New Branch Portal'} onClose={isSaving ? () => {} : onClose} width="520px"
+        <Modal title={branch?.id ? 'Edit Branch' : 'New Branch Portal'} onClose={isSaving ? () => {} : onClose} width="560px"
             footer={<>
                 <button className="btn-portal-outline" onClick={onClose} disabled={isSaving}>Cancel</button>
                 <button className="btn-portal" disabled={!form.name.trim() || isSaving} onClick={handleSave}>
@@ -49,7 +49,7 @@ function BranchFormModal({ branch, onClose, onSave, isSaving }) {
             </>}>
             <div style={{ fontSize: '0.875rem' }}>
                 <p style={{ padding: '12px 14px', background: '#EFF6FF', borderRadius: 10, color: '#1E40AF', margin: '0 0 16px', fontSize: '0.75rem' }}>
-                    Each branch gets its own <strong>Branch Portal</strong> and <strong>POS</strong>. The Workshop Owner Admin can grant Branch Admins access to permitted sections only.
+                    Each branch gets its own <strong>Branch Portal</strong> and <strong>POS</strong>. ZATCA seller identity (VAT, CR, address, EGS) is stored on the branch.
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                     <div style={{ gridColumn: '1/-1' }}>
@@ -62,11 +62,34 @@ function BranchFormModal({ branch, onClose, onSave, isSaving }) {
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Email</label><input type="email" value={form.email} onChange={e => set('email', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>GPS Latitude</label><input type="number" value={form.gpsLat} onChange={e => set('gpsLat', e.target.value)} placeholder="e.g. 24.7136" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>GPS Longitude</label><input type="number" value={form.gpsLng} onChange={e => set('gpsLng', e.target.value)} placeholder="e.g. 46.6753" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>VAT ID</label><input type="text" value={form.vat_id} onChange={e => set('vat_id', e.target.value)} placeholder="15-digit VAT (3…3)" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>CR Number</label><input type="text" value={form.cr_no} onChange={e => set('cr_no', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div style={{ gridColumn: '1/-1' }}><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>EGS Serial</label><input type="text" value={form.egs_serial} onChange={e => set('egs_serial', e.target.value)} placeholder="1-Filter|2-EGS|3-device-id" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Contact Person</label><input type="text" value={form.contact_person} onChange={e => set('contact_person', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div style={{ gridColumn: '1/-1' }}><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Address</label><textarea value={form.address} onChange={e => set('address', e.target.value)} rows={2} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', resize: 'vertical' }}/></div>
+                </div>
+
+                <div style={{ marginTop: 18, padding: 14, borderRadius: 10, border: '1px solid #BFDBFE', background: '#F8FAFC' }}>
+                    <p style={{ margin: '0 0 12px', fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#1E40AF' }}>
+                        ZATCA / tax identity
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                        <div>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>VAT ID *</label>
+                            <input type="text" value={form.vat_id} onChange={e => set('vat_id', e.target.value)} placeholder="15-digit VAT (3…3)" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}/>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>CR Number *</label>
+                            <input type="text" value={form.cr_no} onChange={e => set('cr_no', e.target.value)} placeholder="Commercial registration" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}/>
+                        </div>
+                        <div style={{ gridColumn: '1/-1' }}>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>EGS Serial *</label>
+                            <input type="text" value={form.egs_serial} onChange={e => set('egs_serial', e.target.value)} placeholder="1-Filter|2-EGS|3-device-id" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}/>
+                            <p style={{ margin: '6px 0 0', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                                Device serial for ZATCA CSR. Example: <code>1-Filter|2-EGS|3-branch-01</code>
+                            </p>
+                        </div>
+                        <div style={{ gridColumn: '1/-1' }}>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Address *</label>
+                            <textarea value={form.address} onChange={e => set('address', e.target.value)} rows={2} placeholder="Street, district, city" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', resize: 'vertical', background: '#fff' }}/>
+                        </div>
+                    </div>
                 </div>
             </div>
         </Modal>
