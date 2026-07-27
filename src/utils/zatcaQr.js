@@ -87,16 +87,66 @@ function hexToBytes(hex) {
     return out;
 }
 
+/**
+ * True when base64 decodes to ZATCA TLV with tags 1–5 present.
+ * Rejects bare SHA-256 invoice/PIH hashes (exactly 32 bytes) that were
+ * previously mistaken for QR payloads.
+ */
+export function isValidZatcaQrTlvBase64(value) {
+    const b64 = String(value || '').replace(/\s+/g, '').trim();
+    if (!b64 || b64.length < 16) return false;
+    let binary;
+    try {
+        binary = atob(b64);
+    } catch {
+        return false;
+    }
+    if (binary.length < 40) return false;
+    const buf = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) buf[i] = binary.charCodeAt(i);
+    if (buf[0] !== 1) return false;
+
+    const seen = new Set();
+    let i = 0;
+    while (i + 2 <= buf.length) {
+        const tag = buf[i];
+        let len = buf[i + 1];
+        let header = 2;
+        if (len === 0x81 && i + 3 <= buf.length) {
+            len = buf[i + 2];
+            header = 3;
+        } else if (len === 0x82 && i + 4 <= buf.length) {
+            len = (buf[i + 2] << 8) | buf[i + 3];
+            header = 4;
+        }
+        if (len < 0 || i + header + len > buf.length) {
+            // Phase-2 crypto stamp may leave trailing / non-strict bytes.
+            break;
+        }
+        if (tag >= 1 && tag <= 9) seen.add(tag);
+        i += header + len;
+    }
+    return seen.has(1) && seen.has(2) && seen.has(3) && seen.has(4) && seen.has(5);
+}
+
 /** ZATCA tag 3 timestamp — uses printed invoice date for backdated invoices. */
 function invoiceDateToZatcaTimestamp(invoiceDate, issuedAt) {
     const raw = invoiceDate ?? issuedAt;
     if (!raw) return new Date();
     const s = String(raw).trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-        return new Date(`${s}T12:00:00.000Z`);
+        // Noon UTC avoids date-boundary shifts; ZATCA wants no milliseconds.
+        return new Date(`${s}T12:00:00Z`);
     }
     const d = new Date(raw);
     return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
+/** ISO-8601 without milliseconds — Qeemah rejects `…T00:00:00.000Z`. */
+function toZatcaIsoTimestamp(date) {
+    const d = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(d.getTime())) return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 /**
@@ -112,8 +162,8 @@ export async function buildZatcaPhase2QrTlvBase64(opts) {
 
     const timestampUtc = new Date(opts.timestampUtc);
     const ts = Number.isNaN(timestampUtc.getTime())
-        ? new Date().toISOString()
-        : timestampUtc.toISOString();
+        ? toZatcaIsoTimestamp(new Date())
+        : toZatcaIsoTimestamp(timestampUtc);
 
     const invoiceNumber = String(opts.invoiceNumber || '').trim();
     const canonical = [
@@ -158,7 +208,9 @@ export function buildZatcaQrTlvBase64(opts) {
     if (!s || !v || !t || !va) return null;
 
     const ts = new Date(opts.timestampUtc);
-    const iso = Number.isNaN(ts.getTime()) ? new Date().toISOString() : ts.toISOString();
+    const iso = Number.isNaN(ts.getTime())
+        ? toZatcaIsoTimestamp(new Date())
+        : toZatcaIsoTimestamp(ts);
     const chunks = [];
     writeTlvText(chunks, 1, s);
     writeTlvText(chunks, 2, v);

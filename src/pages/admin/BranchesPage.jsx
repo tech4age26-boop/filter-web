@@ -38,6 +38,7 @@ const EMPTY_BRANCH = {
     email: '',
     vatId: '',
     crNumber: '',
+    egsSerial: '',
     status: 'active',
     mainWorkshopId: '',
     workshopIds: [],
@@ -64,6 +65,7 @@ function normalizeBranch(b) {
         email: b?.email ?? '',
         vatId: b?.vatId ?? '',
         crNumber: b?.crNumber ?? b?.crNo ?? '',
+        egsSerial: b?.egsSerial ?? b?.egs_serial ?? '',
         isActive: b?.isActive !== false,
         status: b?.status ?? (b?.isActive === false ? 'inactive' : 'active'),
         mainWorkshopId: String(b?.mainWorkshopId ?? b?.workshopId ?? ''),
@@ -91,6 +93,7 @@ function branchToForm(b) {
         email: b.email || '',
         vatId: b.vatId || '',
         crNumber: b.crNumber || '',
+        egsSerial: b.egsSerial || '',
         status: b.isActive === false ? 'inactive' : 'active',
         mainWorkshopId: b.mainWorkshopId || '',
         workshopIds: Array.isArray(b.workshopIds) ? [...b.workshopIds] : [],
@@ -280,7 +283,7 @@ function BranchFormFields({ values, onChange, workshopOptions, t }) {
                 <h2 className="branches-form-section-title">{t('section.location')}</h2>
                 <div className="branches-form-grid branches-form-grid--3">
                     <div className="form-group span-3">
-                        <label className="form-label">{t('label.address')}</label>
+                        <label className="form-label">Address *</label>
                         <input
                             type="text"
                             className="form-input-field"
@@ -288,6 +291,7 @@ function BranchFormFields({ values, onChange, workshopOptions, t }) {
                             value={values.address}
                             onChange={set('address')}
                         />
+                        <p className="branches-form-hint">Used as the ZATCA seller address on invoices.</p>
                     </div>
                     <div className="form-group">
                         <label className="form-label">{t('label.lat')}</label>
@@ -349,20 +353,20 @@ function BranchFormFields({ values, onChange, workshopOptions, t }) {
             </section>
 
             <section className="branches-form-section">
-                <h2 className="branches-form-section-title">{t('section.registration')}</h2>
+                <h2 className="branches-form-section-title">ZATCA registration</h2>
                 <div className="branches-form-grid branches-form-grid--2">
                     <div className="form-group">
-                        <label className="form-label">{t('label.vat')}</label>
+                        <label className="form-label">VAT ID *</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder={t('ph.vat')}
+                            placeholder="15-digit VAT (3…3)"
                             value={values.vatId}
                             onChange={set('vatId')}
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('label.cr')}</label>
+                        <label className="form-label">CR number *</label>
                         <input
                             type="text"
                             className="form-input-field"
@@ -370,6 +374,19 @@ function BranchFormFields({ values, onChange, workshopOptions, t }) {
                             value={values.crNumber}
                             onChange={set('crNumber')}
                         />
+                    </div>
+                    <div className="form-group span-2">
+                        <label className="form-label">EGS serial *</label>
+                        <input
+                            type="text"
+                            className="form-input-field"
+                            placeholder="1-Filter|2-EGS|3-device-id"
+                            value={values.egsSerial}
+                            onChange={set('egsSerial')}
+                        />
+                        <p className="branches-form-hint">
+                            Device serial for ZATCA CSR (format: 1-Solution|2-Model|3-Serial).
+                        </p>
                     </div>
                 </div>
             </section>
@@ -397,6 +414,7 @@ function buildBranchPayload(form) {
         email: String(form.email || '').trim() || undefined,
         vatId: String(form.vatId || '').trim() || undefined,
         crNumber: String(form.crNumber || '').trim() || undefined,
+        egsSerial: String(form.egsSerial || '').trim() || undefined,
         isActive: form.status === 'active',
     };
 }

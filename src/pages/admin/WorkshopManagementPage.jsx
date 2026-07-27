@@ -116,31 +116,22 @@ function WorkshopCreateForm({ values, onChange, onDetectGps, isDetectingLocation
                         />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('label.vat')}</label>
+                        <label className="form-label">Industry type *</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            placeholder={t('ph.vat')}
-                            value={values.vatId}
-                            onChange={set('vatId')}
+                            placeholder="automotive"
+                            value={values.industryType}
+                            onChange={set('industryType')}
                         />
-                    </div>
-                    <div className="form-group">
-                        <label className="form-label">{t('label.cr')}</label>
-                        <input
-                            type="text"
-                            className="form-input-field"
-                            placeholder={t('ph.cr')}
-                            value={values.crNumber}
-                            onChange={set('crNumber')}
-                        />
+                        <p className="workshop-form-hint">ZATCA CSR business category (default: automotive)</p>
                     </div>
                 </div>
             </section>
 
             <section className="workshop-form-section">
                 <div className="workshop-form-section-head">
-                    <h2 className="workshop-form-section-title">{t('section.address')}</h2>
+                    <h2 className="workshop-form-section-title">Default branch (ZATCA)</h2>
                     <button
                         type="button"
                         className="workshop-gps-btn"
@@ -150,7 +141,40 @@ function WorkshopCreateForm({ values, onChange, onDetectGps, isDetectingLocation
                         {isDetectingLocation ? t('btn.detecting') : t('btn.detectGps')}
                     </button>
                 </div>
+                <p className="workshop-form-hint" style={{ marginTop: 0 }}>
+                    CR, address, and EGS are stored on the default branch — not the workshop.
+                </p>
                 <div className="workshop-form-grid workshop-form-grid--3">
+                    <div className="form-group">
+                        <label className="form-label">VAT ID</label>
+                        <input
+                            type="text"
+                            className="form-input-field"
+                            placeholder="VAT ID"
+                            value={values.vatId}
+                            onChange={set('vatId')}
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">CR number</label>
+                        <input
+                            type="text"
+                            className="form-input-field"
+                            placeholder="CR number"
+                            value={values.crNumber}
+                            onChange={set('crNumber')}
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">EGS serial</label>
+                        <input
+                            type="text"
+                            className="form-input-field"
+                            placeholder="1-Filter|2-EGS|3-id"
+                            value={values.egsSerial}
+                            onChange={set('egsSerial')}
+                        />
+                    </div>
                     <div className="form-group span-3">
                         <label className="form-label">{t('label.street')}</label>
                         <input
@@ -296,27 +320,20 @@ function WorkshopEditForm({ values, onChange, t }) {
                         <label className="form-label">{t('label.email')}</label>
                         <input type="email" className="form-input-field" value={values.email} onChange={set('email')} />
                     </div>
-                    <div className="form-group span-2">
-                        <label className="form-label">{t('label.address')}</label>
-                        <textarea
-                            className="form-input-field"
-                            rows={3}
-                            value={values.address}
-                            onChange={set('address')}
-                        />
-                    </div>
                     <div className="form-group">
                         <label className="form-label">{t('label.taxId')}</label>
                         <input type="text" className="form-input-field" value={values.taxId} onChange={set('taxId')} />
                     </div>
                     <div className="form-group">
-                        <label className="form-label">{t('label.cr')}</label>
+                        <label className="form-label">Industry type *</label>
                         <input
                             type="text"
                             className="form-input-field"
-                            value={values.crNumber}
-                            onChange={set('crNumber')}
+                            placeholder="automotive"
+                            value={values.industryType}
+                            onChange={set('industryType')}
                         />
+                        <p className="workshop-form-hint">ZATCA CSR business category</p>
                     </div>
                     <div className="form-group">
                         <label className="form-label">{t('label.lat')}</label>
@@ -375,10 +392,11 @@ function WorkshopDetailPanel({ workshop, t }) {
                 <h2 className="workshop-form-section-title">{t('section.overview')}</h2>
                 <div className="workshop-detail-grid">
                     {[
-                        { label: t('label.ownerNameShort'), value: workshop.ownerName },
-                        { label: t('label.mobileView'), value: workshop.mobile || resolveWorkshopPhone(workshop) },
-                        { label: t('label.email'), value: email },
-                        { label: t('label.taxId'), value: workshop.taxId },
+                        { label: 'Owner name', value: workshop.ownerName },
+                        { label: 'Mobile', value: workshop.mobile || resolveWorkshopPhone(workshop) },
+                        { label: 'Email', value: email },
+                        { label: 'Tax ID', value: workshop.taxId },
+                        { label: 'Industry type', value: workshop.industryType },
                         {
                             label: t('label.currency'),
                             value:
@@ -389,8 +407,7 @@ function WorkshopDetailPanel({ workshop, t }) {
                                       })
                                     : null,
                         },
-                        { label: t('label.status'), value: statusLabel },
-                        { label: t('label.address'), value: workshop.address },
+                        { label: 'Status', value: status.label },
                         {
                             label: t('label.registered'),
                             value: workshop.createdAt
@@ -594,10 +611,8 @@ export default function WorkshopManagementPage() {
                 w.ownerName,
                 w.mobile,
                 w.email,
-                w.address,
                 w.workshopCode,
                 w.taxId,
-                w.crNumber,
             ]
                 .join(' ')
                 .toLowerCase()
@@ -680,14 +695,16 @@ export default function WorkshopManagementPage() {
                 mobile: newWorkshop.phone,
                 email: newWorkshop.email,
                 taxId: newWorkshop.vatId || undefined,
+                industryType: newWorkshop.industryType || 'automotive',
                 crNumber: newWorkshop.crNumber || undefined,
+                egsSerial: newWorkshop.egsSerial || undefined,
                 address: [newWorkshop.street, newWorkshop.city, newWorkshop.postalCode].filter(Boolean).join(', '),
                 gpsLat: newWorkshop.gpsLat || undefined,
                 gpsLng: newWorkshop.gpsLng || undefined,
                 ownerUserEmail: newWorkshop.ownerUserEmail || newWorkshop.email,
                 ownerUserPassword: ownerPassword,
-                createDefaultBranch: !!newWorkshop.branchName,
-                defaultBranchName: newWorkshop.branchName || undefined,
+                createDefaultBranch: true,
+                defaultBranchName: newWorkshop.branchName || 'Main Branch',
             });
             const list = await refreshWorkshops();
             let workshopId = extractCreatedWorkshopId(createRes);
