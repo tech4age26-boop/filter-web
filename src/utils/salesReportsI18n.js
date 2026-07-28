@@ -87,7 +87,7 @@ const SR_I18N = {
 
         'th.day': 'DAY',
         'th.date': 'DATE',
-        'th.revenue': 'REVENUE (SAR)',
+        'th.revenue': 'TOTAL AMOUNT (SAR)',
         'th.technician': 'TECHNICIAN',
         'th.completedJobs': 'COMPLETED JOBS',
         'th.commission': 'COMMISSION (SAR)',
@@ -316,7 +316,7 @@ const SR_I18N = {
 
         'th.day': 'اليوم',
         'th.date': 'التاريخ',
-        'th.revenue': 'الإيراد (ر.س)',
+        'th.revenue': 'المبلغ الإجمالي (ر.س)',
         'th.technician': 'الفني',
         'th.completedJobs': 'الوظائف المكتملة',
         'th.commission': 'العمولة (ر.س)',

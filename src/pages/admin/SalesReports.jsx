@@ -1378,9 +1378,30 @@ export default function SalesReports({ portal = 'admin' }) {
                                                 }}
                                             >
                                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
-                                                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} />
+                                                <XAxis
+                                                    dataKey="date"
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                    tick={{ fontSize: 11, fill: '#6B7280' }}
+                                                    tickFormatter={(date, index) => {
+                                                        const row = filteredDailyRevenue[index];
+                                                        return row?.day || String(date).slice(5);
+                                                    }}
+                                                />
                                                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} />
-                                                <Tooltip cursor={{ fill: '#F9FAFB' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                                                <Tooltip
+                                                    cursor={{ fill: '#F9FAFB' }}
+                                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                                                    labelFormatter={(date, payload) => {
+                                                        const row = payload?.[0]?.payload;
+                                                        const day = row?.day ? `${row.day} · ` : '';
+                                                        return `${day}${date ?? ''}`;
+                                                    }}
+                                                    formatter={(value) => [
+                                                        `SAR ${toNumber(value).toLocaleString()}`,
+                                                        t('th.revenue'),
+                                                    ]}
+                                                />
                                                 <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={40} style={{ cursor: 'pointer' }} />
                                             </BarChart>
                                         </ResponsiveContainer>
