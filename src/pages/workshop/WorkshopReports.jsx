@@ -1943,10 +1943,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     >
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
                                         <XAxis
-                                            dataKey="day"
+                                            dataKey="date"
                                             axisLine={false}
                                             tickLine={false}
-                                            tick={{ fontSize: 12, fill: '#6B7280' }}
+                                            tick={{ fontSize: 11, fill: '#6B7280' }}
+                                            tickFormatter={(date, index) => {
+                                                const row = filteredDailyRevenue[index];
+                                                return row?.day || String(date).slice(5);
+                                            }}
                                         />
                                         <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} />
                                         <Tooltip
@@ -1956,6 +1960,15 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 border: 'none',
                                                 boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                                             }}
+                                            labelFormatter={(date, payload) => {
+                                                const row = payload?.[0]?.payload;
+                                                const day = row?.day ? `${row.day} · ` : '';
+                                                return `${day}${date ?? ''}`;
+                                            }}
+                                            formatter={(value) => [
+                                                `SAR ${toNumber(value).toLocaleString()}`,
+                                                'Revenue',
+                                            ]}
                                         />
                                         <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={40} style={{ cursor: 'pointer' }} />
                                     </BarChart>
@@ -2008,7 +2021,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             </table>
                             </WsTableScroll>
                         </div>
-                        {renderSummaryPagination('by_technician', filteredByTechnician.length)}
                     </div>
                 )}
 
@@ -2238,7 +2250,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 <tr>
                                     <th>PRODUCT</th>
                                     <th>QTY</th>
-                                    <th>REVENUE (SAR)</th>
+                                    <th>TOTAL AMOUNT (SAR)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2350,7 +2362,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 <tr>
                                     <th>SERVICE</th>
                                     <th>QTY</th>
-                                    <th>REVENUE (SAR)</th>
+                                    <th>TOTAL AMOUNT (SAR)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2421,7 +2433,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 <tr>
                                     <th>DEPARTMENT</th>
                                     <th>ORDERS</th>
-                                    <th>REVENUE (SAR)</th>
+                                    <th>TOTAL AMOUNT (SAR)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2482,7 +2494,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     <th>CATEGORY</th>
                                     <th>QTY SOLD</th>
                                     <th>ORDERS</th>
-                                    <th>REVENUE (SAR)</th>
+                                    <th>TOTAL AMOUNT (SAR)</th>
                                 </tr>
                             </thead>
                             <tbody>
