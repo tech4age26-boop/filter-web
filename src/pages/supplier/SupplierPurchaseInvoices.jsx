@@ -518,10 +518,13 @@ export default function SupplierPurchaseInvoices() {
     const lineItemPickerWrapRef = useRef(null);
     const lineItemPickerListRef = useRef(null);
     const itemPickerInputRef = useRef('');
+    const itemPickerLineIdRef = useRef(null);
     const [itemPickerLineId, setItemPickerLineId] = useState(null);
     const [itemPickerInput, setItemPickerInput] = useState('');
     const [itemPickerFilter, setItemPickerFilter] = useState('');
     const [itemPickerSelectedIndex, setItemPickerSelectedIndex] = useState(0);
+    /** Dropdown open separately from which line owns the input — avoid reopening over a selected product. */
+    const [itemPickerMenuOpen, setItemPickerMenuOpen] = useState(false);
     const [lastPurchaseStockRefreshing, setLastPurchaseStockRefreshing] = useState(false);
     const lineFieldRefs = useRef({});
     const pendingFocusLineFieldRef = useRef(null);
@@ -1111,14 +1114,18 @@ export default function SupplierPurchaseInvoices() {
         const results = getSearchSuggestionsPi(value);
         setSearchResults(results);
         setShowDropdown(true);
-        setSelectedIndex(results.length ? 0 : -1);
+        // Only auto-highlight when the user typed a query. Empty quick-pick
+        // must not select index 0 — Enter would append a random catalog line.
+        const q = value.trim();
+        setSelectedIndex(q && results.length ? 0 : -1);
     };
 
     const openPiLineSearch = () => {
         const results = getSearchSuggestionsPi(searchQuery);
         setSearchResults(results);
         setShowDropdown(true);
-        setSelectedIndex(results.length ? 0 : -1);
+        const q = String(searchQuery ?? '').trim();
+        setSelectedIndex(q && results.length ? 0 : -1);
     };
 
     useEffect(() => {
@@ -1136,28 +1143,79 @@ export default function SupplierPurchaseInvoices() {
     }, [itemPickerInput]);
 
     useEffect(() => {
-        if (!modalOpen || itemPickerLineId == null) return undefined;
+        itemPickerLineIdRef.current = itemPickerLineId;
+    }, [itemPickerLineId]);
+
+    const lineHasLinkedCatalogProduct = (line) =>
+        Boolean(
+            String(line?.masterProductId || line?.supplierProductId || '').trim(),
+        );
+
+    const commitItemPickerLineText = (openLineId) => {
+        if (openLineId == null) return;
+        const text = String(itemPickerInputRef.current ?? '').trim();
+        setLineItems((prev) =>
+            prev.map((l) => {
+                if (l.id !== openLineId) return l;
+                // Never wipe a linked catalog selection with an empty commit.
+                if (!text && lineHasLinkedCatalogProduct(l)) return l;
+                if (text === String(l.item ?? '').trim()) return l;
+                return { ...l, item: text };
+            }),
+        );
+    };
+
+    const closeLineItemPicker = (openLineId = itemPickerLineIdRef.current) => {
+        commitItemPickerLineText(openLineId);
+        setItemPickerLineId(null);
+        setItemPickerInput('');
+        setItemPickerFilter('');
+        setItemPickerMenuOpen(false);
+    };
+
+    const activateLineItemField = (line, { openMenu } = {}) => {
+        const prevId = itemPickerLineIdRef.current;
+        if (prevId != null && prevId !== line.id) {
+            commitItemPickerLineText(prevId);
+        }
+        // Don't leave the footer catalog search open — Enter there can append
+        // an unrelated product while editing a line.
+        setShowDropdown(false);
+        setSelectedIndex(-1);
+
+        const linked = lineHasLinkedCatalogProduct(line);
+        const hasLabel = Boolean(String(line.item ?? '').trim());
+        const shouldOpen =
+            openMenu === true
+                ? true
+                : openMenu === false
+                  ? false
+                  : !linked && !hasLabel;
+        setItemPickerLineId(line.id);
+        setItemPickerInput(String(line.item ?? ''));
+        setItemPickerFilter(shouldOpen ? '' : String(line.item ?? ''));
+        // No auto-highlight on empty quick-pick (prevents Enter adding a random product).
+        setItemPickerSelectedIndex(shouldOpen ? -1 : 0);
+        setItemPickerMenuOpen(shouldOpen);
+    };
+
+    useEffect(() => {
+        if (!modalOpen || itemPickerLineId == null || !itemPickerMenuOpen) {
+            return undefined;
+        }
         const openLineId = itemPickerLineId;
         const onDocMouseDown = (e) => {
             const el = lineItemPickerWrapRef.current;
             if (el && !el.contains(e.target)) {
-                const text = String(itemPickerInputRef.current ?? '').trim();
-                setLineItems((prev) =>
-                    prev.map((l) =>
-                        l.id === openLineId ? { ...l, item: text } : l,
-                    ),
-                );
-                setItemPickerLineId(null);
-                setItemPickerInput('');
-                setItemPickerFilter('');
+                closeLineItemPicker(openLineId);
             }
         };
         document.addEventListener('mousedown', onDocMouseDown);
         return () => document.removeEventListener('mousedown', onDocMouseDown);
-    }, [modalOpen, itemPickerLineId]);
+    }, [modalOpen, itemPickerLineId, itemPickerMenuOpen]);
 
     useEffect(() => {
-        setItemPickerSelectedIndex(0);
+        setItemPickerSelectedIndex(String(itemPickerFilter ?? '').trim() ? 0 : -1);
     }, [itemPickerFilter, itemPickerLineId]);
 
     const getLineTabFields = useCallback(() => {
@@ -1185,11 +1243,6 @@ export default function SupplierPurchaseInvoices() {
     }, [lineItems.length, focusLineField]);
 
     useEffect(() => {
-        if (!modalOpen || itemPickerLineId == null) return;
-        focusLineField(itemPickerLineId, 'item');
-    }, [modalOpen, itemPickerLineId, focusLineField]);
-
-    useEffect(() => {
         if (!showDropdown || !piSearchListRef.current) return;
         const el = piSearchListRef.current.querySelector(
             `[data-pick-idx="${selectedIndex}"]`,
@@ -1198,14 +1251,19 @@ export default function SupplierPurchaseInvoices() {
     }, [selectedIndex, showDropdown]);
 
     useEffect(() => {
-        if (!modalOpen || itemPickerLineId == null || !lineItemPickerListRef.current) {
+        if (
+            !modalOpen
+            || itemPickerLineId == null
+            || !itemPickerMenuOpen
+            || !lineItemPickerListRef.current
+        ) {
             return;
         }
         const el = lineItemPickerListRef.current.querySelector(
             `[data-pick-idx="${itemPickerSelectedIndex}"]`,
         );
         el?.scrollIntoView({ block: 'nearest' });
-    }, [modalOpen, itemPickerLineId, itemPickerSelectedIndex]);
+    }, [modalOpen, itemPickerLineId, itemPickerMenuOpen, itemPickerSelectedIndex]);
 
     const lastPurchaseHintForLine = useCallback(
         (line) => {
@@ -1273,6 +1331,7 @@ export default function SupplierPurchaseInvoices() {
         setItemPickerLineId(null);
         setItemPickerInput('');
         setItemPickerFilter('');
+        setItemPickerMenuOpen(false);
         // Focus qty — never UOM (browser autofill was overwriting Box → piece).
         focusLineField(lineId, 'qty');
     };
@@ -1280,6 +1339,9 @@ export default function SupplierPurchaseInvoices() {
     const removePurchaseLine = (lineId) => {
         setLineItems((prev) => prev.filter((l) => l.id !== lineId));
         setItemPickerLineId((cur) => (cur === lineId ? null : cur));
+        setItemPickerMenuOpen((open) =>
+            itemPickerLineIdRef.current === lineId ? false : open,
+        );
     };
 
     const updateLineItem = (id, field, value) => {
@@ -1329,62 +1391,62 @@ export default function SupplierPurchaseInvoices() {
 
     const getSummary = () => {
         let subtotalEx = 0;
-        let totalTax = 0;
-        let linesGrandSum = 0;
+        let linesVatBeforeInvDisc = 0;
         for (const line of lineItems) {
             const f = computeLineFinancials(line, amountsTaxInclusive);
             subtotalEx += f.lineEx;
-            totalTax += f.taxAmt;
-            linesGrandSum += f.grandIncl;
+            linesVatBeforeInvDisc += f.taxAmt;
         }
         subtotalEx = roundMoney2(subtotalEx);
-        totalTax = roundMoney2(totalTax);
+        linesVatBeforeInvDisc = roundMoney2(linesVatBeforeInvDisc);
         const freightNum =
             parseFloat(String(freightCharges).replace(',', '.')) || 0;
-        const grossBeforeInvDisc = roundMoney2(linesGrandSum + freightNum);
+        const freightIn = roundMoney2(Math.max(0, freightNum));
 
         let invDisc = 0;
         const invRaw =
             parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0;
         if (invoiceDiscountMode === 'percent') {
             invDisc = roundMoney2(
-                (grossBeforeInvDisc * Math.min(100, Math.max(0, invRaw))) /
-                    100,
+                (subtotalEx * Math.min(100, Math.max(0, invRaw))) / 100,
             );
         } else {
-            invDisc = roundMoney2(Math.min(invRaw, grossBeforeInvDisc));
+            invDisc = roundMoney2(Math.min(Math.max(0, invRaw), subtotalEx));
         }
-        const grandTotal = roundMoney2(Math.max(0, grossBeforeInvDisc - invDisc));
-
-        const freightIn = roundMoney2(Math.max(0, freightNum));
         const invoiceDiscountSar = roundMoney2(Math.max(0, invDisc));
+        const taxableAfterDiscount = roundMoney2(
+            Math.max(0, subtotalEx - invoiceDiscountSar),
+        );
+        const totalTax =
+            subtotalEx > 0
+                ? roundMoney2(
+                      linesVatBeforeInvDisc * (taxableAfterDiscount / subtotalEx),
+                  )
+                : 0;
+        const grandTotal = roundMoney2(
+            Math.max(0, taxableAfterDiscount + totalTax + freightIn),
+        );
         const invPctDisplayed = Math.min(100, Math.max(0, invRaw));
+        const fmt2 = (n) =>
+            n.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            });
 
         return {
-            subtotal: subtotalEx.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
-            totalTax: totalTax.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
-            grandTotal: grandTotal.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
+            subtotal: fmt2(subtotalEx),
+            amountAfterDiscount: fmt2(taxableAfterDiscount),
+            totalTax: fmt2(totalTax),
+            grandTotal: fmt2(grandTotal),
+            rawSubtotal: subtotalEx,
+            rawTaxableAfterDiscount: taxableAfterDiscount,
+            rawTotalTax: totalTax,
             rawGrandTotal: grandTotal,
             freightIn,
-            freightInFormatted: freightIn.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
+            freightInFormatted: fmt2(freightIn),
             showFreightRow: freightIn > 0,
             invoiceDiscount: invoiceDiscountSar,
-            invoiceDiscountFormatted: invoiceDiscountSar.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
+            invoiceDiscountFormatted: fmt2(invoiceDiscountSar),
             showInvoiceDiscountRow: invoiceDiscountSar > 0,
             invoiceDiscountSummaryLabel:
                 invoiceDiscountMode === 'percent'
@@ -1438,20 +1500,28 @@ export default function SupplierPurchaseInvoices() {
         const suggestions = getSearchSuggestionsPi(itemPickerFilter);
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setItemPickerSelectedIndex((i) =>
-                Math.min(i + 1, Math.max(0, suggestions.length - 1)),
-            );
+            e.stopPropagation();
+            if (!itemPickerMenuOpen) setItemPickerMenuOpen(true);
+            setItemPickerSelectedIndex((i) => {
+                const start = i < 0 ? 0 : i + 1;
+                return Math.min(start, Math.max(0, suggestions.length - 1));
+            });
             return;
         }
         if (e.key === 'ArrowUp') {
             e.preventDefault();
+            e.stopPropagation();
+            if (!itemPickerMenuOpen) setItemPickerMenuOpen(true);
             setItemPickerSelectedIndex((i) => Math.max(i - 1, 0));
             return;
         }
         if (e.key === 'Enter') {
             e.preventDefault();
+            e.stopPropagation();
             if (
+                itemPickerMenuOpen &&
                 itemPickerLineId === line.id &&
+                itemPickerSelectedIndex >= 0 &&
                 suggestions[itemPickerSelectedIndex]
             ) {
                 applyCatalogPurchaseItemToLine(
@@ -1460,21 +1530,14 @@ export default function SupplierPurchaseInvoices() {
                 );
                 return;
             }
-            const text = String(itemPickerInputRef.current ?? '').trim();
-            setLineItems((prev) =>
-                prev.map((l) => (l.id === line.id ? { ...l, item: text } : l)),
-            );
-            setItemPickerLineId(null);
-            setItemPickerInput('');
-            setItemPickerFilter('');
+            closeLineItemPicker(line.id);
             focusLineField(line.id, 'account');
             return;
         }
         if (e.key === 'Escape') {
             e.preventDefault();
-            setItemPickerLineId(null);
-            setItemPickerInput('');
-            setItemPickerFilter('');
+            e.stopPropagation();
+            closeLineItemPicker(line.id);
         }
     };
 
@@ -1525,11 +1588,13 @@ export default function SupplierPurchaseInvoices() {
                 return;
             }
             if (e.key === 'ArrowDown') {
-                setSelectedIndex((i) =>
-                    i < searchResults.length - 1 ? i + 1 : i,
-                );
+                setSelectedIndex((i) => {
+                    if (searchResults.length === 0) return -1;
+                    if (i < 0) return 0;
+                    return i < searchResults.length - 1 ? i + 1 : i;
+                });
             } else {
-                setSelectedIndex((i) => (i > 0 ? i - 1 : i));
+                setSelectedIndex((i) => (i > 0 ? i - 1 : -1));
             }
             return;
         }
@@ -1539,6 +1604,7 @@ export default function SupplierPurchaseInvoices() {
             addItemToLines(searchResults[selectedIndex]);
         } else if (e.key === 'Escape') {
             setShowDropdown(false);
+            setSelectedIndex(-1);
         }
     };
 
@@ -1613,6 +1679,7 @@ export default function SupplierPurchaseInvoices() {
         setItemPickerLineId(null);
         setItemPickerInput('');
         setItemPickerFilter('');
+        setItemPickerMenuOpen(false);
         setSspPurchaseModalMode('create');
         setEditingSspPurchaseId(null);
         setEditingSspPurchaseStatus(null);
@@ -1762,11 +1829,17 @@ export default function SupplierPurchaseInvoices() {
 
             window.setTimeout(() => {
                 addItemToLines({
-                    id: String(line.supplierProductId).trim(),
+                    id: String(line.masterProductId || line.supplierProductId).trim(),
+                    masterProductId: String(
+                        line.masterProductId || line.supplierProductId,
+                    ).trim(),
                     sku: String(line.sku || '').trim(),
                     name: String(line.name || '').trim(),
                     price: Number(line.price) || 0,
                     unit: String(line.unit || 'pcs').trim() || 'pcs',
+                    warehouseUnit: line.warehouseUnit,
+                    workshopUnit: line.workshopUnit,
+                    conversionFactor: line.conversionFactor,
                     type: 'Stock',
                 });
             }, 0);
@@ -1861,18 +1934,19 @@ export default function SupplierPurchaseInvoices() {
             }
         }
 
+        const totals = getSummary();
         const vatAmount = roundMoney2(
-            normalizedLines.reduce((s, l) => s + l.vatLine, 0),
+            totals.rawTotalTax ??
+                normalizedLines.reduce((s, l) => s + l.vatLine, 0),
         );
         const subtotalExVat = roundMoney2(
-            normalizedLines.reduce((s, l) => s + l.qty * l.unitPrice, 0),
+            totals.rawSubtotal ??
+                normalizedLines.reduce((s, l) => s + l.qty * l.unitPrice, 0),
         );
         if (!isDraftSave && !(subtotalExVat + vatAmount > 0)) {
             setCreateError('Invoice total must be greater than zero (check quantities and unit prices).');
             return;
         }
-
-        const totals = getSummary();
 
         const items = normalizedLines.map((l, idx) => {
             const row = lineItems[idx];
@@ -3273,17 +3347,21 @@ export default function SupplierPurchaseInvoices() {
                                                         }
                                                         placeholder="Select product from master catalog"
                                                         onFocus={() => {
-                                                            setItemPickerLineId(line.id);
-                                                            setItemPickerInput(String(line.item ?? ''));
-                                                            setItemPickerFilter('');
-                                                            setItemPickerSelectedIndex(0);
+                                                            activateLineItemField(line);
                                                         }}
                                                         onChange={(e) => {
                                                             const v = e.target.value;
+                                                            const prevId = itemPickerLineIdRef.current;
+                                                            if (prevId != null && prevId !== line.id) {
+                                                                commitItemPickerLineText(prevId);
+                                                            }
                                                             setItemPickerLineId(line.id);
                                                             setItemPickerInput(v);
                                                             setItemPickerFilter(v);
-                                                            setItemPickerSelectedIndex(0);
+                                                            setItemPickerSelectedIndex(
+                                                                String(v).trim() ? 0 : -1,
+                                                            );
+                                                            setItemPickerMenuOpen(true);
                                                         }}
                                                         onKeyDown={(e) =>
                                                             handleLineItemPickerKeyDown(e, line)
@@ -3298,22 +3376,16 @@ export default function SupplierPurchaseInvoices() {
                                                         aria-label="Open stock item list"
                                                         onMouseDown={(e) => e.preventDefault()}
                                                         onClick={() => {
-                                                            if (itemPickerLineId === line.id) {
-                                                                const text = String(
-                                                                    itemPickerInputRef.current ?? '',
-                                                                ).trim();
-                                                                setLineItems((prev) =>
-                                                                    prev.map((l) =>
-                                                                        l.id === line.id ? { ...l, item: text } : l,
-                                                                    ),
-                                                                );
-                                                                setItemPickerLineId(null);
-                                                                setItemPickerInput('');
-                                                                setItemPickerFilter('');
+                                                            if (
+                                                                itemPickerLineId === line.id
+                                                                && itemPickerMenuOpen
+                                                            ) {
+                                                                closeLineItemPicker(line.id);
                                                             } else {
-                                                                setItemPickerLineId(line.id);
-                                                                setItemPickerInput(String(line.item ?? ''));
-                                                                setItemPickerFilter('');
+                                                                activateLineItemField(line, {
+                                                                    openMenu: true,
+                                                                });
+                                                                focusLineField(line.id, 'item');
                                                             }
                                                         }}
                                                         style={{
@@ -3332,7 +3404,7 @@ export default function SupplierPurchaseInvoices() {
                                                         <ChevronDown size={16} />
                                                     </button>
                                                 </div>
-                                                {itemPickerLineId === line.id ? (
+                                                {itemPickerLineId === line.id && itemPickerMenuOpen ? (
                                                     <div
                                                         ref={lineItemPickerListRef}
                                                         className="pi-search-results"
@@ -3993,6 +4065,12 @@ export default function SupplierPurchaseInvoices() {
                                                 <span style={{ color: '#B91C1C' }}>
                                                     − SAR {summary.invoiceDiscountFormatted}
                                                 </span>
+                                            </div>
+                                        ) : null}
+                                        {summary.showInvoiceDiscountRow ? (
+                                            <div className="pi-summary-row">
+                                                <span>Amount after invoice discount:</span>
+                                                <span>SAR {summary.amountAfterDiscount}</span>
                                             </div>
                                         ) : null}
                                         <div className="pi-summary-row">

@@ -436,6 +436,10 @@ export default function SupplierStockInventory() {
                 PI_PRESET_STOCK_LINE,
                 JSON.stringify({
                     supplierProductId: String(s.id),
+                    masterProductId:
+                        s.masterProductId != null && String(s.masterProductId).trim() !== ''
+                            ? String(s.masterProductId).trim()
+                            : String(s.id),
                     name: s.name || '',
                     sku: !s.sku || s.sku === '-' ? '' : String(s.sku),
                     unit: s.warehouseUnit || s.unit || 'Box',
