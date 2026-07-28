@@ -3306,7 +3306,15 @@ export default function SupplierPurchaseInvoices() {
                                         capsRow,
                                     );
                                     return (
-                                    <div key={line.id} className="pi-lines-header pi-line-data-row" style={{ gridTemplateColumns: getGridColumns() }}>
+                                    <div
+                                        key={line.id}
+                                        className={`pi-lines-header pi-line-data-row${
+                                            itemPickerLineId === line.id && itemPickerMenuOpen
+                                                ? ' pi-line-row-picker-open'
+                                                : ''
+                                        }`}
+                                        style={{ gridTemplateColumns: getGridColumns() }}
+                                    >
                                         {showLineNum && <div className="pi-col-hash">{idx + 1}</div>}
                                         <div
                                             className="pi-col-item"
@@ -3407,13 +3415,13 @@ export default function SupplierPurchaseInvoices() {
                                                 {itemPickerLineId === line.id && itemPickerMenuOpen ? (
                                                     <div
                                                         ref={lineItemPickerListRef}
-                                                        className="pi-search-results"
+                                                        className="pi-search-results pi-line-item-picker-results"
                                                         style={{
                                                             position: 'absolute',
                                                             left: 0,
                                                             right: 0,
                                                             top: 'calc(100% + 4px)',
-                                                            zIndex: 50,
+                                                            zIndex: 90,
                                                             maxHeight: 240,
                                                             overflowY: 'auto',
                                                             boxShadow: '0 10px 25px rgba(15,23,42,0.12)',

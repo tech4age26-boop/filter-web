@@ -3059,8 +3059,13 @@
     z-index: 1;
 }
 
-.pi-lines-section .pi-line-row-picker-open {
-    z-index: 30;
+.pi-lines-section .pi-line-data-row:focus-within {
+    z-index: 40;
+}
+
+.pi-lines-section .pi-line-row-picker-open,
+.pi-lines-section .pi-line-row-picker-open:focus-within {
+    z-index: 80;
 }
 
 .pi-lines-section .pi-col-item {
