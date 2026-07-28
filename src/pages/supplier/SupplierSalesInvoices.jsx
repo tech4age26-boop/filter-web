@@ -160,6 +160,8 @@ function mapSupplierSalesInvoiceToWorkshopDetail(inv) {
         totalVat: inv.vatAmount,
         grandTotal: inv.grandTotal,
         total: inv.grandTotal,
+        discountAmount: Number(inv.invoiceDiscount ?? inv.discountAmount ?? 0),
+        invoiceDiscount: Number(inv.invoiceDiscount ?? inv.discountAmount ?? 0),
         returnsTotal: Number(inv.returnsTotal ?? 0),
         amountPaid: inv.paid,
         paidAmount: inv.paid,
@@ -966,10 +968,13 @@ export default function SupplierSalesInvoices() {
     const lineItemPickerListRef = useRef(null);
     /** Current text in the line item field while picker is open — saved to the line on close. */
     const itemPickerInputRef = useRef('');
+    const itemPickerLineIdRef = useRef(null);
     const [itemPickerLineId, setItemPickerLineId] = useState(null);
     const [itemPickerInput, setItemPickerInput] = useState('');
     /** Filter passed to getSearchSuggestions — empty on open so list matches “Search product to add” with no query. */
     const [itemPickerFilter, setItemPickerFilter] = useState('');
+    /** Dropdown open separately from line focus — avoid reopening over a selected product. */
+    const [itemPickerMenuOpen, setItemPickerMenuOpen] = useState(false);
 
     const location = useLocation();
     const navigate = useNavigate();
@@ -1128,61 +1133,62 @@ export default function SupplierSalesInvoices() {
 
     const getSummary = () => {
         let subtotalEx = 0;
-        let totalTax = 0;
-        let linesGrandSum = 0;
+        let linesVatBeforeInvDisc = 0;
         for (const line of lineItems) {
             const f = computeLineFinancials(line, amountsTaxInclusive);
             subtotalEx += f.lineEx;
-            totalTax += f.taxAmt;
-            linesGrandSum += f.grandIncl;
+            linesVatBeforeInvDisc += f.taxAmt;
         }
         subtotalEx = roundMoney2(subtotalEx);
-        totalTax = roundMoney2(totalTax);
+        linesVatBeforeInvDisc = roundMoney2(linesVatBeforeInvDisc);
         const freightNum =
             parseFloat(String(freightCharges).replace(',', '.')) || 0;
-        const grossBeforeInvDisc = roundMoney2(linesGrandSum + freightNum);
+        const freightIn = roundMoney2(Math.max(0, freightNum));
 
         let invDisc = 0;
         const invRaw =
             parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0;
         if (invoiceDiscountMode === 'percent') {
             invDisc = roundMoney2(
-                (grossBeforeInvDisc * Math.min(100, Math.max(0, invRaw))) /
-                    100,
+                (subtotalEx * Math.min(100, Math.max(0, invRaw))) / 100,
             );
         } else {
-            invDisc = roundMoney2(Math.min(invRaw, grossBeforeInvDisc));
+            invDisc = roundMoney2(Math.min(Math.max(0, invRaw), subtotalEx));
         }
-        const grandTotal = roundMoney2(Math.max(0, grossBeforeInvDisc - invDisc));
-        const freightIn = roundMoney2(Math.max(0, freightNum));
         const invoiceDiscountSar = roundMoney2(Math.max(0, invDisc));
+        const taxableAfterDiscount = roundMoney2(
+            Math.max(0, subtotalEx - invoiceDiscountSar),
+        );
+        const totalTax =
+            subtotalEx > 0
+                ? roundMoney2(
+                      linesVatBeforeInvDisc * (taxableAfterDiscount / subtotalEx),
+                  )
+                : 0;
+        const grandTotal = roundMoney2(
+            Math.max(0, taxableAfterDiscount + totalTax + freightIn),
+        );
         const invPctDisplayed = Math.min(100, Math.max(0, invRaw));
+        const fmt2 = (n) =>
+            n.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            });
 
         return {
-            subtotal: subtotalEx.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
-            totalTax: totalTax.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
-            grandTotal: grandTotal.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
+            subtotal: fmt2(subtotalEx),
+            amountAfterDiscount: fmt2(taxableAfterDiscount),
+            totalTax: fmt2(totalTax),
+            grandTotal: fmt2(grandTotal),
+            rawSubtotal: subtotalEx,
+            rawTaxableAfterDiscount: taxableAfterDiscount,
+            rawTotalTax: totalTax,
             rawGrandTotal: grandTotal,
             freightIn,
-            freightInFormatted: freightIn.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
+            freightInFormatted: fmt2(freightIn),
             showFreightRow: freightIn > 0,
             invoiceDiscount: invoiceDiscountSar,
-            invoiceDiscountFormatted: invoiceDiscountSar.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
+            invoiceDiscountFormatted: fmt2(invoiceDiscountSar),
             showInvoiceDiscountRow: invoiceDiscountSar > 0,
             invoiceDiscountSummaryLabel:
                 invoiceDiscountMode === 'percent'
@@ -1391,6 +1397,7 @@ export default function SupplierSalesInvoices() {
         setItemPickerLineId(null);
         setItemPickerInput('');
         setItemPickerFilter('');
+        setItemPickerMenuOpen(false);
         setEditingInvoiceStatus(null);
         workshopPurchaseSourceIdRef.current = null;
         workshopPurchasePrefillRef.current = null;
@@ -2226,25 +2233,74 @@ export default function SupplierSalesInvoices() {
     }, [itemPickerInput]);
 
     useEffect(() => {
-        if (!modalOpen || itemPickerLineId == null) return undefined;
+        itemPickerLineIdRef.current = itemPickerLineId;
+    }, [itemPickerLineId]);
+
+    const lineHasLinkedCatalogProduct = (line) =>
+        Boolean(
+            String(
+                line?.supplierProductId
+                    || line?.supplierStockProductId
+                    || line?.masterProductId
+                    || '',
+            ).trim(),
+        );
+
+    const commitItemPickerLineText = (openLineId) => {
+        if (openLineId == null) return;
+        const text = String(itemPickerInputRef.current ?? '').trim();
+        setLineItems((prev) =>
+            prev.map((l) => {
+                if (l.id !== openLineId) return l;
+                if (!text && lineHasLinkedCatalogProduct(l)) return l;
+                if (text === String(l.item ?? '').trim()) return l;
+                return { ...l, item: text };
+            }),
+        );
+    };
+
+    const closeLineItemPicker = (openLineId = itemPickerLineIdRef.current) => {
+        commitItemPickerLineText(openLineId);
+        setItemPickerLineId(null);
+        setItemPickerInput('');
+        setItemPickerFilter('');
+        setItemPickerMenuOpen(false);
+    };
+
+    const activateLineItemField = (line, { openMenu } = {}) => {
+        const prevId = itemPickerLineIdRef.current;
+        if (prevId != null && prevId !== line.id) {
+            commitItemPickerLineText(prevId);
+        }
+        const linked = lineHasLinkedCatalogProduct(line);
+        const hasLabel = Boolean(String(line.item ?? '').trim());
+        const shouldOpen =
+            openMenu === true
+                ? true
+                : openMenu === false
+                  ? false
+                  : !linked && !hasLabel;
+        setItemPickerLineId(line.id);
+        setItemPickerInput(String(line.item ?? ''));
+        setItemPickerFilter(shouldOpen ? '' : String(line.item ?? ''));
+        setItemPickerSelectedIndex(0);
+        setItemPickerMenuOpen(shouldOpen);
+    };
+
+    useEffect(() => {
+        if (!modalOpen || itemPickerLineId == null || !itemPickerMenuOpen) {
+            return undefined;
+        }
         const openLineId = itemPickerLineId;
         const onDocMouseDown = (e) => {
             const el = lineItemPickerWrapRef.current;
             if (el && !el.contains(e.target)) {
-                const text = String(itemPickerInputRef.current ?? '').trim();
-                setLineItems((prev) =>
-                    prev.map((l) =>
-                        l.id === openLineId ? { ...l, item: text } : l,
-                    ),
-                );
-                setItemPickerLineId(null);
-                setItemPickerInput('');
-                setItemPickerFilter('');
+                closeLineItemPicker(openLineId);
             }
         };
         document.addEventListener('mousedown', onDocMouseDown);
         return () => document.removeEventListener('mousedown', onDocMouseDown);
-    }, [modalOpen, itemPickerLineId]);
+    }, [modalOpen, itemPickerLineId, itemPickerMenuOpen]);
 
     const selectCustomerOption = (customer) => {
         if (!customer || customer.disabled) return;
@@ -2349,7 +2405,8 @@ export default function SupplierSalesInvoices() {
         setItemPickerLineId(null);
         setItemPickerInput('');
         setItemPickerFilter('');
-        focusLineField(lineId, 'item');
+        setItemPickerMenuOpen(false);
+        focusLineField(lineId, 'qty');
     };
 
     const handleLineItemPickerKeyDown = (e, line) => {
@@ -2357,6 +2414,7 @@ export default function SupplierSalesInvoices() {
         const suggestions = getSearchSuggestions(itemPickerFilter);
         if (e.key === 'ArrowDown') {
             e.preventDefault();
+            if (!itemPickerMenuOpen) setItemPickerMenuOpen(true);
             setItemPickerSelectedIndex((i) =>
                 Math.min(i + 1, Math.max(0, suggestions.length - 1)),
             );
@@ -2364,46 +2422,33 @@ export default function SupplierSalesInvoices() {
         }
         if (e.key === 'ArrowUp') {
             e.preventDefault();
+            if (!itemPickerMenuOpen) setItemPickerMenuOpen(true);
             setItemPickerSelectedIndex((i) => Math.max(i - 1, 0));
             return;
         }
         if (e.key === 'Enter') {
             e.preventDefault();
             if (
+                itemPickerMenuOpen &&
                 itemPickerLineId === line.id &&
                 suggestions[itemPickerSelectedIndex]
             ) {
                 applyCatalogItemToLine(line.id, suggestions[itemPickerSelectedIndex]);
                 return;
             }
-            const text = String(itemPickerInputRef.current ?? '').trim();
-            setLineItems((prev) =>
-                prev.map((l) =>
-                    l.id === line.id ? { ...l, item: text } : l,
-                ),
-            );
-            setItemPickerLineId(null);
-            setItemPickerInput('');
-            setItemPickerFilter('');
-            focusLineField(line.id, text ? 'item' : 'account');
+            closeLineItemPicker(line.id);
+            focusLineField(line.id, 'account');
             return;
         }
         if (e.key === 'Escape') {
             e.preventDefault();
-            setItemPickerLineId(null);
-            setItemPickerInput('');
-            setItemPickerFilter('');
+            closeLineItemPicker(line.id);
         }
     };
 
     useEffect(() => {
         setItemPickerSelectedIndex(0);
     }, [itemPickerFilter, itemPickerLineId]);
-
-    useEffect(() => {
-        if (!modalOpen || itemPickerLineId == null) return;
-        focusLineField(itemPickerLineId, 'item');
-    }, [modalOpen, itemPickerLineId, focusLineField]);
 
     useEffect(() => {
         if (!showDropdown || !invoiceLineSearchListRef.current) return;
@@ -2414,14 +2459,19 @@ export default function SupplierSalesInvoices() {
     }, [selectedIndex, showDropdown]);
 
     useEffect(() => {
-        if (!modalOpen || itemPickerLineId == null || !lineItemPickerListRef.current) {
+        if (
+            !modalOpen
+            || itemPickerLineId == null
+            || !itemPickerMenuOpen
+            || !lineItemPickerListRef.current
+        ) {
             return;
         }
         const el = lineItemPickerListRef.current.querySelector(
             `[data-pick-idx="${itemPickerSelectedIndex}"]`,
         );
         el?.scrollIntoView({ block: 'nearest' });
-    }, [modalOpen, itemPickerLineId, itemPickerSelectedIndex]);
+    }, [modalOpen, itemPickerLineId, itemPickerMenuOpen, itemPickerSelectedIndex]);
 
     useEffect(() => {
         let cancelled = false;
@@ -3539,7 +3589,7 @@ export default function SupplierSalesInvoices() {
                                     <div
                                         key={line.id}
                                         className={`pi-lines-header pi-line-data-row${
-                                            itemPickerLineId === line.id
+                                            itemPickerLineId === line.id && itemPickerMenuOpen
                                                 ? ' pi-line-row-picker-open'
                                                 : ''
                                         }`}
@@ -3593,60 +3643,29 @@ export default function SupplierSalesInvoices() {
                                                         }
                                                         placeholder="Item (optional)…"
                                                         onFocus={() => {
-                                                            setItemPickerLineId(
-                                                                line.id,
-                                                            );
-                                                            setItemPickerInput(
-                                                                String(
-                                                                    line.item ??
-                                                                        '',
-                                                                ),
-                                                            );
-                                                            setItemPickerFilter(
-                                                                '',
-                                                            );
-                                                            setItemPickerSelectedIndex(
-                                                                0,
-                                                            );
+                                                            activateLineItemField(line);
                                                         }}
                                                         onChange={(e) => {
-                                                            const v =
-                                                                e.target.value;
-                                                            setItemPickerLineId(
-                                                                line.id,
-                                                            );
-                                                            setItemPickerInput(
-                                                                v,
-                                                            );
-                                                            setItemPickerFilter(
-                                                                v,
-                                                            );
-                                                            setItemPickerSelectedIndex(
-                                                                0,
-                                                            );
+                                                            const v = e.target.value;
+                                                            const prevId = itemPickerLineIdRef.current;
+                                                            if (prevId != null && prevId !== line.id) {
+                                                                commitItemPickerLineText(prevId);
+                                                            }
+                                                            setItemPickerLineId(line.id);
+                                                            setItemPickerInput(v);
+                                                            setItemPickerFilter(v);
+                                                            setItemPickerSelectedIndex(0);
+                                                            setItemPickerMenuOpen(true);
                                                         }}
                                                         onKeyDown={(e) => {
                                                             if (
-                                                                e.key ===
-                                                                    'Tab' &&
+                                                                e.key === 'Tab' &&
                                                                 !e.shiftKey &&
-                                                                itemPickerLineId ===
-                                                                    line.id
+                                                                itemPickerLineId === line.id
                                                             ) {
-                                                                setItemPickerLineId(
-                                                                    null,
-                                                                );
-                                                                setItemPickerInput(
-                                                                    '',
-                                                                );
-                                                                setItemPickerFilter(
-                                                                    '',
-                                                                );
+                                                                closeLineItemPicker(line.id);
                                                             }
-                                                            handleLineItemPickerKeyDown(
-                                                                e,
-                                                                line,
-                                                            );
+                                                            handleLineItemPickerKeyDown(e, line);
                                                             handleLineFieldTab(
                                                                 e,
                                                                 line.id,
@@ -3664,51 +3683,15 @@ export default function SupplierSalesInvoices() {
                                                         }
                                                         onClick={() => {
                                                             if (
-                                                                itemPickerLineId ===
-                                                                line.id
+                                                                itemPickerLineId === line.id
+                                                                && itemPickerMenuOpen
                                                             ) {
-                                                                const text =
-                                                                    String(
-                                                                        itemPickerInputRef.current ??
-                                                                            '',
-                                                                    ).trim();
-                                                                setLineItems(
-                                                                    (prev) =>
-                                                                        prev.map(
-                                                                            (
-                                                                                l,
-                                                                            ) =>
-                                                                                l.id ===
-                                                                                line.id
-                                                                                    ? {
-                                                                                          ...l,
-                                                                                          item: text,
-                                                                                      }
-                                                                                    : l,
-                                                                        ),
-                                                                );
-                                                                setItemPickerLineId(
-                                                                    null,
-                                                                );
-                                                                setItemPickerInput(
-                                                                    '',
-                                                                );
-                                                                setItemPickerFilter(
-                                                                    '',
-                                                                );
+                                                                closeLineItemPicker(line.id);
                                                             } else {
-                                                                setItemPickerLineId(
-                                                                    line.id,
-                                                                );
-                                                                setItemPickerInput(
-                                                                    String(
-                                                                        line.item ??
-                                                                            '',
-                                                                    ),
-                                                                );
-                                                                setItemPickerFilter(
-                                                                    '',
-                                                                );
+                                                                activateLineItemField(line, {
+                                                                    openMenu: true,
+                                                                });
+                                                                focusLineField(line.id, 'item');
                                                             }
                                                         }}
                                                         style={{
@@ -3732,8 +3715,8 @@ export default function SupplierSalesInvoices() {
                                                         />
                                                     </button>
                                                 </div>
-                                                {itemPickerLineId ===
-                                                line.id ? (
+                                                {itemPickerLineId === line.id &&
+                                                itemPickerMenuOpen ? (
                                                     <div
                                                         ref={lineItemPickerListRef}
                                                         className="pi-search-results pi-line-item-picker-results"
@@ -4594,6 +4577,12 @@ export default function SupplierSalesInvoices() {
                                                 <span style={{ color: '#B91C1C' }}>
                                                     − SAR {summary.invoiceDiscountFormatted}
                                                 </span>
+                                            </div>
+                                        ) : null}
+                                        {summary.showInvoiceDiscountRow ? (
+                                            <div className="pi-summary-row">
+                                                <span>Amount after invoice discount:</span>
+                                                <span>SAR {summary.amountAfterDiscount}</span>
                                             </div>
                                         ) : null}
                                         <div className="pi-summary-row">

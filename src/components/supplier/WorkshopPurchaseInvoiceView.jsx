@@ -864,11 +864,14 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                 'discount_total',
                 'discountAmount',
                 'discount_amount',
+                'invoiceDiscount',
+                'invoice_discount',
                 'invoiceDiscountAmount',
                 'invoice_discount_amount',
             ) ??
                 inv?.totals?.discount ??
                 inv?.totals?.discountTotal ??
+                inv?.totals?.invoice_discount_applied_ex_vat ??
                 0,
         ),
     );
@@ -1474,6 +1477,19 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                 </span>
                                 <span className="wpi-view__sum-row-val">{money(discountAmount, currency)}</span>
                             </div>
+                            {discountAmount > 0 ? (
+                                <div className="wpi-view__sum-row">
+                                    <span className="wpi-view__sum-row-label">
+                                        After discount <span dir="rtl">(بعد الخصم)</span>
+                                    </span>
+                                    <span className="wpi-view__sum-row-val">
+                                        {money(
+                                            Math.max(0, round2(subtotalEx - discountAmount)),
+                                            currency,
+                                        )}
+                                    </span>
+                                </div>
+                            ) : null}
                             <div className="wpi-view__sum-row">
                                 <span className="wpi-view__sum-row-label">
                                     VAT <span dir="rtl">(الضريبة)</span>

@@ -218,20 +218,25 @@ export default function SupplierWorkshopPurchaseInvoiceEditModal({
     );
 
     const summary = useMemo(
-        () => ({
-            subtotal: invoiceTotals.subtotal_ex_vat.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
-            totalTax: invoiceTotals.total_vat.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
-            grandTotal: invoiceTotals.grand_total.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-            }),
-        }),
+        () => {
+            const disc = invoiceTotals.invoice_discount_applied_ex_vat ?? 0;
+            const after =
+                invoiceTotals.taxable_after_invoice_discount
+                ?? Math.max(0, (invoiceTotals.lines_taxable_ex_vat ?? 0) - disc);
+            const fmt = (n) =>
+                (Number(n) || 0).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                });
+            return {
+                subtotal: fmt(invoiceTotals.lines_taxable_ex_vat ?? invoiceTotals.subtotal_ex_vat),
+                amountAfterDiscount: fmt(after),
+                showInvoiceDiscountRow: Number(disc) > 0,
+                invoiceDiscountFormatted: fmt(disc),
+                totalTax: fmt(invoiceTotals.total_vat),
+                grandTotal: fmt(invoiceTotals.grand_total),
+            };
+        },
         [invoiceTotals],
     );
 
@@ -728,6 +733,20 @@ export default function SupplierWorkshopPurchaseInvoiceEditModal({
                                                 SAR{' '}{summary.subtotal}
                                             </td>
                                         </tr>
+                                        {summary.showInvoiceDiscountRow ? (
+                                            <tr>
+                                                <td>Invoice discount</td>
+                                                <td style={{ color: '#B91C1C' }}>
+                                                    − SAR {summary.invoiceDiscountFormatted}
+                                                </td>
+                                            </tr>
+                                        ) : null}
+                                        {summary.showInvoiceDiscountRow ? (
+                                            <tr>
+                                                <td>After invoice discount</td>
+                                                <td>SAR {summary.amountAfterDiscount}</td>
+                                            </tr>
+                                        ) : null}
                                         <tr>
                                             <td>Total VAT</td>
                                             <td>SAR{' '}{summary.totalTax}</td>

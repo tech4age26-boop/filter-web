@@ -150,7 +150,8 @@ export function reconstructInvoiceUnitPriceInput(it, amountsTaxInclusive, taxCod
 }
 
 /**
- * Invoice footer totals — matches SupplierSalesInvoices.getSummary().
+ * Invoice footer totals.
+ * Order: line taxable (ex VAT) → invoice discount → VAT on post-discount taxable → + freight → grand.
  */
 export function computeInvoiceRollupTotals({
     lineItems,
@@ -165,7 +166,7 @@ export function computeInvoiceRollupTotals({
 }) {
     const lineOpts = { taxes, defaultRate: defaultVatRate, noVat };
     let subtotalEx = 0;
-    let totalTax = 0;
+    let linesVatBeforeInvDisc = 0;
     let linesGrandSum = 0;
     let lineDiscountSum = 0;
     let lineGrossEx = 0;
@@ -174,7 +175,7 @@ export function computeInvoiceRollupTotals({
         const workingLine = applyLineDiscount ? line : { ...line, discount: 0 };
         const f = computeLineFinancials(workingLine, amountsTaxInclusive, lineOpts);
         subtotalEx += f.lineEx;
-        totalTax += f.taxAmt;
+        linesVatBeforeInvDisc += f.taxAmt;
         linesGrandSum += f.grandIncl;
         lineDiscountSum += f.discountAmount;
         const qty = parseFloat(String(workingLine.qty).replace(',', '.')) || 0;
@@ -189,37 +190,55 @@ export function computeInvoiceRollupTotals({
     }
 
     subtotalEx = roundMoney2(subtotalEx);
-    totalTax = roundMoney2(totalTax);
+    linesVatBeforeInvDisc = roundMoney2(linesVatBeforeInvDisc);
     linesGrandSum = roundMoney2(linesGrandSum);
     lineDiscountSum = roundMoney2(lineDiscountSum);
     lineGrossEx = roundMoney2(lineGrossEx);
 
     const freight = roundMoney2(freightIn);
-    const grossBeforeInvDisc = roundMoney2(linesGrandSum + freight);
 
     const invRaw = parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0;
     let invoiceDiscountApplied = 0;
     if (invoiceDiscountMode === 'percent') {
         invoiceDiscountApplied = roundMoney2(
-            (grossBeforeInvDisc * Math.min(100, Math.max(0, invRaw))) / 100,
+            (subtotalEx * Math.min(100, Math.max(0, invRaw))) / 100,
         );
     } else {
-        invoiceDiscountApplied = roundMoney2(Math.min(invRaw, grossBeforeInvDisc));
+        invoiceDiscountApplied = roundMoney2(Math.min(Math.max(0, invRaw), subtotalEx));
     }
 
-    const grandTotal = roundMoney2(Math.max(0, grossBeforeInvDisc - invoiceDiscountApplied));
+    const taxableAfterInvoiceDiscount = roundMoney2(
+        Math.max(0, subtotalEx - invoiceDiscountApplied),
+    );
+
+    // Scale line VAT to the post–invoice-discount taxable base (handles mixed rates).
+    const totalVat =
+        noVat || subtotalEx <= 0
+            ? 0
+            : roundMoney2(
+                  linesVatBeforeInvDisc * (taxableAfterInvoiceDiscount / subtotalEx),
+              );
+
+    const grandTotal = roundMoney2(
+        Math.max(0, taxableAfterInvoiceDiscount + totalVat + freight),
+    );
 
     return {
         line_gross_ex_vat: lineGrossEx,
         line_discount_amount: lineDiscountSum,
+        /** Line goods taxable (ex VAT), after line discounts, before invoice discount */
         lines_taxable_ex_vat: subtotalEx,
-        lines_total_vat: totalTax,
+        /** Line VAT before invoice-level discount (informational) */
+        lines_total_vat: linesVatBeforeInvDisc,
         lines_grand_total_incl_vat: linesGrandSum,
         invoice_discount_applied_ex_vat: invoiceDiscountApplied,
+        /** Taxable base after invoice discount (ex VAT) — VAT is computed on this */
+        taxable_after_invoice_discount: taxableAfterInvoiceDiscount,
+        /** Alias kept for AP payloads that store pre–invoice-discount goods subtotal */
         subtotal_ex_vat: subtotalEx,
-        total_vat: totalTax,
+        total_vat: totalVat,
         freight_in: freight,
-        goods_grand_incl_vat: linesGrandSum,
+        goods_grand_incl_vat: roundMoney2(taxableAfterInvoiceDiscount + totalVat),
         grand_total: grandTotal,
     };
 }
