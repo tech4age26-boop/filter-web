@@ -1,7 +1,8 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { DollarSign, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../services/api';
 import { lockerLogout } from '../services/authApi';
 import { getLockerNavItems, resolveLockerPortalRole } from './locker/constants';
 import LockerDashboard from './locker/LockerDashboard';
@@ -48,6 +49,54 @@ export default function LockerLayout() {
     const portalRole = useMemo(() => resolveLockerPortalRole(user), [user]);
     const navItems = useMemo(() => getLockerNavItems(user), [user]);
 
+    /** Hard lock when workshop admin assigned a branch on the locker user. */
+    const userBranchLock = useMemo(() => {
+        const id = user?.branchId;
+        if (id == null || id === '' || id === 'all') return null;
+        return String(id);
+    }, [user?.branchId]);
+
+    const [branches, setBranches] = useState([]);
+    const [selectedBranch, setSelectedBranch] = useState(userBranchLock ?? 'all');
+
+    const loadBranches = useCallback(async () => {
+        try {
+            const res = await apiFetch('/locker/branches');
+            const list = Array.isArray(res?.branches) ? res.branches : [];
+            setBranches(list);
+            const assigned = res?.assignedBranchId ? String(res.assignedBranchId) : userBranchLock;
+            if (assigned) {
+                setSelectedBranch(assigned);
+            }
+        } catch (e) {
+            console.warn('[locker] branches', e);
+            setBranches([]);
+        }
+    }, [userBranchLock]);
+
+    useEffect(() => {
+        loadBranches();
+    }, [loadBranches]);
+
+    useEffect(() => {
+        if (userBranchLock && selectedBranch !== userBranchLock) {
+            setSelectedBranch(userBranchLock);
+        }
+    }, [userBranchLock, selectedBranch]);
+
+    const activeBranches = useMemo(() => {
+        if (userBranchLock) {
+            return branches.filter((b) => String(b.id) === userBranchLock);
+        }
+        return branches;
+    }, [branches, userBranchLock]);
+
+    const selectedBranchName = useMemo(() => {
+        if (selectedBranch === 'all') return 'All Branches';
+        const b = activeBranches.find((x) => String(x.id) === String(selectedBranch));
+        return b?.name || user?.branchName || 'Branch';
+    }, [activeBranches, selectedBranch, user?.branchName]);
+
     const handleLogout = async () => {
         const t = localStorage.getItem('filter_auth_token');
         try {
@@ -59,7 +108,6 @@ export default function LockerLayout() {
         navigate('/', { replace: true });
     };
 
-    // Sync activeTab with URL: /locker/TAB_NAME
     const getActiveTabFromUrl = () => {
         const parts = location.pathname.split('/').filter(Boolean);
         return parts[1] || 'dashboard';
@@ -90,35 +138,94 @@ export default function LockerLayout() {
         }
     }, [activeTab, portalRole, navigate]);
 
+    const branchProps = {
+        selectedBranchId: selectedBranch,
+        branches: activeBranches,
+        branchLockedId: userBranchLock,
+    };
+
     const renderContent = () => {
         switch (activeTab) {
-            case 'dashboard': return <LockerDashboard onTabChange={setActiveTab} portalRole={portalRole} />;
-            case 'pending': return <PendingRequests onTabChange={setActiveTab} />;
-            case 'assigned': return <AssignedRequests onTabChange={setActiveTab} />;
-            case 'record': return <RecordCollection portalRole={portalRole} />;
-            case 'approvals': return <ApprovalsScreen />;
-            case 'deposit_to_bank': return <DepositToBank />;
-            case 'issue_petty_cash': return <IssuePettyCash />;
-            case 'petty_cash_issue_log': return <PettyCashIssueLog />;
-            case 'expenses': return <LockerExpenses />;
-            case 'transaction_log': return <TransactionLog />;
-            case 'history': return <CollectionsHistory />;
-            case 'differences': return <DifferencesReport />;
-            case 'petty_cash': return <PettyCash />;
-            default: return <LockerDashboard onTabChange={setActiveTab} portalRole={portalRole} />;
+            case 'dashboard':
+                return (
+                    <LockerDashboard
+                        onTabChange={setActiveTab}
+                        portalRole={portalRole}
+                        {...branchProps}
+                    />
+                );
+            case 'pending':
+                return <PendingRequests onTabChange={setActiveTab} {...branchProps} />;
+            case 'assigned':
+                return <AssignedRequests onTabChange={setActiveTab} {...branchProps} />;
+            case 'record':
+                return <RecordCollection portalRole={portalRole} {...branchProps} />;
+            case 'approvals':
+                return <ApprovalsScreen {...branchProps} />;
+            case 'deposit_to_bank':
+                return <DepositToBank {...branchProps} />;
+            case 'issue_petty_cash':
+                return <IssuePettyCash {...branchProps} />;
+            case 'petty_cash_issue_log':
+                return <PettyCashIssueLog {...branchProps} />;
+            case 'expenses':
+                return <LockerExpenses {...branchProps} />;
+            case 'transaction_log':
+                return <TransactionLog {...branchProps} />;
+            case 'history':
+                return <CollectionsHistory {...branchProps} />;
+            case 'differences':
+                return <DifferencesReport {...branchProps} />;
+            case 'petty_cash':
+                return <PettyCash {...branchProps} />;
+            default:
+                return (
+                    <LockerDashboard
+                        onTabChange={setActiveTab}
+                        portalRole={portalRole}
+                        {...branchProps}
+                    />
+                );
         }
     };
 
-    const currentLabel = navItems.find(n => n.id === activeTab)?.label || 'Dashboard';
+    const currentLabel = navItems.find((n) => n.id === activeTab)?.label || 'Dashboard';
 
     return (
         <div className="workshop-layout">
             <aside className="ws-sidebar">
-                <div className="ws-logo"><div className="ws-logo-icon"><DollarSign size={20}/></div><div><p className="ws-logo-title">Filter Locker</p><p className="ws-logo-sub">Portal</p></div></div>
+                <div className="ws-logo">
+                    <div className="ws-logo-icon"><DollarSign size={20} /></div>
+                    <div>
+                        <p className="ws-logo-title">Filter Locker</p>
+                        <p className="ws-logo-sub">Portal</p>
+                    </div>
+                </div>
+                <div className="ws-branch-selector">
+                    <select
+                        className="ws-branch-select"
+                        value={userBranchLock || selectedBranch}
+                        disabled={Boolean(userBranchLock)}
+                        onChange={(e) => setSelectedBranch(e.target.value)}
+                        title={userBranchLock ? 'Branch locked by workshop admin' : 'Filter locker data by branch'}
+                    >
+                        {!userBranchLock ? (
+                            <option value="all">All Branches</option>
+                        ) : null}
+                        {activeBranches.map((b) => (
+                            <option key={b.id} value={String(b.id)}>{b.name}</option>
+                        ))}
+                    </select>
+                </div>
                 <nav className="ws-nav">
-                    {navItems.map(item => (
-                        <button key={item.id} className={`ws-nav-btn ${activeTab === item.id ? 'active' : ''}`} onClick={() => setActiveTab(item.id)}>
-                            <item.icon size={17}/><span>{item.label}</span>
+                    {navItems.map((item) => (
+                        <button
+                            key={item.id}
+                            className={`ws-nav-btn ${activeTab === item.id ? 'active' : ''}`}
+                            onClick={() => setActiveTab(item.id)}
+                        >
+                            <item.icon size={17} />
+                            <span>{item.label}</span>
                             {item.badge > 0 && <span className="ws-nav-badge">{item.badge}</span>}
                         </button>
                     ))}
@@ -142,7 +249,21 @@ export default function LockerLayout() {
                 </div>
             </aside>
             <div className="ws-main">
-                <header className="ws-topbar"><div><p className="ws-topbar-title">{currentLabel}</p><p className="ws-topbar-sub">Locker Management Portal</p></div><div className="ws-topbar-right"><div className="ws-online-badge"><div className="ws-online-dot"/>Online</div></div></header>
+                <header className="ws-topbar">
+                    <div>
+                        <p className="ws-topbar-title">{currentLabel}</p>
+                        <p className="ws-topbar-sub">
+                            Locker Management Portal
+                            {selectedBranch !== 'all' ? ` · ${selectedBranchName}` : ''}
+                        </p>
+                    </div>
+                    <div className="ws-topbar-right">
+                        <div className="ws-online-badge">
+                            <div className="ws-online-dot" />
+                            Online
+                        </div>
+                    </div>
+                </header>
                 <main className="ws-content">{renderContent()}</main>
             </div>
         </div>

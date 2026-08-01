@@ -100,12 +100,17 @@ const EXPORT_HEADERS = [
 /**
  * Complete locker vault register (IN / OUT) with running balance.
  */
-export default function TransactionLog() {
+function TransactionLog({
+    selectedBranchId = 'all',
+    branches: layoutBranches = null,
+    branchLockedId = null,
+} = {}) {
     const defaults = useMemo(() => defaultDateTimeRange(), []);
+    const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [filters, setFilters] = useState({
         from: defaults.from,
         to: defaults.to,
-        branchId: 'all',
+        branchId: scopeBranch,
         category: 'all',
         paidTo: 'all',
         receivedFrom: 'all',
@@ -120,7 +125,7 @@ export default function TransactionLog() {
     const [applied, setApplied] = useState({
         from: defaults.from,
         to: defaults.to,
-        branchId: 'all',
+        branchId: scopeBranch,
         category: 'all',
         paidTo: 'all',
         receivedFrom: 'all',
@@ -138,22 +143,37 @@ export default function TransactionLog() {
     const [error, setError] = useState('');
 
     useEffect(() => {
+        const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
+        setFilters((f) => ({ ...f, branchId: next, branchText: '' }));
+        setApplied((a) => ({ ...a, branchId: next }));
+        setPage(1);
+    }, [selectedBranchId, branchLockedId]);
+
+    useEffect(() => {
+        if (Array.isArray(layoutBranches) && layoutBranches.length) {
+            setBranches(layoutBranches);
+            return;
+        }
         apiFetch('/locker/branches')
             .then((r) => setBranches(Array.isArray(r?.branches) ? r.branches : []))
             .catch(() => setBranches([]));
-    }, []);
+    }, [layoutBranches]);
 
     const branchOpts = useMemo(
         () => [
-            { id: 'all', label: 'All branches', searchText: 'All branches' },
-            { id: 'hq', label: 'HQ / Workshop expenses', searchText: 'HQ Workshop' },
+            ...(branchLockedId
+                ? []
+                : [
+                    { id: 'all', label: 'All branches', searchText: 'All branches' },
+                    { id: 'hq', label: 'HQ / Workshop expenses', searchText: 'HQ Workshop' },
+                ]),
             ...(branches || []).map((b) => ({
                 id: String(b.id),
                 label: b.name,
                 searchText: b.name,
             })),
         ],
-        [branches],
+        [branches, branchLockedId],
     );
 
     const categoryOpts = useMemo(
@@ -680,3 +700,6 @@ export default function TransactionLog() {
         </div>
     );
 }
+
+export default TransactionLog;
+

@@ -640,14 +640,19 @@ export default function AdvancedReportsPage({ portal = 'workshop', selectedBranc
                                     <tr>
                                         <th>{t('table.product')}</th>
                                         <th>{t('table.supplier')}</th>
-                                        <th>{t('table.oldPrice')}</th>
-                                        <th>{t('table.newPrice')}</th>
+                                        <th>{t('table.oldPriceInclVat')}</th>
+                                        <th>{t('table.newPriceInclVat')}</th>
+                                        <th>{t('table.priceDifference')}</th>
                                         <th>{t('table.changePct')}</th>
                                         <th>{t('table.changeDate')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {(data.rows || []).map((row, idx) => (
+                                    {(data.rows || []).map((row, idx) => {
+                                        const diff = row.priceDifference != null
+                                            ? Number(row.priceDifference)
+                                            : Number(row.newPrice || 0) - Number(row.oldPrice || 0);
+                                        return (
                                         <tr key={`${row.productId}-${row.changeDate}-${idx}`}>
                                             <td>
                                                 <Num onClick={() => openDrilldown('price_product', { period: 'main', productId: row.productId, entityId: row.productId, entityType: 'product' })}>
@@ -661,11 +666,13 @@ export default function AdvancedReportsPage({ portal = 'workshop', selectedBranc
                                                     {money(t, row.newPrice)}
                                                 </Num>
                                             </td>
+                                            <td>{money(t, diff)}</td>
                                             <td>{Number(row.changePercent || 0).toFixed(2)}%</td>
                                             <td>{row.changeDate}</td>
                                         </tr>
-                                    ))}
-                                    {!data.rows?.length ? <tr><td colSpan={6}>{t('page.empty')}</td></tr> : null}
+                                        );
+                                    })}
+                                    {!data.rows?.length ? <tr><td colSpan={7}>{t('page.empty')}</td></tr> : null}
                                 </tbody>
                             </table>
                         </div>
@@ -850,7 +857,9 @@ function MarginTable({ t, title, rows, money, onNum, showQty = false, showUnitPr
                     <tbody>
                         {(rows || []).map((row) => (
                             <tr key={`${row.kind}-${row.id}`}>
-                                <td>{row.name}</td>
+                                <td>
+                                    <Num onClick={() => onNum?.('product_sales', row)}>{row.name}</Num>
+                                </td>
                                 <td>{row.kind}</td>
                                 {showQty ? (
                                     <td>{Number(row.qty || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>

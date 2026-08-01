@@ -39,14 +39,29 @@ export default function SearchableEntityCombobox({
     const ref = inputRef || internalRef;
     const blurTimerRef = useRef(null);
 
+    const selectedLabel = useMemo(() => {
+        if (value == null || value === '') return '';
+        const o = options.find((x) => String(x.id) === String(value));
+        return o?.label || '';
+    }, [options, value]);
+
+    // When the field still shows the selected label (not an active search),
+    // do not filter the list down to that one match — show the full option set.
+    const searchQuery = useMemo(() => {
+        const q = String(displayText || '').trim();
+        if (!q) return '';
+        if (selectedLabel && q === String(selectedLabel).trim()) return '';
+        return displayText;
+    }, [displayText, selectedLabel]);
+
     const filtered = useMemo(
-        () => filterSearchOptions(options, displayText, { maxInitial, maxFiltered }),
-        [options, displayText, maxInitial, maxFiltered],
+        () => filterSearchOptions(options, searchQuery, { maxInitial, maxFiltered }),
+        [options, searchQuery, maxInitial, maxFiltered],
     );
 
     const totalMatches = useMemo(
-        () => countSearchMatches(options, displayText),
-        [options, displayText],
+        () => countSearchMatches(options, searchQuery),
+        [options, searchQuery],
     );
 
     const updateMenuPosition = useCallback(() => {
@@ -164,12 +179,6 @@ export default function SearchableEntityCombobox({
         }
         if (e.key === 'Escape') setOpen(false);
     };
-
-    const selectedLabel = useMemo(() => {
-        if (!value) return '';
-        const o = options.find((x) => String(x.id) === String(value));
-        return o?.label || '';
-    }, [options, value]);
 
     const showValue = open ? displayText : displayText || selectedLabel;
 

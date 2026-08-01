@@ -612,8 +612,8 @@ function WorkshopEmployees({
         const asTechnician = form.is_technician || isTechnicianRole(form.role);
         const isPortal = isPortalStaffRole(form.role);
         const isLocker = isLockerPortalRole(form.role);
-        // Cashiers, generic staff rows, and portal staff need a branch on an approved portal.
-        // Locker users are workshop-wide and don't need a branch.
+        // Cashiers / portal staff need a branch. Locker roles: branch optional
+        // (empty = all branches; set = hard-lock to that branch in locker portal).
         const isCashierCreate = !editing && !asTechnician && (form.role === 'cashier' || form.role === 'staff');
         const isPortalCreate = !editing && !asTechnician && isPortal && !isLocker;
         const editingLocker =
@@ -884,7 +884,7 @@ function WorkshopEmployees({
                                                     Branch{' '}
                                                     {isLocker ? (
                                                         <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>
-                                                            (not used — locker users are workshop-wide)
+                                                            (optional — empty = all branches in locker portal)
                                                         </span>
                                                     ) : branchRequired ? (
                                                         '*'
@@ -896,7 +896,6 @@ function WorkshopEmployees({
                                         })()}
                                         <select
                                             value={form.branchId}
-                                            disabled={isLockerPortalRole(form.role)}
                                             onChange={(e) => {
                                                 const v = e.target.value;
                                                 setForm((f) => ({
@@ -907,7 +906,7 @@ function WorkshopEmployees({
                                             }}
                                         >
                                             <option value="">
-                                                {isLockerPortalRole(form.role) ? '— Not applicable —' : 'Select Branch'}
+                                                {isLockerPortalRole(form.role) ? 'All branches (locker)' : 'Select Branch'}
                                             </option>
                                             {branchSelectOptions.map((b) => (
                                                 <option key={b.id} value={String(b.id)}>
@@ -930,7 +929,6 @@ function WorkshopEmployees({
                                                     ...f,
                                                     role: v,
                                                     ...(v !== 'team_leader' ? { teamLeaderDepartmentId: '' } : {}),
-                                                    ...(isLockerPortalRole(v) ? { branchId: '' } : {}),
                                                 }));
                                             }}
                                         >

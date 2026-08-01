@@ -20,7 +20,7 @@ function emptyLine(defaults = {}) {
         description: '',
         proofUrl: '',
         branchText: defaults.branchText || '',
-        categoryText: defaults.categoryText || defaults.category || LOCKER_EXPENSE_CATEGORIES[0] || '',
+        categoryText: defaults.categoryText || '',
     };
 }
 
@@ -43,7 +43,11 @@ function statusLabel(status) {
     return status || '—';
 }
 
-export default function LockerExpenses() {
+export default function LockerExpenses({
+    selectedBranchId = 'all',
+    branches: layoutBranches = null,
+    branchLockedId = null,
+} = {}) {
     const [pageTab, setPageTab] = useState('record');
     const [branches, setBranches] = useState([]);
     const [categories, setCategories] = useState(LOCKER_EXPENSE_CATEGORIES);
@@ -54,21 +58,23 @@ export default function LockerExpenses() {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(null);
 
+    const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
+
     const defaults = useMemo(() => defaultHistoryDateRange(), []);
     const [filters, setFilters] = useState({
         from: defaults.from,
         to: defaults.to,
-        branchId: 'all',
+        branchId: scopeBranch,
         category: 'all',
         status: 'all',
-        branchText: 'All branches',
-        categoryText: 'All categories',
-        statusText: 'All statuses',
+        branchText: '',
+        categoryText: '',
+        statusText: '',
     });
     const [applied, setApplied] = useState({
         from: defaults.from,
         to: defaults.to,
-        branchId: 'all',
+        branchId: scopeBranch,
         category: 'all',
         status: 'all',
     });
@@ -121,9 +127,21 @@ export default function LockerExpenses() {
         [],
     );
 
+    useEffect(() => {
+        const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
+        setFilters((f) => ({ ...f, branchId: next, branchText: '' }));
+        setApplied((a) => ({ ...a, branchId: next }));
+        setLines((prev) => prev.map((ln) => {
+            if (next === 'all') return ln;
+            return { ...ln, branchId: String(next), branchText: '' };
+        }));
+    }, [selectedBranchId, branchLockedId]);
+
     const loadMeta = useCallback(async () => {
         const [brRes, catRes] = await Promise.all([
-            apiFetch('/locker/branches').catch(() => ({ branches: [] })),
+            Array.isArray(layoutBranches) && layoutBranches.length
+                ? Promise.resolve({ branches: layoutBranches })
+                : apiFetch('/locker/branches').catch(() => ({ branches: [] })),
             apiFetch('/locker/expense-categories').catch(() => null),
         ]);
         const branchList = brRes?.branches || [];
@@ -132,20 +150,23 @@ export default function LockerExpenses() {
         if (Array.isArray(cats) && cats.length) {
             setCategories(cats);
         }
+        const preferredId =
+            branchLockedId
+            || (selectedBranchId !== 'all' ? selectedBranchId : null)
+            || (branchList[0] ? String(branchList[0].id) : null);
         setLines((prev) => {
             if (!prev.length) return prev;
-            const firstBranch = branchList[0];
             return prev.map((ln, idx) => {
                 if (idx !== 0 || ln.branchId) return ln;
-                if (!firstBranch) return ln;
+                if (!preferredId) return ln;
                 return {
                     ...ln,
-                    branchId: String(firstBranch.id),
-                    branchText: firstBranch.name,
+                    branchId: String(preferredId),
+                    branchText: '',
                 };
             });
         });
-    }, []);
+    }, [layoutBranches, branchLockedId, selectedBranchId]);
 
     const loadLog = useCallback(async (active = applied) => {
         setLoading(true);
@@ -191,9 +212,9 @@ export default function LockerExpenses() {
             ...prev,
             emptyLine({
                 branchId: base.branchId,
-                branchText: base.branchText,
+                branchText: '',
                 category: base.category,
-                categoryText: base.categoryText,
+                categoryText: '',
                 expenseDate: base.expenseDate || todayISO(),
             }),
         ]);
@@ -253,9 +274,9 @@ export default function LockerExpenses() {
             setLines([
                 emptyLine({
                     branchId: keep.branchId,
-                    branchText: keep.branchText,
+                    branchText: '',
                     category: keep.category,
-                    categoryText: keep.categoryText,
+                    categoryText: '',
                     expenseDate: keep.expenseDate || todayISO(),
                 }),
             ]);
@@ -286,9 +307,9 @@ export default function LockerExpenses() {
             branchId: 'all',
             category: 'all',
             status: 'all',
-            branchText: 'All branches',
-            categoryText: 'All categories',
-            statusText: 'All statuses',
+            branchText: '',
+            categoryText: '',
+            statusText: '',
         };
         setFilters(next);
         setApplied({
@@ -445,11 +466,11 @@ export default function LockerExpenses() {
                                         id={`le-branch-${ln.key}`}
                                         options={branchOpts}
                                         value={ln.branchId}
-                                        displayText={ln.branchText || branchOpts.find((o) => o.id === ln.branchId)?.label || ''}
+                                        displayText={ln.branchText || ''}
                                         onDisplayTextChange={(text) => updateLine(ln.key, { branchText: text })}
                                         onSelect={(opt) => updateLine(ln.key, {
                                             branchId: opt?.id || '',
-                                            branchText: opt?.label || '',
+                                            branchText: '',
                                         })}
                                         placeholder="Search branch…"
                                         entityLabel="branch"
@@ -464,11 +485,11 @@ export default function LockerExpenses() {
                                         id={`le-cat-${ln.key}`}
                                         options={categoryOpts}
                                         value={ln.category}
-                                        displayText={ln.categoryText || ln.category || ''}
+                                        displayText={ln.categoryText || ''}
                                         onDisplayTextChange={(text) => updateLine(ln.key, { categoryText: text })}
                                         onSelect={(opt) => updateLine(ln.key, {
                                             category: opt?.id || '',
-                                            categoryText: opt?.label || '',
+                                            categoryText: '',
                                         })}
                                         placeholder="Search category…"
                                         entityLabel="category"
@@ -580,7 +601,7 @@ export default function LockerExpenses() {
                                     onSelect={(opt) => setFilters((f) => ({
                                         ...f,
                                         branchId: opt?.id || 'all',
-                                        branchText: opt?.label || '',
+                                        branchText: '',
                                     }))}
                                     placeholder="All branches — type to search"
                                     entityLabel="branch"
@@ -600,7 +621,7 @@ export default function LockerExpenses() {
                                     onSelect={(opt) => setFilters((f) => ({
                                         ...f,
                                         category: opt?.id || 'all',
-                                        categoryText: opt?.label || '',
+                                        categoryText: '',
                                     }))}
                                     placeholder="All categories — type to search"
                                     entityLabel="category"
@@ -620,7 +641,7 @@ export default function LockerExpenses() {
                                     onSelect={(opt) => setFilters((f) => ({
                                         ...f,
                                         status: opt?.id || 'all',
-                                        statusText: opt?.label || '',
+                                        statusText: '',
                                     }))}
                                     placeholder="All statuses"
                                     entityLabel="status"

@@ -9,6 +9,8 @@ import SearchableEntityCombobox from '../../../components/SearchableEntityCombob
 import { ExportMenu } from '../../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../../utils/tableExport';
 import { expLogT } from '../../../utils/expensesLogI18n';
+import { LOCKER_EXPENSE_CATEGORIES } from '../../locker/lockerExpenseCategories';
+import { ADMIN_WALLET_EXPENSE_CATEGORIES } from '../../../constants/adminWalletExpenseCategories';
 import '../../../styles/admin/AccountingPage.css';
 
 const PAGE_SIZE = 50;
@@ -52,7 +54,11 @@ function buildExpenseExportTable(list, t) {
         formatExpenseDate(r.approvedAt),
         fmt(r.amount),
         r.category?.name
-            ? (r.source === 'admin_wallet' ? `${r.category.name} (${t('source.adminWallet')})` : r.category.name)
+            ? (r.source === 'admin_wallet'
+                ? `${r.category.name} (${t('source.adminWallet')})`
+                : r.source === 'locker'
+                    ? `${r.category.name} (${t('source.locker')})`
+                    : r.category.name)
             : '—',
         r.requestedBy?.name || r.requestedBy?.email || '—',
         r.branch?.name || '—',
@@ -68,8 +74,14 @@ const emptyApplied = {
     userId: '',
     dateFrom: '',
     dateTo: '',
-    search: '',
+    category: '',
 };
+
+function sourceLabel(source, t) {
+    if (source === 'admin_wallet') return t('source.adminWallet');
+    if (source === 'locker') return t('source.locker');
+    return null;
+}
 
 export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 'all' }) {
     const outletCtx = useOutletContext() || {};
@@ -85,7 +97,8 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
     const [userDisplay, setUserDisplay] = useState('');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
-    const [search, setSearch] = useState('');
+    const [category, setCategory] = useState('');
+    const [categoryDisplay, setCategoryDisplay] = useState('');
     const [applied, setApplied] = useState(() => ({
         ...emptyApplied,
         branchId: sidebarBranchToFilter(selectedBranchId),
@@ -111,12 +124,25 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
         ...users.map((u) => ({ id: String(u.id), label: formatFilterUserLabel(u) })),
     ], [users, t]);
 
+    const categoryComboOptions = useMemo(() => {
+        const names = [
+            ...new Set([
+                ...LOCKER_EXPENSE_CATEGORIES,
+                ...ADMIN_WALLET_EXPENSE_CATEGORIES,
+            ].map((c) => String(c || '').trim()).filter(Boolean)),
+        ].sort((a, b) => a.localeCompare(b));
+        return [
+            { id: 'all', label: t('opt.allCategories'), searchText: t('opt.allCategories') },
+            ...names.map((name) => ({ id: name, label: name, searchText: name })),
+        ];
+    }, [t]);
+
     const buildListParams = useCallback((filters, { limit, offset }) => ({
         branchId: filters.branchId || undefined,
         userId: filters.userId || undefined,
         dateFrom: filters.dateFrom || undefined,
         dateTo: filters.dateTo || undefined,
-        search: filters.search.trim() || undefined,
+        category: filters.category || undefined,
         limit,
         offset,
     }), []);
@@ -192,7 +218,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
             userId,
             dateFrom,
             dateTo,
-            search,
+            category,
         });
         setPage(1);
     };
@@ -309,19 +335,22 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                     <input type="date" className="form-input-field" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                 </div>
                 <div>
-                    <label className="form-label">{t('label.search')}</label>
-                    <input
-                        type="text"
-                        className="form-input-field"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                applyFilters();
-                            }
+                    <label className="form-label">{t('label.category')}</label>
+                    <SearchableEntityCombobox
+                        options={categoryComboOptions}
+                        value={category || 'all'}
+                        displayText={categoryDisplay}
+                        onDisplayTextChange={setCategoryDisplay}
+                        onSelect={(opt) => {
+                            const next = !opt?.id || opt.id === 'all' ? '' : String(opt.id);
+                            setCategory(next);
+                            setCategoryDisplay('');
                         }}
-                        placeholder={t('search.placeholder')}
+                        placeholder={t('search.categoryPh')}
+                        entityLabel="category"
+                        maxInitial={80}
+                        maxFiltered={120}
+                        menuMinWidth={260}
                     />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end' }}>
@@ -397,9 +426,9 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                                 <td className="table-cell">SAR {fmt(r.amount)}</td>
                                 <td className="table-cell">
                                     {r.category?.name ?? '—'}
-                                    {r.source === 'admin_wallet' ? (
+                                    {sourceLabel(r.source, t) ? (
                                         <span style={{ marginLeft: 6, color: '#64748B', fontSize: '0.7rem' }}>
-                                            · {t('source.adminWallet')}
+                                            · {sourceLabel(r.source, t)}
                                         </span>
                                     ) : null}
                                 </td>
