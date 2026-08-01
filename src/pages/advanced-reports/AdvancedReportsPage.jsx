@@ -836,6 +836,21 @@ function mergeTrend(trend) {
 
 function MarginTable({ t, title, rows, money, onNum, showQty = false, showUnitPricing = false }) {
     const colSpan = 6 + (showQty ? 1 : 0) + (showUnitPricing ? 2 : 0);
+    const list = rows || [];
+    const totals = list.reduce(
+        (acc, row) => {
+            acc.qty += Number(row.qty || 0);
+            acc.sales += Number(row.sales || 0);
+            acc.cogs += Number(row.cogs || 0);
+            acc.grossProfit += Number(row.grossProfit || 0);
+            return acc;
+        },
+        { qty: 0, sales: 0, cogs: 0, grossProfit: 0 },
+    );
+    const marginPercent = totals.sales
+        ? Math.round((totals.grossProfit / totals.sales) * 10000) / 100
+        : 0;
+
     return (
         <div className="adv-reports__panel">
             <h3>{title}</h3>
@@ -855,7 +870,7 @@ function MarginTable({ t, title, rows, money, onNum, showQty = false, showUnitPr
                         </tr>
                     </thead>
                     <tbody>
-                        {(rows || []).map((row) => (
+                        {list.map((row) => (
                             <tr key={`${row.kind}-${row.id}`}>
                                 <td>
                                     <Num onClick={() => onNum?.('product_sales', row)}>{row.name}</Num>
@@ -884,8 +899,25 @@ function MarginTable({ t, title, rows, money, onNum, showQty = false, showUnitPr
                                 <td><Num onClick={() => onNum?.('product_margin', row)}>{Number(row.marginPercent || 0).toFixed(2)}%</Num></td>
                             </tr>
                         ))}
-                        {!rows?.length ? <tr><td colSpan={colSpan}>{t('page.empty')}</td></tr> : null}
+                        {!list.length ? <tr><td colSpan={colSpan}>{t('page.empty')}</td></tr> : null}
                     </tbody>
+                    {list.length ? (
+                        <tfoot>
+                            <tr className="adv-reports__total-row">
+                                <td>{t('table.total')}</td>
+                                <td>{t('common.emDash')}</td>
+                                {showQty ? (
+                                    <td>{totals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
+                                ) : null}
+                                {showUnitPricing ? <td>{t('common.emDash')}</td> : null}
+                                {showUnitPricing ? <td>{t('common.emDash')}</td> : null}
+                                <td>{money(t, totals.sales)}</td>
+                                <td>{money(t, totals.cogs)}</td>
+                                <td>{money(t, totals.grossProfit)}</td>
+                                <td>{marginPercent.toFixed(2)}%</td>
+                            </tr>
+                        </tfoot>
+                    ) : null}
                 </table>
             </div>
         </div>

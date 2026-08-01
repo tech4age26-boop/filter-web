@@ -96,6 +96,7 @@ const AR_I18N = {
         'table.qty': 'Quantity',
         'table.unitPurchasePrice': 'Unit purchase price (incl. VAT)',
         'table.unitSalesPrice': 'Unit sales price (incl. VAT)',
+        'table.total': 'Total',
 
         'chart.revenueTrend': 'Revenue trend (both periods)',
         'chart.marginByCategory': 'Margin % by category',
@@ -219,6 +220,7 @@ const AR_I18N = {
         'table.qty': 'الكمية',
         'table.unitPurchasePrice': 'سعر الشراء للوحدة (شامل الضريبة)',
         'table.unitSalesPrice': 'سعر البيع للوحدة (شامل الضريبة)',
+        'table.total': 'الإجمالي',
 
         'chart.revenueTrend': 'اتجاه الإيراد (الفترتان)',
         'chart.marginByCategory': 'الهامش % حسب التصنيف',
