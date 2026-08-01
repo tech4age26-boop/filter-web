@@ -17,15 +17,17 @@ import {
     todayISO,
 } from '../../admin/saAccountingDateRange';
 import {
+    isWorkshopLockerExpensesLedgerAccount,
     isWorkshopPettyCashExpenseLedgerAccount,
     isWorkshopPettyCashFundLedgerAccount,
     parseWorkshopLedgerAccountIdFromPath,
 } from '../workshopCoaAccountRouting';
+import { LOCKER_EXPENSE_CATEGORIES } from '../../locker/lockerExpenseCategories';
 import '../../../styles/admin/AccountingPage.css';
 
 /**
- * Workshop admin — full-page petty cash fund [1280] or expense [6100] ledger
- * (mirrors Platform HQ [1335] / [6100] statement UI).
+ * Workshop admin — full-page ledger for petty cash fund [1280], employee petty
+ * cash expenses [6100], locker expenses [6110], and other COA accounts.
  */
 export default function WorkshopAccountLedgerPage() {
     const routeParams = useParams();
@@ -246,27 +248,54 @@ export default function WorkshopAccountLedgerPage() {
     const accountCode = data?.header?.accountCode || fallbackCode;
     const isFundFromCode = isWorkshopPettyCashFundLedgerAccount({ code: accountCode });
     const isExpenseFromCode = isWorkshopPettyCashExpenseLedgerAccount({ code: accountCode });
+    const isLockerFromCode = isWorkshopLockerExpensesLedgerAccount({ code: accountCode });
     const isWorkshopPettyCashFundLedger = Boolean(
         data?.workshopPettyCashFundLedger || isFundFromCode,
     );
     const isWorkshopPettyCashExpenseLedger = Boolean(
         data?.workshopPettyCashExpenseLedger || isExpenseFromCode,
     );
+    const isWorkshopLockerExpensesLedger = Boolean(
+        data?.workshopLockerExpensesLedger || isLockerFromCode,
+    );
     const isPettyCashExpenseLedger = Boolean(
-        data?.pettyCashExpenseLedger || isFundFromCode || isExpenseFromCode,
+        data?.pettyCashExpenseLedger
+        || isFundFromCode
+        || isExpenseFromCode
+        || isLockerFromCode,
     );
     const showTopupsOnlyFilter = isWorkshopPettyCashFundLedger;
     const showExpenseCategoryFilter = isPettyCashExpenseLedger && !topupsOnly;
-    const showBranchFilter = isWorkshopPettyCashFundLedger || isWorkshopPettyCashExpenseLedger;
-    const scopeNote = isWorkshopPettyCashExpenseLedger
-        ? `${entityLabel} · Employee petty cash expense ledger`
-        : `${entityLabel} · Employee petty cash fund ledger`;
+    const showBranchFilter =
+        isWorkshopPettyCashFundLedger
+        || isWorkshopPettyCashExpenseLedger
+        || isWorkshopLockerExpensesLedger;
+    const scopeNote = isWorkshopLockerExpensesLedger
+        ? `${entityLabel} · Locker Expenses ledger`
+        : isWorkshopPettyCashExpenseLedger
+            ? `${entityLabel} · Employee petty cash expense ledger`
+            : isWorkshopPettyCashFundLedger
+                ? `${entityLabel} · Employee petty cash fund ledger`
+                : '';
 
     const ledgerFilterOptions = useMemo(() => {
         if (data?.filterOptions) {
             return data.filterOptions;
         }
         if (!isPettyCashExpenseLedger) return null;
+        if (isWorkshopLockerExpensesLedger) {
+            return {
+                expenseCategories: [
+                    { key: '', label: 'All categories' },
+                    ...LOCKER_EXPENSE_CATEGORIES.map((name) => ({
+                        key: name,
+                        label: name,
+                    })),
+                ],
+                walletUsers: [{ key: '', label: 'All employees' }],
+                branches: [{ key: '', label: 'All branches' }],
+            };
+        }
         return {
             expenseCategories: adminWalletExpenseLedgerFilterOptions().map((o) => ({
                 key: o.id,
@@ -275,7 +304,7 @@ export default function WorkshopAccountLedgerPage() {
             walletUsers: [{ key: '', label: 'All employees' }],
             branches: [{ key: '', label: 'All branches' }],
         };
-    }, [data?.filterOptions, isPettyCashExpenseLedger]);
+    }, [data?.filterOptions, isPettyCashExpenseLedger, isWorkshopLockerExpensesLedger]);
 
     const walletUserComboboxOptions = useMemo(
         () =>
@@ -298,8 +327,19 @@ export default function WorkshopAccountLedgerPage() {
             }));
         }
         if (!isPettyCashExpenseLedger) return [];
+        if (isWorkshopLockerExpensesLedger) {
+            return LOCKER_EXPENSE_CATEGORIES.map((name) => ({
+                id: name,
+                label: name,
+                searchText: name,
+            }));
+        }
         return adminWalletExpenseLedgerFilterOptions();
-    }, [data?.filterOptions?.expenseCategories, isPettyCashExpenseLedger]);
+    }, [
+        data?.filterOptions?.expenseCategories,
+        isPettyCashExpenseLedger,
+        isWorkshopLockerExpensesLedger,
+    ]);
 
     function clearRangeAndReload() {
         const from = startOfMonthISO();
@@ -358,9 +398,11 @@ export default function WorkshopAccountLedgerPage() {
                 exportDisabled={!data || loading}
                 showPettyCashExpenseColumns={isPettyCashExpenseLedger}
                 walletUserColumnLabel={
-                    isWorkshopPettyCashExpenseLedger
-                        ? 'Wallet user / employee'
-                        : 'Employee'
+                    isWorkshopLockerExpensesLedger
+                        ? 'Recorded by'
+                        : isWorkshopPettyCashExpenseLedger
+                            ? 'Wallet user / employee'
+                            : 'Employee'
                 }
                 expenseCategoryColumnLabel="Account category"
                 closingBalanceKpiLabel="Closing Balance (selected period)"

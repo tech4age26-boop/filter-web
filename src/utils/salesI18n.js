@@ -2,6 +2,7 @@
 const SALES_I18N = {
     en: {
         'sub.reports': 'Sales Reports',
+        'sub.advanced': 'Advanced Reports',
         'sub.orders': 'Sales Orders',
         'sub.workshop': 'Workshop Sales',
         'sub.suppliers': 'Suppliers & Warehouse Sales',
@@ -166,6 +167,7 @@ const SALES_I18N = {
     },
     ar: {
         'sub.reports': 'تقارير المبيعات',
+        'sub.advanced': 'التقارير المتقدمة',
         'sub.orders': 'طلبات المبيعات',
         'sub.workshop': 'مبيعات الورشة',
         'sub.suppliers': 'الموردون ومبيعات المستودع',
@@ -343,6 +345,7 @@ export function salesT(locale, key, vars) {
 
 export const SALES_SUB_LABEL_KEYS = {
     'sales-reports': 'sub.reports',
+    'advanced-reports': 'sub.advanced',
     'sales-orders': 'sub.orders',
     'workshop-sales': 'sub.workshop',
     'suppliers-warehouse-sales': 'sub.suppliers',

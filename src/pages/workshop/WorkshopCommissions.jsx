@@ -10,8 +10,9 @@ import WorkshopCommissionRules from '../../components/commissions/WorkshopCommis
 import { useAuth } from '../../context/AuthContext';
 
 const COMMISSIONS_TABS = [
-    { key: 'ledger', label: 'Ledger', permission: 'workshop.commissions.ledger.view' },
-    { key: 'rules',  label: 'Rules',  permission: 'workshop.commissions.rules.view' },
+    { key: 'payouts', label: 'Pay-outs', permission: 'workshop.commissions.ledger.view' },
+    { key: 'commissions', label: 'Commissions', permission: 'workshop.commissions.ledger.view' },
+    { key: 'rules', label: 'Rules', permission: 'workshop.commissions.rules.view' },
 ];
 import {
     getWorkshopCommissionsSummary,
@@ -200,7 +201,7 @@ export default function WorkshopCommissions({
     const visibleCommissionTabs = adminMode
         ? COMMISSIONS_TABS
         : COMMISSIONS_TABS.filter((t) => hasPermission(t.permission));
-    const [activeTab, setActiveTab] = useState(() => visibleCommissionTabs[0]?.key ?? 'ledger');
+    const [activeTab, setActiveTab] = useState(() => visibleCommissionTabs[0]?.key ?? 'payouts');
     useEffect(() => {
         if (visibleCommissionTabs.length === 0) return;
         if (!visibleCommissionTabs.some((t) => t.key === activeTab)) {
@@ -649,6 +650,7 @@ export default function WorkshopCommissions({
             return key;
         });
         setFilterStatus('accrued');
+        setActiveTab('commissions');
     };
 
     const closePayoutScreen = () => {
@@ -818,6 +820,7 @@ export default function WorkshopCommissions({
                 </div>
             </div>
 
+            {activeTab === 'payouts' ? (
             <div className="ws-commissions-section">
                 <header
                     className="ws-section-header"
@@ -990,7 +993,8 @@ export default function WorkshopCommissions({
                     </WsTableScroll>
                 </div>
             </div>
-
+            ) : (
+            <>
             <div className="ws-commissions-filters">
                 <div className="ws-filter-group">
                     <select
@@ -1212,6 +1216,9 @@ export default function WorkshopCommissions({
                         Next
                     </button>
                 </div>
+            )}
+
+            </>
             )}
 
             </>

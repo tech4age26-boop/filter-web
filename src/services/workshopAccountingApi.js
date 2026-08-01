@@ -100,3 +100,33 @@ export const listJournalEntries = (params = {}) =>
 
 export const getJournalEntry = (id) =>
     apiFetch(withQuery(`/workshop-accounting/journal-entries/${encodeURIComponent(id)}`, {}));
+
+/** VAT Calculation — output (2100) vs input (1310), net ZATCA payable. */
+export const getWorkshopVatReport = (params = {}) =>
+    apiFetch(withQuery('/workshop-accounting/reports/vat', params));
+
+/** Period closing — snapshot + zero live COA balances. */
+export const runWorkshopPeriodClose = (body = {}) =>
+    apiFetch('/workshop-accounting/period-closes/run', {
+        method: 'POST',
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
+    });
+
+export const listWorkshopPeriodCloses = (params = {}) =>
+    apiFetch(withQuery('/workshop-accounting/period-closes', params));
+
+export const getWorkshopPeriodClose = (id, params = {}) =>
+    apiFetch(
+        withQuery(
+            `/workshop-accounting/period-closes/${encodeURIComponent(id)}`,
+            params,
+        ),
+    );
+
+export const downloadWorkshopPeriodCloseBackup = (id, params = {}) =>
+    apiFetch(
+        withQuery(
+            `/workshop-accounting/period-closes/${encodeURIComponent(id)}/backup`,
+            params,
+        ),
+    );

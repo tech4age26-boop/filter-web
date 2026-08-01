@@ -21,6 +21,7 @@ export const NAV_ITEMS = [
     { id: 'affiliated-suppliers', label: 'Filter Affiliated Suppliers', icon: Truck, permission: 'workshop.affiliated-suppliers.view' },
     { id: 'non-affiliated-suppliers', label: 'Non-Affiliated Suppliers', icon: Truck, permission: 'workshop.non-affiliated-suppliers.view' },
     { id: 'reports', label: 'Reports & Analytics', icon: BarChart3, permission: 'workshop.reports.view' },
+    { id: 'advanced-reports', label: 'Advanced Reports', icon: BarChart3, permission: 'workshop.reports.view' },
     { id: 'pos-monitoring', label: 'POS Monitoring', icon: Monitor, permission: 'workshop.pos-monitoring.view' },
     { id: 'logs', label: 'Logs', icon: ScrollText, permission: 'workshop.logs.view' },
 
@@ -50,19 +51,17 @@ export const NAV_ITEMS = [
         // Parent visible if any child permission exists
         subItems: [
             { id: 'acc-chart', label: 'Chart of Accounts', permission: 'workshop.accounting.chart-of-accounts.view' },
+            { id: 'acc-period-closings', label: 'Period Closings', permission: 'workshop.accounting.chart-of-accounts.view' },
             { id: 'acc-cash', label: 'Cash & Bank', permission: 'workshop.accounting.cash-bank.view' },
+            { id: 'acc-ledger', label: 'Ledger', permission: 'workshop.accounting.ledger.view' },
+            { id: 'acc-vat', label: 'VAT Calculation', permission: 'workshop.accounting.ledger.view' },
             { id: 'acc-transactions', label: 'Transactions', permission: 'workshop.accounting.transactions.view' },
             { id: 'acc-journal', label: 'Journal Entries', permission: 'workshop.accounting.journal-entries.view' },
-            { id: 'acc-expenses', label: 'Expenses', permission: 'workshop.accounting.expenses.view' },
             { id: 'acc-receipts', label: 'Receipts', permission: 'workshop.accounting.receipts.view' },
             { id: 'acc-payments', label: 'Payments', permission: 'workshop.accounting.payments.view' },
+            { id: 'acc-expenses', label: 'Petty Cash Expenses', permission: 'workshop.accounting.expenses.view' },
             { id: 'acc-advances', label: 'Advances', permission: 'workshop.accounting.advances.view' },
-
-            { id: 'acc-payroll', label: 'Payroll Run', permission: 'workshop.accounting.payroll.view' },
-
             { id: 'acc-approvals', label: 'Approval Limits', permission: 'workshop.accounting.approval-limits.view' },
-
-            { id: 'acc-ledger', label: 'Ledger', permission: 'workshop.accounting.ledger.view' },
         ],
     },
 

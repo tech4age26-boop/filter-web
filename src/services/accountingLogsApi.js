@@ -13,6 +13,9 @@ const qs = (params = {}) => {
 export const listCashBankTransactionsLog = (params = {}) =>
     apiFetch(`/accounting/logs/transactions${qs(params)}`);
 
+export const listReceiptPaymentMethods = (params = {}) =>
+    apiFetch(`/accounting/logs/payment-methods${qs(params)}`);
+
 export const listPettyCashExpensesLog = (params = {}) =>
     apiFetch(`/accounting/logs/petty-expenses${qs(params)}`);
 

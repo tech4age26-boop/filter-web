@@ -20,6 +20,7 @@ import SuppliersPage from './pages/admin/SuppliersPage';
 import EmployeesPage from './pages/admin/EmployeesPage';
 import BranchesPage from './pages/admin/BranchesPage';
 import SalesPage from './pages/admin/SalesPage';
+import AdvancedReportDrilldownPage from './pages/advanced-reports/AdvancedReportDrilldownPage';
 import AccountingPage from './pages/admin/AccountingPage';
 import MonitorAccountLedgerPage from './pages/admin/MonitorAccountLedgerPage';
 import CorporateArControlPage from './pages/admin/CorporateArControlPage';
@@ -295,6 +296,10 @@ function App() {
               <Route
                 path="sales"
                 element={<Navigate to="/admin/sales/workshop-sales" replace />}
+              />
+              <Route
+                path="sales/advanced-reports/drilldown"
+                element={<AdvancedReportDrilldownPage portal="admin" />}
               />
               <Route path="sales/:subTab" element={<SalesPage />} />
 

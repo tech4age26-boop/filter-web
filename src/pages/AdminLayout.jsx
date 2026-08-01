@@ -65,7 +65,7 @@ const TRANSLATIONS = {
             'workshop-commissions': 'Workshop Commissions',
             'salary-payroll': 'Salary & Payroll',
             'employee-ledger': 'Employee Ledger',
-            'sales-reports': 'Sales Reports', 'sales-orders': 'Sales Orders',
+            'sales-reports': 'Sales Reports', 'advanced-reports': 'Advanced Reports', 'sales-orders': 'Sales Orders',
             'corporate-transactions': 'Corporate Transactions', 'sales-returns': 'Sales Returns',
             'demo-invoices': 'Demo Invoices',
             chat: 'Chat',
@@ -102,7 +102,7 @@ const TRANSLATIONS = {
             'workshop-commissions': 'عمولات الورشة',
             'salary-payroll': 'الرواتب وكشوف الرواتب',
             'employee-ledger': 'دفتر الموظف',
-            'sales-reports': 'تقارير المبيعات', 'sales-orders': 'طلبات المبيعات',
+            'sales-reports': 'تقارير المبيعات', 'advanced-reports': 'التقارير المتقدمة', 'sales-orders': 'طلبات المبيعات',
             'corporate-transactions': 'معاملات الشركات', 'sales-returns': 'مرتجعات المبيعات',
             'demo-invoices': 'فواتير تجريبية',
             chat: 'المحادثة',
@@ -177,6 +177,7 @@ const NAV_CONFIG = [
                 icon: BadgeDollarSign,
                 subItems: [
                     { label: 'Sales Reports', path: 'sales-reports' },
+                    { label: 'Advanced Reports', path: 'advanced-reports' },
                     { label: 'Sales Orders', path: 'sales-orders' },
                     { label: 'Workshop Sales', path: 'workshop-sales' },
                     { label: 'Suppliers & Warehouse Sales', path: 'suppliers-warehouse-sales' },
@@ -247,6 +248,12 @@ const SidebarNavItem = ({ item, basePath, locale, hasPermission }) => {
 
     // Filter sub-items the user can't view.
     const visibleSubItems = (item.subItems ?? []).filter((sub) => {
+        if (item.path === 'sales' && sub.path === 'advanced-reports') {
+            return (
+                hasPermission('sales.advanced-reports.view')
+                || hasPermission('sales.sales-reports.view')
+            );
+        }
         const code = permissionCodeFor(item.path, sub.path);
         return code ? hasPermission(code) : true;
     });
