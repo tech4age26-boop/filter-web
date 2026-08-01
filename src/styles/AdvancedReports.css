@@ -326,6 +326,14 @@
     letter-spacing: 0.03em;
 }
 
+.adv-reports__table tfoot .adv-reports__total-row td {
+    border-bottom: 0;
+    border-top: 2px solid var(--ar-border);
+    font-weight: 750;
+    background: rgba(11, 61, 92, 0.04);
+    color: var(--ar-ink, #0f172a);
+}
+
 .adv-num-link {
     background: none;
     border: 0;
