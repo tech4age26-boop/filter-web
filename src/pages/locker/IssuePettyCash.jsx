@@ -9,7 +9,11 @@ const fmtSar = (n) =>
         maximumFractionDigits: 2,
     })}`;
 
-export default function IssuePettyCash() {
+export default function IssuePettyCash({
+    selectedBranchId = 'all',
+    branchLockedId = null,
+} = {}) {
+    const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : undefined);
     const [cashiers, setCashiers] = useState([]);
     const [overview, setOverview] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -28,12 +32,17 @@ export default function IssuePettyCash() {
         setLoading(true);
         setError('');
         try {
+            const branchQs = scopeBranch ? { branchId: scopeBranch } : {};
             const [cashRes, overRes, logRes] = await Promise.all([
                 apiFetch('/locker/cashiers').catch(() => ({ cashiers: [] })),
-                apiFetch(`/locker/dashboard${qs({ view: 'supervisor' })}`).catch(() => null),
-                apiFetch(`/locker/petty-cash-issues${qs({ limit: 15 })}`).catch(() => ({ issues: [] })),
+                apiFetch(`/locker/dashboard${qs({ view: 'supervisor', ...branchQs })}`).catch(() => null),
+                apiFetch(`/locker/petty-cash-issues${qs({ limit: 15, ...branchQs })}`).catch(() => ({ issues: [] })),
             ]);
-            setCashiers(cashRes?.cashiers || []);
+            let list = cashRes?.cashiers || [];
+            if (scopeBranch) {
+                list = list.filter((c) => !c.branchId || String(c.branchId) === String(scopeBranch));
+            }
+            setCashiers(list);
             setOverview(overRes);
             setHistory(Array.isArray(logRes?.issues) ? logRes.issues : []);
         } catch (e) {
@@ -41,7 +50,7 @@ export default function IssuePettyCash() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [scopeBranch]);
 
     useEffect(() => {
         load();

@@ -9,20 +9,25 @@ import { defaultHistoryDateRange, fmtSar } from './lockerFilterUtils';
  * Dedicated log of locker vault → cashier petty cash float issues.
  * Filters: date range, branch, cashier (searchable combobox + ↑↓).
  */
-export default function PettyCashIssueLog() {
+export default function PettyCashIssueLog({
+    selectedBranchId = 'all',
+    branches: layoutBranches = null,
+    branchLockedId = null,
+} = {}) {
     const defaults = useMemo(() => defaultHistoryDateRange(), []);
+    const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [filters, setFilters] = useState({
         from: defaults.from,
         to: defaults.to,
-        branchId: 'all',
+        branchId: scopeBranch,
         cashierId: 'all',
-        branchText: 'All branches',
+        branchText: '',
         cashierText: 'All cashiers',
     });
     const [applied, setApplied] = useState({
         from: defaults.from,
         to: defaults.to,
-        branchId: 'all',
+        branchId: scopeBranch,
         cashierId: 'all',
     });
     const [branches, setBranches] = useState([]);
@@ -33,25 +38,35 @@ export default function PettyCashIssueLog() {
     const [error, setError] = useState('');
 
     useEffect(() => {
+        const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
+        setFilters((f) => ({ ...f, branchId: next, branchText: '' }));
+        setApplied((a) => ({ ...a, branchId: next }));
+    }, [selectedBranchId, branchLockedId]);
+
+    useEffect(() => {
         Promise.all([
-            apiFetch('/locker/branches').then((r) => r?.branches || []).catch(() => []),
+            Array.isArray(layoutBranches) && layoutBranches.length
+                ? Promise.resolve(layoutBranches)
+                : apiFetch('/locker/branches').then((r) => r?.branches || []).catch(() => []),
             apiFetch('/locker/cashiers').then((r) => r?.cashiers || []).catch(() => []),
         ]).then(([b, c]) => {
             setBranches(Array.isArray(b) ? b : []);
             setCashiers(Array.isArray(c) ? c : []);
         });
-    }, []);
+    }, [layoutBranches]);
 
     const branchOpts = useMemo(
         () => [
-            { id: 'all', label: 'All branches', searchText: 'All branches' },
+            ...(branchLockedId
+                ? []
+                : [{ id: 'all', label: 'All branches', searchText: 'All branches' }]),
             ...(branches || []).map((b) => ({
                 id: String(b.id),
                 label: b.name,
                 searchText: b.name,
             })),
         ],
-        [branches],
+        [branches, branchLockedId],
     );
 
     const cashierOpts = useMemo(
@@ -105,19 +120,20 @@ export default function PettyCashIssueLog() {
 
     const resetFilters = () => {
         const d = defaultHistoryDateRange();
+        const nextBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
         const next = {
             from: d.from,
             to: d.to,
-            branchId: 'all',
+            branchId: nextBranch,
             cashierId: 'all',
-            branchText: 'All branches',
+            branchText: '',
             cashierText: 'All cashiers',
         };
         setFilters(next);
         setApplied({
             from: d.from,
             to: d.to,
-            branchId: 'all',
+            branchId: nextBranch,
             cashierId: 'all',
         });
     };
@@ -205,7 +221,7 @@ export default function PettyCashIssueLog() {
                         <SearchableEntityCombobox
                             id="pci-filter-branch"
                             options={branchOpts}
-                            value={filters.branchId || 'all'}
+                            value={branchLockedId || filters.branchId || 'all'}
                             displayText={filters.branchText || ''}
                             onDisplayTextChange={(text) => setFilters((f) => ({ ...f, branchText: text }))}
                             onSelect={(opt) => setFilters((f) => ({
@@ -217,7 +233,7 @@ export default function PettyCashIssueLog() {
                             entityLabel="branch"
                             maxInitial={40}
                             maxFiltered={60}
-                            disabled={loading}
+                            disabled={loading || Boolean(branchLockedId)}
                         />
                     </div>
                     <div className="ws-field">

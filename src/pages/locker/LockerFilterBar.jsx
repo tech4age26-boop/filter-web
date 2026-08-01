@@ -12,8 +12,10 @@ export default function LockerFilterBar({
     showOfficer = false,
     showExpectedRange = false,
     loading = false,
+    branchLockedId = null,
 }) {
     const set = (key, value) => onChange({ ...filters, [key]: value });
+    const branchLocked = Boolean(branchLockedId);
 
     return (
         <div className="wlk-filter-bar">
@@ -50,10 +52,12 @@ export default function LockerFilterBar({
                 <div className="ws-field">
                     <label>Branch</label>
                     <select
-                        value={filters.branchId || 'all'}
+                        value={branchLockedId || filters.branchId || 'all'}
+                        disabled={branchLocked}
+                        title={branchLocked ? 'Branch locked by workshop admin' : undefined}
                         onChange={(e) => set('branchId', e.target.value)}
                     >
-                        <option value="all">All branches</option>
+                        {!branchLocked ? <option value="all">All branches</option> : null}
                         {branches.map((b) => (
                             <option key={b.id} value={String(b.id)}>
                                 {b.name}

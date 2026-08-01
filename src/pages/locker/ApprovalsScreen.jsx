@@ -8,7 +8,10 @@ const fmtSar = (n) =>
         maximumFractionDigits: 2,
     })}`;
 
-export default function ApprovalsScreen() {
+export default function ApprovalsScreen({
+    selectedBranchId = 'all',
+    branchLockedId = null,
+} = {}) {
     const [approvals, setApprovals] = useState([]);
     const [loading, setLoading] = useState(false);
     const [busyId, setBusyId] = useState(null);
@@ -18,14 +21,16 @@ export default function ApprovalsScreen() {
         setLoading(true);
         setError('');
         try {
-            const res = await apiFetch('/locker/approvals');
+            const scope = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : undefined);
+            const q = scope ? `?branchId=${encodeURIComponent(scope)}` : '';
+            const res = await apiFetch(`/locker/approvals${q}`);
             setApprovals(res?.approvals || []);
         } catch (e) {
             setError(e?.message || 'Failed to load approvals');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [selectedBranchId, branchLockedId]);
 
     useEffect(() => {
         load();

@@ -350,17 +350,11 @@ export function buildPortalStaffPatchPayload(body, staffRole) {
     if (roleKey !== 'team_leader') {
         stripPortalDepartmentFields(patch);
     }
-    if (isLockerRole) {
-        // Locker users are workshop-wide — never patch a branch on them, the
-        // backend will reject it with 400.
-        delete patch.branchId;
-        delete patch.branch_id;
-        delete patch.branch;
-    }
     if (patch.password) {
         patch.newPassword = patch.password;
     }
-    if (!isLockerRole && patch.branchId != null && patch.branch === undefined) {
+    // Locker + portal staff: allow branchId (locker: empty/null = all branches).
+    if (patch.branchId != null && patch.branch === undefined) {
         patch.branch = patch.branchId;
     }
     return patch;
@@ -389,16 +383,20 @@ export const createWorkshopPortalStaff = async (body) => {
         }
     }
 
-    // Locker users are workshop-wide — strip branch + dept fields so the BE
-    // doesn't try to validate them. Manager / supervisor (workshop portal)
-    // already strip dept fields; team_leader keeps them.
+    // Locker: keep optional branchId (omit/empty = all branches). Strip dept.
+    // Manager / supervisor strip dept; team_leader keeps dept.
     let portalPayload;
     if (isLockerRole) {
         portalPayload = stripPortalDepartmentFields(body);
-        // Locker users are not tied to a branch; remove any stale branch keys.
-        delete portalPayload.branchId;
-        delete portalPayload.branch_id;
-        delete portalPayload.branch;
+        if (
+            portalPayload.branchId === '' ||
+            portalPayload.branchId == null ||
+            String(portalPayload.branchId).toLowerCase() === 'all'
+        ) {
+            delete portalPayload.branchId;
+            delete portalPayload.branch_id;
+            delete portalPayload.branch;
+        }
     } else if (roleKey === 'manager' || roleKey === 'supervisor') {
         portalPayload = stripPortalDepartmentFields(body);
     } else {

@@ -12,15 +12,20 @@ const EMPTY_FILTERS = {
     cashierId: 'all',
 };
 
-export default function DifferencesReport() {
+export default function DifferencesReport({
+    selectedBranchId = 'all',
+    branches: layoutBranches = null,
+    branchLockedId = null,
+} = {}) {
+    const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [data, setData] = useState(null);
     const [filters, setFilters] = useState(() => {
         const d = defaultHistoryDateRange();
-        return { ...EMPTY_FILTERS, from: d.from, to: d.to };
+        return { ...EMPTY_FILTERS, from: d.from, to: d.to, branchId: scopeBranch };
     });
     const [appliedFilters, setAppliedFilters] = useState(() => {
         const d = defaultHistoryDateRange();
-        return { ...EMPTY_FILTERS, from: d.from, to: d.to };
+        return { ...EMPTY_FILTERS, from: d.from, to: d.to, branchId: scopeBranch };
     });
     const [branches, setBranches] = useState([]);
     const [cashiers, setCashiers] = useState([]);
@@ -28,14 +33,22 @@ export default function DifferencesReport() {
     const [error, setError] = useState('');
 
     useEffect(() => {
+        const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
+        setFilters((f) => ({ ...f, branchId: next }));
+        setAppliedFilters((f) => ({ ...f, branchId: next }));
+    }, [selectedBranchId, branchLockedId]);
+
+    useEffect(() => {
         Promise.all([
-            apiFetch('/locker/branches').then((r) => r?.branches || []).catch(() => []),
+            Array.isArray(layoutBranches) && layoutBranches.length
+                ? Promise.resolve(layoutBranches)
+                : apiFetch('/locker/branches').then((r) => r?.branches || []).catch(() => []),
             apiFetch('/locker/cashiers').then((r) => r?.cashiers || []).catch(() => []),
         ]).then(([b, c]) => {
             setBranches(b);
             setCashiers(c);
         });
-    }, []);
+    }, [layoutBranches]);
 
     const load = useCallback(async (activeFilters = appliedFilters) => {
         setLoading(true);
@@ -59,7 +72,12 @@ export default function DifferencesReport() {
     const applyFilters = () => setAppliedFilters({ ...filters });
     const resetFilters = () => {
         const d = defaultHistoryDateRange();
-        const next = { ...EMPTY_FILTERS, from: d.from, to: d.to };
+        const next = {
+            ...EMPTY_FILTERS,
+            from: d.from,
+            to: d.to,
+            branchId: branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all'),
+        };
         setFilters(next);
         setAppliedFilters(next);
     };
@@ -99,6 +117,7 @@ export default function DifferencesReport() {
                 branches={branches}
                 cashiers={cashiers}
                 loading={loading}
+                branchLockedId={branchLockedId}
             />
 
             <div className="ws-kpi-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
@@ -131,52 +150,43 @@ export default function DifferencesReport() {
                 </div>
             </div>
 
-            <div className="ws-section">
+            <div className="ws-section" style={{ marginTop: 16 }}>
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th>Collection</th>
+                            <th>Date</th>
                             <th>Branch</th>
                             <th>Cashier</th>
-                            <th>Type</th>
-                            <th>Amount</th>
-                            <th>Date</th>
+                            <th>Expected</th>
+                            <th>Received</th>
+                            <th>Difference</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         {recent.length === 0 ? (
                             <tr>
-                                <td colSpan={6} style={{ textAlign: 'center', padding: 18, color: '#9ca3af' }}>
-                                    No variances match filters
+                                <td colSpan={7} style={{ textAlign: 'center', padding: 18, color: '#9ca3af' }}>
+                                    No variance rows for this filter
                                 </td>
                             </tr>
                         ) : (
-                            recent.map((a, idx) => (
-                                <tr key={a.id || idx}>
+                            recent.map((r, idx) => (
+                                <tr key={r.id || idx}>
                                     <td>
-                                        {a.referenceCode ||
-                                            a.requestReference ||
-                                            a.collectionId ||
-                                            a.id}
-                                    </td>
-                                    <td>{a.branchName || a.branch || '—'}</td>
-                                    <td>{a.cashierName || '—'}</td>
-                                    <td>
-                                        <span
-                                            className={`ws-badge ${
-                                                (a.type || a.status) === 'short' ? 'ws-badge--red' : 'ws-badge--green'
-                                            }`}
-                                        >
-                                            {a.type || a.status || '—'}
-                                        </span>
-                                    </td>
-                                    <td>{fmtSar(a.amount ?? a.difference)}</td>
-                                    <td>
-                                        {a.date
-                                            ? new Date(a.date).toLocaleDateString()
-                                            : a.collectedAt
-                                            ? new Date(a.collectedAt).toLocaleDateString()
+                                        {r.date || r.collectedAt
+                                            ? new Date(r.date || r.collectedAt).toLocaleString()
                                             : '—'}
+                                    </td>
+                                    <td>{r.branchName || r.branch?.name || '—'}</td>
+                                    <td>{r.cashierName || '—'}</td>
+                                    <td>{fmtSar(r.expectedAmount)}</td>
+                                    <td>{fmtSar(r.receivedAmount)}</td>
+                                    <td>{fmtSar(r.difference)}</td>
+                                    <td>
+                                        <span className="ws-badge ws-badge--yellow">
+                                            {String(r.status || '—').replace(/_/g, ' ')}
+                                        </span>
                                     </td>
                                 </tr>
                             ))

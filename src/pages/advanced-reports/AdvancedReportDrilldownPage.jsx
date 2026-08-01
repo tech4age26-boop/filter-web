@@ -29,11 +29,13 @@ export default function AdvancedReportDrilldownPage({ portal = 'workshop' } = {}
     });
     const t = useCallback((key, vars) => arT(locale, key, vars), [locale]);
 
+    const queryKey = searchParams.toString();
     const query = useMemo(() => {
         const o = {};
         searchParams.forEach((v, k) => { o[k] = v; });
         return o;
-    }, [searchParams]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey captures param values
+    }, [queryKey]);
 
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -60,7 +62,9 @@ export default function AdvancedReportDrilldownPage({ portal = 'workshop' } = {}
             }
         })();
         return () => { cancelled = true; };
-    }, [portal, query, t]);
+        // Intentionally depend on queryKey (stable string) + portal; avoid re-fetch loops.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [portal, queryKey]);
 
     const backTo = portal === 'admin'
         ? '/admin/sales/advanced-reports'
@@ -139,10 +143,15 @@ export default function AdvancedReportDrilldownPage({ portal = 'workshop' } = {}
                                     <tr key={r.id}>
                                         {columns.map((c) => {
                                             const v = r[c.key];
-                                            const isMoney = /amount|cogs|profit|price|total|subtotal|vat/i.test(c.key);
+                                            const isMoney = /amount|cogs|profit|price|total|subtotal|vat|unitCost|unitPrice/i.test(c.key);
+                                            const isQty = c.key === 'qty';
                                             return (
                                                 <td key={c.key}>
-                                                    {typeof v === 'number' && isMoney ? money(v) : (v ?? t('common.emDash'))}
+                                                    {typeof v === 'number' && isMoney
+                                                        ? money(v)
+                                                        : typeof v === 'number' && isQty
+                                                            ? v.toLocaleString(undefined, { maximumFractionDigits: 3 })
+                                                            : (v ?? t('common.emDash'))}
                                                 </td>
                                             );
                                         })}
