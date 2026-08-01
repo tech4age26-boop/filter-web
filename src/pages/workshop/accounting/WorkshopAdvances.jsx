@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useOutletContext } from 'react-router-dom';
+import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
 import {
     ArrowLeftRight,
     BookOpen,
@@ -7,6 +7,7 @@ import {
     ChevronDown,
     Clock,
     DollarSign,
+    FileDown,
     Plus,
     Search,
     Users,
@@ -35,6 +36,7 @@ import {
 import { accT } from '../../../utils/accountingI18n';
 import WorkshopSalaryTab from './WorkshopSalaryTab';
 import WorkshopEmployeeLedgerTab from './WorkshopEmployeeLedgerTab';
+import { exportAdvancesExcel, exportAdvancesPdf } from './workshopAdvancesExport';
 import '../../../styles/admin/AccountingPage.css';
 
 const fmt = (n) => {
@@ -73,15 +75,24 @@ const makeAdvanceRow = () => ({
     reason: '',
 });
 
-export default function WorkshopAdvances({ branches = [], selectedBranchId = 'all' }) {
+const ADV_TAB_IDS = new Set(ADV_TABS.map((t) => t.id));
+
+export default function WorkshopAdvances({ branches = [], selectedBranchId = 'all', initialTab: initialTabProp }) {
     const outletCtx = useOutletContext() || {};
+    const [searchParams] = useSearchParams();
     const locale =
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';
     const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
 
-    const [activeTab, setActiveTab] = useState('By Employee');
+    const initialTab = (() => {
+        if (initialTabProp && ADV_TAB_IDS.has(initialTabProp)) return initialTabProp;
+        const fromQuery = String(searchParams.get('tab') || '').trim();
+        if (ADV_TAB_IDS.has(fromQuery)) return fromQuery;
+        return 'By Employee';
+    })();
+    const [activeTab, setActiveTab] = useState(initialTab);
     const [filter, setFilter] = useState('All');
     const [branchFilter, setBranchFilter] = useState(
         selectedBranchId && selectedBranchId !== 'all' ? String(selectedBranchId) : '',
@@ -185,6 +196,40 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
             return searchMatch;
         });
     }, [advances, search]);
+
+    const advancesBranchName = useMemo(() => {
+        if (!branchFilter) return 'All branches';
+        const b = branches.find((x) => String(x.id) === String(branchFilter));
+        return b?.name || 'All branches';
+    }, [branchFilter, branches]);
+
+    const advancesStatusLabel = useMemo(() => {
+        const map = {
+            All: 'All / الكل',
+            Pending: 'Pending / قيد الانتظار',
+            Approved: 'Approved / موافق عليه',
+            Repaid: 'Settled / مسدد',
+            Rejected: 'Rejected / مرفوض',
+        };
+        return map[filter] || 'All / الكل';
+    }, [filter]);
+
+    const exportAdvances = async (kind) => {
+        if (!filteredAdvances.length) return;
+        setError('');
+        try {
+            const payload = {
+                rows: filteredAdvances,
+                branchName: advancesBranchName,
+                statusLabel: advancesStatusLabel,
+                search,
+            };
+            if (kind === 'pdf') await exportAdvancesPdf(payload);
+            else exportAdvancesExcel(payload);
+        } catch (e) {
+            setError(e?.message || (kind === 'pdf' ? 'Could not export advances PDF.' : 'Could not export advances Excel.'));
+        }
+    };
 
     const filteredOverviewBranches = useMemo(() => {
         const q = search.trim().toLowerCase();
@@ -404,18 +449,40 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                     </div>
                 ) : null}
                 {activeTab === 'Advances' ? (
-                    <div className="adv-status-filters">
-                        {ADV_FILTERS.map((f) => (
+                    <>
+                        <div className="adv-status-filters">
+                            {ADV_FILTERS.map((f) => (
+                                <button
+                                    key={f.id}
+                                    type="button"
+                                    className={`adv-status-btn ${filter === f.id ? 'active' : ''}`}
+                                    onClick={() => setFilter(f.id)}
+                                >
+                                    {t(f.labelKey)}
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
                             <button
-                                key={f.id}
                                 type="button"
-                                className={`adv-status-btn ${filter === f.id ? 'active' : ''}`}
-                                onClick={() => setFilter(f.id)}
+                                className="btn-portal-outline"
+                                disabled={loading || filteredAdvances.length === 0}
+                                onClick={() => exportAdvances('pdf')}
                             >
-                                {t(f.labelKey)}
+                                <FileDown size={14} style={{ marginRight: 6 }} />
+                                PDF
                             </button>
-                        ))}
-                    </div>
+                            <button
+                                type="button"
+                                className="btn-portal-outline"
+                                disabled={loading || filteredAdvances.length === 0}
+                                onClick={() => exportAdvances('excel')}
+                            >
+                                <FileDown size={14} style={{ marginRight: 6 }} />
+                                Excel
+                            </button>
+                        </div>
+                    </>
                 ) : null}
             </div>
 

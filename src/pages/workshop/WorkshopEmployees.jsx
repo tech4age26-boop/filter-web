@@ -324,15 +324,15 @@ function WorkshopEmployees({
         (emp) => {
             const ids = Array.isArray(emp.departmentIds) ? emp.departmentIds : [];
             if (ids.length && workshopDepartments.length) {
-                const names = ids
-                    .map((id) => {
-                        const row = workshopDepartments.find(
-                            (d) => String(d.id ?? d._id) === String(id),
-                        );
-                        return row?.name ?? row?.departmentName ?? '';
-                    })
+            const names = ids
+                .map((id) => {
+                    const row = workshopDepartments.find(
+                        (d) => String(d.id ?? d._id) === String(id),
+                    );
+                    return row?.name ?? row?.departmentName ?? '';
+                })
                     .map((n) => String(n).trim())
-                    .filter(Boolean);
+                .filter(Boolean);
                 if (names.length) return names;
             }
             const direct = emp.department && String(emp.department).trim();
@@ -778,14 +778,14 @@ function WorkshopEmployees({
     };
 
     if (roleEditTarget !== null) {
-        return (
+    return (
             <WorkshopRoleScreen
                 role={roleEditTarget.id ? roleEditTarget : null}
                 branches={branchList}
                 onBack={() => setRoleEditTarget(null)}
                 onSaved={async () => {
                     setRoleEditTarget(null);
-                    await loadWorkshopRoles();
+                            await loadWorkshopRoles();
                 }}
             />
         );
@@ -818,7 +818,7 @@ function WorkshopEmployees({
     if (modalOpen) {
         return (
             <WorkshopSubScreen
-                title={editing ? 'Edit Employee' : 'Add New Employee'}
+                        title={editing ? 'Edit Employee' : 'Add New Employee'}
                 subtitle={
                     editing
                         ? `Update ${editing.name || 'employee'} details, role, and access.`
@@ -831,13 +831,13 @@ function WorkshopEmployees({
                 className="ws-employee-form-screen"
                 footer={(
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
-                        <button type="button" className="btn-secondary" onClick={() => setModalOpen(false)} disabled={saving}>
-                            Cancel
-                        </button>
-                        <button type="button" className="btn-submit" onClick={handleSave} disabled={saving}>
-                            {saving ? 'Saving…' : 'Save'}
-                        </button>
-                    </div>
+                                <button type="button" className="btn-secondary" onClick={() => setModalOpen(false)} disabled={saving}>
+                                    Cancel
+                                </button>
+                                <button type="button" className="btn-submit" onClick={handleSave} disabled={saving}>
+                                    {saving ? 'Saving…' : 'Save'}
+                                </button>
+                            </div>
                 )}
             >
                 <div className="ws-section ws-employee-form">
@@ -1222,7 +1222,7 @@ function WorkshopEmployees({
                 size="full"
             >
                 <WorkshopRolesPanel
-                    roles={workshopRoles}
+                        roles={workshopRoles}
                     canCreate={canCreateRoles}
                     canDelete={canDeleteRoles}
                     onCreate={() => setRoleEditTarget({})}

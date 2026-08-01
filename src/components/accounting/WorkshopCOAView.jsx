@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import {
     BookOpen,
     ChevronDown,
+    ChevronRight,
     CheckCircle2,
+    Folder,
+    FolderOpen,
     Pencil,
     Printer,
     Plus,
@@ -24,13 +27,12 @@ import {
     getTrialBalance,
     updateAccount,
 } from '../../services/accountsApi';
+import { runWorkshopPeriodClose } from '../../services/workshopAccountingApi';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 import {
     buildWorkshopCoaNavigationUrl,
-    filterWorkshopPettyCashCoaList,
     isWorkshopCoaLedgerClickable,
     isWorkshopPettyCashCoaControlAccount,
-    pruneWorkshopPettyCashCoaTree,
     WORKSHOP_COA_CONTROL_BADGES,
 } from '../../pages/workshop/workshopCoaAccountRouting';
 import {
@@ -124,17 +126,39 @@ function getErrorMessage(error) {
     return error?.message || 'Something went wrong. Please try again.';
 }
 
-function flattenTree(nodes = [], depth = 0, acc = []) {
-    nodes.forEach((node, idx) => {
-        const marker =
-            depth === 0
-                ? ''
-                : `${'  '.repeat(Math.max(depth - 1, 0))}${
-                      idx === nodes.length - 1 ? '└ ' : '├ '
-                  }`;
-        acc.push({ ...node, _depth: depth, _marker: marker });
-        if (Array.isArray(node.children) && node.children.length) {
-            flattenTree(node.children, depth + 1, acc);
+function filterTreeForSearch(nodes = [], q = '') {
+    if (!q) return nodes;
+    return nodes
+        .map((node) => {
+            const children = filterTreeForSearch(node.children || [], q);
+            const hay = `${node.code || ''} ${node.name || ''} ${node.description || ''}`.toLowerCase();
+            if (hay.includes(q) || children.length) {
+                return { ...node, children };
+            }
+            return null;
+        })
+        .filter(Boolean);
+}
+
+/** Visible rows for Manager-style folder COA (expand/collapse). */
+function flattenVisibleTree(nodes = [], expandedIds, forceExpand = false, depth = 0, acc = []) {
+    nodes.forEach((node) => {
+        const children = Array.isArray(node.children) ? node.children : [];
+        const hasChildren = children.length > 0;
+        acc.push({ ...node, _depth: depth, _hasChildren: hasChildren });
+        if (hasChildren && (forceExpand || expandedIds.has(String(node.id)))) {
+            flattenVisibleTree(children, expandedIds, forceExpand, depth + 1, acc);
+        }
+    });
+    return acc;
+}
+
+function collectExpandableIds(nodes = [], acc = []) {
+    nodes.forEach((node) => {
+        const children = node.children || [];
+        if (children.length) {
+            acc.push(String(node.id));
+            collectExpandableIds(children, acc);
         }
     });
     return acc;
@@ -187,6 +211,8 @@ export default function WorkshopCOAView({ readOnly = false }) {
     const navigate = useNavigate();
     const [accounts, setAccounts] = useState([]);
     const [treeAccounts, setTreeAccounts] = useState([]);
+    const [expandedIds, setExpandedIds] = useState(() => new Set());
+    const [expandInitForTree, setExpandInitForTree] = useState('');
     const [branches, setBranches] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -207,6 +233,14 @@ export default function WorkshopCOAView({ readOnly = false }) {
     const [deleteLoadingId, setDeleteLoadingId] = useState('');
     const [deleteError, setDeleteError] = useState('');
     const [activeTab, setActiveTab] = useState('Chart of Accounts');
+
+    const [periodCloseOpen, setPeriodCloseOpen] = useState(false);
+    const [periodCloseLabel, setPeriodCloseLabel] = useState('');
+    const [periodCloseDate, setPeriodCloseDate] = useState(() => todayISO());
+    const [periodCloseNotes, setPeriodCloseNotes] = useState('');
+    const [periodCloseLoading, setPeriodCloseLoading] = useState(false);
+    const [periodCloseError, setPeriodCloseError] = useState('');
+    const [periodCloseDone, setPeriodCloseDone] = useState(null);
 
     const [tbFilters, setTbFilters] = useState({ dateFrom: '', dateTo: '', branchId: '' });
     const [tbData, setTbData] = useState({
@@ -277,10 +311,10 @@ export default function WorkshopCOAView({ readOnly = false }) {
                 if (cancelled) return;
                 const flat = parseArr(flatRaw);
                 const tree = parseArr(treeRaw);
-                const normalizedFlat = filterWorkshopPettyCashCoaList(
-                    flat.map(normalizeAccount),
-                ).sort((a, b) => a.code.localeCompare(b.code));
-                const normalizedTree = pruneWorkshopPettyCashCoaTree(tree.map(normalizeAccount));
+                const normalizedFlat = flat
+                    .map(normalizeAccount)
+                    .sort((a, b) => a.code.localeCompare(b.code));
+                const normalizedTree = tree.map(normalizeAccount);
                 setAccounts(normalizedFlat);
                 setTreeAccounts(normalizedTree);
             } catch (err) {
@@ -295,7 +329,19 @@ export default function WorkshopCOAView({ readOnly = false }) {
         };
     }, [reloadTick, selectedType, selectedBranch]);
 
-    const treeFlat = useMemo(() => flattenTree(treeAccounts), [treeAccounts]);
+    const accountById = useMemo(() => {
+        const map = new Map();
+        accounts.forEach((acc) => map.set(String(acc.id), acc));
+        return map;
+    }, [accounts]);
+
+    useEffect(() => {
+        const signature = treeAccounts.map((n) => n.id).join(',');
+        if (!signature || signature === expandInitForTree) return;
+        // Always start collapsed; user expands via "Expand folders" or folder chevron.
+        setExpandedIds(new Set());
+        setExpandInitForTree(signature);
+    }, [treeAccounts, expandInitForTree]);
 
     const branchById = useMemo(() => {
         const m = new Map();
@@ -309,28 +355,53 @@ export default function WorkshopCOAView({ readOnly = false }) {
         return map;
     }, [accounts]);
 
-    const filteredAccounts = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        return accounts.filter((acc) => {
-            const matchSearch = q
-                ? `${acc.code} ${acc.name} ${acc.description || ''}`
-                      .toLowerCase()
-                      .includes(q)
-                : true;
-            return matchSearch;
-        });
-    }, [accounts, search]);
+    const searchQ = search.trim().toLowerCase();
+    const filteredTree = useMemo(
+        () => filterTreeForSearch(treeAccounts, searchQ),
+        [treeAccounts, searchQ],
+    );
+
+    const visibleTreeRows = useMemo(
+        () => flattenVisibleTree(filteredTree, expandedIds, Boolean(searchQ)),
+        [filteredTree, expandedIds, searchQ],
+    );
 
     const grouped = useMemo(() => {
         const map = { ASSET: [], LIABILITY: [], EQUITY: [], INCOME: [], EXPENSE: [] };
-        filteredAccounts.forEach((acc) => {
-            if (map[acc.type]) map[acc.type].push(acc);
-        });
-        Object.keys(map).forEach((k) => {
-            map[k].sort((a, b) => a.code.localeCompare(b.code));
+        visibleTreeRows.forEach((row) => {
+            const flat = accountById.get(String(row.id)) || {};
+            const merged = {
+                ...flat,
+                ...row,
+                closingDebit: flat.closingDebit ?? row.closingDebit,
+                closingCredit: flat.closingCredit ?? row.closingCredit,
+                hasChildren: row._hasChildren,
+                isHeading: row._hasChildren,
+            };
+            if (map[merged.type]) map[merged.type].push(merged);
         });
         return map;
-    }, [filteredAccounts]);
+    }, [visibleTreeRows, accountById]);
+
+    const toggleExpanded = useCallback((id, e) => {
+        e?.stopPropagation?.();
+        e?.preventDefault?.();
+        const key = String(id);
+        setExpandedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    }, []);
+
+    const expandAllFolders = useCallback(() => {
+        setExpandedIds(new Set(collectExpandableIds(treeAccounts)));
+    }, [treeAccounts]);
+
+    const collapseAllFolders = useCallback(() => {
+        setExpandedIds(new Set());
+    }, []);
 
     const totalsByType = useMemo(() => {
         const result = { ASSET: 0, LIABILITY: 0, EQUITY: 0, INCOME: 0, EXPENSE: 0 };
@@ -1027,6 +1098,56 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                 }}
                             />
                         </div>
+                        <button
+                            type="button"
+                            className="btn-portal-outline"
+                            onClick={expandAllFolders}
+                            style={{ whiteSpace: 'nowrap' }}
+                        >
+                            Expand folders
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-portal-outline"
+                            onClick={collapseAllFolders}
+                            style={{ whiteSpace: 'nowrap' }}
+                        >
+                            Collapse folders
+                        </button>
+                        {!readOnly ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPeriodCloseError('');
+                                    setPeriodCloseDone(null);
+                                    setPeriodCloseLabel('');
+                                    setPeriodCloseDate(todayISO());
+                                    setPeriodCloseNotes('');
+                                    setPeriodCloseOpen(true);
+                                }}
+                                style={{
+                                    whiteSpace: 'nowrap',
+                                    border: 'none',
+                                    background: '#0F766E',
+                                    color: '#fff',
+                                    borderRadius: 8,
+                                    padding: '8px 14px',
+                                    fontWeight: 700,
+                                    fontSize: 13,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                Run Period Closing
+                            </button>
+                        ) : null}
+                        <button
+                            type="button"
+                            className="btn-portal-outline"
+                            onClick={() => navigate('/workshop/accounting/period-closings')}
+                            style={{ whiteSpace: 'nowrap' }}
+                        >
+                            Period Closings
+                        </button>
                         {renderBranchPicker(selectedBranch, setSelectedBranch)}
                         <div style={{ position: 'relative' }}>
                             <select
@@ -1201,8 +1322,9 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                             : 'Shared';
                                                         const autoLinked = acc.isAutoSeed;
                                                         const controlBadge = WORKSHOP_COA_CONTROL_BADGES[String(acc.code)];
-                                                        const marker =
-                                                            (treeFlat.find((x) => String(x.id) === String(acc.id)) || {})._marker || '';
+                                                        const depth = Number(acc._depth || 0);
+                                                        const hasChildren = Boolean(acc._hasChildren || acc.hasChildren);
+                                                        const isExpanded = expandedIds.has(String(acc.id)) || Boolean(searchQ);
                                                         const bal = formatFinalBalance(acc);
                                                         const ledgerClickable = isWorkshopCoaLedgerClickable(acc);
                                                         return (
@@ -1220,14 +1342,14 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                 className={ledgerClickable ? 'sa-acc-row-clickable' : undefined}
                                                                 style={{
                                                                     borderBottom: '1px solid #f3f4f6',
-                                                                    background: '#fff',
+                                                                    background: hasChildren ? '#fafafa' : '#fff',
                                                                     cursor: ledgerClickable ? 'pointer' : 'default',
                                                                 }}
                                                                 onMouseOver={ledgerClickable ? (e) => {
                                                                     e.currentTarget.style.background = '#f3f4f6';
                                                                 } : undefined}
                                                                 onMouseOut={ledgerClickable ? (e) => {
-                                                                    e.currentTarget.style.background = '#fff';
+                                                                    e.currentTarget.style.background = hasChildren ? '#fafafa' : '#fff';
                                                                 } : undefined}
                                                             >
                                                                 <td
@@ -1242,9 +1364,61 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                     {acc.code}
                                                                 </td>
                                                                 <td style={{ padding: '12px' }}>
-                                                                    <div style={{ fontWeight: 600, color: palette.textPrimary }}>
-                                                                        {marker}
-                                                                        {acc.name}
+                                                                    <div
+                                                                        style={{
+                                                                            fontWeight: hasChildren ? 700 : 600,
+                                                                            color: palette.textPrimary,
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            gap: 6,
+                                                                            paddingLeft: depth * 18,
+                                                                        }}
+                                                                    >
+                                                                        {hasChildren ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={(e) => toggleExpanded(acc.id, e)}
+                                                                                title={isExpanded ? 'Collapse' : 'Expand'}
+                                                                                style={{
+                                                                                    border: 'none',
+                                                                                    background: 'transparent',
+                                                                                    padding: 0,
+                                                                                    display: 'inline-flex',
+                                                                                    cursor: 'pointer',
+                                                                                    color: palette.textSecondary,
+                                                                                }}
+                                                                            >
+                                                                                {isExpanded ? (
+                                                                                    <ChevronDown size={16} />
+                                                                                ) : (
+                                                                                    <ChevronRight size={16} />
+                                                                                )}
+                                                                            </button>
+                                                                        ) : (
+                                                                            <span style={{ width: 16, display: 'inline-block' }} />
+                                                                        )}
+                                                                        {hasChildren ? (
+                                                                            isExpanded ? (
+                                                                                <FolderOpen size={15} color={palette.primary} />
+                                                                            ) : (
+                                                                                <Folder size={15} color={palette.primary} />
+                                                                            )
+                                                                        ) : null}
+                                                                        <span>{acc.name}</span>
+                                                                        {hasChildren && !controlBadge ? (
+                                                                            <span
+                                                                                style={{
+                                                                                    background: '#FEF3C7',
+                                                                                    color: '#92400E',
+                                                                                    padding: '2px 8px',
+                                                                                    borderRadius: 4,
+                                                                                    fontSize: '0.7rem',
+                                                                                    fontWeight: 600,
+                                                                                }}
+                                                                            >
+                                                                                Folder
+                                                                            </span>
+                                                                        ) : null}
                                                                         {autoLinked && (
                                                                             <span
                                                                                 style={{
@@ -1254,7 +1428,6 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                     borderRadius: 4,
                                                                                     fontSize: '0.7rem',
                                                                                     fontWeight: 600,
-                                                                                    marginLeft: 8,
                                                                                 }}
                                                                             >
                                                                                 Auto-linked
@@ -1269,7 +1442,6 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                     borderRadius: 4,
                                                                                     fontSize: '0.7rem',
                                                                                     fontWeight: 600,
-                                                                                    marginLeft: 8,
                                                                                 }}
                                                                             >
                                                                                 {controlBadge.label}
@@ -1282,6 +1454,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                             fontStyle: 'italic',
                                                                             fontSize: 12,
                                                                             marginTop: 2,
+                                                                            paddingLeft: depth * 18 + 22,
                                                                         }}
                                                                     >
                                                                         {acc.description || parentName}
@@ -1292,9 +1465,10 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                 color: palette.textSecondary,
                                                                                 fontSize: 11,
                                                                                 marginTop: 4,
+                                                                                paddingLeft: depth * 18 + 22,
                                                                             }}
                                                                         >
-                                                                            Branch & employee detail — open ledger and use filters.
+                                                                            Expand folder for branch subaccounts, or open ledger and use filters.
                                                                         </div>
                                                                     ) : null}
                                                                 </td>
@@ -1439,6 +1613,238 @@ export default function WorkshopCOAView({ readOnly = false }) {
                 </div>
             ) : (
                 <div style={{ padding: 24, background: palette.cardBg }}>{renderReportContent()}</div>
+            )}
+
+            {periodCloseOpen && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(15,23,42,0.45)',
+                        zIndex: 80,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 16,
+                    }}
+                    onClick={() => !periodCloseLoading && setPeriodCloseOpen(false)}
+                >
+                    <div
+                        style={{
+                            width: '100%',
+                            maxWidth: 480,
+                            background: '#fff',
+                            borderRadius: 14,
+                            padding: 22,
+                            boxShadow: '0 20px 50px rgba(0,0,0,0.18)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0F172A' }}>
+                            Run Period Closing
+                        </h3>
+                        <p style={{ margin: '8px 0 16px', fontSize: 13, color: '#64748B', lineHeight: 1.45 }}>
+                            Creates a frozen COA backup, downloads it to your PC, zeros live Chart of Accounts balances,
+                            and adds a link under Period Closings. Sales, purchases, inventory, and journal history stay in place.
+                        </p>
+
+                        {periodCloseDone ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                <div
+                                    style={{
+                                        padding: 12,
+                                        borderRadius: 10,
+                                        background: '#ECFDF5',
+                                        border: '1px solid #A7F3D0',
+                                        color: '#065F46',
+                                        fontSize: 13,
+                                    }}
+                                >
+                                    {periodCloseDone.message || 'Period closed successfully.'}
+                                    {periodCloseDone.linkPath ? (
+                                        <div style={{ marginTop: 8 }}>
+                                            Link:{' '}
+                                            <button
+                                                type="button"
+                                                onClick={() => navigate(periodCloseDone.linkPath)}
+                                                style={{
+                                                    border: 'none',
+                                                    background: 'none',
+                                                    color: '#0F766E',
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer',
+                                                    padding: 0,
+                                                    textDecoration: 'underline',
+                                                }}
+                                            >
+                                                {periodCloseDone.linkPath}
+                                            </button>
+                                        </div>
+                                    ) : null}
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                                    <button
+                                        type="button"
+                                        className="btn-portal-outline"
+                                        onClick={() => navigate('/workshop/accounting/period-closings')}
+                                    >
+                                        Open Period Closings
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setPeriodCloseOpen(false);
+                                            setPeriodCloseDone(null);
+                                            setReloadTick((t) => t + 1);
+                                        }}
+                                        style={{
+                                            border: 'none',
+                                            background: palette.primary,
+                                            color: '#fff',
+                                            borderRadius: 8,
+                                            padding: '10px 18px',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        Done
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <div style={{ display: 'grid', gap: 12 }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                                            Period end date
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={periodCloseDate}
+                                            onChange={(e) => setPeriodCloseDate(e.target.value)}
+                                            style={inputStyle}
+                                            disabled={periodCloseLoading}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                                            Label (optional)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. FY 2025 / July 2026 close"
+                                            value={periodCloseLabel}
+                                            onChange={(e) => setPeriodCloseLabel(e.target.value)}
+                                            style={inputStyle}
+                                            disabled={periodCloseLoading}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                                            Notes (optional)
+                                        </label>
+                                        <textarea
+                                            rows={2}
+                                            value={periodCloseNotes}
+                                            onChange={(e) => setPeriodCloseNotes(e.target.value)}
+                                            style={{ ...inputStyle, resize: 'vertical' }}
+                                            disabled={periodCloseLoading}
+                                        />
+                                    </div>
+                                </div>
+                                {periodCloseError ? (
+                                    <div style={{ marginTop: 12, color: palette.delete, fontSize: 13 }}>
+                                        {periodCloseError}
+                                    </div>
+                                ) : null}
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+                                    <button
+                                        type="button"
+                                        className="btn-portal-outline"
+                                        disabled={periodCloseLoading}
+                                        onClick={() => setPeriodCloseOpen(false)}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={periodCloseLoading}
+                                        onClick={async () => {
+                                            setPeriodCloseLoading(true);
+                                            setPeriodCloseError('');
+                                            try {
+                                                const res = await runWorkshopPeriodClose({
+                                                    label: periodCloseLabel || undefined,
+                                                    periodEndDate: periodCloseDate || undefined,
+                                                    notes: periodCloseNotes || undefined,
+                                                });
+                                                const root =
+                                                    res?.data && typeof res.data === 'object' ? res.data : res;
+                                                const backup = root?.backup;
+                                                if (backup?.csv) {
+                                                    const blob = new Blob([backup.csv], {
+                                                        type: 'text/csv;charset=utf-8',
+                                                    });
+                                                    const url = URL.createObjectURL(blob);
+                                                    const a = document.createElement('a');
+                                                    a.href = url;
+                                                    a.download = backup.fileName || 'COA_PeriodClose.csv';
+                                                    document.body.appendChild(a);
+                                                    a.click();
+                                                    a.remove();
+                                                    URL.revokeObjectURL(url);
+                                                }
+                                                if (backup?.json) {
+                                                    const blob = new Blob(
+                                                        [JSON.stringify(backup.json, null, 2)],
+                                                        { type: 'application/json' },
+                                                    );
+                                                    const url = URL.createObjectURL(blob);
+                                                    const a = document.createElement('a');
+                                                    a.href = url;
+                                                    a.download = String(
+                                                        backup.fileName || 'COA_PeriodClose.csv',
+                                                    ).replace(/\.csv$/i, '.json');
+                                                    document.body.appendChild(a);
+                                                    a.click();
+                                                    a.remove();
+                                                    URL.revokeObjectURL(url);
+                                                }
+                                                setPeriodCloseDone({
+                                                    message: root?.message,
+                                                    linkPath:
+                                                        root?.periodClose?.linkPath ||
+                                                        (root?.periodClose?.id
+                                                            ? `/workshop/accounting/period-closings/${root.periodClose.id}`
+                                                            : null),
+                                                });
+                                                setReloadTick((t) => t + 1);
+                                            } catch (e) {
+                                                setPeriodCloseError(
+                                                    e?.message || 'Period closing failed',
+                                                );
+                                            } finally {
+                                                setPeriodCloseLoading(false);
+                                            }
+                                        }}
+                                        style={{
+                                            border: 'none',
+                                            background: '#0F766E',
+                                            color: '#fff',
+                                            borderRadius: 8,
+                                            padding: '10px 18px',
+                                            fontWeight: 700,
+                                            cursor: periodCloseLoading ? 'wait' : 'pointer',
+                                            opacity: periodCloseLoading ? 0.7 : 1,
+                                        }}
+                                    >
+                                        {periodCloseLoading ? 'Closing…' : 'Confirm & close period'}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
             )}
 
             {!readOnly && isModalOpen && (

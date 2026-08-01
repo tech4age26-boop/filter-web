@@ -258,12 +258,28 @@ export default function SearchableEntityCombobox({
                             setOpen(true);
                             updateMenuPosition();
                         }}
-                        onFocus={() => {
+                        onFocus={(e) => {
                             clearBlurTimer();
                             setOpen(true);
                             updateMenuPosition();
+                            // Select current label so typing/backspace replaces it instead of
+                            // fighting a sticky "All …" value from the parent.
+                            try {
+                                e.target.select();
+                            } catch {
+                                /* ignore */
+                            }
                         }}
-                        onBlur={scheduleClose}
+                        onBlur={() => {
+                            // Drop in-progress search text so the closed field shows selectedLabel.
+                            if (value != null && value !== '' && displayText) {
+                                const selected = options.find((x) => String(x.id) === String(value));
+                                if (selected && displayText !== selected.label) {
+                                    onDisplayTextChange?.('');
+                                }
+                            }
+                            scheduleClose();
+                        }}
                         onKeyDown={onKeyDown}
                     />
                 </div>

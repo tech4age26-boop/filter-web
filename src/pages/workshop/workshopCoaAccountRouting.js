@@ -29,6 +29,12 @@ export function isWorkshopPettyCashExpenseLedgerAccount(account) {
     return code === '6100' || /^6100-BR-/.test(code);
 }
 
+/** Workshop COA [6110] Locker Expenses — same ledger filters as employee petty cash expenses. */
+export function isWorkshopLockerExpensesLedgerAccount(account) {
+    const code = String(account?.code ?? '').trim();
+    return code === '6110';
+}
+
 /** COA row click → full-page petty cash ledger (control accounts only). */
 export function isWorkshopPettyCashLedgerAccount(account) {
     return isWorkshopPettyCashCoaControlAccount(account);
@@ -53,10 +59,23 @@ function inferWorkshopCashBankRegisterType(account) {
     return 'CASH';
 }
 
+/** VAT Payable [2100] and VAT Input [1310] → VAT Calculation page. */
+export function isWorkshopVatCoaAccount(account) {
+    const code = String(account?.code ?? '').trim();
+    return code === '2100' || code === '1310';
+}
+
 /**
  * Workshop COA row navigation — petty cash ledger, cash/bank register, or generic statement.
  */
 export function buildWorkshopCoaNavigationUrl(account, { dateFrom, dateTo, branchId } = {}) {
+    if (isWorkshopVatCoaAccount(account)) {
+        const params = new URLSearchParams();
+        if (dateFrom) params.set('dateFrom', dateFrom);
+        if (dateTo) params.set('dateTo', dateTo);
+        const qs = params.toString();
+        return `/workshop/accounting/vat${qs ? `?${qs}` : ''}`;
+    }
     if (isWorkshopPettyCashLedgerAccount(account)) {
         return buildWorkshopPettyCashLedgerUrl(account, { dateFrom, dateTo, branchId });
     }
@@ -103,8 +122,10 @@ export function parseWorkshopLedgerAccountIdFromPath(pathname) {
 }
 
 export const WORKSHOP_COA_CONTROL_BADGES = {
-    1280: { label: 'Control', background: '#EDE9FE', color: '#5B21B6' },
-    6100: { label: 'Control', background: '#EDE9FE', color: '#5B21B6' },
+    1000: { label: 'Folder', background: '#FEF3C7', color: '#92400E' },
+    1010: { label: 'Folder', background: '#FEF3C7', color: '#92400E' },
+    1280: { label: 'Folder', background: '#EDE9FE', color: '#5B21B6' },
+    6100: { label: 'Folder', background: '#EDE9FE', color: '#5B21B6' },
 };
 
 /** Remove collapsed petty-cash children from a flat COA list (franchise workshops). */

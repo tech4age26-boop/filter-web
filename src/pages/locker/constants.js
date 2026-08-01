@@ -9,6 +9,8 @@ import {
     Send,
     Coins,
     ClipboardList,
+    Receipt,
+    BookOpen,
 } from 'lucide-react';
 
 const SUPERVISOR_NAV = [
@@ -18,6 +20,9 @@ const SUPERVISOR_NAV = [
     { id: 'approvals', label: 'Approvals', icon: AlertTriangle },
     { id: 'deposit_to_bank', label: 'Deposit to Bank', icon: Send },
     { id: 'issue_petty_cash', label: 'Issue Petty Cash', icon: Coins },
+    { id: 'petty_cash_issue_log', label: 'Petty Cash Issue Log', icon: ClipboardList },
+    { id: 'expenses', label: 'Expenses', icon: Receipt },
+    { id: 'transaction_log', label: 'Transaction log', icon: BookOpen },
     { id: 'history', label: 'Collections History', icon: History },
     { id: 'differences', label: 'Differences Report', icon: FileText },
     { id: 'petty_cash', label: 'Petty Cash', icon: Wallet },
@@ -27,6 +32,8 @@ const COLLECTOR_NAV = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'assigned', label: 'Assigned Requests', icon: ClipboardList },
     { id: 'record', label: 'Record Collection', icon: DollarSign },
+    { id: 'expenses', label: 'Expenses', icon: Receipt },
+    { id: 'transaction_log', label: 'Transaction log', icon: BookOpen },
     { id: 'history', label: 'Collections History', icon: History },
     { id: 'differences', label: 'Differences Report', icon: FileText },
 ];

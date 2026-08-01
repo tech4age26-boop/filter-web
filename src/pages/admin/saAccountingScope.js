@@ -2,14 +2,13 @@ export const SA_ACCOUNTING_SCOPE_KEY = 'sa-accounting-scope-v1';
 
 export const HQ_WORKSHOP_TABS = [
     { path: 'cash-bank', labelKey: 'tab.cashBank', label: 'Cash & Bank' },
+    { path: 'ledger', labelKey: 'tab.ledger', label: 'Ledger' },
     { path: 'transactions', labelKey: 'tab.transactions', label: 'Transactions' },
     { path: 'journal-entries', labelKey: 'tab.journal', label: 'Journal Entries' },
-    { path: 'expenses', labelKey: 'tab.expenses', label: 'Expenses' },
     { path: 'receipts', labelKey: 'tab.receipts', label: 'Receipts' },
     { path: 'payments', labelKey: 'tab.payments', label: 'Payments' },
+    { path: 'expenses', labelKey: 'tab.expenses', label: 'Petty Cash Expenses' },
     { path: 'advances', labelKey: 'tab.advances', label: 'Advances' },
-    { path: 'payroll', labelKey: 'tab.payroll', label: 'Payroll Run' },
-    { path: 'ledger', labelKey: 'tab.ledger', label: 'Ledger' },
 ];
 
 /** HQ books: financial reports + full workshop accounting (editable). */
@@ -19,14 +18,13 @@ export const HQ_ACCOUNTING_TABS = [
     { path: 'pl', labelKey: 'tab.pl', label: 'Profit & Loss' },
     { path: 'balance-sheet', labelKey: 'tab.bs', label: 'Balance Sheet' },
     { path: 'cash-bank', labelKey: 'tab.cashBank', label: 'Cash & Bank' },
+    { path: 'ledger', labelKey: 'tab.ledger', label: 'Ledger' },
     { path: 'transactions', labelKey: 'tab.transactions', label: 'Transactions' },
     { path: 'journal-entries', labelKey: 'tab.journal', label: 'Journal Entries' },
-    { path: 'expenses', labelKey: 'tab.expenses', label: 'Expenses' },
     { path: 'receipts', labelKey: 'tab.receipts', label: 'Receipts' },
     { path: 'payments', labelKey: 'tab.payments', label: 'Payments' },
+    { path: 'expenses', labelKey: 'tab.expenses', label: 'Petty Cash Expenses' },
     { path: 'advances', labelKey: 'tab.advances', label: 'Advances' },
-    { path: 'payroll', labelKey: 'tab.payroll', label: 'Payroll Run' },
-    { path: 'ledger', labelKey: 'tab.ledger', label: 'Ledger' },
     { path: 'activity', labelKey: 'tab.activity', label: 'Activity Log' },
     { path: 'commissions', labelKey: 'tab.commissions', label: 'Referral Commission' },
 ];
@@ -39,6 +37,7 @@ export const HQ_WORKSHOP_PAGE_TABS = new Set([
     'receipts',
     'payments',
     'advances',
+    // legacy bookmark: /admin/accounting/payroll → Advances (Salary) via WorkshopAccountingPage
     'payroll',
     'ledger',
 ]);

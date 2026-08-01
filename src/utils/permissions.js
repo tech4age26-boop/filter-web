@@ -194,6 +194,7 @@ export function adminHomePathAfterChat(user) {
 
 const WORKSHOP_ACC_TAB_SLUG = {
     'acc-chart': 'chart-of-accounts',
+    'acc-period-closings': 'period-closings',
     'acc-cash': 'cash-bank',
     'acc-transactions': 'transactions',
     'acc-journal': 'journal-entries',
@@ -201,9 +202,9 @@ const WORKSHOP_ACC_TAB_SLUG = {
     'acc-receipts': 'receipts',
     'acc-payments': 'payments',
     'acc-advances': 'advances',
-    'acc-payroll': 'payroll',
     'acc-approvals': 'approvals',
     'acc-ledger': 'ledger',
+    'acc-vat': 'vat',
 };
 
 const STAFF_APP_TAB_SLUG = {

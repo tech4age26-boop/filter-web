@@ -19,6 +19,8 @@ import WorkshopPurchaseReturns from './workshop/WorkshopPurchaseReturns';
 import WorkshopDiscounts from './workshop/WorkshopDiscounts';
 import WorkshopSuppliers from './workshop/WorkshopSuppliers';
 import WorkshopReports from './workshop/WorkshopReports';
+import AdvancedReportsPage from './advanced-reports/AdvancedReportsPage';
+import AdvancedReportDrilldownPage from './advanced-reports/AdvancedReportDrilldownPage';
 import WorkshopPosMonitoring from './workshop/WorkshopPosMonitoring';
 import WorkshopLogs from './workshop/WorkshopLogs';
 import WorkshopLockerManagement from './workshop/WorkshopLockerManagement';
@@ -54,7 +56,7 @@ import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
 
 /** Tabs reachable by in-app navigation but not listed in the sidebar. */
-const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger', 'acc-ledger-statement']);
+const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger', 'acc-ledger-statement', 'advanced-reports-drilldown']);
 
 function parseLedgerTabStateFromSearch(search) {
     const params = new URLSearchParams(search || '');
@@ -161,6 +163,7 @@ export default function WorkshopLayout() {
             }
             const mapping = {
                 'chart-of-accounts': 'acc-chart',
+                'period-closings': 'acc-period-closings',
                 'cash-bank': 'acc-cash',
                 'transactions': 'acc-transactions',
                 'journal-entries': 'acc-journal',
@@ -168,11 +171,14 @@ export default function WorkshopLayout() {
                 'receipts': 'acc-receipts',
                 'payments': 'acc-payments',
                 'advances': 'acc-advances',
-                'payroll': 'acc-payroll',
                 'approvals': 'acc-approvals',
                 'ledger': 'acc-ledger',
+                'vat': 'acc-vat',
             };
             return mapping[sub] || 'acc-cash';
+        }
+        if (main === 'advanced-reports' && sub === 'drilldown') {
+            return 'advanced-reports-drilldown';
         }
         return main;
     };
@@ -203,6 +209,14 @@ export default function WorkshopLayout() {
         const legacyTarget = STAFF_APP_LEGACY_ROUTE_REDIRECTS[parts[2]];
         if (legacyTarget && location.pathname !== legacyTarget) {
             navigate(legacyTarget, { replace: true });
+        }
+    }, [location.pathname, navigate]);
+
+    /** Legacy Payroll Run URL → Advances (Salary tab) */
+    useEffect(() => {
+        const parts = location.pathname.split('/').filter(Boolean);
+        if (parts[0] === 'workshop' && parts[1] === 'accounting' && parts[2] === 'payroll') {
+            navigate('/workshop/accounting/advances?tab=Salary', { replace: true });
         }
     }, [location.pathname, navigate]);
 
@@ -253,6 +267,7 @@ export default function WorkshopLayout() {
         if (tabId.startsWith('acc-')) {
             const reverseMapping = {
                 'acc-chart': 'chart-of-accounts',
+                'acc-period-closings': 'period-closings',
                 'acc-cash': 'cash-bank',
                 'acc-transactions': 'transactions',
                 'acc-journal': 'journal-entries',
@@ -260,9 +275,9 @@ export default function WorkshopLayout() {
                 'acc-receipts': 'receipts',
                 'acc-payments': 'payments',
                 'acc-advances': 'advances',
-                'acc-payroll': 'payroll',
                 'acc-approvals': 'approvals',
                 'acc-ledger': 'ledger',
+                'acc-vat': 'vat',
             };
             navigate(`/workshop/accounting/${reverseMapping[tabId]}`);
         } else if (tabId === 'sap-users') {
@@ -475,19 +490,19 @@ export default function WorkshopLayout() {
 
     const renderContent = () => {
         switch (activeTab) {
-            case 'acc-chart':         
-            case 'acc-cash':          
-            case 'acc-commissions':
-            case 'acc-referral':
-            case 'acc-transactions':  
-            case 'acc-journal':       
-            case 'acc-expenses':      
-            case 'acc-receipts':      
-            case 'acc-payments':      
-            case 'acc-advances':      
-            case 'acc-payroll':
+            case 'acc-chart':
+            case 'acc-period-closings':
+            case 'acc-cash':
+            case 'acc-transactions':
+            case 'acc-journal':
+            case 'acc-expenses':
+            case 'acc-receipts':
+            case 'acc-payments':
+            case 'acc-advances':
             case 'acc-approvals':
-            case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'acc-ledger':
+            case 'acc-vat':
+                return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'acc-ledger-statement': return <WorkshopAccountLedgerPage />;
             case 'sap-overview':
             case 'sap-expenses':
@@ -582,6 +597,10 @@ export default function WorkshopLayout() {
                     />
                 );
             case 'reports':     return <WorkshopReports selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'advanced-reports':
+                return <AdvancedReportsPage portal="workshop" selectedBranchId={selectedBranch} />;
+            case 'advanced-reports-drilldown':
+                return <AdvancedReportDrilldownPage portal="workshop" />;
             case 'pos-monitoring': return <WorkshopPosMonitoring selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'logs': return <WorkshopLogs selectedBranchId={selectedBranch} branches={activeBranches} />;
             case 'locker-management': return <WorkshopLockerManagement />;

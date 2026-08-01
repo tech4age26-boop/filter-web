@@ -308,6 +308,11 @@ function buildHeaderHtml(header) {
     const sellerTax = header?.sellerTaxId || '311120967500003';
     const branch = header?.workshopName || header?.branchName || '';
     const vat = header?.vatNumber || '—';
+    const phone = header?.phone || header?.customerMobile || header?.mobile || '';
+    const contact = header?.contactPerson || header?.customerName || '';
+    const accountLabel = header?.accountCode
+        ? `[${header.accountCode}] ${header.accountName || ''}`.trim()
+        : (header?.accountName || '');
     const period = formatPeriodLabel(header?.dateFrom, header?.dateTo);
     const generated = header?.generatedAt || new Date().toLocaleString();
 
@@ -329,10 +334,13 @@ function buildHeaderHtml(header) {
       <span class="car-pdf-hdr__title-ar-inline">كشف&nbsp;حساب</span><span class="car-pdf-hdr__title-sep">|</span><span class="car-pdf-hdr__title-en-inline">Statement of Account</span>
     </div>
   </div>
+  ${accountLabel ? `<div class="car-pdf-hdr__period">${escapeHtml(accountLabel)}</div>` : ''}
   <div class="car-pdf-hdr__period">Period: ${escapeHtml(period)}</div>
   <div class="car-pdf-hdr__customer-en">${escapeHtml(companyNameEnglish)}</div>
   ${companyNameArabic ? `<div class="car-pdf-hdr__customer-ar">${escapeHtml(companyNameArabic)}</div>` : ''}
-  <div class="car-pdf-hdr__customer-tax">Tax No.: ${escapeHtml(vat)}</div>
+  <div class="car-pdf-hdr__customer-tax">VAT No.: ${escapeHtml(vat)}</div>
+  ${phone ? `<div class="car-pdf-hdr__customer-tax">Phone: ${escapeHtml(phone)}</div>` : ''}
+  ${contact ? `<div class="car-pdf-hdr__customer-tax">Contact: ${escapeHtml(contact)}</div>` : ''}
   <div class="car-pdf-hdr__generated">Generated: ${escapeHtml(generated)}</div>
 </div>`;
 }
@@ -1395,11 +1403,19 @@ function productsExcelCell(row) {
 export function exportCorporateArLedgerExcel({ header, summary, lines }) {
     const { english, arabic } = splitLatinAndArabic(header?.companyName);
     const sum = summary ?? {};
+    const accountLabel = header?.accountCode
+        ? `[${header.accountCode}] ${header.accountName || ''}`.trim()
+        : (header?.accountName || '');
     const aoa = [
         ['Corporate AR Ledger Statement — كشف حساب'],
         [english || header?.companyName || ''],
         ...(arabic ? [[arabic]] : []),
+        ...(accountLabel ? [[`Account: ${accountLabel}`]] : []),
         [`VAT No.: ${header?.vatNumber || '—'}`],
+        [`Phone: ${header?.phone || header?.customerMobile || header?.mobile || '—'}`],
+        ...(header?.contactPerson || header?.customerName
+            ? [[`Contact: ${header.contactPerson || header.customerName}`]]
+            : []),
         [`Period: ${header?.dateFrom || '—'} to ${header?.dateTo || '—'}`],
         [`Generated: ${header?.generatedAt || new Date().toLocaleString()}`],
         [],

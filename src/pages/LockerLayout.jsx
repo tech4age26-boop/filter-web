@@ -14,6 +14,9 @@ import DifferencesReport from './locker/DifferencesReport';
 import PettyCash from './locker/PettyCash';
 import DepositToBank from './locker/DepositToBank';
 import IssuePettyCash from './locker/IssuePettyCash';
+import PettyCashIssueLog from './locker/PettyCashIssueLog';
+import LockerExpenses from './locker/LockerExpenses';
+import TransactionLog from './locker/TransactionLog';
 import './workshop/Workshop.css';
 
 function lockerRoleLabel(user) {
@@ -68,7 +71,14 @@ export default function LockerLayout() {
         navigate(query ? `/locker/${tabName}?${query}` : `/locker/${tabName}`);
     };
 
-    const supervisorOnlyTabs = new Set(['pending', 'approvals', 'deposit_to_bank', 'issue_petty_cash', 'petty_cash']);
+    const supervisorOnlyTabs = new Set([
+        'pending',
+        'approvals',
+        'deposit_to_bank',
+        'issue_petty_cash',
+        'petty_cash_issue_log',
+        'petty_cash',
+    ]);
 
     useEffect(() => {
         if (portalRole === 'collector' && supervisorOnlyTabs.has(activeTab)) {
@@ -89,6 +99,9 @@ export default function LockerLayout() {
             case 'approvals': return <ApprovalsScreen />;
             case 'deposit_to_bank': return <DepositToBank />;
             case 'issue_petty_cash': return <IssuePettyCash />;
+            case 'petty_cash_issue_log': return <PettyCashIssueLog />;
+            case 'expenses': return <LockerExpenses />;
+            case 'transaction_log': return <TransactionLog />;
             case 'history': return <CollectionsHistory />;
             case 'differences': return <DifferencesReport />;
             case 'petty_cash': return <PettyCash />;
